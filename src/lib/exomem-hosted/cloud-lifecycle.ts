@@ -352,17 +352,33 @@ function cloudDesiredStateToTenantMirror(target: CloudDesiredCellState): CloudTe
  * desired_state write (this round's ruling): both change together, or
  * neither does.
  *
- * The first read locks the tenant, then the entitlement, in the order the
- * Paddle event store locks them, and every write follows from that locked
- * read. A deletion confirmation or a Paddle event that commits meanwhile
- * waits, so the reconcile never writes over it from a stale read. The
- * transaction makes no network call while it holds the locks.
+ * The reconcile locks the live cell, then the tenant, then the entitlement,
+ * and every write follows from that locked read. A deletion confirmation, a
+ * Paddle event or a cancellation notice that commits meanwhile waits, so the
+ * reconcile never writes over it from a stale read. Every other writer takes
+ * these rows in the same order, or takes only a part of it: the cancellation
+ * notice, export and import lock the cell; the Paddle event store, deletion
+ * request, confirmation and finish, checkout, admission and OAuth lock the
+ * tenant before the entitlement. The tenant and the entitlement take NO KEY
+ * UPDATE, so a row that only references the tenant, such as an outbox email,
+ * can still be inserted. The transaction makes no network call while it
+ * holds the locks.
  */
 export async function reconcileCloudCellDesiredState(
   tenantId: string,
   options: { cancelledRetentionDays?: number; now?: Date } = {}
 ): Promise<CloudDesiredCellState | null> {
   return withExomemTransaction(async (tx) => {
+    // A tenant has at most one live cell (a unique index).
+    const { rows: liveCells } = await tx`
+      /* exomem-cloud:reconcile-lock-cell */
+      SELECT cell_id
+      FROM exomem_cloud_cells
+      WHERE tenant_id = ${tenantId}::uuid
+        AND desired_state <> 'deleted'
+      FOR NO KEY UPDATE
+    `;
+    if (liveCells.length === 0) return null;
     const { rows } = await tx`
       /* exomem-cloud:reconcile-entitlement */
       SELECT entitlement.tenant_id, entitlement.source, entitlement.source_state,
@@ -371,12 +387,8 @@ export async function reconcileCloudCellDesiredState(
              tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state
       FROM exomem_tenants AS tenant
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
-      JOIN exomem_cloud_cells AS cell
-        ON cell.tenant_id = tenant.id
-       AND cell.desired_state <> 'deleted'
       WHERE tenant.id = ${tenantId}::uuid
-      LIMIT 1
-      FOR UPDATE OF tenant, entitlement
+      FOR NO KEY UPDATE OF tenant, entitlement
     `;
     const row = rows[0] as
       | (EntitlementRow & { tenant_status: string; tenant_desired_state: string })
@@ -427,18 +439,15 @@ export async function reconcileCloudCellDesiredState(
     // from the first cancellation and silently sends no notice for the
     // second one.
     //
-    // No row changed means an overlapping reconcile deleted the cell after
-    // the read above; that transaction wrote the tenant and its email 07.
-    const { rows: changed } = await tx`
+    // An overlapping reconcile that deleted the cell committed before the
+    // lock above returned, so this transaction found no live cell and stopped.
+    await tx`
       UPDATE exomem_cloud_cells
       SET desired_state = ${target},
           cancellation_notice_sent_at =
             CASE WHEN ${target} = 'running' THEN NULL ELSE cancellation_notice_sent_at END
-      WHERE tenant_id = ${tenantId}::uuid
-        AND desired_state <> 'deleted'
-      RETURNING cell_id
+      WHERE cell_id = ${liveCells[0].cell_id as string}
     `;
-    if (changed.length === 0) return null;
 
     // D2: the transaction that deletes the cell also revokes consent.
     if (target === "deleted") await revokeCloudResourceConsent(tx, tenantId);

@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { terminateExomemBillingForDeletion } from "../billing-deletion";
 import { admitFirstCloudOAuthInviteAtomic, randomCloudCellId } from "../cloud-admission";
+import { sendCloudCancellationNoticeOnce } from "../cloud-cancellation-notice";
 import { reconcileCloudCellDesiredState, runBoundedCloudReconcile } from "../cloud-lifecycle";
 import {
   __setExomemSqlForTests,
@@ -65,14 +66,14 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
 }
 
 /**
- * Holds the next Cloud reconcile after its first read until `release` runs:
- * the window in which another writer can commit between the reconcile's read
- * and its writes.
+ * Holds the transaction that runs the next statement tagged `tag`, right after
+ * that statement, until `release` runs: the window in which another
+ * transaction runs against the locks it holds.
  */
-function holdNextReconcileAfterRead(): { reached: Promise<void>; release: () => void } {
+function holdAfterStatement(tag: string): { reached: Promise<void>; release: () => void } {
   let reached!: () => void;
   let release!: () => void;
-  const reachedRead = new Promise<void>((resolve) => (reached = resolve));
+  const reachedStatement = new Promise<void>((resolve) => (reached = resolve));
   const released = new Promise<void>((resolve) => (release = resolve));
   let armed = true;
   __setExomemTransactionForTests((callback) =>
@@ -80,7 +81,7 @@ function holdNextReconcileAfterRead(): { reached: Promise<void>; release: () => 
       callback(async (strings, ...values) => {
         const result = await tx(strings, ...values);
         // The tag comment names the statement in the code under test; the SQL itself is not read.
-        if (armed && strings.join("").includes("exomem-cloud:reconcile-entitlement")) {
+        if (armed && strings.join("").includes(tag)) {
           armed = false;
           reached();
           await released;
@@ -89,10 +90,10 @@ function holdNextReconcileAfterRead(): { reached: Promise<void>; release: () => 
       })
     )
   );
-  return { reached: reachedRead, release };
+  return { reached: reachedStatement, release };
 }
 
-/** Lets a write that the held reconcile does not block commit; a blocked one stays waiting. */
+/** Lets a write that the held transaction does not block commit; a blocked one stays waiting. */
 function settledOrBlocked(write: Promise<unknown>): Promise<unknown> {
   return Promise.race([write, new Promise((resolve) => setTimeout(resolve, 500))]);
 }
@@ -786,7 +787,7 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     });
 
-    const held = holdNextReconcileAfterRead();
+    const held = holdAfterStatement("exomem-cloud:reconcile-entitlement");
     const reconcile = reconcileCloudCellDesiredState(tenantId);
     await held.reached;
     const confirmed = consumeDeletionConfirmationAtomic({ userId, tenantId, tokenDigest });
@@ -839,7 +840,7 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
     ]);
     const userId = rows[0].owner_user_id as string;
 
-    const held = holdNextReconcileAfterRead();
+    const held = holdAfterStatement("exomem-cloud:reconcile-entitlement");
     const reconcile = reconcileCloudCellDesiredState(tenantId);
     await held.reached;
     const cancellation = dispatchVerifiedExomemPaddleEvent(
@@ -907,6 +908,37 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
       capabilities: ["recall", "export"],
     });
     assert.equal((await cellState(cellId)).desiredState, "read_only");
+  });
+
+  // A Paddle cancellation runs this pair together: each webhook's Cloud hook
+  // reconciles, then sends the cancellation notice.
+  it("finishes a reconcile and a cancellation notice that holds the cell, without a deadlock", async () => {
+    await resetFleet();
+    const cancelledAt = new Date();
+    const { tenantId, cellId } = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      sourceOccurredAt: cancelledAt,
+      initialDesiredState: "read_only",
+    });
+    await pool!.query("UPDATE exomem_tenants SET status = 'active' WHERE id = $1", [tenantId]);
+
+    const held = holdAfterStatement("exomem-cloud:claim-cancellation-notice");
+    const notice = sendCloudCancellationNoticeOnce(tenantId, cancelledAt);
+    await held.reached;
+    const reconcile = reconcileCloudCellDesiredState(tenantId);
+    await settledOrBlocked(reconcile);
+    held.release();
+    const [sent, target] = await Promise.all([notice, reconcile]);
+    __setExomemTransactionForTests(interactiveTransaction);
+
+    assert.equal(sent, true);
+    assert.equal(target, "read_only");
+    const { rows } = await pool!.query(
+      "SELECT cancellation_notice_sent_at IS NOT NULL AS claimed FROM exomem_cloud_cells WHERE cell_id = $1",
+      [cellId]
+    );
+    assert.equal(rows[0].claimed, true);
   });
 
   // A deletion must not depend on configuration the control plane does not
