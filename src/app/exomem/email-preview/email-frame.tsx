@@ -4,8 +4,8 @@ import { useCallback, useState } from "react";
 import styles from "./email-preview.module.css";
 
 /**
- * One email in an iframe. The iframe's color-scheme sets the email's
- * prefers-color-scheme, so the light version is the email's own media block, not a copy.
+ * One email in an iframe, already forced to one scheme by the page. The
+ * iframe's color-scheme only matches the browser's own canvas to it.
  */
 export function EmailFrame({
   html,

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import { EmailFrame } from "./email-frame";
+import { emailInScheme } from "./force-scheme";
 import { exomemEmailSamples } from "./samples";
 import styles from "./email-preview.module.css";
 
@@ -13,12 +14,20 @@ export const metadata: Metadata = {
 };
 
 /**
+ * Served only where a deployment says it is not production: a local `next dev`,
+ * or a Vercel preview. A production build run anywhere else gets a 404.
+ */
+function previewAllowed(): boolean {
+  return process.env.NODE_ENV === "development" || process.env.VERCEL_ENV === "preview";
+}
+
+/**
  * Every Exomem email as it is sent, rendered now with sample input, in the dark and the
  * light scheme side by side, for QA to compare with the R28 and R12 boards. Not linked
  * from anywhere, and never served in production.
  */
 export default function EmailPreviewPage() {
-  if (process.env.VERCEL_ENV === "production") notFound();
+  if (!previewAllowed()) notFound();
   const samples = exomemEmailSamples(new Date(), exomemPublicBaseUrlFromEnv());
   return (
     <main className={styles.page}>
@@ -39,16 +48,14 @@ export default function EmailPreviewPage() {
             </span>
           </div>
           <div className={styles.frames}>
-            <EmailFrame
-              html={sample.email.htmlContent}
-              scheme="dark"
-              title={`${sample.number} dark`}
-            />
-            <EmailFrame
-              html={sample.email.htmlContent}
-              scheme="light"
-              title={`${sample.number} light`}
-            />
+            {(["dark", "light"] as const).map((scheme) => (
+              <EmailFrame
+                key={scheme}
+                html={emailInScheme(sample.email.htmlContent, scheme)}
+                scheme={scheme}
+                title={`${sample.number} ${scheme}`}
+              />
+            ))}
           </div>
           <details className={styles.text}>
             <summary>Plain-text part</summary>

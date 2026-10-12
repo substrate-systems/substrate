@@ -21,18 +21,17 @@ import { exomemTokens, type ExomemTokenMap } from "@/lib/exomem/design-tokens";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 
 /** The account's state, as the web in slot 3 shows it (R28 "The band follows the account"). */
-export type ExomemEmailBand = "arrive" | "live" | "readonly" | "kept" | "fading" | "gone";
+export const EXOMEM_EMAIL_BANDS = ["arrive", "live", "readonly", "kept", "fading", "gone"] as const;
 
-export const EXOMEM_EMAIL_BANDS: readonly ExomemEmailBand[] = [
-  "arrive",
-  "live",
-  "readonly",
-  "kept",
-  "fading",
-  "gone",
-];
+export type ExomemEmailBand = (typeof EXOMEM_EMAIL_BANDS)[number];
 
 export type ExomemEmailScheme = "dark" | "light";
+
+/**
+ * The media query that turns an email light. The dev preview rewrites it to
+ * show both versions side by side; a real client decides it by preference.
+ */
+export const EXOMEM_EMAIL_LIGHT_SCHEME_QUERY = "(prefers-color-scheme: light)";
 
 /** Where the state bands and the wordmark are served, under the public base URL. */
 export const EXOMEM_EMAIL_ASSET_PATH = "/exomem/email";
@@ -239,7 +238,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   const palette = exomemTokens();
   const assetBaseUrl = exomemPublicBaseUrlFromEnv();
   const p = (...roles: Role[]) => paint(palette, roles);
-  const schemeBlock = `@media (prefers-color-scheme: light) {\n    ${lightRules(palette)}\n  }`;
+  const schemeBlock = `@media ${EXOMEM_EMAIL_LIGHT_SCHEME_QUERY} {\n    ${lightRules(palette)}\n  }`;
 
   const frame = p("frame");
   const card = p("card", "cardBorder", "primary");
