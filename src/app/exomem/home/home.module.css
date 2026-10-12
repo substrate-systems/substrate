@@ -1,6 +1,7 @@
 /* Exomem Home (Home board, Home-Page.dc.html): a 640 px column on desktop, the page
    width less a 16 px gutter on phones (the one Exomem breakpoint, 640 px). Colours,
-   radii and motion come from the tokens; sizes are the board's. */
+   radii and motion come from the tokens; sizes are the board's. The board's muted ink
+   (#A39E93 / #6B665C) is --fg-secondary. */
 
 .page {
   position: relative;
@@ -111,7 +112,7 @@
   gap: 10px;
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .inlineButton {
@@ -179,7 +180,7 @@
 .statusLine {
   font-family: var(--font-mono-exo);
   font-size: 12.5px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .liveLine {
@@ -218,7 +219,7 @@
 .firstMeta {
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -239,7 +240,7 @@
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 /* The board's Home panel: radius 12 like the modal, rows divided by the card line. */
@@ -296,14 +297,14 @@
 .rowMeta {
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   overflow-wrap: anywhere;
 }
 
 .rowBody {
   font-size: 12.5px;
   line-height: 1.45;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .rowActions {
@@ -330,14 +331,14 @@
   background: transparent;
   border-style: dashed;
   font-size: 15px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .panelNote {
   padding: 12px 0;
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 /* --- Add another app --- */
@@ -363,7 +364,7 @@
 .hintText {
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .addLabel {
@@ -371,7 +372,7 @@
   font-size: 11.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .step {
@@ -442,7 +443,7 @@
   border: 0;
   background: transparent;
   padding: 0;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
   text-decoration: underline;
@@ -460,7 +461,7 @@
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
   line-height: 1.55;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   white-space: pre-wrap;
 }
 
@@ -484,13 +485,13 @@
 .levelMeta {
   font-family: var(--font-mono-exo);
   font-size: 11px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .levelDescription {
   font-size: 12.5px;
   line-height: 1.45;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   min-height: 18px;
 }
 
@@ -535,7 +536,7 @@
 }
 
 .muted {
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .bar {
@@ -557,7 +558,7 @@
 .measured {
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 /* --- Your data --- */
@@ -581,7 +582,7 @@
   min-width: 0;
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   overflow-wrap: anywhere;
 }
 
@@ -652,7 +653,7 @@
   padding: 0 12px;
   border: 0;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   font-family: var(--font-mono-exo);
   font-size: 12.5px;
   text-decoration: underline;
@@ -667,15 +668,17 @@
 .inlineStatus {
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   padding: 0 0 12px;
 }
 
+/* The board draws this line in its muted ink at 80%; at full strength it keeps AA on
+   the light ground. */
 .footer {
   padding: 6px 0 40px;
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 /* --- Dialogs --- */
@@ -684,7 +687,7 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.55;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .dialogActions {
@@ -697,7 +700,7 @@
   height: 40px;
   border: 0;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   font-family: var(--font-mono-exo);
   font-size: 13px;
   cursor: pointer;
@@ -713,7 +716,7 @@
   padding: 0 10px;
   border: 0;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   font-family: var(--font-mono-exo);
   font-size: 12px;
   cursor: pointer;

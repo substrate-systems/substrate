@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/exomem/Button";
+import { Button, ButtonLink } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
-import phone from "@/components/exomem/phone.module.css";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import {
   type PaddleTransactionFailure,
@@ -33,6 +32,7 @@ import {
   type StatusRead,
   writeLevel,
 } from "./home-api";
+import { inviteCopy } from "../_journey/copy";
 import { PriceCard } from "../_journey/parts";
 import { ConnectedApps } from "./home-apps";
 import { PlanAndAccount, YourData } from "./home-account";
@@ -85,10 +85,19 @@ function goToSignIn() {
 export default function HomeClient({
   priceId,
   exportOffered,
+  channelOn,
+  statusPageUrl,
 }: {
   priceId: string | null;
   /** Whether Home offers an export: the export flag (design.md deviation (s)). */
   exportOffered: boolean;
+  /**
+   * The Home channel's release flag. Off, its levels and activity routes answer 404, so
+   * Home asks neither and leaves both out (design.md deviation (u)).
+   */
+  channelOn: boolean;
+  /** "Status page ↗" on the trouble notice; null when none is configured. */
+  statusPageUrl: string | null;
 }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
   const [account, setAccount] = useState<HomeAccount | null>(null);
@@ -96,8 +105,12 @@ export default function HomeClient({
   const [billing, setBilling] = useState<HomeBilling | null>(null);
   const [apps, setApps] = useState<HomeApp[] | null>(null);
   const [appsFailed, setAppsFailed] = useState(false);
-  const [levels, setLevels] = useState<HomeLevels | typeof NOT_RELEASED | null>(null);
-  const [activity, setActivity] = useState<HomeActivity | typeof NOT_RELEASED | null>(null);
+  const [levels, setLevels] = useState<HomeLevels | typeof NOT_RELEASED | null>(
+    channelOn ? null : NOT_RELEASED
+  );
+  const [activity, setActivity] = useState<HomeActivity | typeof NOT_RELEASED | null>(
+    channelOn ? null : NOT_RELEASED
+  );
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -189,15 +202,17 @@ export default function HomeClient({
   }, []);
 
   const refreshLevels = useCallback(async () => {
+    if (!channelOn) return;
     try {
       const next = await readLevels();
       if (mounted.current) setLevels(next);
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
     }
-  }, []);
+  }, [channelOn]);
 
   const refreshActivity = useCallback(async () => {
+    if (!channelOn) return;
     try {
       const next = await readActivity();
       if (!mounted.current) return;
@@ -206,7 +221,7 @@ export default function HomeClient({
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
     }
-  }, []);
+  }, [channelOn]);
 
   // Status: on load, then quickly while the cell changes state, else every 30 s.
   useEffect(() => {
@@ -494,7 +509,7 @@ export default function HomeClient({
   const shownApps = apps ?? [];
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
-  const homeNotices = notices(variant, account, storage, exportOffered);
+  const homeNotices = notices(variant, account, storage, exportOffered, statusPageUrl !== null);
   const first = live ? firstNoteLine(facts, clock) : null;
   const accountBanner = banner(variant, account, billing, clock, exportOffered);
   const exportSummary = status?.exportSummary;
@@ -531,18 +546,35 @@ export default function HomeClient({
             layout="row"
             attention={notice.attention}
             action={
-              notice.action === "copy_reference" && account ? (
-                <Button
-                  size="detail"
-                  onClick={() => copyReference(account.supportReference)}
-                  aria-live="polite"
-                >
-                  {referenceCopied ? "Copied" : "Copy reference"}
-                </Button>
-              ) : notice.action === "support" ? (
-                <a className={`${styles.inlineButton} ${phone.hitArea}`} href="/exomem/support">
-                  Contact support
-                </a>
+              notice.actions.length ? (
+                <div className={styles.noticeActions}>
+                  {notice.actions.map((action) =>
+                    action === "copy_reference" && account ? (
+                      <Button
+                        key={action}
+                        size="detail"
+                        onClick={() => copyReference(account.supportReference)}
+                        aria-live="polite"
+                      >
+                        {referenceCopied ? "Copied" : "Copy reference"}
+                      </Button>
+                    ) : action === "status_page" && statusPageUrl ? (
+                      <ButtonLink
+                        key={action}
+                        size="detail"
+                        href={statusPageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Status page ↗
+                      </ButtonLink>
+                    ) : action === "support" ? (
+                      <ButtonLink key={action} size="detail" href="/exomem/support">
+                        Contact support
+                      </ButtonLink>
+                    ) : null
+                  )}
+                </div>
               ) : undefined
             }
           >
@@ -565,7 +597,7 @@ export default function HomeClient({
               accountBanner.action ? (
                 <Button
                   variant="primary"
-                  size="row"
+                  size="account"
                   working={billingBusy}
                   onClick={() =>
                     void onBilling(accountBanner.action === "resubscribe" ? "checkout" : "portal")
@@ -642,7 +674,8 @@ function CheckoutReturnFailure({ message, retry, dismiss }: PaddleTransactionFai
 }
 
 // The states before and after a working Home. The board draws none of them: the
-// subscribe copy is the journey's (Appendix A), the rest is the current Home's.
+// subscribe and preparing copy is the journey's (Appendix A; design.md (ad), (aa)), the
+// rest is the current Home's.
 const NOT_HOME_COPY: Record<
   "loading" | "subscribe" | "preparing" | "deleting" | "deleted",
   { headline: string; line: string | null }
@@ -650,10 +683,7 @@ const NOT_HOME_COPY: Record<
   loading: { headline: "One moment.", line: "Checking your Exomem…" },
   // The line carries the price when Paddle previews it: subscribeView writes it.
   subscribe: { headline: "Subscribe to finish setting up", line: null },
-  preparing: {
-    headline: "Your Exomem is taking shape.",
-    line: "This usually takes a minute or two. You can leave this page open; it will continue automatically.",
-  },
+  preparing: { headline: inviteCopy.accepting.title, line: inviteCopy.accepting.lede },
   deleting: {
     headline: "Closing your Exomem.",
     line: "Access is now closed while the private vault and its backups are removed.",

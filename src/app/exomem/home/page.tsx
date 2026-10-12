@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
+import { cloudHomeChannelEnabled } from "@/lib/exomem-hosted/cloud-home-mcp";
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
+import { statusPageUrl } from "../_journey/status-page";
 import HomeClient from "./home-client";
 import styles from "./home.module.css";
 
@@ -16,7 +18,12 @@ export const metadata: Metadata = {
 export default function ExomemHomePage() {
   return (
     <main className={`${styles.page} brand-exomem`}>
-      <HomeClient priceId={exomemCheckoutPriceId()} exportOffered={cloudExportsEnabled()} />
+      <HomeClient
+        priceId={exomemCheckoutPriceId()}
+        exportOffered={cloudExportsEnabled()}
+        channelOn={cloudHomeChannelEnabled()}
+        statusPageUrl={statusPageUrl()}
+      />
     </main>
   );
 }

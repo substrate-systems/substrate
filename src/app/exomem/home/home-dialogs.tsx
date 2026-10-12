@@ -32,6 +32,7 @@ export function DeleteDialog({
       open={step !== null}
       onClose={onClose}
       title={sent ? "Check your email" : "Delete your Exomem?"}
+      width={400}
     >
       {sent ? (
         <>
@@ -77,7 +78,7 @@ export function DeleteDialog({
 /** After sign-out: the assistants keep their connections. */
 export function SignedOutDialog({ open, onDone }: { open: boolean; onDone: () => void }) {
   return (
-    <Modal open={open} onClose={onDone} title="Signed out">
+    <Modal open={open} onClose={onDone} title="Signed out" width={360}>
       <p className={styles.dialogText}>
         Your assistants stay connected. Signing out only ends this browser’s session.
       </p>

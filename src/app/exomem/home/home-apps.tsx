@@ -77,6 +77,7 @@ function AppRow({
       </div>
       {!ended && !off && !confirming && (
         <Button
+          variant="quiet"
           size="row"
           onClick={() => {
             setFailed(false);
@@ -227,6 +228,13 @@ export function ConnectedApps(props: AppsProps) {
       {props.failed && (
         <div className={`${styles.row} ${styles.panelNote}`} role="status">
           Your apps can’t be listed right now. Try again in a minute.
+        </div>
+      )}
+      {props.ended && !props.failed && props.apps.length === 0 && (
+        // Ended with no app to list: the board's "off for now" in place of an empty panel
+        // (design.md (ag)).
+        <div className={`${styles.row} ${styles.panelNote}`}>
+          Off for now. Connect an app when you resubscribe.
         </div>
       )}
       {props.apps.map((app) => (

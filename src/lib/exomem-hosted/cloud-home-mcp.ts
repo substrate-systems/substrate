@@ -175,7 +175,7 @@ type CellAnswer =
 type ServingCell = { state: "serving"; desiredState: "running" | "read_only" };
 
 /** Release flag: off until the cell rollout that answers these calls is done. */
-function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
+export function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
   return env.EXOMEM_CLOUD_HOME_CHANNEL_ENABLED?.trim().toLowerCase() === "true";
 }
 

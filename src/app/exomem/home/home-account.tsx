@@ -26,7 +26,7 @@ export function PlanAndAccount({
           {plan.meta && <span className={styles.rowMeta}>{plan.meta}</span>}
         </div>
         {plan.action && (
-          <Button size="row" working={billingBusy} onClick={() => onBilling(plan.action!.kind)}>
+          <Button size="account" working={billingBusy} onClick={() => onBilling(plan.action!.kind)}>
             {plan.action.label}
           </Button>
         )}
@@ -96,7 +96,7 @@ export function YourData({
             </div>
             <Button
               variant="primary"
-              size="row"
+              size="account"
               working={exportBusy || exportRow.busy}
               disabled={exportRow.busy}
               onClick={onExport}

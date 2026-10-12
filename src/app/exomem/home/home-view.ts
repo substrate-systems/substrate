@@ -33,7 +33,7 @@ import {
   type Clock,
 } from "./home-format";
 import type { PaddlePricePreview } from "@/lib/paddle";
-import { subscribeCopy } from "../_journey/copy";
+import { breakCopy, subscribeCopy } from "../_journey/copy";
 import { friendCheckoutPanel, type PricePanel } from "../invite/invite-view";
 import type { Lifecycle } from "./home-state";
 
@@ -317,7 +317,7 @@ export function statusCopy(
         statusLine: line([n !== null && notes(n), "read-only"]),
       };
     case "paused":
-      return { headline: "Your subscription is paused", statusLine: null };
+      return { headline: breakCopy.paused.title, statusLine: null };
     case "suspended":
       return { headline: "This Exomem is suspended", statusLine: null };
     case "trouble":
@@ -383,9 +383,10 @@ export function banner(
         action: billing?.checkoutAvailable ? "resubscribe" : null,
       };
     }
+    // The Journey board's paused step, for a web start (design.md (ac)).
     case "paused":
       return {
-        text: "Your memory is kept and readable. Resume it to connect your assistant.",
+        text: breakCopy.paused.lede(breakCopy.webApp),
         action: billing?.portalAvailable ? "resume" : null,
       };
     case "suspended":
@@ -407,7 +408,8 @@ export type HomeNotice = {
   text: string;
   /** Amber edge: a live state that needs the person now. */
   attention: boolean;
-  action: "copy_reference" | "support" | null;
+  /** In order; none for a notice that only informs. */
+  actions: ("copy_reference" | "status_page" | "support")[];
 };
 
 export function notices(
@@ -415,10 +417,15 @@ export function notices(
   account: HomeAccount | null,
   storage: StorageView,
   /** False while the export flag is off; see `banner`. */
-  exportOffered: boolean
+  exportOffered: boolean,
+  /** Whether a status page is configured, for the trouble notice's "Status page ↗". */
+  statusPageOffered: boolean
 ): HomeNotice[] {
   const list: HomeNotice[] = [];
   const reference = account?.supportReference ?? null;
+  // The board's trouble notice says saving is slow and recall works. Home cannot tell
+  // that state apart, and here the cell does not answer, so it keeps its own words and
+  // adds the board's status page link (design.md (v)).
   if (variant === "trouble") {
     list.push({
       key: "trouble",
@@ -426,7 +433,10 @@ export function notices(
         reference ? ` Support reference: ${reference}.` : ""
       }`,
       attention: false,
-      action: reference ? "copy_reference" : null,
+      actions: [
+        ...(reference ? (["copy_reference"] as const) : []),
+        ...(statusPageOffered ? (["status_page"] as const) : []),
+      ],
     });
   }
   // An ended memory is deleted when its kept window closes. Without an export, support
@@ -436,7 +446,7 @@ export function notices(
       key: "copy",
       text: `For a copy of your memory, write to support${reference ? ` and quote ${reference}` : ""}.`,
       attention: false,
-      action: "support",
+      actions: ["support"],
     });
   }
   if (variant === "suspended" && reference) {
@@ -444,7 +454,7 @@ export function notices(
       key: "suspended",
       text: `Write to support and quote ${reference}. We’ll tell you why it was suspended and what happens next.`,
       attention: false,
-      action: "support",
+      actions: ["support"],
     });
   }
   // Storage add-ons are hidden at launch, so neither notice offers them.
@@ -453,7 +463,7 @@ export function notices(
       key: "full",
       text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room. Nothing is ever deleted to make space.`,
       attention: true,
-      action: null,
+      actions: [],
     });
   } else if (storage.state === "known" && storage.fraction >= 0.8) {
     list.push({
@@ -461,7 +471,7 @@ export function notices(
       // Floor: a disk that is not full never reads as 100%.
       text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.`,
       attention: false,
-      action: null,
+      actions: [],
     });
   }
   return list;
