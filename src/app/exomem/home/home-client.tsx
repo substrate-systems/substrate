@@ -217,10 +217,13 @@ export default function HomeClient() {
     };
   }, [refreshStatus, refreshAccount]);
 
-  // The rest of Home reads once the page knows it is Home, and again on every return.
+  // The rest of Home reads once the page knows it is Home, and again on a return to the
+  // tab, unless the last full read is under 30 s old.
+  const lastFullRead = useRef(0);
   useEffect(() => {
     if (!inHome) return;
     async function load() {
+      lastFullRead.current = Date.now();
       await Promise.all([refreshApps(), refreshLevels(), refreshActivity()]);
     }
     void load();
@@ -228,7 +231,8 @@ export default function HomeClient() {
       if (visibleNow()) void refreshActivity();
     }, REFRESH_MS);
     const onVisible = () => {
-      if (!visibleNow()) return;
+      if (!visibleNow() || Date.now() - lastFullRead.current < REFRESH_MS) return;
+      lastFullRead.current = Date.now();
       void refreshStatus();
       void refreshAccount();
       void refreshApps();
