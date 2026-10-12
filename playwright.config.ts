@@ -74,52 +74,51 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "on-first-retry",
   },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-      testIgnore: ["exomem-design/**", "exomem-journey/**"],
-    },
-    // The Exomem design checks run at the sizes the design is drawn for: desktop, and the
-    // two phones its QA list names. Only the specs under e2e/exomem-design run here; the
-    // theme spec does not depend on the viewport, so it runs on desktop only.
-    {
-      name: "exomem desktop 1440",
-      testMatch: "exomem-design/**/*.spec.ts",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
-    },
-    {
-      name: "exomem phone 390",
-      testMatch: "exomem-design/**/*.spec.ts",
-      testIgnore: "exomem-design/theme.spec.ts",
-      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
-    },
-    {
-      name: "exomem phone 375",
-      testMatch: "exomem-design/**/*.spec.ts",
-      testIgnore: "exomem-design/theme.spec.ts",
-      use: { ...devices["Pixel 7"], viewport: { width: 375, height: 667 } },
-    },
-    ...journeyProjects,
-  ],
-  webServer: [
-    {
-      command: `npm run start -- --port ${PORT}`,
-      url: BASE_URL,
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-    },
-    // The journey projects' own server: `next dev` on the public address they use.
-    ...(journeyEnabled && journeyBaseUrl
-      ? [
-          {
-            command: `npx next dev --hostname ${new URL(journeyBaseUrl).hostname} --port ${new URL(journeyBaseUrl).port}`,
-            // Ready once a journey page compiles, not only the server's first route.
-            url: new URL("/exomem/sign-in", journeyBaseUrl).toString(),
-            reuseExistingServer: !process.env.CI,
-            timeout: 180_000,
-          },
-        ]
-      : []),
-  ],
+  // With the journey database configured, a run is the journey alone, on its own server;
+  // without it, the other projects run against the production build.
+  projects: journeyEnabled
+    ? journeyProjects
+    : [
+        {
+          name: "chromium",
+          use: { ...devices["Desktop Chrome"] },
+          testIgnore: ["exomem-design/**", "exomem-journey/**"],
+        },
+        // The Exomem design checks run at the sizes the design is drawn for: desktop, and the
+        // two phones its QA list names. Only the specs under e2e/exomem-design run here; the
+        // theme spec does not depend on the viewport, so it runs on desktop only.
+        {
+          name: "exomem desktop 1440",
+          testMatch: "exomem-design/**/*.spec.ts",
+          use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+        },
+        {
+          name: "exomem phone 390",
+          testMatch: "exomem-design/**/*.spec.ts",
+          testIgnore: "exomem-design/theme.spec.ts",
+          use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
+        },
+        {
+          name: "exomem phone 375",
+          testMatch: "exomem-design/**/*.spec.ts",
+          testIgnore: "exomem-design/theme.spec.ts",
+          use: { ...devices["Pixel 7"], viewport: { width: 375, height: 667 } },
+        },
+      ],
+  webServer:
+    journeyEnabled && journeyBaseUrl
+      ? {
+          // `next dev` on the public address the journey uses.
+          command: `npx next dev --hostname ${new URL(journeyBaseUrl).hostname} --port ${new URL(journeyBaseUrl).port}`,
+          // Ready once a journey page compiles, not only the server's first route.
+          url: new URL("/exomem/sign-in", journeyBaseUrl).toString(),
+          reuseExistingServer: !process.env.CI,
+          timeout: 180_000,
+        }
+      : {
+          command: `npm run start -- --port ${PORT}`,
+          url: BASE_URL,
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+        },
 });

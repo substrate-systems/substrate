@@ -7,6 +7,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import {
+  breakCopy,
   claimCopy,
   consentCopy,
   failureCopy,
@@ -129,6 +130,29 @@ test("Connect hands a web app its code", async ({ page, context }) => {
   await page.waitForURL("https://web-app.example.test/**");
   expect(reached[0]!.searchParams.get("code")).toBeTruthy();
   expect(reached[0]!.searchParams.get("state")).toBe(request.state);
+  expect(await grantCount(client)).toBe(1);
+});
+
+// The answer to Connect can be lost after the server has already connected the app.
+// The page must then say it could not confirm, never that nothing changed.
+test("a lost answer to Connect is not reported as nothing changed", async ({ page, context }) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  const client = await seedClient({
+    name: "Journey Web App",
+    redirectUri: "https://web-app.example.test/callback",
+    platform: null,
+  });
+  await page.route("**/api/exomem/oauth/authorize/complete", async (route) => {
+    await route.fetch();
+    await route.abort("connectionreset");
+  });
+
+  await page.goto(authorizeRequest(client).url);
+  await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: breakCopy.unconfirmed.title })).toBeVisible();
+  await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
   expect(await grantCount(client)).toBe(1);
 });
 

@@ -25,7 +25,9 @@ import {
   reviewerCopy,
   sentCopy,
   startCopy,
+  signedInCopy,
   subscribeCopy,
+  unknownAppCopy,
   waitingCopy,
 } from "../../src/app/exomem/_journey/copy";
 import {
@@ -208,6 +210,17 @@ const STEPS: Step[] = [
     },
   },
   {
+    // Signed out from setup: the sign-in step keeps the reviewer's entry.
+    name: "setup-switched",
+    open: async (page, context) => {
+      await signedIn(context, "ready");
+      await page.goto("/exomem/setup");
+      await page.getByRole("button", { name: signedInCopy.switchAccount }).click();
+      await heading(page, startCopy.web.title);
+      await expect(page.getByRole("button", { name: startCopy.reviewerLink })).toBeVisible();
+    },
+  },
+  {
     name: "setup-ended",
     open: async (page, context) => {
       await signedIn(context, "ended");
@@ -296,6 +309,35 @@ const STEPS: Step[] = [
     },
   },
   {
+    // The longest name an app may give itself, as one word: it wraps, whole, on a phone.
+    name: "consent-long-name",
+    open: async (page, context) => {
+      await signedIn(context, "ready");
+      const client = await seedClient({
+        name: "W".repeat(64),
+        redirectUri: "https://claude-app.example.test/callback",
+        platform: null,
+        namedBy: "itself",
+      });
+      await page.goto(authorizeRequest(client).url);
+      await heading(page, consentCopy.title(client.name));
+    },
+  },
+  {
+    // An app Exomem does not know, or no longer admits: a plain page, not an error body.
+    name: "unknown-app",
+    open: async (page) => {
+      await page.goto(
+        authorizeRequest({
+          clientId: "retired-app",
+          redirectUri: "https://claude-app.example.test/callback",
+          name: "",
+        }).url
+      );
+      await heading(page, unknownAppCopy.title);
+    },
+  },
+  {
     name: "consent-expired",
     open: async (page) => {
       await page.goto("/exomem/authorize");
@@ -351,14 +393,21 @@ for (const step of STEPS) {
       across: document.documentElement.scrollWidth - window.innerWidth,
     }));
     expect(overflow).toEqual({ down: 0, across: 0 });
-    // Nothing of the step runs under the wordmark or over the request's origin at the foot.
+    // Nothing of the step runs under the wordmark or over the request's origin at the foot,
+    // and the title and the origin, which name the app, are whole on the screen: the page
+    // hides what overflows its column, so the document's size alone would not show it.
     const main = page.getByRole("main");
+    const width = page.viewportSize()!.width;
     const wordmark = (await main.getByRole("img", { name: "Exomem" }).first().boundingBox())!;
     const title = (await main.getByRole("heading", { level: 1 }).boundingBox())!;
     expect(title.y).toBeGreaterThanOrEqual(wordmark.y + wordmark.height);
+    expect(title.x).toBeGreaterThanOrEqual(0);
+    expect(title.x + title.width).toBeLessThanOrEqual(width);
     const footer = main.getByText(/^exomem · request from /);
     if (await footer.isVisible()) {
       const foot = (await footer.boundingBox())!;
+      expect(foot.x).toBeGreaterThanOrEqual(0);
+      expect(foot.x + foot.width).toBeLessThanOrEqual(width);
       for (const control of await main.getByRole("button").all()) {
         const box = await control.boundingBox();
         if (box) expect(box.y + box.height).toBeLessThanOrEqual(foot.y);
