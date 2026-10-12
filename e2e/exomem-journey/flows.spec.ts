@@ -4,7 +4,8 @@
 // (its documented test keys) and the apps' own callback pages stand in for the outside
 // world.
 
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+import type { CloudHomeLiveLevels } from "../../src/lib/exomem-hosted/cloud-home-mcp";
 import { expect, test } from "./fixtures";
 import {
   breakCopy,
@@ -270,13 +271,8 @@ test("setup notices the app that just connected", async ({ page, context }) => {
   await expect(page.getByText(joinedCopy.done("Claude"))).toBeVisible();
 });
 
-// Production keeps the Home channel off until a later cell release, and so does this
-// server. A level picked on the joined step then stays on screen, and the page says it is
-// not saved; it never promises or shows a save.
-test("a level the cell cannot take yet stays picked and is not called saved", async ({
-  page,
-  context,
-}) => {
+/** Connects Claude Code, an app without the plugin, from the setup page to its joined step. */
+async function joinWithoutPlugin(page: Page, context: BrowserContext) {
   const owner = await seedOwner("ready");
   await context.addCookies(owner.cookies);
   const client = await seedClient({
@@ -297,6 +293,16 @@ test("a level the cell cannot take yet stays picked and is not called saved", as
   await expect(
     page.getByRole("heading", { name: joinedCopy.title("Claude Code") })
   ).toBeVisible({ timeout: 10_000 });
+}
+
+// Production keeps the Home channel off until a later cell release, and so does this
+// server. A level picked on the joined step then stays on screen, and the page says it is
+// not saved; it never promises or shows a save.
+test("a level the cell cannot take yet stays picked and is not called saved", async ({
+  page,
+  context,
+}) => {
+  await joinWithoutPlugin(page, context);
   await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
   await page.getByRole("button", { name: "Light", exact: true }).click();
 
@@ -306,6 +312,52 @@ test("a level the cell cannot take yet stays picked and is not called saved", as
     "true"
   );
   await expect(page.getByText(/^Saved for/)).toHaveCount(0);
+});
+
+// The channel is off on this server, so the test answers its two calls in the browser.
+// Every write loses its answer, as when the connection drops after the cell applied the
+// level or before it did. The page reads the levels again and says what the cell holds.
+test("a level save whose answer is lost reports what the cell holds", async ({
+  page,
+  context,
+}) => {
+  const held: CloudHomeLiveLevels["levels"] = {
+    coding: { level: "balanced", source: "default" },
+    conversation: { level: "balanced", source: "default" },
+  };
+  let revision = 1;
+  let writeLands = true;
+  await page.route("**/api/exomem/cloud/home/levels", async (route) => {
+    if (route.request().method() === "PUT") {
+      const { context: levelContext, level } = route.request().postDataJSON();
+      if (writeLands) {
+        held[levelContext as keyof typeof held] = { level, source: "preference:context" };
+        revision += 1;
+      }
+      return route.abort("connectionreset");
+    }
+    const view: CloudHomeLiveLevels = {
+      state: "live",
+      revision: `r${revision}`,
+      writable: true,
+      locked_by: null,
+      levels: held,
+    };
+    return route.fulfill({ json: view });
+  });
+  await joinWithoutPlugin(page, context);
+  await expect(page.getByText(joinedCopy.ledeSaving)).toBeVisible();
+
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await expect(page.getByText(/^Saved for/)).toBeVisible();
+
+  writeLands = false;
+  await page.getByRole("button", { name: "Maximal", exact: true }).click();
+  await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Maximal", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
 });
 
 // A friend invitation for a new person: accepting it signs them in, and setup asks them to

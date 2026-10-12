@@ -4,7 +4,8 @@
 // calls Home makes (GET and PUT /api/exomem/cloud/home/levels). A level belongs to a context,
 // every chat app or every coding agent, so the page says which. While the Home channel is
 // off, or the cell cannot take the level, the choice stays on screen and the page says it
-// is not saved; it never shows a save that did not happen.
+// is not saved; it never shows a save that did not happen. When a write's answer is lost,
+// the page reads the levels again and reports what the cell holds.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InvolvementLevelKey } from "@/components/exomem/involvement-levels";
@@ -25,7 +26,7 @@ export type LevelSave =
   | { kind: "idle" }
   | { kind: "saving" }
   | { kind: "saved" }
-  /** The channel is off, the cell cannot take it, or the request failed. */
+  /** The channel is off, the cell cannot take it, or the cell still holds the old level. */
   | { kind: "not_saved" }
   /** The cell refused: read-only, an operator setting, or a change made elsewhere. */
   | { kind: "refused"; text: string };
@@ -100,21 +101,37 @@ export function useLevelSave(context: LevelContext, initial: InvolvementLevelKey
           setSave({ kind: "refused", text: locked });
           break;
         }
-        const result = await writeLevel(context, next, levels.revision);
+        const before = levels.levels[context].level;
+        const result = await writeLevel(context, next, levels.revision).catch(() => null);
         if (wanted.current === next) wanted.current = null;
-        if (result.kind === "written") {
+        if (result?.kind === "written") {
           remember(result.view);
           if (wanted.current === null) setSave({ kind: "saved" });
           continue;
         }
-        wanted.current = null;
-        remember(result.view);
-        if (result.kind === "refused") {
+        if (result?.kind === "refused") {
+          wanted.current = null;
+          remember(result.view);
           const current = liveLevels(result.view);
           if (current) setLevel(current.levels[context].level);
           setSave({ kind: "refused", text: levelRefusalText(result.code) });
-        } else {
+          break;
+        }
+        // The answer was lost or said the cell is out of reach, and the write may have
+        // landed all the same: the page reports what the cell holds now.
+        const after = await readLevels().catch(() => null);
+        remember(after ?? result?.view ?? null);
+        const held = liveLevels(after)?.levels[context].level ?? null;
+        if (held === next) {
+          if (wanted.current === null) setSave({ kind: "saved" });
+          continue;
+        }
+        wanted.current = null;
+        if (held === null || held === before) {
           setSave({ kind: "not_saved" });
+        } else {
+          setLevel(held);
+          setSave({ kind: "refused", text: levelRefusalText("PREFERENCE_CONFLICT") });
         }
         break;
       }
