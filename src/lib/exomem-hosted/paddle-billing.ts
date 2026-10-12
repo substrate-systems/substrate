@@ -626,6 +626,9 @@ async function inspectExomemCheckout(
   if (data?.id !== input.transactionId) {
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
+  // A cancelled transaction cannot charge anyone, whoever Paddle names as
+  // its owner, so its binding may go without the owner fields.
+  if (data.status === "canceled") return { state: "canceled" };
   // The one proof that a transaction is not a checkout this owner opened:
   // Paddle reports all three correlation fields, and they name another
   // product, owner or tenant. Missing, partial or malformed fields prove
@@ -675,7 +678,6 @@ async function inspectExomemCheckout(
     const discountId = typeof data.discount_id === "string" ? data.discount_id : null;
     return { state: "open", checkoutUrl, discountId };
   }
-  if (data.status === "canceled") return { state: "canceled" };
   if (["completed", "billed", "paid", "past_due"].includes(String(data.status))) {
     const subscriptionId = safePaddleId(data.subscription_id, "sub");
     const customerId = data.customer_id ? safePaddleId(data.customer_id, "ctm") : null;

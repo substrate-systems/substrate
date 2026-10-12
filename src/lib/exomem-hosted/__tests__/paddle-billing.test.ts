@@ -520,6 +520,31 @@ describe("Exomem Paddle billing adapters", () => {
     }
   });
 
+  it("reports a cancelled transaction as cancelled without its owner fields, and asks Paddle nothing more", async () => {
+    const transactionId = "txn_01kxatbjfrehbp0sxbjefcacqs";
+    const methods: string[] = [];
+    const result = await cancelExomemCheckoutTransaction(
+      {
+        userId: "user-internal",
+        tenantId: "tenant-internal",
+        transactionId,
+        environment: "sandbox",
+      },
+      {
+        config: loadExomemPaddleConfig(configEnv()),
+        transport: async (_path, init) => {
+          methods.push(init?.method ?? "GET");
+          return Response.json({
+            data: { id: transactionId, status: "canceled", custom_data: null },
+          });
+        },
+      }
+    );
+
+    assert.deepEqual(result, { state: "canceled" });
+    assert.deepEqual(methods, ["GET"]);
+  });
+
   it("rejects a completed transaction without a strict Paddle subscription ID", async () => {
     const transactionId = "txn_01kxatbjfrehbp0sxbjefcacqs";
     await assert.rejects(
