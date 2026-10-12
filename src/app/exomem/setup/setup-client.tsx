@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
+import { subscribeLine } from "@/components/exomem/subscribe-line";
 import type { FieldKind } from "@/components/exomem/FlowField";
 import type { InvolvementLevelKey } from "@/components/exomem/involvement-levels";
 import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import { getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import type { Known } from "@/lib/exomem-hosted/known";
+import { usePaddlePricePreview } from "@/lib/paddle";
 import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
 import {
   breakCopy,
@@ -52,6 +54,10 @@ export type SetupFacts = {
   settings: Record<PluginApp, string | null>;
   /** Whether sign-in offers the app reviewer's entry, as the sign-in page does. */
   reviewerEnabled: boolean;
+  /** The price checkout charges, previewed in the browser; null shows no amount. */
+  priceId: string | null;
+  /** Who gave this account its friend offer, which checkout applies; null without one. */
+  friendInviter: string | null;
 };
 
 type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
@@ -123,6 +129,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   const onSettled = useCallback(() => window.location.reload(), []);
   const checkout = useCheckout(onSettled);
   const current: Phase = checkout.confirming ? "confirming" : phase;
+  // A friend offer's price is not the previewed one, so it is not previewed.
+  const price = usePaddlePricePreview(
+    current === "subscribe" && !facts.friendInviter ? facts.priceId : null
+  );
 
   // Preparing: ask for the cell's state until it is ready.
   useEffect(() => {
@@ -245,7 +255,14 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "subscribe":
       body = (
         <>
-          <StepHeading title={subscribeCopy.title} lede={subscribeCopy.lede(null)} />
+          <StepHeading
+            title={subscribeCopy.title}
+            lede={
+              facts.friendInviter
+                ? subscribeCopy.friendLede(facts.friendInviter, null)
+                : subscribeLine(price)
+            }
+          />
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <StepActions
             primary={{
@@ -376,7 +393,13 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "ended":
       body = (
         <>
-          <StepHeading title={breakCopy.ended.title} lede={breakCopy.ended.lede(keptUntil, app)} />
+          <StepHeading
+            title={breakCopy.ended.title}
+            lede={
+              breakCopy.ended.lede(keptUntil, app) +
+              (facts.friendInviter ? breakCopy.ended.friendBack(facts.friendInviter) : "")
+            }
+          />
           <StepActions secondary={exportMemory} />
         </>
       );

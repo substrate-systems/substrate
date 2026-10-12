@@ -5,6 +5,7 @@
  */
 
 import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
+import { formatMoney } from "@/lib/exomem/money";
 
 export type RenderedExomemInviteEmail = {
   /** "Exomem", or "<inviter> via Exomem" when a person sent it. */
@@ -33,23 +34,6 @@ function dateLabel(at: Date, timeZone: string | null): string {
     month: "long",
   }).format(at);
   return timeZone ? date : `${date} (UTC)`;
-}
-
-/** "€10", or "€10.50" when the amount has cents. Amounts are at most 12 digits, exact as numbers. */
-function money(price: ExomemMoney): string {
-  const fractionDigits =
-    new Intl.NumberFormat("en-GB", {
-      style: "currency",
-      currency: price.currencyCode,
-    }).resolvedOptions().maximumFractionDigits ?? 2;
-  const scale = 10 ** fractionDigits;
-  const minor = Number(price.amount);
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: price.currencyCode,
-    minimumFractionDigits: minor % scale === 0 ? 0 : fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  }).format(minor / scale);
 }
 
 // Small counts in words, as the catalogue writes "three days".
@@ -135,8 +119,8 @@ export function renderExomemFriendInvitationEmail(input: {
   usualPrice: ExomemMoney;
   friendPrice: ExomemMoney;
 }): RenderedExomemInviteEmail {
-  const usual = money(input.usualPrice);
-  const friend = money(input.friendPrice);
+  const usual = formatMoney(input.usualPrice);
+  const friend = formatMoney(input.friendPrice);
   return render({
     senderName: viaExomem(input.inviterName),
     subject: `${input.inviterName} invited you to Exomem`,
@@ -216,7 +200,7 @@ export function renderExomemInvitationUsedEmail(input: {
     { label: "Invitation", value: `used ${dateLabel(input.usedAt, input.timeZone)}` },
   ];
   if (input.friendPrice) {
-    facts.push({ label: "Their price", value: `${money(input.friendPrice)} a month` });
+    facts.push({ label: "Their price", value: `${formatMoney(input.friendPrice)} a month` });
   }
   return render({
     senderName: "Exomem",

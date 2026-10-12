@@ -250,3 +250,17 @@ export function assertExomemPaddlePurpose(
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }
 }
+
+/**
+ * The price a subscribe step previews in the browser: the one checkout charges, and only
+ * when checkout can run with the same client token. Null shows no amount; the checkout
+ * route reports a broken configuration.
+ */
+export function exomemCheckoutPriceId(env: EnvironmentSource = process.env): string | null {
+  try {
+    const config = loadExomemPaddleConfig(env);
+    return config.paidCheckoutEnabled ? config.priceId : null;
+  } catch {
+    return null;
+  }
+}

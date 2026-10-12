@@ -80,8 +80,12 @@ export const signedInCopy = {
 
 export const subscribeCopy = {
   title: "Subscribe to finish setting up",
-  lede: (app: string | null) =>
-    `Paddle shows the price at checkout. ${app === null ? "Then add it to your assistant." : `Then ${app} connects in one step.`}`,
+  /**
+   * An account that holds a friend offer. Its price is not previewed here: the discount
+   * stays on the server, and the usual price would be wrong for this person.
+   */
+  friendLede: (by: string, app: string | null) =>
+    `${by}’s friend price is applied at checkout. Cancel any time through Paddle. ${app === null ? "Then add it to your assistant." : `Then ${app} connects in one step.`}`,
   primary: "Subscribe",
   notNow: "Not now",
   confirming: {
@@ -225,6 +229,8 @@ export const breakCopy = {
     title: "Your subscription has ended",
     lede: (until: string, app: string) =>
       `Your memory is read-only and kept until ${until}. Export it any time before then, or resubscribe to connect ${app}.`,
+    /** Added to the lede when the account holds a friend offer, which checkout applies again. */
+    friendBack: (by: string) => ` ${by}’s friend price comes back if you do.`,
     resubscribe: "Resubscribe",
   },
   paused: {

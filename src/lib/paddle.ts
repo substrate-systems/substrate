@@ -9,6 +9,7 @@ import {
   type PricePreviewResponse,
 } from "@paddle/paddle-js";
 import { AnalyticsEvent, capture, currentDistinctId } from "@/lib/analytics";
+import type { Money } from "@/lib/exomem/money";
 
 type CompletionListener = (product: CheckoutProduct | null) => void;
 
@@ -112,15 +113,12 @@ function loadPaddle(): Promise<Paddle | null> {
 type PreviewLineItem = PricePreviewResponse["data"]["details"]["lineItems"][number];
 
 /**
- * What Paddle charges this visitor for one unit of a price. Paddle.js formats
- * the total in the visitor's currency, with their country's tax and overrides.
+ * What Paddle charges this visitor for one unit of a price: the total in the
+ * visitor's currency, with their country's tax and overrides, in minor units.
  */
 export type PaddlePricePreview = Readonly<{
-  /** Paddle's formatted total, for example "€10.00". */
-  total: string;
+  total: Money;
   billingCycle: PreviewLineItem["price"]["billingCycle"];
-  /** True when Paddle added tax to the total for the visitor's location. */
-  includesTax: boolean;
 }>;
 
 async function previewPrice(priceId: string): Promise<PaddlePricePreview | null> {
@@ -131,9 +129,8 @@ async function previewPrice(priceId: string): Promise<PaddlePricePreview | null>
     const line = response.data.details.lineItems.find((item) => item.price.id === priceId);
     if (!line) throw new Error("price preview omitted the requested price");
     return {
-      total: line.formattedTotals.total,
+      total: { amount: line.totals.total, currencyCode: response.data.currencyCode },
       billingCycle: line.price.billingCycle,
-      includesTax: Number(line.totals.tax) > 0,
     };
   } catch (err) {
     console.error("[paddle] price preview failed", err);

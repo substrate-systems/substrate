@@ -10,10 +10,11 @@ import {
   EXOMEM_OAUTH_FORM_NONCE_COOKIE,
   OAUTH_TRANSACTION_TTL_MS,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
 import { statusPageUrl } from "../_journey/status-page";
-import AuthorizeClient, { type AccountDates } from "./authorize-client";
+import AuthorizeClient, { type AccountFacts } from "./authorize-client";
 import { consentScreen } from "./consent-screen";
 
 export const dynamic = "force-dynamic";
@@ -25,15 +26,16 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-const NOT_SIGNED_IN: AccountDates = {
+const NOT_SIGNED_IN: AccountFacts = {
   readOnlyUntil: unknown("not_signed_in"),
   keptUntil: unknown("not_signed_in"),
   supportReference: unknown("not_signed_in"),
+  friendInviter: null,
 };
 
 // The consent view does not carry these yet (its fields say `not_computed`); the
 // account view computes them from stored data for the same signed-in session.
-async function accountDates(sessionCookie: string | undefined): Promise<AccountDates> {
+async function accountFacts(sessionCookie: string | undefined): Promise<AccountFacts> {
   const digest = sessionCookie ? tokenDigest(sessionCookie) : null;
   if (!digest) return NOT_SIGNED_IN;
   try {
@@ -44,6 +46,7 @@ async function accountDates(sessionCookie: string | undefined): Promise<AccountD
       readOnlyUntil: account.readOnlyUntil,
       keptUntil: account.keptUntil,
       supportReference: known(account.supportReference),
+      friendInviter: account.plan.friendPrice.inviterName,
     };
   } catch {
     // A storage failure is a visible unknown, never a guessed date.
@@ -51,6 +54,7 @@ async function accountDates(sessionCookie: string | undefined): Promise<AccountD
       readOnlyUntil: unknown("unavailable"),
       keptUntil: unknown("unavailable"),
       supportReference: unknown("unavailable"),
+      friendInviter: null,
     };
   }
 }
@@ -103,7 +107,8 @@ export default async function ExomemAuthorizePage({
         nonce: view.nonce,
         reviewerEnabled: view.reviewerEnabled,
         connectorSettingsUrl: view.connectorSettingsUrl.value,
-        dates: view.signedInEmail ? await accountDates(sessionCookie) : NOT_SIGNED_IN,
+        account: view.signedInEmail ? await accountFacts(sessionCookie) : NOT_SIGNED_IN,
+        priceId: exomemCheckoutPriceId(),
       }}
       requestLife={requestLife()}
       statusPageUrl={statusPageUrl()}

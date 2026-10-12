@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { FieldKind } from "@/components/exomem/FlowField";
+import { subscribeLine } from "@/components/exomem/subscribe-line";
 import type { Known } from "@/lib/exomem-hosted/known";
+import { usePaddlePricePreview } from "@/lib/paddle";
 import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
 import {
   breakCopy,
@@ -30,10 +32,12 @@ import { StartFlow } from "../_journey/start-flow";
 import styles from "../_journey/journey.module.css";
 import { offersConnect, type ConsentScreen } from "./consent-screen";
 
-export type AccountDates = {
+export type AccountFacts = {
   readOnlyUntil: Known<string>;
   keptUntil: Known<string>;
   supportReference: Known<string>;
+  /** Who gave the account its friend offer, which checkout applies; null without one. */
+  friendInviter: string | null;
 };
 
 type ConsentRequest = {
@@ -52,7 +56,9 @@ type ConsentRequest = {
   reviewerEnabled: boolean;
   /** The app's own connector settings, for "Connect after all"; null when not known. */
   connectorSettingsUrl: string | null;
-  dates: AccountDates;
+  account: AccountFacts;
+  /** The price checkout charges, previewed in the browser; null shows no amount. */
+  priceId: string | null;
 };
 
 type Phase =
@@ -179,14 +185,14 @@ function Consent({
   requestLife: string;
   statusPageUrl: string | null;
 }) {
-  const { app, confirmation, nonce, dates } = request;
+  const { app, confirmation, nonce, account } = request;
   const name = app.displayName;
   const [phase, setPhase] = useState<Phase>(screen);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<"declined" | "kept" | "billing" | null>(null);
-  const readOnlyUntil = useReaderDate(dates.readOnlyUntil);
-  const keptUntil = useReaderDate(dates.keptUntil);
+  const readOnlyUntil = useReaderDate(account.readOnlyUntil);
+  const keptUntil = useReaderDate(account.keptUntil);
 
   // The app hears the answer: a web app by a navigation after the page has shown it,
   // an app on this computer in the background while the page stays.
@@ -204,6 +210,10 @@ function Consent({
     else window.location.reload();
   }, []);
   const checkout = useCheckout(onSettled);
+  // A friend offer's price is not the previewed one, so it is not previewed.
+  const price = usePaddlePricePreview(
+    phase === "subscribe" && !account.friendInviter ? request.priceId : null
+  );
   const current: Phase = checkout.confirming ? "confirming" : phase;
 
   async function connect(event?: FormEvent<HTMLFormElement>) {
@@ -326,7 +336,9 @@ function Consent({
             lede={
               current === "confirming"
                 ? subscribeCopy.confirming.lede(name)
-                : subscribeCopy.lede(name)
+                : account.friendInviter
+                  ? subscribeCopy.friendLede(account.friendInviter, name)
+                  : subscribeLine(price, name)
             }
           />
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
@@ -498,7 +510,13 @@ function Consent({
     case "ended":
       body = (
         <>
-          <StepHeading title={breakCopy.ended.title} lede={breakCopy.ended.lede(keptUntil, name)} />
+          <StepHeading
+            title={breakCopy.ended.title}
+            lede={
+              breakCopy.ended.lede(keptUntil, name) +
+              (account.friendInviter ? breakCopy.ended.friendBack(account.friendInviter) : "")
+            }
+          />
           <StepActions secondary={exportMemory} />
         </>
       );
@@ -523,8 +541,8 @@ function Consent({
       body = (
         <>
           <StepHeading title={breakCopy.suspended.title} lede={breakCopy.suspended.lede(name)} />
-          {dates.supportReference.value !== null ? (
-            <StepNotice>{breakCopy.suspended.notice(dates.supportReference.value)}</StepNotice>
+          {account.supportReference.value !== null ? (
+            <StepNotice>{breakCopy.suspended.notice(account.supportReference.value)}</StepNotice>
           ) : null}
           <StepActions
             primary={{

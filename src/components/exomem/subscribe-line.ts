@@ -2,17 +2,18 @@
 // checkout when it is known, else a promise that Paddle shows it. Home's subscribe view
 // and the journey's subscribe step both read it from here.
 
+import { formatMoney } from "@/lib/exomem/money";
 import type { PaddlePricePreview } from "@/lib/paddle";
 
-/** "€10.00 per month, including tax": Paddle's total, its billing cycle and tax. */
+/** "€10 a month", as the board writes it: Paddle's total and its billing cycle. */
 function subscribePrice(price: PaddlePricePreview): string {
   const cycle = price.billingCycle;
   const cadence = !cycle
     ? ""
     : cycle.frequency === 1
-      ? ` per ${cycle.interval}`
+      ? ` a ${cycle.interval}`
       : ` every ${cycle.frequency} ${cycle.interval}s`;
-  return `${price.total}${cadence}${price.includesTax ? ", including tax" : ""}`;
+  return `${formatMoney(price.total)}${cadence}`;
 }
 
 /**
