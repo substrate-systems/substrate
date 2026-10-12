@@ -143,16 +143,22 @@ test("a lost answer to Connect is not reported as nothing changed", async ({ pag
     redirectUri: "https://web-app.example.test/callback",
     platform: null,
   });
+  const served: number[] = [];
   await page.route("**/api/exomem/oauth/authorize/complete", async (route) => {
-    await route.fetch();
+    served.push((await route.fetch()).status());
     await route.abort("connectionreset");
   });
 
   await page.goto(authorizeRequest(client).url);
   await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: breakCopy.unconfirmed.title })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: breakCopy.unconfirmed.title(client.name) })
+  ).toBeVisible();
+  await expect(page.getByText(breakCopy.unconfirmed.lede(client.name))).toBeVisible();
   await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
+  // The server answered 200 and connected the app; only the answer was lost.
+  expect(served).toEqual([200]);
   expect(await grantCount(client)).toBe(1);
 });
 

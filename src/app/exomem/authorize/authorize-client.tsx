@@ -439,7 +439,10 @@ function Consent({
       break;
     case "unconfirmed":
       body = (
-        <StepHeading title={breakCopy.unconfirmed.title} lede={breakCopy.unconfirmed.lede(name)} />
+        <StepHeading
+          title={breakCopy.unconfirmed.title(name)}
+          lede={breakCopy.unconfirmed.lede(name)}
+        />
       );
       break;
     case "handback":

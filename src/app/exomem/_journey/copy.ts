@@ -204,12 +204,12 @@ export const handbackCopy = {
 
 export const breakCopy = {
   /**
-   * Connect's answer never reached the page: the server may have connected the app.
-   * Not drawn by the board; it says no more than the page knows (owner approval pending).
+   * Connect's answer never reached the page: the server may have connected the app, so
+   * the page claims no rollback. Not drawn by the board (design.md deviation (m)).
    */
   unconfirmed: {
-    title: "We couldn’t confirm the connection",
-    lede: (app: string) => `Check ${app}. If it isn’t connected, start again from there.`,
+    title: (app: string) => `We couldn’t confirm whether ${app} connected`,
+    lede: (app: string) => `Start again from ${app}.`,
   },
   connectError: {
     title: "That didn’t finish",
