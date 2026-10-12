@@ -50,8 +50,8 @@ type Step = {
 const heading = (page: Page, name: string) =>
   expect(page.getByRole("heading", { name })).toBeVisible();
 
-async function signedIn(context: BrowserContext, state: OwnerState) {
-  const owner = await seedOwner(state);
+async function signedIn(context: BrowserContext, state: OwnerState, email?: string) {
+  const owner = await seedOwner(state, email);
   await context.addCookies(owner.cookies);
   return owner;
 }
@@ -100,8 +100,13 @@ async function answerApps(context: BrowserContext) {
   }
 }
 
-async function consentFor(page: Page, context: BrowserContext, state: OwnerState | null) {
-  if (state) await signedIn(context, state);
+async function consentFor(
+  page: Page,
+  context: BrowserContext,
+  state: OwnerState | null,
+  email?: string
+) {
+  if (state) await signedIn(context, state, email);
   const client = await app("web");
   await page.goto(authorizeRequest(client).url);
   return client;
@@ -449,6 +454,17 @@ const STEPS: Step[] = [
     name: "consent-read-only",
     open: async (page, context) => {
       await consentFor(page, context, "readonly");
+      await expect(page.getByText(consentCopy.readOnly.lede)).toBeVisible();
+    },
+  },
+  {
+    // The tallest step with the longest address an email can have (254 characters): the
+    // signed-in line stays on one line, so the step still fits.
+    name: "consent-read-only-longest-email",
+    open: async (page, context) => {
+      const local = uniqueEmail("readonly").split("@")[0]!.padEnd(64, "x");
+      const domain = `${"d".repeat(63)}.${"e".repeat(63)}.${"f".repeat(56)}.test`;
+      await consentFor(page, context, "readonly", `${local}@${domain}`);
       await expect(page.getByText(consentCopy.readOnly.lede)).toBeVisible();
     },
   },

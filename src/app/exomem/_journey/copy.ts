@@ -126,7 +126,8 @@ export const inviteCopy = {
 };
 
 export const signedInCopy = {
-  prefix: (email: string) => `Signed in as ${email} · `,
+  prefix: "Signed in as ",
+  separator: " · ",
   switchAccount: "Switch account",
 };
 

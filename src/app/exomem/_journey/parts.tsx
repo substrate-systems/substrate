@@ -194,9 +194,26 @@ export function SignedInLine({
   onSwitch: () => void;
   onDesktop: boolean;
 }) {
+  // At most two lines at any email length: the line breaks only before "Switch account",
+  // and an address too long for its line gives way, its local part first, then its domain.
+  // The text keeps the whole address for screen readers, and the title shows it on hover
+  // or long-press (design.md (ai)).
+  const at = email.lastIndexOf("@");
+  const local = at < 0 ? email : email.slice(0, at);
+  const domain = at < 0 ? "" : email.slice(at);
   return (
-    <div className={onDesktop ? styles.signedIn : `${styles.signedIn} ${styles.phoneOnly}`}>
-      {signedInCopy.prefix(email)}
+    <div
+      className={onDesktop ? styles.signedIn : `${styles.signedIn} ${styles.phoneOnly}`}
+      title={email}
+    >
+      <span className={styles.signedInWho}>
+        <span className={styles.signedInFixed}>{signedInCopy.prefix}</span>
+        <span className={styles.signedInAddress}>
+          <span className={styles.signedInLocal}>{local}</span>
+          <span className={styles.signedInDomain}>{domain}</span>
+        </span>
+        <span className={styles.signedInFixed}>{signedInCopy.separator}</span>
+      </span>
       <button
         type="button"
         className={`${styles.inlineButton} ${phone.hitArea}`}

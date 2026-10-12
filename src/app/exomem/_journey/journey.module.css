@@ -402,13 +402,49 @@
   animation: jWork 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
+/* "Signed in as {email} · Switch account" takes at most two lines: it breaks only before
+   "Switch account", and an address too long for the first line shrinks inside it, its
+   local part first with an ellipsis, then its domain; the words around it never shrink. */
 .signedIn {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   max-width: 100%;
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
-  text-align: center;
-  overflow-wrap: anywhere;
+  white-space: pre;
+}
+
+.signedInWho {
+  display: flex;
+  min-width: 0;
+}
+
+.signedInFixed {
+  flex: none;
+}
+
+.signedInAddress {
+  display: flex;
+  min-width: 0;
+}
+
+.signedInLocal,
+.signedInDomain {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The domain keeps its full width while the address has room for it. */
+.signedInDomain {
+  flex: none;
+  max-width: 100%;
+}
+
+.signedIn .inlineButton {
+  flex: none;
 }
 
 .inlineButton {
