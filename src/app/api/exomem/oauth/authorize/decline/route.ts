@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isSafeLoopbackOAuthRedirect } from "@/lib/exomem-hosted/oauth-client-admission";
+import { isLoopbackRedirectDestination } from "@/lib/exomem-hosted/oauth-client-admission";
 import { consumeDeclinedOAuthAuthorization, validOrigin } from "@/lib/exomem-hosted/oauth-consent";
 import {
   authorizationDenialRedirect,
@@ -113,7 +113,7 @@ async function decline(request: Request): Promise<NextResponse> {
     {
       status: body.outcome,
       redirectUrl: authorizationDenialRedirect(continuation),
-      loopback: isSafeLoopbackOAuthRedirect(continuation.redirectUri),
+      loopback: isLoopbackRedirectDestination(continuation.redirectUri),
     },
     200
   );

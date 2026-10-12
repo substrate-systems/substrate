@@ -617,11 +617,12 @@ describe(
 
           assert.deepEqual(
             apps
-              .map(({ id, displayName, displayNameSource, kind, redirectHosts }) => ({
+              .map(({ id, displayName, displayNameSource, kind, context, redirectHosts }) => ({
                 id,
                 displayName,
                 displayNameSource,
                 kind,
+                context,
                 redirectHosts,
               }))
               .sort((a, b) => a.id.localeCompare(b.id)),
@@ -631,6 +632,7 @@ describe(
                 displayName: "Example Notes",
                 displayNameSource: "client_metadata",
                 kind: "web",
+                context: "conversation",
                 redirectHosts: [new URL(named.redirectUri).hostname],
               },
               {
@@ -638,6 +640,7 @@ describe(
                 displayName: "ChatGPT",
                 displayNameSource: "platform",
                 kind: "web",
+                context: "conversation",
                 redirectHosts: [new URL(platformOnly.redirectUri).hostname],
               },
               {
@@ -645,6 +648,7 @@ describe(
                 displayName: "Example CLI",
                 displayNameSource: "operator",
                 kind: "web",
+                context: "conversation",
                 redirectHosts: ["cli.example.test"],
               },
               {
@@ -652,6 +656,7 @@ describe(
                 displayName: "127.0.0.1",
                 displayNameSource: "redirect_host",
                 kind: "local",
+                context: "coding",
                 redirectHosts: ["127.0.0.1"],
               },
             ].sort((a, b) => a.id.localeCompare(b.id))

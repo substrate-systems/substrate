@@ -8,20 +8,20 @@
  */
 
 import { validate as validUuid } from "uuid";
-import { clientPlatformName, type OAuthClientDisplayNameSource } from "./client-platforms";
+import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import { loadExomemCloudResource } from "./cloud-config";
 import { revokeOwnerOAuthGrant } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
-import { isSafeLoopbackOAuthRedirect } from "./oauth-client-admission";
+import {
+  isLocalOAuthClient,
+  oauthClientContext,
+  oauthClientDisplayName,
+  redirectHost,
+  type OAuthClientContext,
+  type OAuthClientIdentity,
+} from "./oauth-client-identity";
 
-export type OAuthClientIdentity = {
-  /** The stored `client_name`, or null when the client has none. */
-  clientName: string | null;
-  /** `admission_mode`, a closed set fixed by its CHECK constraint (migrations 0025 and 0062). */
-  admissionMode: string;
-  platform: string | null;
-  redirectUris: string[];
-};
+export { oauthClientDisplayName, redirectHost, type OAuthClientIdentity };
 
 export type OwnerApp = {
   id: string;
@@ -29,45 +29,16 @@ export type OwnerApp = {
   displayNameSource: OAuthClientDisplayNameSource;
   platform: string | null;
   kind: "web" | "local";
+  /** The context the app's calls run in; the journey saves a chosen level to it. */
+  context: OAuthClientContext;
   /** Every distinct host the app's registered redirects name, loopback included. */
   redirectHosts: string[];
   connectedAt: string;
   lastAuthorizedAt: string;
 };
 
-/** The host an authorization code sent to `redirectUri` reaches. */
-export function redirectHost(redirectUri: string): string {
-  // Registration accepts only redirects that parse as URLs, so this cannot throw
-  // for a stored client; a row that broke that invariant fails the read.
-  return new URL(redirectUri).hostname;
-}
-
-/**
- * The name to show for a client: its stored name, else its platform's name,
- * else the host of `fallbackRedirectUri`.
- */
-export function oauthClientDisplayName(
-  client: Pick<OAuthClientIdentity, "clientName" | "admissionMode" | "platform">,
-  fallbackRedirectUri: string
-): { displayName: string; displayNameSource: OAuthClientDisplayNameSource } {
-  const stored = client.clientName?.trim();
-  if (stored) {
-    // A pinned client exists only because the operator registered it, so its
-    // name is the operator's. Every other client wrote its own name.
-    const source = client.admissionMode === "pinned" ? "operator" : "client_metadata";
-    return { displayName: stored, displayNameSource: source };
-  }
-  const platformName = clientPlatformName(client.platform);
-  if (platformName) return { displayName: platformName, displayNameSource: "platform" };
-  return { displayName: redirectHost(fallbackRedirectUri), displayNameSource: "redirect_host" };
-}
-
-// RFC 8252 section 7.3: a client whose every redirect is loopback receives its
-// code on the owner's own machine, so it is a local app.
 function clientKind(redirectUris: readonly string[]): OwnerApp["kind"] {
-  return redirectUris.length > 0 && redirectUris.every(isSafeLoopbackOAuthRedirect)
-    ? "local"
-    : "web";
+  return isLocalOAuthClient(redirectUris) ? "local" : "web";
 }
 
 /** The client an authorization request names, for the consent page. */
@@ -158,6 +129,7 @@ export async function listOwnerApps(owner: {
       ),
       platform: row.client_platform,
       kind: clientKind(row.redirect_uris),
+      context: oauthClientContext(row.redirect_uris),
       redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
       connectedAt: new Date(row.created_at).toISOString(),
       lastAuthorizedAt: new Date(row.updated_at).toISOString(),

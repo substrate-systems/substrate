@@ -20,6 +20,11 @@ import {
   type ActiveCloudOAuthAccessToken,
 } from "../lib/exomem-hosted/cloud-oauth";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
+import {
+  oauthClientContext,
+  oauthClientDisplayName,
+  type OAuthClientIdentity,
+} from "../lib/exomem-hosted/oauth-client-identity";
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";
 import { digestSecret } from "../lib/exomem-hosted/security";
@@ -34,6 +39,15 @@ const FORWARDED_REQUEST_HEADERS = [
   "mcp-name",
 ];
 const MCP_PARAMETER_HEADER_PREFIX = "mcp-param-";
+// The two headers that name the authenticated client to the cell. A cloud cell
+// trusts them because its bearer proves the request came from here, so the
+// gateway sets them itself: a caller's `x-exomem-*` header is refused by
+// hasForbiddenGatewayHeaders, and neither name is on the forwarding allowlist
+// or starts with MCP_PARAMETER_HEADER_PREFIX.
+const CELL_CLIENT_NAME_HEADER = "x-exomem-oauth-client";
+const CELL_CLIENT_CONTEXT_HEADER = "x-exomem-client-context";
+// RFC 9110 section 5.5: a field value this gateway sends is visible ASCII and spaces.
+const HEADER_SAFE_VALUE = /^[\x20-\x7e]+$/;
 // Security review finding 12: only these three response headers are ever
 // relayed back to the caller -- everything else the cell sends (including
 // its own cache-control, or anything else it chose to add) is dropped. The
@@ -149,6 +163,20 @@ function releaseConcurrencyWhenBodyEnds(response: Response, release: () => void)
     },
   });
   return new Response(stream, { status: response.status, headers: response.headers });
+}
+
+/**
+ * The client's name as the apps list shows it. A stored name that a header
+ * cannot carry falls back to the next step of the same rule (platform, then
+ * redirect host), both of which are ASCII.
+ */
+function cellClientName(client: OAuthClientIdentity): string | null {
+  const [fallbackRedirectUri] = client.redirectUris;
+  // Admission requires registered redirects, so an admitted client has one.
+  if (fallbackRedirectUri === undefined) return null;
+  const shown = oauthClientDisplayName(client, fallbackRedirectUri).displayName;
+  if (HEADER_SAFE_VALUE.test(shown)) return shown;
+  return oauthClientDisplayName({ ...client, clientName: null }, fallbackRedirectUri).displayName;
 }
 
 function errorResponse(status: number, code: string): Response {
@@ -335,6 +363,12 @@ async function proxyToCell(
   forwardHeaders.set("accept-encoding", "identity");
   forwardHeaders.set("authorization", `Bearer ${cellBearer}`);
   forwardHeaders.set("x-request-id", randomUUID());
+  // Set from the token's stored client, never from the request; set() and
+  // delete() also clear any copy that reached these headers some other way.
+  const clientName = cellClientName(access.client);
+  if (clientName === null) forwardHeaders.delete(CELL_CLIENT_NAME_HEADER);
+  else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
+  forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
 
   let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
   if (
