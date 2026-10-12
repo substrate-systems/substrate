@@ -26,6 +26,17 @@ CREATE INDEX exomem_email_outbox_tenant_idx
   ON exomem_email_outbox (tenant_id)
   WHERE tenant_id IS NOT NULL;
 
+-- The only account email queued before this migration is the unpaid-hold
+-- reminder, keyed 'hold-reminder:' || cell_id (cloud-admission.ts). Each one,
+-- pending or settled, takes its cell's tenant, so account deletion removes it
+-- too. Start link and waitlist rows keep NULL.
+UPDATE exomem_email_outbox AS outbox
+SET tenant_id = cell.tenant_id
+FROM exomem_cloud_cells AS cell
+WHERE outbox.kind = 'hold_reminder'
+  AND outbox.tenant_id IS NULL
+  AND outbox.dedupe_key = 'hold-reminder:' || cell.cell_id;
+
 -- THE CONTROLLER'S DELETION, defined once. cellctl has deleted a cell, with
 -- its volume, backups and keys, once it reports the cell deleted at the
 -- current generation. Capacity (cloud-capacity.ts) counts every other cell as

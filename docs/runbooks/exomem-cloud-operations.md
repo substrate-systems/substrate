@@ -297,7 +297,8 @@ outbox row 30 days after the row settles. The reconcile job deletes a
 person's waitlist entry and unused start links 180 days after the later of
 their last request and their last start link's expiry, unless the address
 owns an Exomem. It keeps used start links and operator invitations. Account
-deletion removes every outbox row for the owner's address.
+deletion removes every outbox row of the account and every row for the
+owner's address, then queues email 07.
 
 #### Release
 

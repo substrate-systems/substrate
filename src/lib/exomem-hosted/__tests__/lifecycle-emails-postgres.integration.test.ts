@@ -8,11 +8,19 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
 import { sendCloudCancellationNoticeOnce } from "../cloud-cancellation-notice";
+import { finishCloudAccountDeletion } from "../cloud-deletion-finish";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
-import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { drainExomemEmailOutbox } from "../email-outbox";
+import {
+  __setExomemSqlForTests,
+  __setExomemTransactionForTests,
+  createDeletionConfirmationToken,
+  type ExomemSql,
+} from "../db";
+import { confirmDeletion } from "../deletion";
+import { drainExomemEmailOutbox, sealExomemEmailPayload } from "../email-outbox";
 import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
+import { generateExternalToken, tokenDigest } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // The account lifecycle emails against real PostgreSQL: each is queued once with
@@ -33,6 +41,8 @@ let startedBeforeDeploy: { email: string; cellId: string };
 let neverStartedAtDeploy: { email: string; cellId: string };
 let inHoldAtDeploy: { email: string; cellId: string; tenantId: string };
 let reviewerAtDeploy: { email: string; cellId: string };
+// A never-paid hold whose reminder was queued before 0068 added the tenant column.
+let heldWithReminderAtDeploy: { email: string; userId: string; tenantId: string; cellId: string };
 
 function taggedSql(client: Pool | PoolClient): ExomemSql {
   return async (strings, ...values) => {
@@ -148,6 +158,34 @@ async function markCellsDeleted(tenantId: string): Promise<void> {
   );
 }
 
+/** A hold reminder as admission queued it before migration 0068: no tenant column. */
+async function queueLegacyHoldReminder(
+  tenant: { email: string; cellId: string },
+  state: "pending" | "sent"
+): Promise<void> {
+  if (state === "sent") {
+    await pool.query(
+      `INSERT INTO exomem_email_outbox (kind, dedupe_key, recipient, recipient_time_zone, state, sent_at)
+       VALUES ('hold_reminder', $1, $2, 'Europe/Berlin', 'sent', now())`,
+      [`hold-reminder:${tenant.cellId}`, tenant.email]
+    );
+    return;
+  }
+  const payload = sealExomemEmailPayload("hold_reminder", {
+    version: 1,
+    cellId: tenant.cellId,
+    holdEndsAt: new Date(Date.now() + 7 * DAY).toISOString(),
+    inviterName: null,
+  });
+  await pool.query(
+    `INSERT INTO exomem_email_outbox (
+       kind, dedupe_key, recipient, recipient_time_zone, payload_ciphertext, not_before, expires_at
+     ) VALUES ('hold_reminder', $1, $2, 'Europe/Berlin', $3::jsonb,
+               now() + interval '5 days', now() + interval '7 days')`,
+    [`hold-reminder:${tenant.cellId}`, tenant.email, payload]
+  );
+}
+
 /** The clock reaches every waiting email of a tenant. */
 async function dueNow(tenantId: string): Promise<void> {
   await pool.query(
@@ -237,6 +275,18 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       cell: "stopped",
       marketplaceReviewer: true,
     });
+    heldWithReminderAtDeploy = await seedTenant({
+      source: "paddle",
+      sourceState: "awaiting_checkout",
+      cell: "stopped",
+    });
+    // A hold that was never paid has no provider subscription yet.
+    await pool.query(
+      "UPDATE exomem_entitlements SET provider_subscription_ref = NULL, provider_environment = NULL WHERE tenant_id = $1",
+      [heldWithReminderAtDeploy.tenantId]
+    );
+    await queueLegacyHoldReminder(heldWithReminderAtDeploy, "pending");
+    await queueLegacyHoldReminder(inHoldAtDeploy, "sent");
     await applyMigrations({ databaseUrl: scoped.toString() });
 
     __setExomemSqlForTests(taggedSql(pool));
@@ -576,5 +626,59 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
 
     assert.deepEqual(result.sent, []);
     assert.deepEqual(await deletedReceipts(tenant.tenantId), [{ state: "cancelled" }]);
+  });
+  it("account deletion removes a hold reminder queued before migration 0068 to the owner's earlier address", async () => {
+    // Migration 0068 gave each reminder queued before it, pending or sent, its cell's tenant.
+    const { rows: owned } = await pool.query<{ dedupe_key: string; tenant_id: string }>(
+      "SELECT dedupe_key, tenant_id FROM exomem_email_outbox WHERE dedupe_key = ANY($1) ORDER BY dedupe_key",
+      [
+        [
+          `hold-reminder:${heldWithReminderAtDeploy.cellId}`,
+          `hold-reminder:${inHoldAtDeploy.cellId}`,
+        ],
+      ]
+    );
+    assert.deepEqual(
+      owned,
+      [
+        {
+          dedupe_key: `hold-reminder:${heldWithReminderAtDeploy.cellId}`,
+          tenant_id: heldWithReminderAtDeploy.tenantId,
+        },
+        {
+          dedupe_key: `hold-reminder:${inHoldAtDeploy.cellId}`,
+          tenant_id: inHoldAtDeploy.tenantId,
+        },
+      ].sort((left, right) => left.dedupe_key.localeCompare(right.dedupe_key))
+    );
+    const tenant = heldWithReminderAtDeploy;
+    const newAddress = `moved-${randomUUID()}@example.test`;
+    await pool.query("UPDATE users SET email = $1 WHERE id = $2", [newAddress, tenant.userId]);
+
+    const token = generateExternalToken();
+    assert.ok(
+      await createDeletionConfirmationToken({
+        userId: tenant.userId,
+        tenantId: tenant.tenantId,
+        tokenDigest: tokenDigest(token)!,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      }),
+      "sanity: the owner can request a deletion confirmation"
+    );
+    await confirmDeletion(
+      token,
+      { userId: tenant.userId, tenantId: tenant.tenantId },
+      { finishCloud: (tenantId) => finishCloudAccountDeletion(tenantId) }
+    );
+
+    const { rows: status } = await pool.query("SELECT status FROM exomem_tenants WHERE id = $1", [
+      tenant.tenantId,
+    ]);
+    assert.deepEqual(status, [{ status: "deleted" }]);
+    const { rows } = await pool.query<{ kind: string; recipient: string }>(
+      "SELECT kind, recipient::text FROM exomem_email_outbox WHERE tenant_id = $1 OR recipient = $2",
+      [tenant.tenantId, tenant.email]
+    );
+    assert.deepEqual(rows, [{ kind: "deleted", recipient: newAddress }]);
   });
 });
