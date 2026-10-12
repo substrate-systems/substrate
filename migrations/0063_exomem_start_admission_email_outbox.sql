@@ -86,3 +86,9 @@ CREATE INDEX exomem_waitlist_entries_updated_idx
 CREATE INDEX exomem_invites_unused_self_serve_expiry_idx
   ON exomem_invites (expires_at)
   WHERE self_serve AND consumed_at IS NULL;
+
+-- Deleting a start link sets the admitted_invite_id of the entry that names
+-- it to NULL; without this index, each deleted link scans every entry.
+CREATE INDEX exomem_waitlist_entries_admitted_invite_idx
+  ON exomem_waitlist_entries (admitted_invite_id)
+  WHERE admitted_invite_id IS NOT NULL;
