@@ -116,7 +116,9 @@ export type CloudHomeUnavailableReason =
   | "CELL_UNREACHABLE"
   | "CELL_OUTDATED"
   // An operator disabled the first-party Home client (runbook), so no token is minted.
-  | "HOME_CLIENT_DISABLED";
+  | "HOME_CLIENT_DISABLED"
+  // An OAuth block or a deletion began during the call, so no token is minted.
+  | "ACCOUNT_ACCESS_CLOSED";
 export type CloudHomeUnavailable = { state: "unavailable"; reason: CloudHomeUnavailableReason };
 export type CloudHomeLiveLevels = {
   state: "live";
@@ -216,16 +218,21 @@ async function servingCell(
   return { state: "serving", desiredState: row.desired_state };
 }
 
+/** Why the mint wrote no token; Home shows each as unavailable, never as an error. */
+type MintRefusal = Extract<
+  CloudHomeUnavailableReason,
+  "HOME_CLIENT_DISABLED" | "ACCOUNT_ACCESS_CLOSED"
+>;
+
 /**
  * Mints one Home access token in one transaction: upsert the tenant's Home
  * grant, reuse or open its token family, and store the token's digest with a
- * 120-second expiry. The raw token exists only in the returned wrapper. Null
- * when the Home client is disabled.
+ * 120-second expiry. The raw token exists only in the returned wrapper.
  */
 async function mintHomeAccessToken(
   principal: CloudHomePrincipal,
   resource: string
-): Promise<SensitiveSecret | null> {
+): Promise<{ token: SensitiveSecret } | { refused: MintRefusal }> {
   await assertPrincipalOwnsCloudCell(principal.tenantId);
   const token = new SensitiveSecret(generateExternalToken());
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
@@ -234,7 +241,7 @@ async function mintHomeAccessToken(
       SELECT id FROM exomem_oauth_clients WHERE admission_mode = 'first_party' AND enabled
     `;
     const homeClientId = (homeClient.rows[0] as { id: string } | undefined)?.id;
-    if (!homeClientId) return null;
+    if (!homeClientId) return { refused: "HOME_CLIENT_DISABLED" };
     // One active grant per owner, client and resource, so the mint reuses
     // only a grant that it could have written itself. It retires first a
     // Home grant from a reviewer credential that this session no longer
@@ -291,7 +298,9 @@ async function mintHomeAccessToken(
       RETURNING id, client_id
     `;
     const grant = granted.rows[0] as { id: string; client_id: string } | undefined;
-    if (!grant) throw new Error("the Home grant could not be written");
+    // The session lookup refuses a blocked or deleting account, so this is the
+    // window after it: an OAuth block or a deletion that began since then.
+    if (!grant) return { refused: "ACCOUNT_ACCESS_CLOSED" };
     const reused = await tx`
       /* exomem-cloud:home-family */
       SELECT id FROM exomem_oauth_token_families
@@ -329,7 +338,7 @@ async function mintHomeAccessToken(
         now() + make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS}), ${reviewerCredentialId}::uuid
       )
     `;
-    return token;
+    return { token };
   });
 }
 
@@ -340,11 +349,12 @@ async function callHomeTool(
   dependencies: CloudHomeDependencies
 ): Promise<CellAnswer> {
   const { mcpUrl } = loadExomemCloudResource(dependencies.env);
-  const token = await mintHomeAccessToken(principal, mcpUrl);
-  if (!token) {
-    logUnavailable(call.name, "HOME_CLIENT_DISABLED");
-    return { kind: "unavailable", view: unavailable("HOME_CLIENT_DISABLED") };
+  const minted = await mintHomeAccessToken(principal, mcpUrl);
+  if ("refused" in minted) {
+    logUnavailable(call.name, minted.refused);
+    return { kind: "unavailable", view: unavailable(minted.refused) };
   }
+  const { token } = minted;
   const requestId = randomUUID();
   let response: Response;
   try {

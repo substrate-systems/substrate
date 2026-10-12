@@ -124,6 +124,7 @@ Substrate SHALL call the owner's cell only through the public Cloud MCP address,
 
 - **WHEN** the account is blocked or its deletion has begun
 - **THEN** the gateway refuses a Home token that was minted earlier
+- **AND** a call that the block or deletion reaches after its session check returns `unavailable` with the reason `ACCOUNT_ACCESS_CLOSED` and mints no token
 
 ### Requirement: The first-party Home client is marked by data and is not an app
 

@@ -421,6 +421,40 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       }
     });
 
+    it("answers unavailable, not an error, when an OAuth block lands while Home is calling", async () => {
+      const alice = await owner();
+      // The session lookup refuses a blocked account, so the block lands in
+      // the window after the session and cell checks, before the mint.
+      __setExomemSqlForTests(async (strings, ...values) => {
+        const result = await taggedSql(pool)(strings, ...values);
+        if (strings.join("").includes("exomem-cloud:home-serving-cell")) {
+          await revokeOAuthAccountForOwnerTenantAtomic({
+            ownerUserId: alice.userId,
+            tenantId: alice.tenantId,
+          });
+        }
+        return result;
+      });
+      const cell = fakeCell(() => assert.fail("a blocked account gets no token to call with"));
+      try {
+        const levels = await getLevels(alice, cell.fetchCell);
+        assert.equal(levels.status, 200);
+        assert.deepEqual(await json(levels), {
+          state: "unavailable",
+          reason: "ACCOUNT_ACCESS_CLOSED",
+        });
+      } finally {
+        __setExomemSqlForTests(taggedSql(pool));
+      }
+      const minted = await pool.query(
+        `SELECT count(*)::integer AS tokens FROM exomem_oauth_access_tokens AS token
+         JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = token.grant_id
+         WHERE oauth_grant.tenant_id = $1`,
+        [alice.tenantId]
+      );
+      assert.equal(minted.rows[0].tokens, 0);
+    });
+
     it("answers a stopped or starting cell as unavailable without minting a token or calling it", async () => {
       const stopped = await owner({ desired: "stopped" });
       const starting = await owner({ ready: false });
