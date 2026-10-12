@@ -4,24 +4,11 @@
  * explicitly unknown with a reason the page can name. No value is invented.
  */
 
-// consentStep moves to src/lib/exomem-hosted/consent-state.ts; update this import when it does.
-import { consentStep, type ConsentStep } from "@/app/exomem/authorize/consent-state";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
+import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, type ExomemSessionRow } from "./db";
 import { exomemErrors } from "./errors";
-
-// Removed for the shared Known, known and unknown in known.ts once the consent change merges.
-export type Known<T, Reason extends string = string> =
-  | { value: T; reason: null }
-  | { value: null; reason: Reason };
-
-function known<T>(value: T): Known<T, never> {
-  return { value, reason: null };
-}
-
-function unknown<Reason extends string>(reason: Reason): Known<never, Reason> {
-  return { value: null, reason };
-}
+import { known, unknown, type Known } from "./known";
 
 export type ExomemAccountView = {
   kind: "owner" | "reviewer";
