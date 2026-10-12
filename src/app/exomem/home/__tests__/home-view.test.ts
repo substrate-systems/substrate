@@ -5,6 +5,7 @@ import type { Lifecycle } from "../home-state";
 import {
   activityFacts,
   banner,
+  deletionLinkMinutes,
   directoryHint,
   exportView,
   homeMode,
@@ -458,5 +459,17 @@ describe("the directory hint", () => {
       ),
       null
     );
+  });
+});
+
+describe("the deletion link's lifetime", () => {
+  it("counts the minutes between two server times, not from the browser's clock", () => {
+    // The server's Date header has whole seconds; the expiry was set a moment before it.
+    assert.equal(
+      deletionLinkMinutes("2026-10-12T10:14:59.400Z", "Mon, 12 Oct 2026 10:00:00 GMT"),
+      15
+    );
+    assert.equal(deletionLinkMinutes("2026-10-12T10:01:00Z", "Mon, 12 Oct 2026 10:00:00 GMT"), 1);
+    assert.equal(deletionLinkMinutes("2026-10-12T10:15:00Z", null), null);
   });
 });

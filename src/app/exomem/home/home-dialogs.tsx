@@ -20,6 +20,10 @@ export function DeleteDialog({
   onClose: () => void;
 }) {
   const sent = step === "sent";
+  const lasts =
+    linkMinutes === null
+      ? ""
+      : ` It works for ${linkMinutes} minute${linkMinutes === 1 ? "" : "s"}.`;
   return (
     <Modal
       open={step !== null}
@@ -29,9 +33,7 @@ export function DeleteDialog({
       {sent ? (
         <>
           <p className={styles.dialogText}>
-            Nothing is deleted until you open the link.
-            {linkMinutes !== null ? ` It works for ${linkMinutes} minutes.` : ""} Ignore it and your
-            Exomem stays.
+            {`Nothing is deleted until you open the link.${lasts} Ignore it and your Exomem stays.`}
           </p>
           <Button onClick={onClose}>Done</Button>
         </>

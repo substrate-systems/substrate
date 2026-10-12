@@ -69,7 +69,7 @@ async function send(
   method: "POST" | "PUT",
   path: string,
   body: Record<string, unknown>
-): Promise<{ status: number; body: Record<string, unknown> | null }> {
+): Promise<{ status: number; body: Record<string, unknown> | null; date: string | null }> {
   const response = await fetch(path, {
     method,
     headers: { "content-type": "application/json", "x-exomem-csrf": csrfCookie() },
@@ -84,7 +84,7 @@ async function send(
   } catch {
     parsed = null;
   }
-  return { status: response.status, body: record(parsed) };
+  return { status: response.status, body: record(parsed), date: response.headers.get("date") };
 }
 
 /** The refusal code and retry hint in an error envelope, when it has them. */
@@ -350,14 +350,20 @@ export async function requestExportLink(exportId: string): Promise<ExportLink> {
 // --- Account actions ---
 
 /**
- * Sends a fresh deletion confirmation. Resolves with the link's expiry when the
- * server reports one (it does not yet), so Home can say how long the link works.
+ * Sends a fresh deletion confirmation. Resolves with the link's expiry and the
+ * server's time when it answered (its Date header), so Home can say how long the
+ * link works without trusting the browser's clock.
  */
-export async function requestDeletion(): Promise<{ ok: boolean; expiresAt: string | null }> {
-  const { status, body } = await send("POST", "/api/exomem/deletion/request", {});
+export async function requestDeletion(): Promise<{
+  ok: boolean;
+  expiresAt: string | null;
+  serverDate: string | null;
+}> {
+  const { status, body, date } = await send("POST", "/api/exomem/deletion/request", {});
   return {
     ok: status >= 200 && status < 300,
     expiresAt: typeof body?.expiresAt === "string" ? body.expiresAt : null,
+    serverDate: date,
   };
 }
 

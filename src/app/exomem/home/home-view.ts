@@ -419,6 +419,22 @@ export function directoryHint(
   };
 }
 
+// --- Delete ---
+
+/**
+ * How long the emailed deletion link works, in whole minutes, from two server times:
+ * the link's expiry and the server's time when it answered. Null when either is missing.
+ */
+export function deletionLinkMinutes(
+  expiresAt: string | null,
+  serverDate: string | null
+): number | null {
+  const expires = expiresAt ? Date.parse(expiresAt) : NaN;
+  const answered = serverDate ? Date.parse(serverDate) : NaN;
+  if (Number.isNaN(expires) || Number.isNaN(answered)) return null;
+  return Math.max(1, Math.round((expires - answered) / 60_000));
+}
+
 // --- Involvement levels ---
 
 export const LEVEL_ROWS: readonly { context: LevelContext; title: string }[] = [

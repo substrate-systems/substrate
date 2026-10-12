@@ -42,6 +42,7 @@ import {
   type AccountRead,
   activityFacts,
   banner,
+  deletionLinkMinutes,
   exportRefusalText,
   exportView,
   firstNoteLine,
@@ -360,21 +361,20 @@ export default function HomeClient() {
 
   async function onSendDeletion() {
     setDeleteStep("sending");
+    // An answer moves the dialog on only while it still waits; a closed dialog stays closed.
+    const settle = (step: DeleteStep) =>
+      setDeleteStep((current) => (current === "sending" ? step : current));
     try {
       const result = await requestDeletion();
       if (!result.ok) {
-        setDeleteStep("failed");
+        settle("failed");
         return;
       }
-      setDeleteMinutes(
-        result.expiresAt
-          ? Math.max(1, Math.round((Date.parse(result.expiresAt) - Date.now()) / 60_000))
-          : null
-      );
-      setDeleteStep("sent");
+      setDeleteMinutes(deletionLinkMinutes(result.expiresAt, result.serverDate));
+      settle("sent");
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
-      else setDeleteStep("failed");
+      else settle("failed");
     }
   }
 
