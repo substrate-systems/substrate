@@ -274,7 +274,8 @@ export function LevelTune({
       <div className={styles.block}>{current.block}</div>
       <div className={styles.pasteRow}>
         <span className={styles.pasteHint}>{joinedCopy.paste}</span>
-        <Button onClick={copy} aria-live="polite">
+        {/* The board's block copy button: min-width 112, the shared detail size. */}
+        <Button size="detail" onClick={copy} aria-live="polite">
           {copied ? joinedCopy.copied : joinedCopy.copy}
         </Button>
       </div>
