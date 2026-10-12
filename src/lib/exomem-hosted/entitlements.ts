@@ -270,3 +270,23 @@ export function evaluateExomemEntitlement(
     },
   };
 }
+
+/**
+ * The stored `effective_state` and `capabilities` of an entitlement that is
+ * past provisioning, not deleted and not manually suspended. The Paddle event
+ * store and the Cloud reconcile both store them from here. The event store
+ * keeps only the deleted, provisioning and suspended cases in its statement,
+ * because it reads those under the statement's lock.
+ */
+export function projectedEntitlement(
+  sourceProjection: ExomemSourceProjection,
+  bundle: ExomemEntitlementBundle
+): { effectiveState: ExomemEffectiveState; capabilities: ExomemCapability[] } {
+  const entitlement = evaluateExomemEntitlement({
+    lifecycleState: "ready",
+    sourceProjection,
+    manuallySuspended: false,
+    bundle,
+  });
+  return { effectiveState: entitlement.effectiveState, capabilities: entitlement.capabilities };
+}

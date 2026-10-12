@@ -5,6 +5,7 @@ import type {
 } from "./paddle-webhook";
 import { sql as pgSql } from "../db/pg-sql";
 import { sealExomemEmailPayload } from "./email-outbox";
+import { projectedEntitlement } from "./entitlements";
 
 export type ExomemPaddleSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -40,9 +41,14 @@ export function createSqlExomemPaddleEventStore(
       application: ExomemPaddleEventApplication
     ): Promise<ExomemPaddleStoreResult> {
       const databaseEnvironment = application.environment === "production" ? "live" : "sandbox";
-      const retainedCapabilities = application.capabilities.filter(
-        (capability) => capability === "recall" || capability === "export"
-      );
+      // The state rule for a tenant past provisioning; the statement adds the
+      // deleted, provisioning and suspended cases it reads under its lock.
+      const projection = application.sourceState
+        ? projectedEntitlement(
+            { source: "paddle", state: application.sourceState },
+            { capabilities: application.capabilities, resourceLimits: application.resourceLimits }
+          )
+        : null;
       const isSubscriptionEvent = application.eventType.startsWith("subscription.");
       const isTransactionEvent = application.eventType.startsWith("transaction.");
       const canBindSubscriptionByTransaction =
@@ -178,19 +184,16 @@ export function createSqlExomemPaddleEventStore(
                 WHEN decision.tenant_status IN ('deletion_pending', 'deleted') THEN 'deleted'
                 WHEN decision.tenant_status = 'provisioning' THEN 'provisioning'
                 WHEN decision.manual_suspended_at IS NOT NULL THEN 'suspended'
-                WHEN ${application.sourceState} IN ('active', 'trialing') THEN 'active'
-                WHEN ${application.sourceState} = 'past_due' THEN 'grace'
-                WHEN ${application.sourceState} = 'paused' THEN 'suspended'
-                WHEN ${application.sourceState} = 'cancelled' THEN 'cancelled'
-                ELSE entitlement.effective_state
+                ELSE COALESCE(${projection?.effectiveState ?? null}::text, entitlement.effective_state)
               END,
               capabilities = CASE
                 WHEN decision.tenant_status IN ('deletion_pending', 'deleted', 'provisioning')
                   OR decision.manual_suspended_at IS NOT NULL
                   THEN '[]'::jsonb
-                WHEN ${application.sourceState} IN ('active', 'trialing')
-                  THEN ${JSON.stringify(application.capabilities)}::jsonb
-                ELSE ${JSON.stringify(retainedCapabilities)}::jsonb
+                ELSE COALESCE(
+                  ${projection ? JSON.stringify(projection.capabilities) : null}::jsonb,
+                  entitlement.capabilities
+                )
               END,
               resource_limits = ${JSON.stringify(application.resourceLimits)}::jsonb,
               source_revision = ${application.revision.eventId},

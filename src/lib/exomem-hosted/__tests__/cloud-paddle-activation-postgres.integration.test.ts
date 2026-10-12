@@ -197,11 +197,10 @@ describe(
         [tenant.tenantId]
       );
       // The store's own atomic write projects `source_state` from Paddle and
-      // binds the subscription ref; `effective_state` there is a snapshot at
-      // that same instant (the tenant row is still `provisioning`, D1's
-      // admission default). The Cloud hook below is what carries the tenant
-      // to `active` -- Cloud gates on the cell's desired_state, not on this
-      // entitlement column (cloud-lifecycle.ts's tenant-mirror comment).
+      // binds the subscription ref; it stores `effective_state` as
+      // `provisioning`, because the tenant row is still `provisioning` (D1's
+      // admission default). The Cloud hook below carries the tenant to
+      // `active` and re-projects the entitlement with it.
       assert.equal(entitlement.rows[0]!.source_state, "active");
       assert.equal(entitlement.rows[0]!.provider_subscription_ref, subscriptionId);
 
@@ -222,6 +221,15 @@ describe(
         [tenant.tenantId]
       );
       assert.equal(tenantRow.rows[0]!.status, "active", "the tenant mirror followed the cell to active");
+
+      const activated = await pool!.query<{ effective_state: string; capabilities: string[] }>(
+        "SELECT effective_state, capabilities FROM exomem_entitlements WHERE tenant_id = $1",
+        [tenant.tenantId]
+      );
+      assert.deepEqual(activated.rows[0], {
+        effective_state: "active",
+        capabilities: ["capture", "recall", "export"],
+      });
 
       const replay = await dispatchVerifiedExomemPaddleEvent(application, { env: env(), store });
       assert.deepEqual(replay, { kind: "handled", outcome: "duplicate" });

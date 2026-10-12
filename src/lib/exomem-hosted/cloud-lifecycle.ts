@@ -21,6 +21,7 @@ import { enqueueDeletedEmail } from "./lifecycle-emails";
 import {
   evaluateExomemEntitlement,
   EXOMEM_ALPHA_BUNDLE,
+  projectedEntitlement,
   type EffectiveExomemEntitlement,
   type EvaluateExomemEntitlementInput,
 } from "./entitlements";
@@ -446,6 +447,25 @@ export async function reconcileCloudCellDesiredState(
         WHERE id = ${tenantId}::uuid
         RETURNING deleted_at::text AS deleted_at
       `;
+      // A Paddle event that applied while the tenant was provisioning stored
+      // the entitlement as provisioning, and no later event need come. Once
+      // the tenant runs, the entitlement takes its source state's projection,
+      // unless an event changed that source state since the read above.
+      if (mirror.status === "active" && sourceProjection) {
+        const projected = projectedEntitlement(sourceProjection, EXOMEM_ALPHA_BUNDLE);
+        await tx`
+          /* exomem-cloud:activate-entitlement */
+          UPDATE exomem_entitlements
+          SET effective_state = ${projected.effectiveState},
+              capabilities = ${JSON.stringify(projected.capabilities)}::jsonb,
+              updated_at = now()
+          WHERE tenant_id = ${tenantId}::uuid
+            AND effective_state = 'provisioning'
+            AND manual_suspended_at IS NULL
+            AND source = ${row.source}
+            AND source_state = ${row.source_state}
+        `;
+      }
       // Email 07, once: this transaction moved the cell to deleted. An
       // account deletion sends it from its finish instead
       // (cloud-deletion-finish.ts).
