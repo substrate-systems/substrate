@@ -101,7 +101,7 @@ export function exomemPaddleDunningDays(
 }
 
 function planFact(
-  row: Pick<ExomemAccountRow, "source" | "subscriptionRef">,
+  row: ExomemAccountRow,
   value: string | null
 ): Known<string, "complimentary" | "no_subscription" | "not_reported"> {
   if (row.source === "complimentary") return unknown("complimentary");
@@ -109,15 +109,9 @@ function planFact(
   return value ? known(value) : unknown("not_reported");
 }
 
-/**
- * Whether the friend price is applied: the friend discount is on the same
- * subscription the plan facts describe, and that subscription has not ended.
- * Home's plan row, email 03 and an owner's invitation all read it.
- */
-export function friendPriceApplied(
-  row: Pick<ExomemAccountRow, "source" | "subscriptionRef" | "sourceState" | "discountId">,
-  friendDiscountId: string | null
-): boolean {
+// The friend price shows on the same subscription the plan facts describe,
+// and only while that subscription has not ended.
+function friendPriceApplied(row: ExomemAccountRow, friendDiscountId: string | null): boolean {
   return (
     planFact(row, row.discountId).value !== null &&
     row.sourceState !== "cancelled" &&

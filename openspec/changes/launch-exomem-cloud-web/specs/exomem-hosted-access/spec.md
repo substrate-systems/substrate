@@ -578,10 +578,12 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 - **AND** because the subscription carries the friend discount, it records `applied` and the friend offer, and answers 200 `applied`
 - **AND** a friend offer that the tenant holds never stands in for that check
 
-#### Scenario: Owner already took the friend price through another invitation
+#### Scenario: Owner already holds the friend price through another invitation
 
-- **WHEN** an owner who took the friend price through one invitation, at signup or by answering it, chooses `keep_plan` on another friend invitation
-- **THEN** the system records `kept` for that invitation and tells its inviter nothing, and the tenant keeps the friend offer it has
+- **WHEN** an owner who took the friend price through one invitation, at signup or by answering it, opens another friend invitation, whether the friend price is on the subscription or is the offer that the next checkout applies
+- **THEN** inspect shows the friend price as unknown with the reason `friend_price_taken`, because an Exomem has one friend price
+- **AND** the decision accepts only `keep_plan` and does not call Paddle, so the tenant keeps the friend offer it has and the other inviter gets no email
+- **AND** `keep_plan` records `kept` for that invitation
 - **AND** an offer that the tenant holds from an invitation the owner never used does not count, so an answer whose update reached Paddle still records `applied`
 
 #### Scenario: Friend discount is not configured

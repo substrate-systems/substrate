@@ -10,7 +10,6 @@
 
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { normalizeAccessEmail } from "./access";
-import { friendPriceApplied } from "./account-view";
 import {
   createInviteRecord,
   executeExomemSql,
@@ -274,14 +273,14 @@ export async function recordInvitationUse(
 
 /**
  * Why an invitation offers no friend price: it is not a friend invitation
- * (or the owner is not on Paddle), or the plan already has the friend price
- * that the owner took through another invitation, or the owner's live
- * subscription is on a price other than the base price the discount is
- * restricted to, or its price was never reported.
+ * (or the owner is not on Paddle), or the owner already holds the friend
+ * price through another invitation, or the owner's live subscription is on a
+ * price other than the base price the discount is restricted to, or its price
+ * was never reported.
  */
 export type FriendPriceRefusal =
   | "not_offered"
-  | "friend_price_applied"
+  | "friend_price_taken"
   | "plan_price_differs"
   | "plan_price_unknown";
 
@@ -299,7 +298,6 @@ export type OwnerPlan = {
   subscriptionRef: string | null;
   environment: "sandbox" | "production" | null;
   priceId: string | null;
-  discountId: string | null;
   /** The invitation through which the owner took the friend price, or null. */
   friendPriceTakenThrough: string | null;
 };
@@ -340,31 +338,29 @@ function liveSubscription(plan: OwnerPlan): boolean {
 
 /**
  * Whether an existing owner may take the friend price; inspect and the
- * decision both ask this. A plan that already has the friend price, taken
- * through another invitation, gains nothing, so Paddle is not asked. The
- * friend discount is restricted to the base price, so a live subscription on
- * another price, or on a price never reported, keeps its plan only. An ended
- * or not yet paid subscription takes the offer to its next checkout, which
- * sells the base price.
+ * decision both ask this. An Exomem has one friend price: an owner who holds
+ * it through another invitation, on the subscription or as the offer that the
+ * next checkout applies, gains nothing, and Paddle is not asked. The friend
+ * discount is restricted to the base price, so a live subscription on another
+ * price, or on a price never reported, keeps its plan only. An ended or not
+ * yet paid subscription takes the offer to its next checkout, which sells the
+ * base price.
  */
 function friendPriceOffer(
   invite: { id: string; kind: ExomemInviteKind },
   plan: OwnerPlan,
-  config: { basePriceId: string | null; friendDiscountId: string | null }
+  basePriceId: string | null
 ): { offered: true } | { offered: false; reason: FriendPriceRefusal } {
   if (invite.kind !== "friend" || plan.source !== "paddle")
     return { offered: false, reason: "not_offered" };
-  // A discount with no other invitation behind it may be this invitation's
-  // own update, whose answer was lost; the decision still records it.
-  if (
-    friendPriceApplied(plan, config.friendDiscountId) &&
-    friendPriceTakenElsewhere(invite.id, plan)
-  ) {
-    return { offered: false, reason: "friend_price_applied" };
+  // Only another invitation counts: a discount that this invitation's own
+  // update put on the subscription, whose answer was lost, is still recorded.
+  if (friendPriceTakenElsewhere(invite.id, plan)) {
+    return { offered: false, reason: "friend_price_taken" };
   }
   if (!liveSubscription(plan)) return { offered: true };
   if (plan.priceId === null) return { offered: false, reason: "plan_price_unknown" };
-  if (plan.priceId !== config.basePriceId) return { offered: false, reason: "plan_price_differs" };
+  if (plan.priceId !== basePriceId) return { offered: false, reason: "plan_price_differs" };
   return { offered: true };
 }
 
@@ -389,7 +385,6 @@ export type InspectInvitationDependencies = {
   previewPrices: typeof previewExomemPrices;
   findUsable: typeof findUsableInvitation;
   basePriceId: () => string | null;
-  friendDiscountId: () => string | null;
 };
 
 /**
@@ -411,14 +406,14 @@ async function findUsableInvitation(digest: Buffer): Promise<{
       SELECT invite.id, invite.kind, invite.email_normalized::text AS email, invite.expires_at,
              invite.inviter_name, invite.note, owner.user_id AS owner_user_id,
              owner.source, owner.source_state, owner.provider_subscription_ref,
-             owner.provider_environment, owner.provider_price_id, owner.provider_discount_id,
+             owner.provider_environment, owner.provider_price_id,
              owner.offer_invite_id, owner.offer_consumed, owner.offer_consumed_by_user_id,
              owner.offer_decision
       FROM exomem_invites AS invite
       LEFT JOIN LATERAL (
         SELECT users.id AS user_id, entitlement.source, entitlement.source_state,
                entitlement.provider_subscription_ref, entitlement.provider_environment,
-               entitlement.provider_price_id, entitlement.provider_discount_id,
+               entitlement.provider_price_id,
                offer.id AS offer_invite_id, offer.consumed_at IS NOT NULL AS offer_consumed,
                offer.consumed_by_user_id AS offer_consumed_by_user_id,
                offer.decision AS offer_decision
@@ -455,7 +450,6 @@ async function findUsableInvitation(digest: Buffer): Promise<{
         provider_subscription_ref: string | null;
         provider_environment: OwnerPlan["environment"];
         provider_price_id: string | null;
-        provider_discount_id: string | null;
       } & StoredFriendOffer)
     | undefined;
   return row
@@ -475,7 +469,6 @@ async function findUsableInvitation(digest: Buffer): Promise<{
                 subscriptionRef: row.provider_subscription_ref,
                 environment: row.provider_environment,
                 priceId: row.provider_price_id,
-                discountId: row.provider_discount_id,
                 friendPriceTakenThrough: friendPriceTakenThrough(row, row.owner_user_id),
               },
             }
@@ -505,7 +498,6 @@ export async function inspectInvitation(
     previewPrices: previewExomemPrices,
     findUsable: findUsableInvitation,
     basePriceId: () => exomemPaddleBasePriceId(),
-    friendDiscountId: () => exomemPaddleFriendDiscountId(),
     ...dependencies,
   };
   const digest = tokenDigest(input.token);
@@ -524,10 +516,7 @@ export async function inspectInvitation(
   // owner signed in here always sees the usual price and whether the friend price
   // is theirs to take.
   const offer = invitation.owner
-    ? friendPriceOffer(invitation, invitation.owner.plan, {
-        basePriceId: deps.basePriceId(),
-        friendDiscountId: deps.friendDiscountId(),
-      })
+    ? friendPriceOffer(invitation, invitation.owner.plan, deps.basePriceId())
     : invitation.kind === "friend"
       ? ({ offered: true } as const)
       : ({ offered: false, reason: "not_offered" } as const);
@@ -590,7 +579,7 @@ function invitationForAnotherAddress(): ExomemHostedError {
 
 const FRIEND_PRICE_REFUSALS: Record<FriendPriceRefusal, string> = {
   not_offered: "this invitation can only keep the current plan",
-  friend_price_applied: "the current plan already has the friend price",
+  friend_price_taken: "this Exomem already has a friend price from another invitation",
   plan_price_differs: "the friend price does not apply to the current plan's price",
   plan_price_unknown: "the friend price does not apply to the current plan's price",
 };
@@ -706,7 +695,6 @@ export async function decideInvitation(
         subscriptionRef: billing.provider_subscription_ref,
         environment: billing.provider_environment,
         priceId: billing.provider_price_id,
-        discountId: billing.provider_discount_id,
         friendPriceTakenThrough: friendPriceTakenThrough(billing, input.session.userId),
       };
 
@@ -718,10 +706,7 @@ export async function decideInvitation(
       }
       if (!invite.live) throw invitationUnusable();
 
-      const offer = friendPriceOffer(invite, plan, {
-        basePriceId: deps.basePriceId(),
-        friendDiscountId: deps.friendDiscountId(),
-      });
+      const offer = friendPriceOffer(invite, plan, deps.basePriceId());
       const subscription = liveSubscription(plan)
         ? {
             subscriptionId: billing.provider_subscription_ref!,
@@ -736,7 +721,7 @@ export async function decideInvitation(
         // owner took through another invitation explains the discount: this
         // answer stays "kept", and its inviter is told nothing.
         const inForce =
-          offer.offered && subscription && !friendPriceTakenElsewhere(invite.id, plan)
+          offer.offered && subscription
             ? await friendDiscountInForce(billing, subscription, deps)
             : null;
         decision = inForce

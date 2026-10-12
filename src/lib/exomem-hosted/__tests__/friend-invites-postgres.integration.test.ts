@@ -989,7 +989,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.ok(inspection.status === "existing" && inspection.signedIn);
     assert.deepEqual(inspection.price.value?.friend, {
       value: null,
-      reason: "friend_price_applied",
+      reason: "friend_price_taken",
     });
     // The page shows no price card and no "Use Alex's friend price", only "Keep my plan as it is".
     assert.equal(friendPriceOffered(inspection), false);
@@ -1000,6 +1000,48 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       (error) => error instanceof ExomemHostedError && error.code === "FRIEND_PRICE_NOT_OFFERED"
     );
     assert.equal(paddleCalls("PATCH", "/subscriptions/").length, 0);
+    assert.equal((await invitation(second.inviteId)).consumed_at, null);
+    assert.equal(await friendOffer(owner.tenantId), first.inviteId);
+    assert.equal(
+      (await outboxRows(second.inviteId)).some((row) => row.kind === "invitation_used"),
+      false
+    );
+  });
+
+  it("offers nothing to an owner who has not paid yet and holds another invitation's friend price, and keeps that offer when the owner asks anyway", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/inspect/route");
+    const email = newAddress("unpaid");
+    const first = await issueFriendInvitation({ email });
+    // Accepting admits the person, who has not paid yet, with the first inviter's friend offer.
+    const owner = await redeemCloudInvite(first.token);
+    const second = await issueFriendInvitation({
+      email,
+      inviterEmail: newAddress("second-inviter"),
+    });
+
+    const inspected = await POST(
+      inspectRequest(second.token, {
+        ip: "203.0.113.45",
+        cookie: `exomem_session=${owner.sessionToken}`,
+      })
+    );
+    const inspection = (await inspected.json()) as InvitationInspection;
+    assert.ok(inspection.status === "existing" && inspection.signedIn);
+    assert.deepEqual(inspection.price.value?.friend, {
+      value: null,
+      reason: "friend_price_taken",
+    });
+    // The page shows no price card and no "Use Alex's friend price", only "Keep my plan as it is".
+    assert.equal(friendPriceOffered(inspection), false);
+    assert.equal(friendPriceUnchecked(inspection), false);
+
+    paddle.calls = [];
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    await assert.rejects(
+      decideInvitation({ token: second.token, choice: "use_friend_price", session }),
+      (error) => error instanceof ExomemHostedError && error.code === "FRIEND_PRICE_NOT_OFFERED"
+    );
+    assert.equal(paddle.calls.length, 0);
     assert.equal((await invitation(second.inviteId)).consumed_at, null);
     assert.equal(await friendOffer(owner.tenantId), first.inviteId);
     assert.equal(
