@@ -5,6 +5,7 @@
  */
 
 import { loadOwnerBillingAccount } from "./billing-account";
+import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import type { EnvironmentSource } from "./cloud-config";
 import { loadExomemCloudResource } from "./cloud-config";
 import { getOwnerCloudStatus } from "./cloud-status";
@@ -18,12 +19,7 @@ import {
   resolveOAuthContinuationToken,
   type OAuthContinuation,
 } from "./oauth-continuity";
-import {
-  findOAuthClientIdentity,
-  oauthClientDisplayName,
-  redirectHost,
-  type OAuthClientDisplayNameSource,
-} from "./owner-apps";
+import { findOAuthClientIdentity, oauthClientDisplayName, redirectHost } from "./owner-apps";
 import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
 import { tokenDigest } from "./security";
 
@@ -34,7 +30,7 @@ export type ConsentView =
       step: ConsentStep;
       app: {
         displayName: string;
-        /** Only `platform` is vouched for; a `client_metadata` name is the app's own claim. */
+        /** `displayNameVouched` says whether Exomem stands behind the name. */
         displayNameSource: OAuthClientDisplayNameSource;
         platform: string | null;
         /** The request's redirect is loopback: the code goes to this computer. */

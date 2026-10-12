@@ -5,6 +5,7 @@ import {
   EXOMEM_OAUTH_FORM_NONCE_COOKIE,
   EXOMEM_OAUTH_CONTINUITY_COOKIE,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
 import { loadConsentView } from "@/lib/exomem-hosted/consent-view";
 import type { ConsentStep } from "@/lib/exomem-hosted/consent-state";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
@@ -87,9 +88,9 @@ export default async function ExomemAuthorizePage({
                 " (the name this app gives itself)"}
             </dd>
           </div>
-          {/* Only a platform name is vouched for by Exomem. Any other name could
-              be chosen by anyone, so show where the authorization would go. */}
-          {view.app.displayNameSource !== "platform" && (
+          {/* A name Exomem does not vouch for could be chosen by anyone, so show
+              where the authorization would go. */}
+          {!displayNameVouched(view.app.displayNameSource) && (
             <div>
               <dt className="font-medium">Sends access to</dt>
               <dd>{view.app.loopback ? "this computer" : view.app.redirectHost}</dd>

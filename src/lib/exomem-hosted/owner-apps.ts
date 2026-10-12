@@ -8,22 +8,17 @@
  */
 
 import { validate as validUuid } from "uuid";
-import { clientPlatformName } from "./client-platforms";
+import { clientPlatformName, type OAuthClientDisplayNameSource } from "./client-platforms";
 import { loadExomemCloudResource } from "./cloud-config";
 import { revokeOwnerOAuthGrant } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { isSafeLoopbackOAuthRedirect } from "./oauth-client-admission";
 
-/**
- * Where a display name came from. Only `platform` is vouched for by this
- * server; `client_metadata` is the name the client gives itself, and
- * `redirect_host` is the host its authorization codes are sent to.
- */
-export type OAuthClientDisplayNameSource = "client_metadata" | "platform" | "redirect_host";
-
 export type OAuthClientIdentity = {
-  /** The `client_name` the client declared, or null when it declared none. */
+  /** The stored `client_name`, or null when the client has none. */
   clientName: string | null;
+  /** `admission_mode`, a closed set fixed by its CHECK constraint (migration 0025). */
+  admissionMode: string;
   platform: string | null;
   redirectUris: string[];
 };
@@ -48,15 +43,20 @@ export function redirectHost(redirectUri: string): string {
 }
 
 /**
- * The name to show for a client: its declared name, else its platform's name,
+ * The name to show for a client: its stored name, else its platform's name,
  * else the host of `fallbackRedirectUri`.
  */
 export function oauthClientDisplayName(
-  client: Pick<OAuthClientIdentity, "clientName" | "platform">,
+  client: Pick<OAuthClientIdentity, "clientName" | "admissionMode" | "platform">,
   fallbackRedirectUri: string
 ): { displayName: string; displayNameSource: OAuthClientDisplayNameSource } {
-  const declared = client.clientName?.trim();
-  if (declared) return { displayName: declared, displayNameSource: "client_metadata" };
+  const stored = client.clientName?.trim();
+  if (stored) {
+    // A pinned client exists only because the operator registered it, so its
+    // name is the operator's. Every other client wrote its own name.
+    const source = client.admissionMode === "pinned" ? "operator" : "client_metadata";
+    return { displayName: stored, displayNameSource: source };
+  }
   const platformName = clientPlatformName(client.platform);
   if (platformName) return { displayName: platformName, displayNameSource: "platform" };
   return { displayName: redirectHost(fallbackRedirectUri), displayNameSource: "redirect_host" };
@@ -83,7 +83,7 @@ export async function findOAuthClientIdentity(
   const { rows } = await executeExomemSql`
     /* exomem:find-oauth-client-identity */
     SELECT to_jsonb(client) ->> 'client_name' AS client_name,
-           client.client_platform, client.redirect_uris
+           client.admission_mode, client.client_platform, client.redirect_uris
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
   `;
@@ -91,6 +91,7 @@ export async function findOAuthClientIdentity(
   return row
     ? {
         clientName: row.client_name,
+        admissionMode: row.admission_mode,
         platform: row.client_platform,
         redirectUris: row.redirect_uris,
       }
@@ -101,8 +102,8 @@ type AppRow = {
   id: string;
   created_at: string | Date;
   updated_at: string | Date;
-  revoked: boolean;
   client_name: string | null;
+  admission_mode: string;
   client_platform: string | null;
   redirect_uris: string[];
 };
@@ -120,9 +121,8 @@ async function ownerAppRows(
   const { rows } = await sql`
     /* exomem:owner-app-grants */
     SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at,
-           oauth_grant.revoked_at IS NOT NULL AS revoked,
            to_jsonb(client) ->> 'client_name' AS client_name,
-           client.client_platform, client.redirect_uris
+           client.admission_mode, client.client_platform, client.redirect_uris
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
@@ -132,6 +132,10 @@ async function ownerAppRows(
       AND oauth_grant.resource = ${resource}
       AND NOT COALESCE((to_jsonb(client) ->> 'first_party')::boolean, false)
       AND (${input.grantId}::uuid IS NULL OR oauth_grant.id = ${input.grantId}::uuid)
+      -- The list reads live grants only, which lets it use the partial index on
+      -- live grants. Disconnect by id also sees a revoked grant, so a repeat
+      -- disconnect still answers 200.
+      AND (${input.grantId}::uuid IS NOT NULL OR oauth_grant.revoked_at IS NULL)
     ORDER BY oauth_grant.updated_at DESC, oauth_grant.id
   `;
   return rows as AppRow[];
@@ -149,22 +153,24 @@ export async function listOwnerApps(owner: {
   const clock = await executeExomemSql`SELECT now() AS server_time`;
   const serverTime = new Date(clock.rows[0]!.server_time as string | Date).toISOString();
   const rows = await ownerAppRows(executeExomemSql, { ...owner, grantId: null });
-  const apps = rows
-    .filter((row) => !row.revoked)
-    .map(
-      (row): OwnerApp => ({
-        id: String(row.id),
-        ...oauthClientDisplayName(
-          { clientName: row.client_name, platform: row.client_platform },
-          row.redirect_uris[0]!
-        ),
-        platform: row.client_platform,
-        kind: clientKind(row.redirect_uris),
-        redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
-        connectedAt: new Date(row.created_at).toISOString(),
-        lastAuthorizedAt: new Date(row.updated_at).toISOString(),
-      })
-    );
+  const apps = rows.map(
+    (row): OwnerApp => ({
+      id: String(row.id),
+      ...oauthClientDisplayName(
+        {
+          clientName: row.client_name,
+          admissionMode: row.admission_mode,
+          platform: row.client_platform,
+        },
+        row.redirect_uris[0]!
+      ),
+      platform: row.client_platform,
+      kind: clientKind(row.redirect_uris),
+      redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
+      connectedAt: new Date(row.created_at).toISOString(),
+      lastAuthorizedAt: new Date(row.updated_at).toISOString(),
+    })
+  );
   return { serverTime, apps };
 }
 

@@ -582,8 +582,8 @@ describe(
         before(async () => {
           await pool!.query(
             `ALTER TABLE exomem_oauth_clients
-               ADD COLUMN client_name text,
-               ADD COLUMN first_party boolean NOT NULL DEFAULT false`
+               ADD COLUMN IF NOT EXISTS client_name text,
+               ADD COLUMN IF NOT EXISTS first_party boolean NOT NULL DEFAULT false`
           );
         });
 
@@ -610,7 +610,7 @@ describe(
           return { clientId, redirectUri: input.redirectUri };
         }
 
-        it("names each app by its declared name, else its platform, else its redirect host", async () => {
+        it("names each app by its stored name, else its platform, else its redirect host", async () => {
           const owner = await newOwner();
           const named = await newCimdClient("claude");
           await pool!.query(
@@ -618,10 +618,15 @@ describe(
             [named.clientId]
           );
           const platformOnly = await newCimdClient("openai");
+          const operatorNamed = await newPinnedClient({
+            redirectUri: "https://cli.example.test/callback",
+            clientName: "Example CLI",
+          });
           const local = await newPinnedClient({ redirectUri: "http://127.0.0.1/callback" });
           const grants = {
             named: (await connect(owner, named)).grantId,
             platformOnly: (await connect(owner, platformOnly)).grantId,
+            operatorNamed: (await connect(owner, operatorNamed)).grantId,
             local: (await connect(owner, local)).grantId,
           };
 
@@ -651,6 +656,13 @@ describe(
                 displayNameSource: "platform",
                 kind: "web",
                 redirectHosts: [new URL(platformOnly.redirectUri).hostname],
+              },
+              {
+                id: grants.operatorNamed,
+                displayName: "Example CLI",
+                displayNameSource: "operator",
+                kind: "web",
+                redirectHosts: ["cli.example.test"],
               },
               {
                 id: grants.local,
@@ -684,10 +696,12 @@ describe(
         // A client can declare any name, including another product's. The page
         // must be able to show where the code would really go.
         it("gives the consent page the redirect host of an app that names itself", async () => {
-          const impostor = await newPinnedClient({
-            redirectUri: "https://evil.example.test/cb",
-            clientName: "Claude",
-          });
+          // A metadata document on an admitted host can declare any client_name.
+          const impostor = await newCimdClient("openai");
+          await pool!.query(
+            "UPDATE exomem_oauth_clients SET client_name = 'Claude' WHERE client_id = $1",
+            [impostor.clientId]
+          );
           const request = await startAuthorization(impostor);
 
           const view = await loadConsentView({
@@ -701,9 +715,9 @@ describe(
           assert.deepEqual((view as Exclude<typeof view, { step: "expired" }>).app, {
             displayName: "Claude",
             displayNameSource: "client_metadata",
-            platform: null,
+            platform: "openai",
             loopback: false,
-            redirectHost: "evil.example.test",
+            redirectHost: new URL(impostor.redirectUri).hostname,
           });
         });
       });
