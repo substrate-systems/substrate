@@ -70,6 +70,15 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 30,
     windowSeconds: 60,
   },
+  // A refresh fetches a connector's lapsed metadata document again, and a
+  // document that keeps failing would otherwise be fetched on every refresh.
+  // One claude.ai client ID serves every Claude user, so the limit leaves room
+  // for the refreshes that arrive while the first fetch runs.
+  oauthConnectorMetadataRefetchClient: {
+    scope: "exomem:oauth-connector-metadata-refetch:client",
+    limit: 10,
+    windowSeconds: 10 * 60,
+  },
   oauthRevokeIp: {
     scope: "exomem:oauth-revoke:ip",
     limit: 30,

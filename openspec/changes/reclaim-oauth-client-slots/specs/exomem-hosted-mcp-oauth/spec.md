@@ -15,17 +15,23 @@ unexpired authorization code, access token or refresh token, or an authorization
 progress. The refusal SHALL be a query of that state, not a judgement of the client's age.
 
 An auto-registered CIMD client that has held a grant SHALL be retired once it is disabled
-and its metadata has been expired for a configured grace period. One that has never held a
-grant SHALL be retired once it is disabled and its last registration is older than the
-configured idle grace period. A generic client SHALL be disabled and retired once it has
-held none of the authority above for the idle grace period, measured from its registration
-and from the last creation, renewal or revocation of any of its grants.
+and its metadata has been expired for the configured lapsed connector grace period. One that
+has never held a grant SHALL be retired once it is disabled and its last registration is
+older than the configured idle client grace period. A generic client SHALL be disabled and
+retired once it has held none of the authority above for the idle client grace period,
+measured from its registration and from the last creation, renewal or revocation of any of
+its grants.
 
 Each partition's bound SHALL be stored as data that an operator changes without a schema
 migration, and a partition without a stored bound SHALL admit no new client.
 
 The token endpoint SHALL answer `invalid_client` for a client identifier that names no
 client, or names a retired one, and SHALL answer both cases alike.
+
+When a refresh needs an auto-registered client's lapsed metadata, the token endpoint SHALL
+fetch the metadata document again with the same checks as at authorization, only for a live
+refresh token of that client, and at most at a bounded rate for each client identifier. If
+the fetch or a check fails, the refresh SHALL stay refused.
 
 A retired client that returns SHALL reuse its own record, and SHALL need a free slot in its
 partition like a new client, so that revival can never take a partition past its bound.
@@ -35,14 +41,14 @@ reclaim SHALL NOT move a slot between them.
 
 #### Scenario: An expired auto-registered client returns its slot
 
-- **WHEN** an auto-registered client's metadata has been expired beyond the retirement grace period
+- **WHEN** an auto-registered client's metadata has been expired beyond the lapsed connector grace period
 - **THEN** the sweep retires it in addition to disabling it
 - **AND** the auto-registered partition reports one more slot free
 - **AND** the operator and generic partitions' headroom is unchanged
 
 #### Scenario: A connector that never connected returns its slot within a day
 
-- **WHEN** an auto-registered client that never held a grant has been disabled, and its last registration is older than the idle grace period
+- **WHEN** an auto-registered client that never held a grant has been disabled, and its last registration is older than the idle client grace period
 - **THEN** the sweep retires it, without waiting for the longer grace of a connector that held a grant
 
 #### Scenario: An operator changes a bound
@@ -55,6 +61,12 @@ reclaim SHALL NOT move a slot between them.
 
 - **WHEN** a client whose registration retired, or that was never registered, exchanges a code or a refresh token
 - **THEN** the token endpoint answers `invalid_client`, so a client that registers dynamically registers again
+
+#### Scenario: A connector's lapsed metadata is fetched again at refresh
+
+- **WHEN** an auto-registered client presents a refresh token while its metadata has lapsed
+- **THEN** the token endpoint fetches the metadata again only if the refresh token is live, and then rotates it
+- **AND** if the fetch or a check fails, the refresh stays refused
 
 #### Scenario: A returning client id reuses its own record
 
@@ -69,7 +81,7 @@ reclaim SHALL NOT move a slot between them.
 
 #### Scenario: An idle generic client returns its slot
 
-- **WHEN** a generic client has held no grant, code, token or authorization in progress for the generic retirement grace period
+- **WHEN** a generic client has held no grant, code, token or authorization in progress for the idle client grace period
 - **THEN** the sweep disables and retires it
 - **AND** the generic partition reports one more slot free
 - **AND** its client identifier is no longer admitted at any stage

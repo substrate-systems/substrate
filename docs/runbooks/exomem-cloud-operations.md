@@ -91,6 +91,11 @@ the refresh is refused and the connector's person must connect again. A lapse
 is not a revocation and burns no refresh token. An operator-registered client
 is not fetched again at refresh.
 
+The rate-limit rule `oauthConnectorMetadataRefetchClient` limits the re-fetches
+of each client ID. Past that limit, a refresh that needs the document is refused
+without a fetch. Each such refresh logs `exomem_oauth_connector_metadata_refetch`
+with an `outcome` of `refreshed`, `failed` or `rate_limited`.
+
 Operator registration and enabling of a pinned client still check the legacy
 Hosted staged-release and artifact rows. A follow-up change must replace that
 authority before a new pinned client can be registered.

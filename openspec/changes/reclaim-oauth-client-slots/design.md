@@ -98,8 +98,8 @@ the operator partition and comes back only through operator paths, which this ch
 not touch.
 
 A connector that never held a grant retires sooner: once its last registration is older
-than the idle grace that generic clients use (default 24 hours). Such a connector never
-connected anyone, and a flood of connector registrations then clears in a day.
+than the idle client grace that generic clients use (default 24 hours). Such a connector
+never connected anyone, and a flood of connector registrations then clears in a day.
 
 The grace counts from the metadata's own expiry. The sweep used to reset
 `metadata_expires_at` to the time of every run, which would restart the grace each

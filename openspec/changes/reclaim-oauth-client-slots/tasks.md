@@ -53,10 +53,11 @@
 - [x] 4.7 A generic client retires only after its grace, counted from its last grant activity, and its identifier then stops working
 - [x] 4.8 The database refuses to enable a retired client and to retire the first-party client
 - [x] 4.9 The reconcile job runs the sweep beside its other lanes and reports a sweep failure
-- [x] 4.10 A connector that never held a grant retires after the idle grace; one that held a grant waits for the lapsed grace
+- [x] 4.10 A connector that never held a grant retires after the idle client grace; one that held a grant waits for the lapsed connector grace
 - [x] 4.11 A bound changed in its table applies to the next registration
 - [x] 4.12 The token endpoint answers `invalid_client` for a client that holds no registration, on both grant types
 - [x] 4.13 The operator enable action refuses a retired client
+- [x] 4.14 A refresh fetches a connector's lapsed metadata again only for a live refresh token, within a limit for each client ID, and a failed fetch keeps the refusal
 
 ## 5. Production capacity
 

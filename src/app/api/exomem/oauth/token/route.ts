@@ -108,21 +108,43 @@ async function refusedGrant(
   );
 }
 
+type ConnectorMetadataRefetchOutcome = "refreshed" | "failed" | "rate_limited";
+
+// The outcome only: the client ID and the refresh token stay out of this line,
+// and the rejection line that follows a failure names the client.
+function logConnectorMetadataRefetch(outcome: ConnectorMetadataRefetchOutcome): void {
+  const record = { event: "exomem_oauth_connector_metadata_refetch", outcome };
+  if (outcome === "refreshed") console.info(record);
+  else console.warn(record);
+}
+
 // A connector's metadata document is cached for a day, and refresh needs it
 // fresh. Without this, a ChatGPT connector stopped working a day after its last
 // authorization. Fetch the document again, through the same allowlist, bounds
 // and checks as at authorization, only for a live refresh token of that
-// connector. Any failure leaves the refresh refused.
+// connector. The limit is taken after that check, so a caller that knows only
+// the public client ID cannot spend it. Any failure leaves the refresh refused.
 async function refetchedConnectorMetadata(
   clientId: string,
   refreshDigest: Buffer
 ): Promise<boolean> {
   try {
     if (!(await refreshAwaitsCimdMetadata({ clientId, refreshDigest }))) return false;
-    return (await registerAdmittedCimdClient(clientId)) !== null;
+    if (
+      !(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthConnectorMetadataRefetchClient, clientId))
+    ) {
+      logConnectorMetadataRefetch("rate_limited");
+      return false;
+    }
   } catch {
     return false;
   }
+  const refreshed = await registerAdmittedCimdClient(clientId).then(
+    (client) => client !== null,
+    () => false
+  );
+  logConnectorMetadataRefetch(refreshed ? "refreshed" : "failed");
+  return refreshed;
 }
 
 function invalidRequest(
