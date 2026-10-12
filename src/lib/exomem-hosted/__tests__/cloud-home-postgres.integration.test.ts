@@ -393,6 +393,34 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       }
     });
 
+    it("answers unavailable, not an error, while an operator has disabled the Home client", async () => {
+      const alice = await owner();
+      const cell = fakeCell(() => assert.fail("no token exists to call the cell with"));
+      await pool.query(
+        "UPDATE exomem_oauth_clients SET enabled = false WHERE admission_mode = 'first_party'"
+      );
+      try {
+        const levels = await getLevels(alice, cell.fetchCell);
+        assert.equal(levels.status, 200);
+        assert.deepEqual(await json(levels), {
+          state: "unavailable",
+          reason: "HOME_CLIENT_DISABLED",
+        });
+        const live = await handleCloudHomeLiveRequest(
+          browserRequest(alice, "GET", "/api/exomem/cloud/home/live"),
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+        assert.deepEqual(await json(live), {
+          state: "unavailable",
+          reason: "HOME_CLIENT_DISABLED",
+        });
+      } finally {
+        await pool.query(
+          "UPDATE exomem_oauth_clients SET enabled = true WHERE admission_mode = 'first_party'"
+        );
+      }
+    });
+
     it("answers a stopped or starting cell as unavailable without minting a token or calling it", async () => {
       const stopped = await owner({ desired: "stopped" });
       const starting = await owner({ ready: false });

@@ -114,7 +114,9 @@ export type CloudHomeUnavailableReason =
   | "CELL_STOPPED"
   | "CELL_NOT_READY"
   | "CELL_UNREACHABLE"
-  | "CELL_OUTDATED";
+  | "CELL_OUTDATED"
+  // An operator disabled the first-party Home client (runbook), so no token is minted.
+  | "HOME_CLIENT_DISABLED";
 export type CloudHomeUnavailable = { state: "unavailable"; reason: CloudHomeUnavailableReason };
 export type CloudHomeLiveLevels = {
   state: "live";
@@ -217,16 +219,22 @@ async function servingCell(
 /**
  * Mints one Home access token in one transaction: upsert the tenant's Home
  * grant, reuse or open its token family, and store the token's digest with a
- * 120-second expiry. The raw token exists only in the returned wrapper.
+ * 120-second expiry. The raw token exists only in the returned wrapper. Null
+ * when the Home client is disabled.
  */
 async function mintHomeAccessToken(
   principal: CloudHomePrincipal,
   resource: string
-): Promise<SensitiveSecret> {
+): Promise<SensitiveSecret | null> {
   await assertPrincipalOwnsCloudCell(principal.tenantId);
   const token = new SensitiveSecret(generateExternalToken());
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
-  await withExomemTransaction(async (tx) => {
+  return withExomemTransaction(async (tx) => {
+    const homeClient = await tx`
+      SELECT id FROM exomem_oauth_clients WHERE admission_mode = 'first_party' AND enabled
+    `;
+    const homeClientId = (homeClient.rows[0] as { id: string } | undefined)?.id;
+    if (!homeClientId) return null;
     // One active grant per owner, client and resource, so the mint reuses
     // only a grant that it could have written itself. It retires first a
     // Home grant from a reviewer credential that this session no longer
@@ -271,15 +279,13 @@ async function mintHomeAccessToken(
             SELECT 1 FROM exomem_oauth_account_blocks AS block
             WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
           )
-      ), home_client AS (
-        SELECT id FROM exomem_oauth_clients WHERE admission_mode = 'first_party' AND enabled
       )
       INSERT INTO exomem_oauth_grants (
         user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id
       )
-      SELECT principal.user_id, principal.tenant_id, home_client.id, ${resource},
+      SELECT principal.user_id, principal.tenant_id, ${homeClientId}::uuid, ${resource},
              ${HOME_SCOPES}::text[], false, ${reviewerCredentialId}::uuid
-      FROM principal CROSS JOIN home_client
+      FROM principal
       ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
       DO UPDATE SET updated_at = now()
       RETURNING id, client_id
@@ -323,8 +329,8 @@ async function mintHomeAccessToken(
         now() + make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS}), ${reviewerCredentialId}::uuid
       )
     `;
+    return token;
   });
-  return token;
 }
 
 /** One stateless `tools/call` through the gateway, read through a schema. */
@@ -335,6 +341,10 @@ async function callHomeTool(
 ): Promise<CellAnswer> {
   const { mcpUrl } = loadExomemCloudResource(dependencies.env);
   const token = await mintHomeAccessToken(principal, mcpUrl);
+  if (!token) {
+    logUnavailable(call.name, "HOME_CLIENT_DISABLED");
+    return { kind: "unavailable", view: unavailable("HOME_CLIENT_DISABLED") };
+  }
   const requestId = randomUUID();
   let response: Response;
   try {

@@ -107,9 +107,10 @@ Migration 0066 stops if an ordinary client already holds the id
 `exomem-cloud-home`. Rename or delete that client, then run the migration again.
 
 The operator page can disable the Home client. The gateway then refuses the
-tokens that Home minted, and Home's levels and activity requests fail with
-`500`. The page cannot enable the client again, because the enable path needs
-a client artifact that this client does not have. To enable it again:
+tokens that Home minted, and Home shows levels and activity as unavailable
+(`HOME_CLIENT_DISABLED`). The page cannot enable the client again, because the
+enable path needs a client artifact that this client does not have. To enable
+it again:
 
 1. Run this statement against the production database:
 
