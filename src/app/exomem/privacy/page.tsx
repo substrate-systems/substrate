@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { loadExportTtlHours } from "@/lib/exomem-hosted/cloud-config";
 import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
@@ -10,8 +11,9 @@ export const metadata = buildMetadata({
 });
 
 export default function ExomemPrivacyPage() {
+  const exportTtlHours = loadExportTtlHours();
   return (
-    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 10 October 2026">
+    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 12 October 2026">
       <p>
         This policy covers the Exomem Cloud service and its public product, account, OAuth, and
         support pages. The data controller is Substrate Systems OÜ (Estonian registry code
@@ -98,26 +100,38 @@ export default function ExomemPrivacyPage() {
         We use service providers only as needed to operate Exomem: Vercel for the public web,
         sign-in and account service; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
-        region; Cloudflare for DNS; Brevo for transactional email; and Paddle as merchant of record
-        when billing is enabled. Until 10 October 2026, Neon also held a frozen copy of the account
-        database from before it moved to our own servers; that copy is now deleted. The public site
-        may use privacy-filtered Vercel/PostHog analytics; Exomem account identifiers, email,
-        knowledge content, tokens, and private routes are filtered from those events. Providers may
-        process data outside the EEA under the safeguards required by applicable data-protection
-        law.
+        region, and for exports until they expire; Cloudflare for DNS; Brevo for transactional
+        email; and Paddle as merchant of record when billing is enabled. Until 10 October 2026, Neon
+        also held a frozen copy of the account database from before it moved to our own servers;
+        that copy is now deleted. The public site may use privacy-filtered Vercel/PostHog analytics;
+        Exomem account identifiers, email, knowledge content, tokens, and private routes are
+        filtered from those events. Providers may process data outside the EEA under the safeguards
+        required by applicable data-protection law.
       </p>
 
       <h2>Retention, export, and deletion</h2>
       <p>
         Your canonical knowledge content remains yours and is kept while your Cloud account is
-        active. You can ask us for a portable export, which we encrypt to a key only you hold, and
-        you can start verified account deletion from the product. Exports and access credentials
-        expire on their stated schedule. On deletion we revoke sessions and client access, close
-        routing, and destroy the tenant&apos;s compute, storage, and keys through the verified
-        deletion workflow rather than merely hiding the account. Minimal billing, security,
-        deletion-proof, and legal records may be retained for the period required to resolve
-        disputes, prevent abuse, demonstrate deletion, or meet accounting and legal duties; they do
-        not contain the deleted knowledge store.
+        active. You can start an export from Home. An export is a plain ZIP of your Markdown notes
+        and files, not encrypted to a key of your own. We keep it in our object storage, which the
+        storage provider encrypts at rest, for up to {exportTtlHours} hours, and then we delete it.
+        You can download it only from Home, through a link that works for 5 minutes.
+      </p>
+      <p>
+        You can start verified account deletion from the product. Access credentials expire on their
+        stated schedule. On deletion we revoke sessions and client access, close routing, and
+        destroy the tenant&apos;s compute, storage, and keys through the verified deletion workflow
+        rather than merely hiding the account. Minimal billing, security, deletion-proof, and legal
+        records may be retained for the period required to resolve disputes, prevent abuse,
+        demonstrate deletion, or meet accounting and legal duties; they do not contain the deleted
+        knowledge store.
+      </p>
+      <p>
+        When you ask to start Exomem, we keep your email address with your place on the waitlist or
+        with your start link. If you do not open an account, we delete it 180 days after your last
+        request or after your last start link expires, whichever is later. We keep the address and
+        content of each email we send you for 30 days after we send it or stop trying, and then we
+        remove them.
       </p>
 
       <h2>Your choices and rights</h2>

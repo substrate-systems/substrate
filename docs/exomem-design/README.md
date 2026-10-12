@@ -89,7 +89,7 @@ Exomem is a sibling brand inside the Substrate system: it inherits Substrate's r
 | `--fg-tertiary` | `#5C574D` | `#B5AFA3` | Faint labels, disabled |
 | `--exo-amber` | `#FFB000` | `#A86E00` | Live / current only |
 
-**Decision, 2026-10-12, approved by the product owner (AA text):** light `--fg-muted` is `#736E64` (was `#7A756B`); a new `--exo-amber-text` (dark `#FFB000`, light `#9A6500`) colours amber text, and `--exo-amber` stays for lines, dots, fills and the focus ring; switched-off filter chips use `--fg-muted`, and `--fg-tertiary` is for disabled controls and non-text marks only. The table above keeps the handoff values; the code holds the current ones.
+**Decision, 2026-10-12, approved by the product owner (AA text):** light `--fg-muted` is `#736E64` (was `#7A756B`); a new `--exo-amber-text` (dark `#FFB000`, light `#A06600`) colours amber text, and `--exo-amber` stays for lines, dots, fills and the focus ring; switched-off filter chips use `--fg-muted`, and `--fg-tertiary` is for disabled controls and non-text marks only. The table above keeps the handoff values; the code holds the current ones. On the same day, the owner moved light `--exo-amber-text` from `#9A6500` to `#A06600`. It is the smallest step from `--exo-amber` that reaches 4.5:1 on `--bg-base`, so amber text keeps the colour of amber fills.
 
 Borders are ink at low alpha: rule `.07`, card `.10`, input/chip `.14`, hover `.34`. Amber line `.5` for "current" chips and amber buttons. Landing-only extra grounds (hero bands, footer) are in `Landing-Page.dc.html` (`PAL`).
 

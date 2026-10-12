@@ -122,7 +122,7 @@
   --fg-dim-struck: #8a857b;
 
   --exo-amber: #a86e00;   /* deep amber: lines, dots, glows, fills, borders, focus ring */
-  --exo-amber-text: #9a6500;
+  --exo-amber-text: #a06600;   /* the smallest step from --exo-amber that reaches 4.5:1 on --bg-base; owner-chosen over #9a6500 */
 
   --ink-rgb: 26, 24, 20;
   --amber-rgb: 168, 110, 0;

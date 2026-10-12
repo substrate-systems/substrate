@@ -6,9 +6,9 @@
  * home-state.ts render it.
  *
  * Reads only `exomem_cloud_cells` (desired_state, observed_state, ready,
- * last_error_code) and `exomem_entitlements.source_state`, to distinguish an
- * unpaid invite from a suspended cell -- never memory content, which this
- * table has none of.
+ * last_error_code, hold_kind and the measured disk use) and
+ * `exomem_entitlements.source_state`, to distinguish an unpaid invite from a
+ * suspended cell -- never memory content, which this table has none of.
  */
 
 import { executeExomemSql } from "./db";
@@ -30,6 +30,8 @@ export type LifecycleStatus = {
     | "CELL_PREPARING"
     | "CELL_READY"
     | "CELL_NOT_READY"
+    | "CELL_PAUSED_FOR_EXPORT"
+    | "CELL_PAUSED_FOR_HOLD"
     | "EXOMEM_SUSPENDED"
     | "EXOMEM_DELETED";
   requestId?: string;
@@ -51,7 +53,24 @@ type CloudCellStatusRow = {
     | null;
   ready: boolean;
   last_error_code: string | null;
+  // cellctl's hold on the volume; `export` since migration 0066.
+  hold_kind?: string | null;
   source_state: string | null;
+};
+
+/**
+ * The cell's measured disk use (task 5.5): the latest backup or export Job's
+ * report, never a plan allowance. Unknown until a Job has reported.
+ */
+export type CloudStorageObservation =
+  | { state: "known"; used_bytes: number; filesystem_bytes: number; observed_at: string }
+  | { state: "unknown" };
+
+type CloudCellUsageRow = {
+  desired_state: CloudCellStatusRow["desired_state"];
+  used_bytes: string | null;
+  filesystem_bytes: string | null;
+  usage_observed_at: Date | null;
 };
 
 export function mapCloudCellToLifecycleStatus(
@@ -80,6 +99,18 @@ export function mapCloudCellToLifecycleStatus(
   if (row.observed_state === "failed" || row.last_error_code) {
     return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
   }
+  // A hold stops the runtime: cellctl stops the cell (observed `stopping`,
+  // then `stopped`) until the held work ends, and it reports `stopping` again
+  // once it releases the hold, before the cell starts. None of this is a
+  // fault. The owner asked for an export, so its pause has its own code; a
+  // backup, upgrade, restore or import hold, and the `stopping` after any
+  // hold, is maintenance that ends by itself.
+  if (row.hold_kind === "export" && !row.ready) {
+    return { state: "degraded", code: "CELL_PAUSED_FOR_EXPORT", retryable: true };
+  }
+  if ((row.hold_kind && !row.ready) || row.observed_state === "stopping") {
+    return { state: "degraded", code: "CELL_PAUSED_FOR_HOLD", retryable: true };
+  }
   if (row.observed_state === row.desired_state && row.ready) {
     return { state: "ready", code: "CELL_READY", retryable: false };
   }
@@ -90,16 +121,36 @@ export function mapCloudCellToLifecycleStatus(
   ) {
     return { state: "preparing", code: "CELL_PREPARING", retryable: true };
   }
-  // Any other observed/desired mismatch (e.g. stopping or deleting while
-  // desired_state calls for the cell to be live) is a transitional or
+  // Any other observed/desired mismatch (e.g. stopped without a hold, or
+  // deleting, while desired_state calls for the cell to be live) is a
   // controller-side anomaly.
   return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
 }
 
-export async function getOwnerCloudStatus(tenantId: string): Promise<LifecycleStatus> {
+function mapCloudCellToStorage(row: CloudCellUsageRow | undefined): CloudStorageObservation {
+  if (!row || row.desired_state === "deleted") return { state: "unknown" };
+  if (row.used_bytes === null || row.filesystem_bytes === null || !row.usage_observed_at) {
+    return { state: "unknown" };
+  }
+  const used = Number(row.used_bytes);
+  const total = Number(row.filesystem_bytes);
+  // A size past JSON's exact integer range would be shown rounded; say unknown instead.
+  if (!Number.isSafeInteger(used) || !Number.isSafeInteger(total)) return { state: "unknown" };
+  return {
+    state: "known",
+    used_bytes: used,
+    filesystem_bytes: total,
+    observed_at: row.usage_observed_at.toISOString(),
+  };
+}
+
+async function readNewestCloudCell(
+  tenantId: string
+): Promise<(CloudCellStatusRow & CloudCellUsageRow) | undefined> {
   const { rows } = await executeExomemSql`
     /* exomem-cloud:home-status */
     SELECT cell.desired_state, cell.observed_state, cell.ready, cell.last_error_code,
+           cell.hold_kind, cell.used_bytes, cell.filesystem_bytes, cell.usage_observed_at,
            entitlement.source_state
     FROM exomem_cloud_cells AS cell
     LEFT JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
@@ -107,5 +158,17 @@ export async function getOwnerCloudStatus(tenantId: string): Promise<LifecycleSt
     ORDER BY cell.created_at DESC
     LIMIT 1
   `;
-  return mapCloudCellToLifecycleStatus(rows[0] as CloudCellStatusRow | undefined);
+  return rows[0] as (CloudCellStatusRow & CloudCellUsageRow) | undefined;
+}
+
+export async function getOwnerCloudStatus(tenantId: string): Promise<LifecycleStatus> {
+  return mapCloudCellToLifecycleStatus(await readNewestCloudCell(tenantId));
+}
+
+/** The status poll's database-only facts: lifecycle and measured storage. */
+export async function getOwnerCloudHomeStatus(
+  tenantId: string
+): Promise<{ status: LifecycleStatus; storage: CloudStorageObservation }> {
+  const row = await readNewestCloudCell(tenantId);
+  return { status: mapCloudCellToLifecycleStatus(row), storage: mapCloudCellToStorage(row) };
 }

@@ -73,7 +73,7 @@ An export SHALL be a plain ZIP of Markdown files and attachments. The system SHA
 
 ### Requirement: Owners start exports from Home
 
-An owner SHALL start an export from Home while the tenant is not deleting and the cell is running, read-only or stopped and has run before. Home SHALL show one display state: none, packing, ready until a computed time, expired, or failed with a code. A new export SHALL replace a ready one. The system SHALL allow three export requests in 24 hours.
+An owner SHALL start an export from Home while the tenant is not deleting and the cell is running, read-only or stopped and has run before. Home SHALL show one display state: none, packing, ready until a computed time, expired with the time it expired (none when a newer export replaced it), or failed with a code. A new export SHALL replace a ready one. The system SHALL allow three export requests in 24 hours.
 
 #### Scenario: Owner exports a running account
 
@@ -113,7 +113,7 @@ An owner SHALL start an export from Home while the tenant is not deleting and th
 
 ### Requirement: Export downloads start from Home and the ready email is sent once
 
-The download link for an export SHALL come only from a Home request. Each link SHALL expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
+The download link for an export SHALL come only from a Home request, and only while the export is ready and unexpired, checked on every read until the link is returned. Each link SHALL be an https URL, expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
 
 #### Scenario: Owner downloads a ready export
 
@@ -124,6 +124,16 @@ The download link for an export SHALL come only from a Home request. Each link S
 
 - **WHEN** the cell controller has not finished the link
 - **THEN** the system answers 202 `pending` and Home asks again
+
+#### Scenario: Export fails while the request waits
+
+- **WHEN** the export fails after the request and before the controller's link arrives
+- **THEN** the system answers 409 `EXPORT_NOT_READY` and never returns the link
+
+#### Scenario: Controller issues a link that is not https
+
+- **WHEN** the controller's link is not an https URL
+- **THEN** the system answers 502 `EXPORT_LINK_INVALID` and neither returns nor logs the link
 
 #### Scenario: Export has expired
 
@@ -190,12 +200,17 @@ Home SHALL show the level for each context (chat apps and coding agents) and SHA
 
 ### Requirement: The live activity line is content free
 
-Home SHALL show recent assistant activity as client name, action (recalled or saved), item count and time. The activity data MUST NOT contain note titles, paths, queries or content. Home SHALL read it on load, on tab focus and every 30 seconds while the tab is visible. When the activity is unavailable, Home SHALL show nothing in its place, and MUST NOT show zero.
+Home SHALL show recent assistant activity as client family, action (recalled or saved), item count and time. The client family MUST be one of the cell's closed set of families, else unknown. The activity data MUST NOT contain note titles, paths, queries or content. Home SHALL read it on load, on tab focus and every 30 seconds while the tab is visible. When the activity is unavailable, Home SHALL show nothing in its place, and MUST NOT show zero.
 
 #### Scenario: Assistant recalls notes
 
 - **WHEN** an assistant recalls five notes
 - **THEN** Home shows the client, "recalled", the count 5 and a time that updates in the browser
+
+#### Scenario: Client is not a known family
+
+- **WHEN** the cell names a client outside its set of client families
+- **THEN** Home receives the event with an unknown client and never the cell's text
 
 #### Scenario: Same client repeats an action
 

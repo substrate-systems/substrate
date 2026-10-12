@@ -5,6 +5,7 @@ import { expireCloudAwaitingCheckoutTenants } from "@/lib/exomem-hosted/cloud-ad
 import { runBoundedCloudReconcile } from "@/lib/exomem-hosted/cloud-lifecycle";
 import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-cancellation-notice";
 import { runBoundedCloudDeletionFinish } from "@/lib/exomem-hosted/cloud-deletion-finish";
+import { pruneExpiredOAuthState } from "@/lib/exomem-hosted/oauth-store";
 import {
   promoteWaitlistedPeople,
   pruneStaleSelfServeRecords,
@@ -120,14 +121,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
   try {
-    const [paddleResult, cloudResult] = await Promise.allSettled([
+    // The OAuth lane deletes expired codes and tokens and gives back the slots
+    // of clients that can no longer be used (reclaim-oauth-client-slots). It is
+    // bounded per run and runs beside the other lanes, so a failure in any one
+    // still lets the others finish this tick before the route reports it.
+    const [paddleResult, cloudResult, oauthResult] = await Promise.allSettled([
       runBoundedPaddleReconcile({
         maxSubscriptions: 5,
         timeBudgetMs: 8_000,
       }),
       runCloudLane(),
+      pruneExpiredOAuthState(),
     ]);
-    if (paddleResult.status === "rejected" || cloudResult.status === "rejected") {
+    if (oauthResult.status === "rejected") {
+      console.error("exomem-oauth: expired state and client retirement lane failed");
+    }
+    if (
+      paddleResult.status === "rejected" ||
+      cloudResult.status === "rejected" ||
+      oauthResult.status === "rejected"
+    ) {
       throw new Error("EXOMEM_RECONCILIATION_LANE_FAILED");
     }
     const paddle = paddleResult.value;
@@ -145,6 +158,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             failed: paddle.failed,
           },
           cloud: cloudResult.value,
+          oauth: {
+            disabledCimd: oauthResult.value.disabledCimd,
+            retiredAutoRegistered: oauthResult.value.retired.autoRegistered,
+            retiredGeneric: oauthResult.value.retired.generic,
+          },
         },
       },
       { headers: { "cache-control": "no-store" } }

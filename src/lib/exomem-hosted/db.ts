@@ -1164,6 +1164,27 @@ export async function takeRateLimit(input: {
   return Boolean((rows[0] as { allowed?: boolean } | undefined)?.allowed);
 }
 
+// Whether the bucket would admit one more take, without taking one. A limit
+// that counts only failures reads this before the attempt and takes after a
+// failure, so attempts that succeed never fill the bucket.
+export async function rateLimitHasRoom(input: {
+  scope: string;
+  keyDigest: string;
+  limit: number;
+  windowSeconds: number;
+}): Promise<boolean> {
+  const { rows } = await sql`
+    /* exomem:rate-limit-has-room */
+    SELECT NOT EXISTS (
+      SELECT 1 FROM exomem_rate_limit_buckets
+      WHERE scope = ${input.scope} AND key_digest = ${input.keyDigest}
+        AND window_started_at > now() - (${input.windowSeconds} * interval '1 second')
+        AND admitted_count >= ${input.limit}
+    ) AS has_room
+  `;
+  return Boolean((rows[0] as { has_room?: boolean } | undefined)?.has_room);
+}
+
 export async function pruneStaleRateLimitBuckets(
   retentionSeconds: number,
   limit = 1_000

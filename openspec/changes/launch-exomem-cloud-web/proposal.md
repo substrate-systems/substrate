@@ -32,11 +32,12 @@ Exomem Cloud launches with the web experience in `docs/exomem-design`: a landing
 - `exomem-tenant-control-plane`: Cloud capacity, the unpaid hold, export rows, the Home token, storage observation.
 - `exomem-hosted-entitlements`: friend price, stored subscription facts, self-serve and resubscribe checkout.
 - `exomem-home`: the awaiting-payment state, self-serve export, levels, activity, storage, plan and dates, support reference, connection polling.
+- `exomem-hosted-gateway`: the client name and context headers that the gateway sends to a Cloud cell.
 
 ## Impact
 
 - Substrate migrations 0063 to 0066 (admission and outbox, account data, friend invitations, cloud home and exports). Migration 0062 belongs to `admit-generic-mcp-clients`.
 - Substrate routes under `/api/exomem/{access,oauth,apps,account,invites,billing,cloud}`, the cron routes, and `src/app/exomem` pages and components.
 - The exomem repository (runtime, cell export, cellctl) for levels, activity, storage and export. Its own spec deltas travel with that repository.
-- The gateway changes only if a measurement confirms a client-name bug (see `design.md`).
+- The gateway names the authenticated client and its context to the cell, because a measurement confirmed the client-name bug (see `design.md`).
 - Related changes: `enable-exomem-paid-alpha-invites` is archived without syncing its deltas, and this change restates what is still true in it: paid operator invitations against Cloud capacity, the paid redemption rule, the awaiting-payment Home state and the operator page. `route-connector-consent-by-account-state` stays open for its production walk. `admit-generic-mcp-clients` supplies stored client names.

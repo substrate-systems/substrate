@@ -222,6 +222,9 @@ before(() => {
         attached.push(input);
         return { grantId: "grant-1", tenantId: "tenant-1" };
       },
+      oauthClientIsRegistered: async () => true,
+      refreshCimdMetadataState: async () => "not_eligible",
+      registerAdmittedCimdClient: async () => null,
       issueOAuthTokensFromCodeAtomic: async (input: {
         codeDigest: Buffer;
         clientId: string;

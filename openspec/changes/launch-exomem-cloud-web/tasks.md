@@ -65,7 +65,7 @@
 
 ## 5. Cell home channel, storage and export (migration 0066)
 
-- [ ] 5.1 Add migration 0066: first-party Home client with its column, usage columns, export table, `export` hold kind, and grants
+- [ ] 5.1 Add migration 0066: first-party Home client with its admission mode, usage columns, export table, `export` hold kind, and grants
 - [ ] 5.2 Add `cloud-home-mcp` with the 120-second token mint and exactly two calls
 - [ ] 5.3 Add `GET` and `PUT /api/exomem/cloud/home/levels` with revision checks and the unavailable reasons
 - [ ] 5.4 Add `GET /api/exomem/cloud/home/live` for activity and note count
@@ -77,7 +77,7 @@
 - [ ] 5.10 Exomem repository: add `cell-export` for a quiesced vault ZIP
 - [ ] 5.11 Cell controller: record usage from backup and export reports
 - [ ] 5.12 Cell controller: run the export (hold on every storage class, multipart upload, checks, ready, link, expiry, deletion)
-- [ ] 5.13 Measure whether Cloud ignores the chat apps level; add the gateway client header only if it does
+- [ ] 5.13 Send the authenticated client's name and context from the gateway to the cell (the measurement confirmed that Cloud ignored the chat apps level)
 - [ ] 5.14 Test with real PostgreSQL roles: tenant isolation, column grants, token scope, refusal after deletion
 - [ ] 5.15 Rehearse on a local cluster with the real gateway: levels, activity, storage, export on running and stopped cells
 - [ ] 5.16 Run a dedicated security review of the token mint, the export delivery path and the ledger fields

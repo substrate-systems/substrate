@@ -139,3 +139,22 @@ export function loadCloudCellImageRepository(env: EnvironmentSource = process.en
   }
   return repository;
 }
+
+/** The cell controller's default for `EXOMEM_EXPORT_TTL_HOURS`. */
+const DEFAULT_EXPORT_TTL_HOURS = 24;
+
+/**
+ * How long a ready export stays at the object store, for the privacy page.
+ * The cell controller enforces it with its own copy of the same setting, so
+ * both deployments must set the same value. A malformed value fails loudly
+ * rather than letting the policy state a time the controller does not use.
+ */
+export function loadExportTtlHours(env: EnvironmentSource = process.env): number {
+  const raw = env.EXOMEM_EXPORT_TTL_HOURS?.trim();
+  if (!raw) return DEFAULT_EXPORT_TTL_HOURS;
+  const hours = Number(raw);
+  if (!Number.isSafeInteger(hours) || hours < 1) {
+    throw new ExomemCloudConfigurationError(["EXOMEM_EXPORT_TTL_HOURS"]);
+  }
+  return hours;
+}

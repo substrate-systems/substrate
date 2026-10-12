@@ -20,6 +20,11 @@ import {
   type ActiveCloudOAuthAccessToken,
 } from "../lib/exomem-hosted/cloud-oauth";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
+import {
+  oauthClientContext,
+  oauthClientDisplayName,
+  type OAuthClientIdentity,
+} from "../lib/exomem-hosted/oauth-client-identity";
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";
 import { digestSecret } from "../lib/exomem-hosted/security";
@@ -34,6 +39,15 @@ const FORWARDED_REQUEST_HEADERS = [
   "mcp-name",
 ];
 const MCP_PARAMETER_HEADER_PREFIX = "mcp-param-";
+// The two headers that name the authenticated client to the cell. A cloud cell
+// trusts them because its bearer proves the request came from here, so the
+// gateway sets them itself: a caller's `x-exomem-*` header is refused by
+// hasForbiddenGatewayHeaders, and neither name is on the forwarding allowlist
+// or starts with MCP_PARAMETER_HEADER_PREFIX.
+const CELL_CLIENT_NAME_HEADER = "x-exomem-oauth-client";
+const CELL_CLIENT_CONTEXT_HEADER = "x-exomem-client-context";
+// RFC 9110 section 5.5: a field value this gateway sends is visible ASCII and spaces.
+const HEADER_SAFE_VALUE = /^[\x20-\x7e]+$/;
 // Security review finding 12: only these three response headers are ever
 // relayed back to the caller -- everything else the cell sends (including
 // its own cache-control, or anything else it chose to add) is dropped. The
@@ -151,6 +165,20 @@ function releaseConcurrencyWhenBodyEnds(response: Response, release: () => void)
   return new Response(stream, { status: response.status, headers: response.headers });
 }
 
+/**
+ * The client's name as the apps list shows it. A stored name that a header
+ * cannot carry falls back to the next step of the same rule (platform, then
+ * redirect host), both of which are ASCII.
+ */
+function cellClientName(client: OAuthClientIdentity): string | null {
+  const [fallbackRedirectUri] = client.redirectUris;
+  // Admission requires registered redirects, so an admitted client has one.
+  if (fallbackRedirectUri === undefined) return null;
+  const shown = oauthClientDisplayName(client, fallbackRedirectUri).displayName;
+  if (HEADER_SAFE_VALUE.test(shown)) return shown;
+  return oauthClientDisplayName({ ...client, clientName: null }, fallbackRedirectUri).displayName;
+}
+
 function errorResponse(status: number, code: string): Response {
   return Response.json({ error: code }, { status, headers: CACHE_HEADERS });
 }
@@ -209,8 +237,9 @@ export type CloudGatewayDependencies = {
 };
 
 /**
- * D3's pass-through. Every branch below is numbered to the design's own
- * ordered list.
+ * D3's pass-through. Every branch below is numbered in the order it runs.
+ * D3 lists the same steps with the IP limit before the token lookup; the
+ * Home channel's first-party exemption (launch-exomem-cloud-web) moved it.
  */
 export async function handleCloudMcpRequest(
   request: Request,
@@ -232,23 +261,29 @@ export async function handleCloudMcpRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // 3. IP rate limit, keyed on the ingress-recorded client address. Skipped
-  // entirely when there is none to key on (security review finding 6) —
-  // never collapsed into one shared bucket.
-  const ipKey = trustedIngressClientAddress(request);
-  if (ipKey === null) {
-    recordIpBucketSkip();
-  } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
-    return errorResponse(429, "RATE_LIMITED");
-  }
-
-  // 4. Bearer parse, token lookup (exact Cloud-resource match), required
-  // scopes (D2), identity rate limit and concurrency guard.
+  // 3. Bearer parse and token lookup (exact Cloud-resource match). The IP
+  // decision below needs the lookup's answer, so a refusal waits for it.
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  if (!bearer) return unauthorized(config);
-  const access = await findAccessToken(digestSecret(bearer), config.mcpUrl);
+  const access = bearer ? await findAccessToken(digestSecret(bearer), config.mcpUrl) : null;
+
+  // 4. IP rate limit, keyed on the ingress-recorded client address. Home's
+  // server calls for every owner from a few shared addresses, so a token
+  // that the lookup resolved to the first-party client, by its stored row,
+  // skips it; the identity limit below still applies to it. Every other
+  // request, valid or not, takes the IP bucket before it is answered. Skipped
+  // entirely when there is no address to key on (security review finding 6)
+  // — never collapsed into one shared bucket.
+  if (!access?.firstParty) {
+    const ipKey = trustedIngressClientAddress(request);
+    if (ipKey === null) {
+      recordIpBucketSkip();
+    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+      return errorResponse(429, "RATE_LIMITED");
+    }
+  }
   if (!access) return unauthorized(config);
 
+  // 5. Required scopes (D2), identity rate limit and concurrency guard.
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a token missing either
   // exomem.read or exomem.write is refused here, before any cell contact.
@@ -283,7 +318,7 @@ async function proxyToCell(
     return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "POST" } });
   }
 
-  // 5. Gate on desired state, not the eventually consistent `ready` column.
+  // 6. Gate on desired state, not the eventually consistent `ready` column.
   if (access.cellDesiredState !== "running" && access.cellDesiredState !== "read_only") {
     return errorResponse(503, "CELL_NOT_READY");
   }
@@ -300,10 +335,10 @@ async function proxyToCell(
     return errorResponse(500, "CELL_ID_INVALID");
   }
 
-  // 6. Derive the per-cell bearer (C4).
+  // 7. Derive the per-cell bearer (C4).
   const cellBearer = deriveCloudCellBearer(config.cellTokenKey, access.cellId);
 
-  // 7. Stream to the cell per C3: protocol request metadata is preserved
+  // 8. Stream to the cell per C3: protocol request metadata is preserved
   // for the cell's header/body validation, never used to select its route.
   // Never forward client Authorization, cookies or forwarding headers.
   // Security review finding 12: accept-encoding is
@@ -328,6 +363,12 @@ async function proxyToCell(
   forwardHeaders.set("accept-encoding", "identity");
   forwardHeaders.set("authorization", `Bearer ${cellBearer}`);
   forwardHeaders.set("x-request-id", randomUUID());
+  // Set from the token's stored client, never from the request; set() and
+  // delete() also clear any copy that reached these headers some other way.
+  const clientName = cellClientName(access.client);
+  if (clientName === null) forwardHeaders.delete(CELL_CLIENT_NAME_HEADER);
+  else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
+  forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
 
   let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
   if (
