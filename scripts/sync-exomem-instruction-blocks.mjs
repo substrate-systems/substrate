@@ -16,7 +16,7 @@
 // so the commit written to the generated file is exactly the text it holds.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { format, resolveConfig } from "prettier";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -110,7 +110,9 @@ async function sync(repo) {
 async function check(docFile) {
   const expected = extractBlocks(readFileSync(docFile, "utf8"));
   // Node 24 loads the .ts file by stripping its types, so no build step is needed.
-  const { INSTRUCTION_BLOCKS, INSTRUCTION_BLOCKS_SOURCE } = await import(OUTPUT_PATH);
+  const { INSTRUCTION_BLOCKS, INSTRUCTION_BLOCKS_SOURCE } = await import(
+    pathToFileURL(OUTPUT_PATH).href
+  );
   const stale = LEVELS.filter((level) => INSTRUCTION_BLOCKS[level] !== expected[level]);
   if (stale.length > 0) {
     throw new Error(

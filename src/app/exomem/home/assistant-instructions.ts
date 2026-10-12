@@ -13,9 +13,10 @@
 // exposes it.
 //
 // The block text is not written here. `instruction-blocks.generated.ts` holds a
-// verbatim copy of the Exomem repo's `docs/prominence.md` at the commit it names.
-// Run `npm run sync:instruction-blocks -- <exomem-repo>` when the doc changes; a
-// weekly workflow fails when the doc has moved on. Never trim a block by hand: a
+// verbatim copy of the four level blocks in the Exomem repo's `docs/prominence.md`
+// at the commit it names. Run `npm run sync:instruction-blocks -- <exomem-repo>`
+// when the doc changes; a weekly workflow fails when a block in the doc differs
+// from this copy. Never trim a block by hand: a
 // shortened capture list silently drops classes of capture.
 
 import { INSTRUCTION_BLOCKS } from "./instruction-blocks.generated";
