@@ -4,17 +4,52 @@
   "environment": "staging",
   "bindings": {
     "operator-token": {
-      "project_id": "FILL-BWS-PROJECT-ID",
-      "secret_id": "FILL-BWS-SECRET-ID",
-      "expected_key": "FILL-BWS-SECRET-KEY-NAME",
+      "project_id": "6a0244a3-9215-4768-9f4e-b48b00812899",
+      "secret_id": "58020d1a-14fe-4d91-991c-b4e1012227bd",
+      "expected_key": "EXOMEM_CLOUD_STAGING_ADMIN_TOKEN",
       "env": "EXOMEM_ADMIN_TOKEN",
+      "format": "base64url-32"
+    },
+    "control-plane-key": {
+      "project_id": "6a0244a3-9215-4768-9f4e-b48b00812899",
+      "secret_id": "806aeeeb-9e17-4fa7-812d-b4e1012223f8",
+      "expected_key": "EXOMEM_CLOUD_STAGING_CONTROL_PLANE_KEY",
+      "env": "EXOMEM_CONTROL_PLANE_KEY",
+      "format": "base64url-32"
+    },
+    "scheduler-secret": {
+      "project_id": "6a0244a3-9215-4768-9f4e-b48b00812899",
+      "secret_id": "de1eca38-aa90-4a96-910a-b4e101222b5d",
+      "expected_key": "EXOMEM_CLOUD_STAGING_SCHEDULER_SECRET",
+      "env": "EXOMEM_HOSTED_SCHEDULER_SECRET",
+      "format": "base64url-32"
+    },
+    "paddle-webhook-secret": {
+      "project_id": "6a0244a3-9215-4768-9f4e-b48b00812899",
+      "secret_id": "cfba00ae-5b7a-4967-9d7d-b4e101222f52",
+      "expected_key": "EXOMEM_CLOUD_STAGING_PADDLE_WEBHOOK_SECRET",
+      "env": "PADDLE_WEBHOOK_SECRET",
       "format": "opaque-line"
     },
-    "transactional-mail": {
-      "project_id": "FILL-BWS-PROJECT-ID",
-      "secret_id": "FILL-BWS-SECRET-ID",
-      "expected_key": "FILL-BWS-SECRET-KEY-NAME",
-      "env": "BREVO_API_KEY",
+    "paddle-api-key": {
+      "project_id": "edd463d2-4a47-4c93-9a52-b48b00811635",
+      "secret_id": "c3cbe589-661e-4b84-aa26-b48701114ccf",
+      "expected_key": "HARNESS_PADDLE_SANDBOX_API_KEY",
+      "env": "PADDLE_API_KEY",
+      "format": "opaque-line"
+    },
+    "turnstile-secret-key": {
+      "project_id": "6a0244a3-9215-4768-9f4e-b48b00812899",
+      "secret_id": "45defad4-c9e3-40cd-9eb6-b4e101220161",
+      "expected_key": "SUBSTRATE_STAGING_EXOMEM_TURNSTILE_SECRET_KEY",
+      "env": "EXOMEM_TURNSTILE_SECRET_KEY",
+      "format": "opaque-line"
+    },
+    "turnstile-site-key": {
+      "project_id": "6a0244a3-9215-4768-9f4e-b48b00812899",
+      "secret_id": "b6faaded-2fea-4d2f-a953-b4e101220517",
+      "expected_key": "SUBSTRATE_STAGING_EXOMEM_TURNSTILE_SITE_KEY",
+      "env": "NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY",
       "format": "opaque-line"
     }
   }
