@@ -1,0 +1,30 @@
+/* Modal (components.md: Containers). Centered over a scrim; from Home's modals. */
+.modal {
+  width: 420px;
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  margin: auto;
+  padding: 24px;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--ink-rgb), 0.12);
+  background: var(--bg-elevated);
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+}
+
+.modal[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal::backdrop {
+  background: var(--scrim);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 18px;
+}

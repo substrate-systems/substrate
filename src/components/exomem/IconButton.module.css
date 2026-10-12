@@ -1,0 +1,28 @@
+/* Icon button (components.md: Controls): 28 × 28, 36 on phone, borderless, --fg-muted. */
+.iconButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex: none;
+}
+
+.iconButton:hover {
+  color: var(--fg-secondary);
+}
+
+/* A touch screen gets the larger target. */
+@media (pointer: coarse) {
+  .iconButton {
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
+  }
+}

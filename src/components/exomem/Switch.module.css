@@ -1,0 +1,62 @@
+/* Switch (components.md: Controls). The whole row is the control; from Home's "Grow automatically". */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--exo-border-card);
+  border-radius: var(--r-card);
+  background: transparent;
+  color: var(--fg-primary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.label {
+  font-size: 14px;
+}
+
+.description {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: rgba(var(--ink-rgb), 0.18);
+  transition: background 0.2s ease;
+  flex: none;
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--fg-primary);
+  transition: left 0.2s ease;
+}
+
+.row[aria-checked="true"] .track {
+  background: var(--exo-amber);
+}
+
+.row[aria-checked="true"] .knob {
+  left: 18px;
+  background: var(--bg-base);
+}

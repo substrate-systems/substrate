@@ -1,5 +1,7 @@
 /* =============================================================================
    Exomem design tokens — locked 12 Oct 2026 (design rounds 1–39)
+   Frozen handoff snapshot: code is the source from now on (src/app/exomem/exomem-tokens.css and the
+   component modules in src/components/exomem); change those, not this file.
    Every colour used anywhere in the design maps to one of these. Near-duplicates were merged:
    #1C1915 (landing) -> --bg-hover (#1A1815). Exploration-only values (alternate accents
    #FF6B3D #FFF1D6 #E8C47C #C6F26B, phone status-bar mock #141210) are not part of the product.

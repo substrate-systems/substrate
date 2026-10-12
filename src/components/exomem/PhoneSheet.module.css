@@ -1,0 +1,66 @@
+/* Phone sheet (components.md: Containers). From .sheet in the Viewer board. It sits at the
+   bottom of its positioned parent: peek 188 px, open 56% of the parent (the screen). */
+.sheet {
+  overflow: hidden;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 188px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--exo-border-card);
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  box-shadow: 0 -18px 40px -20px var(--shadow-color);
+  display: flex;
+  flex-direction: column;
+  transition: height var(--dur-sheet) var(--ease-settle);
+  z-index: 4;
+}
+
+.open {
+  height: 56%;
+}
+
+.handle {
+  height: 24px;
+  flex: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* The sheet clips its top edge, so the handle's 40 px tap area grows down into the sheet,
+   not up (phone.module.css draws it centred; the extra class outranks that rule in any
+   stylesheet order). */
+@media (pointer: coarse) {
+  .sheet .handle::after {
+    top: 0;
+    transform: translateX(-50%);
+  }
+}
+
+.bar {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-track);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+/* Content scrolls only when the sheet is open. */
+.open .body {
+  overflow-y: auto;
+}

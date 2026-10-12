@@ -1,0 +1,182 @@
+/* =============================================================================
+   Exomem design tokens — locked 12 Oct 2026 (design rounds 1–39)
+   Every colour used anywhere in the design maps to one of these. Near-duplicates were merged:
+   #1C1915 (landing) -> --bg-hover (#1A1815). Exploration-only values (alternate accents
+   #FF6B3D #FFF1D6 #E8C47C #C6F26B, phone status-bar mock #141210) are not part of the product.
+   -----------------------------------------------------------------------------
+   The code source of the locked tokens (docs/exomem-design/system/tokens.css), imported by
+   src/app/globals.css. This is the only Exomem file that may hold a raw colour; the OG image
+   and emails read their literal values from it (src/lib/exomem/design-tokens.ts).
+
+   Scope: tokens apply inside `.brand-exomem`, and on <html> while it carries the Exomem
+   marker (`data-exomem`), which the root layout sets before first paint on /exomem/** only.
+   The marker keeps the scrollbar and the page ground off the rest of substratesystems.io.
+   Dark is the default. Light is equally canonical, switched by `data-theme="light"` on
+   <html> (remembered in localStorage "exomem-theme"). A `.brand-exomem` element can pin
+   its own theme with `data-theme="light"` or `data-theme="dark"`.
+
+   THE ONE HARD RULE (unchanged): amber lights only live, retrieved or current
+   state — never decoration.
+============================================================================= */
+
+.brand-exomem,
+:root[data-exomem] {
+  /* grounds */
+  --bg-base: #0a0908;        /* page */
+  --bg-panel: #100e0c;       /* cards, panels, inputs on page */
+  --bg-raised: #12100e;      /* popovers, search results, flow panel */
+  --bg-elevated: #14120f;    /* sheets, modals, email card */
+  --bg-hover: #1a1815;       /* hover and pressed fills */
+  --bg-track: #2a2724;       /* tracks, timeline, sheet handle */
+
+  /* ink */
+  --fg-primary: #ece9e2;     /* headings, primary text */
+  --fg-body: #c9c5bc;        /* long reading text, list values */
+  --fg-secondary: #a39e93;   /* body, descriptions */
+  --fg-muted: #858075;       /* labels, metadata */
+  --fg-tertiary: #5c574d;    /* disabled controls and non-text marks only: below AA as text */
+  --fg-dim-struck: #6b655a;  /* struck / superseded text */
+
+  /* landing and email grounds */
+  --bg-section: #0d0c0a;     /* landing alternate sections */
+  --bg-deep: #080706;        /* landing deepest band, footer */
+  --bg-field: #0e0c0b;       /* fields inside the Paddle overlay */
+  --bg-frame: #050505;       /* the frame around boards and emails (Substrate bg-base) */
+  --fg-footer: #6e6a62;      /* landing and email footer */
+
+  /* the accent */
+  --exo-amber: #ffb000;
+  --exo-amber-text: #ffb000;   /* amber as text (current chips, wikilinks, amber labels, links): AA on page and panel */
+  --exo-glow: rgba(255, 176, 0, 0.55);   /* glow around a lit note */
+  --exo-tint: rgba(255, 176, 0, 0.08);   /* lit tile background */
+
+  /* channels, for rgba(): rgba(var(--ink-rgb), .1) */
+  --ink-rgb: 236, 233, 226;
+  --amber-rgb: 255, 176, 0;
+  --ground-rgb: 10, 9, 8;
+
+  /* lines */
+  --exo-rule: rgba(var(--ink-rgb), 0.07);          /* section rules, row dividers */
+  --exo-border-card: rgba(var(--ink-rgb), 0.1);    /* cards */
+  --exo-border-input: rgba(var(--ink-rgb), 0.14);  /* inputs, chips, secondary buttons */
+  --exo-border-strong: rgba(var(--ink-rgb), 0.34); /* hover on bordered controls */
+  --exo-amber-line: rgba(var(--amber-rgb), 0.5);   /* "current" chip, amber buttons */
+
+  --shadow-color: rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 20px 50px -10px var(--shadow-color);
+  --scrim: rgba(0, 0, 0, 0.62);          /* behind modals and the Paddle overlay */
+  --scrim-soft: rgba(0, 0, 0, 0.5);      /* landing overlays */
+
+  /* the graph (landing, flow field, viewer) — opacities are part of the look */
+  --graph-node: 0.24;        /* a resting note */
+  --graph-hub: 0.5;          /* a busy note */
+  --graph-link: 0.07;        /* a plain link (flow field .075; landing plain links .22 because they are scaled down) */
+  --graph-link-supports: 0.24;   /* typed links in the viewer overview */
+  --graph-link-refines: 0.38;
+  --graph-link-contradicts: 0.28;
+  --graph-link-supersedes: 0.3;
+  --graph-dim: 0.42;         /* everything else while one note is hovered (landing) */
+  --graph-wake: 0.62;        /* notes near the pointer (flow, glow hover) */
+  --graph-lit-link: 0.45;    /* links of the lit note (flow, glow hover) */
+
+  /* type */
+  --font-mono-exo: var(--font-plex-mono), ui-monospace, monospace;  /* IBM Plex Mono 400/500 */
+  --font-sans-exo: var(--font-inter), system-ui, sans-serif;        /* Inter 400/500 */
+
+  /* radii */
+  --r-tag: 4px;     /* tags, status chips, type chips */
+  --r-ctl: 7px;     /* buttons, inputs, filter chips */
+  --r-card: 9px;    /* cards, notices, observation blocks */
+  --r-pop: 10px;    /* popovers, menus */
+  --r-sheet: 16px;  /* phone sheet top corners */
+
+  /* motion */
+  --ease-settle: cubic-bezier(0.2, 0.7, 0.2, 1);   /* camera, sheet, layout moves */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);  /* entrances (Substrate token) */
+  --dur-hover: 150ms;
+  --dur-state: 300ms;   /* colour/opacity state changes, glow on/off */
+  --dur-move: 600ms;    /* camera and layout moves */
+  --dur-sheet: 350ms;
+
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+}
+
+/* A `.brand-exomem` pinned to dark keeps the dark values inside a light page. */
+:root[data-exomem][data-theme="light"],
+:root[data-theme="light"] .brand-exomem:not([data-theme="dark"]),
+.brand-exomem[data-theme="light"] {
+  --bg-base: #faf8f4;
+  --bg-panel: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #efebe3;
+  --bg-track: #e5e0d6;
+
+  --fg-primary: #1a1814;
+  --fg-body: #3d3a34;
+  --fg-secondary: #6b665c;
+  --fg-muted: #736e64;
+  --fg-tertiary: #b5afa3;
+  --fg-dim-struck: #8a857b;
+
+  --exo-amber: #a86e00;   /* deep amber: lines, dots, glows, fills, borders, focus ring */
+  --exo-amber-text: #9a6500;
+
+  --ink-rgb: 26, 24, 20;
+  --amber-rgb: 168, 110, 0;
+  --ground-rgb: 250, 248, 244;
+
+  --bg-section: #faf8f4;
+  --bg-deep: #f3f0ea;
+  --bg-field: #f6f4ef;
+  --bg-frame: #edeae3;
+  --fg-footer: #8a857b;
+  --exo-glow: rgba(168, 110, 0, 0.45);
+  --exo-tint: rgba(168, 110, 0, 0.08);
+
+  --shadow-color: rgba(60, 50, 30, 0.16);
+  --scrim: rgba(26, 24, 20, 0.28);
+  --scrim-soft: rgba(60, 50, 30, 0.12);
+  --graph-node: 0.3;
+  --graph-link: 0.12;
+}
+
+/* -----------------------------------------------------------------------------
+   The Exomem scrollbar (board R15-Scrollbar): quiet until used.
+   A thin rounded thumb in a transparent track; firmer while the pointer is over
+   the area, brighter under the pointer, amber while dragging. Applies to the
+   page itself (the selectors on <html>) and to every scrolling region inside it.
+   Chrome 121+ ignores ::-webkit-scrollbar once scrollbar-width/colour are set, so
+   the standard properties only apply where the pseudo-elements don't exist (Firefox).
+   The --ink-rgb channel the thumb reads is on <html> through the marker above.
+   :where() keeps the scoped rule as weak as the unscoped original, so .exo-hscroll wins.
+----------------------------------------------------------------------------- */
+@supports not selector(::-webkit-scrollbar) {
+  :where(:root[data-exomem], :root[data-exomem] *) { scrollbar-width: thin; scrollbar-color: rgba(var(--ink-rgb), 0.22) transparent; }
+}
+:root[data-exomem]::-webkit-scrollbar, :root[data-exomem] ::-webkit-scrollbar { width: 12px; height: 12px; }
+:root[data-exomem]::-webkit-scrollbar-track, :root[data-exomem] ::-webkit-scrollbar-track,
+:root[data-exomem]::-webkit-scrollbar-corner, :root[data-exomem] ::-webkit-scrollbar-corner { background: transparent; }
+:root[data-exomem]::-webkit-scrollbar-thumb, :root[data-exomem] ::-webkit-scrollbar-thumb {
+  background-color: rgba(var(--ink-rgb), 0.16);
+  border-radius: 12px;
+  border: 4px solid transparent;
+  background-clip: padding-box;
+}
+:root[data-exomem]:hover::-webkit-scrollbar-thumb, :root[data-exomem] :hover::-webkit-scrollbar-thumb { background-color: rgba(var(--ink-rgb), 0.26); }
+:root[data-exomem]::-webkit-scrollbar-thumb:hover, :root[data-exomem] ::-webkit-scrollbar-thumb:hover { background-color: rgba(var(--ink-rgb), 0.42); border-width: 3px; }
+:root[data-exomem]::-webkit-scrollbar-thumb:active, :root[data-exomem] ::-webkit-scrollbar-thumb:active { background-color: var(--exo-amber); border-width: 3px; }
+/* Horizontal chip rows hide their bar entirely; they scroll by swipe. */
+.exo-hscroll { overflow-x: auto; scrollbar-width: none; }
+.exo-hscroll::-webkit-scrollbar { display: none; }
+
+/* Keyboard focus: amber ring for keyboard users only. */
+.brand-exomem :focus { outline: none; }
+.brand-exomem :focus-visible { outline: 2px solid var(--exo-amber); outline-offset: 2px; border-radius: 2px; }
+
+/* Reduced motion: every ambient and transition effect is off. */
+@media (prefers-reduced-motion: reduce) {
+  .brand-exomem *, .brand-exomem *::before, .brand-exomem *::after { animation: none !important; transition: none !important; }
+}

@@ -1,0 +1,70 @@
+/* Button (components.md: Controls). From .btn / .btn.pri / .btn.amb / .ghost in the Viewer board,
+   and the flow page's main action (h 48, Plex Mono 14 / 500). */
+.button {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-ctl);
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  background: transparent;
+  color: var(--fg-primary);
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:hover {
+  border-color: var(--exo-border-strong);
+}
+
+.page {
+  height: 48px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.primary {
+  background: var(--fg-primary);
+  color: var(--bg-base);
+  border-color: var(--fg-primary);
+}
+
+.primary:hover {
+  border-color: var(--fg-primary);
+}
+
+/* Only for epistemic actions ("Why is this true?"). */
+.amber {
+  border-color: rgba(var(--amber-rgb), 0.55);
+  color: var(--exo-amber-text);
+}
+
+.amber:hover {
+  border-color: rgba(var(--amber-rgb), 0.55);
+  background: rgba(var(--amber-rgb), 0.08);
+}
+
+.ghost {
+  height: auto;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: var(--r-tag);
+}
+
+.ghost:hover {
+  color: var(--fg-primary);
+}
+
+/* Disabled: 40% with the reason in the label. */
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Working: the label says what is happening ("Connecting…"); the button holds still. */
+.button[aria-busy="true"] {
+  cursor: default;
+}

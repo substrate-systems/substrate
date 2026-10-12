@@ -68,7 +68,9 @@ export default async function ExomemAuthorizePage({
       <PrivateShell>
         <main className="mx-auto max-w-xl px-6 py-16">
           <h1 className="text-2xl font-semibold">This connection request has expired</h1>
-          <p className="mt-3 text-neutral-600">Start again from the app you want to connect.</p>
+          <p className="mt-3" style={{ color: "var(--fg-secondary)" }}>
+            Start again from the app you want to connect.
+          </p>
         </main>
       </PrivateShell>
     );
@@ -78,8 +80,10 @@ export default async function ExomemAuthorizePage({
     <PrivateShell>
       <main className="mx-auto max-w-xl px-6 py-16">
         <h1 className="text-2xl font-semibold">{copy.title}</h1>
-        <p className="mt-3 text-neutral-600">{copy.lede}</p>
-        <dl className="mt-6 space-y-2 text-sm text-neutral-700">
+        <p className="mt-3" style={{ color: "var(--fg-secondary)" }}>
+          {copy.lede}
+        </p>
+        <dl className="mt-6 space-y-2 text-sm" style={{ color: "var(--fg-secondary)" }}>
           <div>
             <dt className="font-medium">Client</dt>
             <dd>

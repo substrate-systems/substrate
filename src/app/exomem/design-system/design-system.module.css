@@ -1,0 +1,220 @@
+/* The showcase frame, after the R40 board: sections of dark and light panels. */
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 56px clamp(16px, 4vw, 64px) 80px;
+  background: var(--bg-frame);
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 1100px;
+}
+
+.eyebrow {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 40px;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0;
+  font-weight: 400;
+}
+
+.number {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.sectionTitle {
+  font-family: var(--font-mono-exo);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr));
+  gap: 24px;
+}
+
+.panel {
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid var(--exo-border-card);
+  padding: 28px 30px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.panelLabel {
+  position: absolute;
+  right: 18px;
+  top: 14px;
+  font-family: var(--font-mono-exo);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-tertiary);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-family: var(--font-mono-exo);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.tokens {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px 18px;
+}
+
+.token {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--exo-border-input);
+  flex: none;
+}
+
+.tokenText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+}
+
+.tokenValue {
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.cardTitle {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.struck {
+  text-decoration: line-through;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.small {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.popoverHead {
+  font-family: var(--font-mono-exo);
+  font-size: 10.5px;
+  color: var(--fg-tertiary);
+  letter-spacing: 0.12em;
+}
+
+/* A phone-sized frame for the sheet. */
+.phone {
+  position: relative;
+  width: 220px;
+  height: 420px;
+  border-radius: 16px;
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.sheetTitle {
+  font-family: var(--font-mono-exo);
+  font-size: 15px;
+}
+
+/* A page-shaped frame for each field kind. */
+.fieldFrame {
+  position: relative;
+  width: 100%;
+  border-radius: var(--r-card);
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.desktopField {
+  aspect-ratio: 1280 / 700;
+}

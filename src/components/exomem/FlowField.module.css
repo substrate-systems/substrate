@@ -1,0 +1,305 @@
+/* The field (components.md: The graph): the living web behind the flow pages.
+   Ported from the Journey board's field rules (components.css, Journey-Page section),
+   class names kept; colours and resting opacities read the graph tokens. */
+
+/* Fills its positioned parent and never takes the pointer from the page. */
+.field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* The web is laid out at the design width and scaled to the parent's width. */
+.canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.ge {
+  position: absolute;
+  height: 1px;
+  transform-origin: 0 50%;
+}
+
+.gi {
+  width: 100%;
+  height: 100%;
+  background: var(--fg-primary);
+  opacity: var(--graph-link);
+  transform-origin: 0 50%;
+  transition:
+    background 0.55s ease,
+    opacity 0.55s ease;
+}
+
+.ge.on .gi {
+  background: var(--exo-amber);
+  opacity: 0.62;
+}
+
+.gn {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--fg-primary);
+  opacity: var(--graph-node);
+  transition:
+    background 0.55s ease,
+    opacity 0.55s ease,
+    transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.55s ease;
+}
+
+.gn.near {
+  opacity: var(--graph-wake);
+}
+
+.gn.on {
+  background: var(--exo-amber);
+  opacity: 1;
+  transform: scale(1.7);
+  box-shadow: 0 0 9px var(--exo-amber);
+}
+
+.m-web .ge.nw .gi {
+  opacity: 0;
+  transform: scaleX(0);
+}
+
+.m-web .ge.nw.gr .gi {
+  animation: jGrow 1.6s cubic-bezier(0.3, 0, 0.2, 1) both;
+}
+
+.m-web.s-connecting .ge.nw:not(.gr) .gi {
+  animation: jDraw 1.05s cubic-bezier(0.3, 0, 0.2, 1) var(--dd) both;
+}
+
+.m-web.s-connecting .ge:not(.nw) .gi,
+.m-web.s-connecting .ge.gr .gi {
+  animation: jGlow 1.4s ease-out var(--dd) both;
+}
+
+.s-connecting .gn {
+  animation: jHit 1s ease-out var(--nd) both;
+}
+
+.s-connected .gi {
+  animation: jLive 2.6s ease-out both;
+}
+
+.s-connected .gn {
+  animation: jNodeRest 2.6s ease-out both;
+}
+
+.gp {
+  position: absolute;
+  top: -1.5px;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--exo-amber);
+  box-shadow: 0 0 6px var(--exo-amber);
+  opacity: 0;
+}
+
+.s-connected .ge.sg .gp {
+  animation: jSig 1.5s cubic-bezier(0.45, 0, 0.55, 1) both;
+}
+
+.s-connected .gn.hub {
+  animation:
+    jHubIn 1.4s ease-out both,
+    jHub 2.8s ease-in-out 1.4s infinite alternate;
+}
+
+.s-connected .gn.on,
+.s-connected .ge.on .gi {
+  animation: none;
+}
+
+/* The stops: the field stays, the light goes out. */
+.k-stop .gi,
+.k-stop .ge.on .gi {
+  background: var(--fg-primary);
+  opacity: 0.05;
+}
+
+.k-stop .gn,
+.k-stop .gn.on,
+.k-stop .gn.near {
+  background: var(--fg-primary);
+  opacity: 0.14;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Hover is glow only: the closest note lights, its links warm, notes nearby wake. */
+.gn.c1 {
+  opacity: var(--graph-wake);
+  transition-duration: 0.3s;
+}
+
+.gn.c0 {
+  background: var(--exo-amber);
+  opacity: 1;
+  transform: scale(1.55);
+  box-shadow: 0 0 10px var(--exo-glow);
+  transition-duration: 0.3s;
+}
+
+.ge.cn:not(.nw) .gi,
+.ge.cn.gr .gi {
+  background: var(--exo-amber);
+  opacity: var(--graph-lit-link);
+  transition:
+    background 0.3s ease,
+    opacity 0.3s ease;
+}
+
+/* Journey-Page · jGrow 1.6s cubic-bezier(.3,0,.2,1) both — web grows a new link */
+@keyframes jGrow {
+  0% {
+    transform: scaleX(0);
+    background: var(--exo-amber);
+    opacity: 0.9;
+  }
+  55% {
+    transform: scaleX(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scaleX(1);
+    background: var(--fg-primary);
+    opacity: 0.09;
+  }
+}
+
+/* Journey-Page · jDraw 1.05s cubic-bezier(.3,0,.2,1) var(--dd) both — links draw in while connecting */
+@keyframes jDraw {
+  0% {
+    transform: scaleX(0);
+    background: var(--exo-amber);
+    opacity: 0.95;
+  }
+  70% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: scaleX(1);
+    background: var(--exo-amber);
+    opacity: 0.34;
+  }
+}
+
+/* Journey-Page · jGlow 1.4s ease-out var(--dd) both — existing links glow while connecting */
+@keyframes jGlow {
+  0% {
+    background: var(--fg-primary);
+    opacity: 0.075;
+  }
+  35% {
+    background: var(--exo-amber);
+    opacity: 0.5;
+  }
+  100% {
+    background: var(--exo-amber);
+    opacity: 0.3;
+  }
+}
+
+/* Journey-Page · jLive 2.6s ease-out both — links settle lit after connecting */
+@keyframes jLive {
+  0% {
+    transform: scaleX(1);
+    background: var(--exo-amber);
+    opacity: 0.34;
+  }
+  100% {
+    transform: scaleX(1);
+    background: var(--exo-amber);
+    opacity: 0.15;
+  }
+}
+
+/* Journey-Page · jSig 1.5s cubic-bezier(.45,0,.55,1) both — a signal travels a link once connected */
+@keyframes jSig {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+/* Journey-Page · jHit 1s ease-out var(--nd) both — note is hit while connecting */
+@keyframes jHit {
+  0% {
+    background: var(--fg-primary);
+    opacity: 0.24;
+    transform: scale(1);
+  }
+  28% {
+    background: var(--exo-amber);
+    opacity: 1;
+    transform: scale(1.9);
+    box-shadow: 0 0 11px var(--exo-amber);
+  }
+  100% {
+    background: var(--exo-amber);
+    opacity: 0.75;
+    transform: scale(1);
+    box-shadow: 0 0 0 transparent;
+  }
+}
+
+/* Journey-Page · jNodeRest 2.6s ease-out both — notes settle after connecting */
+@keyframes jNodeRest {
+  0% {
+    background: var(--exo-amber);
+    opacity: 0.75;
+  }
+  100% {
+    background: var(--fg-primary);
+    opacity: 0.3;
+  }
+}
+
+/* Journey-Page · jHubIn 1.4s ease-out both — hub lights in */
+@keyframes jHubIn {
+  0% {
+    background: var(--exo-amber);
+    opacity: 0.75;
+    box-shadow: 0 0 0 transparent;
+  }
+  100% {
+    background: var(--exo-amber);
+    opacity: 0.7;
+    box-shadow: 0 0 5px var(--exo-amber);
+  }
+}
+
+/* Journey-Page · jHub 2.8s ease-in-out 1.4s infinite alternate — hub breathes */
+@keyframes jHub {
+  0% {
+    background: var(--exo-amber);
+    opacity: 0.7;
+    box-shadow: 0 0 5px var(--exo-amber);
+  }
+  100% {
+    background: var(--exo-amber);
+    opacity: 1;
+    box-shadow: 0 0 11px var(--exo-amber);
+  }
+}

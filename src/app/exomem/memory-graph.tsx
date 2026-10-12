@@ -11,11 +11,12 @@ import { useEffect, useRef, useState } from "react";
  * SSR-safe and graceful: renders the lit end-state on the server and under
  * prefers-reduced-motion, so there's a coherent static image with no JS.
  *
- * Amber (#ffb000) appears ONLY on live / retrieved / current state.
+ * Amber (--exo-amber) appears ONLY on live / retrieved / current state.
  */
 
 const MONO = "var(--font-mono-exo)";
-const AMBER = "#ffb000";
+const AMBER = "var(--exo-amber)";
+const AMBER_TEXT = "var(--exo-amber-text)"; // amber words: AA in both themes
 const CYCLE = 10000;
 const QUERY = 'kb find "stale decision"';
 
@@ -70,17 +71,10 @@ const BY_ID: Record<string, Node> = Object.fromEntries(
 );
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+/** A note lighting up: `lit` (0–1) of the way from a resting fill to amber. */
+const lightUp = (lit: number) =>
+  `color-mix(in srgb, var(--exo-amber) ${Math.round(lit * 100)}%, var(--bg-track))`;
 const easeOutExpo = (p: number) => (p >= 1 ? 1 : 1 - Math.pow(2, -10 * p));
-
-/** Linear interpolation between two #rrggbb hexes → rgb() string. */
-function mix(p: number, from: string, to: string): string {
-  const f = parseInt(from.slice(1), 16);
-  const t = parseInt(to.slice(1), 16);
-  const r = Math.round(((f >> 16) & 255) + p * (((t >> 16) & 255) - ((f >> 16) & 255)));
-  const g = Math.round(((f >> 8) & 255) + p * (((t >> 8) & 255) - ((f >> 8) & 255)));
-  const b = Math.round((f & 255) + p * ((t & 255) - (f & 255)));
-  return `rgb(${r},${g},${b})`;
-}
 
 type Anim = {
   typed: string;
@@ -189,8 +183,8 @@ function Graph({ a }: { a: Anim }) {
             y2={B.y}
             stroke={
               lit > 0
-                ? `rgba(255,176,0,${0.08 + 0.42 * lit})`
-                : "rgba(236,233,226,0.09)"
+                ? `rgba(var(--amber-rgb), ${0.08 + 0.42 * lit})`
+                : "rgba(var(--ink-rgb), 0.09)"
             }
             strokeWidth={lit > 0 ? 1.2 : 1}
           />
@@ -231,12 +225,12 @@ function Graph({ a }: { a: Anim }) {
         const lit = isOld ? a.litOld : isNew ? a.litNew : isEvid ? a.litEvid : 0;
         const struck = isOld && lit > 0.4;
         const labelColor = struck
-          ? "#6b655a"
+          ? "var(--fg-dim-struck)"
           : isNew && lit > 0.4
-            ? "#ffcf66"
+            ? AMBER_TEXT
             : lit > 0.3
-              ? "#c8c3b8"
-              : "#79746a";
+              ? "var(--fg-body)"
+              : "var(--fg-muted)";
 
         return (
           <g key={n.id}>
@@ -256,8 +250,8 @@ function Graph({ a }: { a: Anim }) {
                 y={n.y - 4.5}
                 width={9}
                 height={9}
-                fill="#221f1a"
-                stroke="rgba(236,233,226,0.3)"
+                fill="var(--bg-hover)"
+                stroke="rgba(var(--ink-rgb), 0.3)"
                 strokeWidth={1}
               />
             ) : (
@@ -267,15 +261,15 @@ function Graph({ a }: { a: Anim }) {
                 r={isNew ? 6 : 5}
                 fill={
                   isNew
-                    ? mix(lit, "#2a2620", "#ffb000")
+                    ? lightUp(lit)
                     : isEvid
-                      ? mix(lit * 0.55, "#2a2620", "#ffb000")
-                      : "#2a2620"
+                      ? lightUp(lit * 0.55)
+                      : "var(--bg-track)"
                 }
                 stroke={
                   isOld && lit > 0.01
-                    ? `rgba(255,176,0,${0.45 * lit})`
-                    : `rgba(236,233,226,${0.22 + 0.3 * lit})`
+                    ? `rgba(var(--amber-rgb), ${0.45 * lit})`
+                    : `rgba(var(--ink-rgb), ${0.22 + 0.3 * lit})`
                 }
                 strokeWidth={1}
                 strokeDasharray={isOld && lit > 0.01 ? "2.5 2.5" : undefined}
@@ -344,7 +338,7 @@ export default function MemoryGraph() {
         borderRadius: "12px",
         background: "var(--bg-panel)",
         boxShadow:
-          "0 0 0 1px rgba(0,0,0,0.4), 0 24px 80px rgba(0,0,0,0.45), 0 0 120px rgba(255,176,0,0.04)",
+          "0 0 0 1px var(--shadow-color), 0 24px 80px var(--shadow-color), 0 0 120px rgba(var(--amber-rgb), 0.04)",
         overflow: "hidden",
       }}
     >
@@ -357,7 +351,7 @@ export default function MemoryGraph() {
           pointerEvents: "none",
           zIndex: 3,
           background:
-            "repeating-linear-gradient(0deg, rgba(255,220,160,0.028) 0px, rgba(255,220,160,0.028) 1px, transparent 1px, transparent 3px)",
+            "repeating-linear-gradient(0deg, rgba(var(--ink-rgb), 0.028) 0px, rgba(var(--ink-rgb), 0.028) 1px, transparent 1px, transparent 3px)",
         }}
       />
 
@@ -412,7 +406,7 @@ export default function MemoryGraph() {
             />
           ) : null}
         </div>
-        <div style={{ color: AMBER, fontSize: "11.5px", whiteSpace: "nowrap" }}>
+        <div style={{ color: AMBER_TEXT, fontSize: "11.5px", whiteSpace: "nowrap" }}>
           {a.status}
         </div>
       </div>
@@ -421,7 +415,7 @@ export default function MemoryGraph() {
       <div
         style={{
           backgroundImage:
-            "radial-gradient(rgba(236,233,226,0.05) 1px, transparent 1px)",
+            "radial-gradient(rgba(var(--ink-rgb), 0.05) 1px, transparent 1px)",
           backgroundSize: "22px 22px",
           padding: "4px 2px 0",
         }}
@@ -456,7 +450,7 @@ export default function MemoryGraph() {
             <span style={{ color: "var(--fg-primary)" }}>
               → notes/newer-constraint.md
             </span>
-            <span style={{ color: AMBER }}>current</span>
+            <span style={{ color: AMBER_TEXT }}>current</span>
           </div>
           <div
             style={{

@@ -80,7 +80,7 @@ export default function CopyButton({
         transition: `border-color 200ms ${STD_EASE}, color 200ms ${STD_EASE}`,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "rgba(236,233,226,0.28)";
+        e.currentTarget.style.borderColor = "rgba(var(--ink-rgb), 0.28)";
         e.currentTarget.style.color = "var(--fg-primary)";
       }}
       onMouseLeave={(e) => {

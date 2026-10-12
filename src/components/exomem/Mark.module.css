@@ -1,0 +1,24 @@
+/* Mark (Dot E) (components.md: Brand and live). Home: the lit row breathes, each dot a little
+   after the one before (--ed). */
+.ink {
+  fill: var(--fg-primary);
+}
+
+.lit {
+  fill: var(--exo-amber);
+}
+
+.breathing .lit {
+  animation: hpEb 5.5s ease-in-out var(--ed) infinite;
+}
+
+/* Home-Page · hpEb 5.5s ease-in-out var(--ed) infinite — Home mark slow breath */
+@keyframes hpEb {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}

@@ -99,7 +99,7 @@ const benchmarks = [
   {
     value: "864",
     unit: "ms",
-    color: "var(--exo-amber)", // the measured live value — amber is earned
+    color: "var(--exo-amber-text)", // the measured live value — amber is earned
     label:
       "Hybrid find() end-to-end at 50,000 notes — hot cache off, methodology public in the repo.",
   },
@@ -223,15 +223,15 @@ export default function ExomemPage() {
               width: "26px",
               height: "26px",
               borderRadius: "7px",
-              background: "#171512",
-              border: "1px solid rgba(236,233,226,0.14)",
+              background: "var(--bg-hover)",
+              border: "1px solid var(--exo-border-input)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontFamily: MONO,
               fontSize: "14px",
               fontWeight: 600,
-              color: "#fafafa",
+              color: "var(--fg-primary)",
             }}
           >
             E
@@ -482,13 +482,15 @@ export default function ExomemPage() {
                     <span style={{ color: "var(--fg-tertiary)" }}>status:</span>
                     {" superseded\n"}
                     <span style={{ color: "var(--fg-tertiary)" }}>superseded_by:</span>{" "}
-                    <span style={{ color: "var(--exo-amber)" }}>
+                    <span style={{ color: "var(--exo-amber-text)" }}>
                       &quot;[[newer-constraint]]&quot;
                     </span>
                     {"\n"}
                     <span style={{ color: "var(--fg-tertiary)" }}>---</span>
                     {"\n\nBatch embeddings at 256 on 16 GB cards.\nReplaced after "}
-                    <span style={{ color: "rgba(255,176,0,0.8)" }}>[[benchmark-run-014]]</span>
+                    <span style={{ color: "var(--exo-amber-text)" }}>
+                      [[benchmark-run-014]]
+                    </span>
                     {" showed VRAM\nheadroom, not throughput, is the bound."}
                   </pre>
                 </div>
@@ -614,8 +616,8 @@ export default function ExomemPage() {
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))",
                 gap: "1px",
-                background: "rgba(236,233,226,0.09)",
-                border: "1px solid rgba(236,233,226,0.09)",
+                background: "rgba(var(--ink-rgb), 0.09)",
+                border: "1px solid rgba(var(--ink-rgb), 0.09)",
                 borderRadius: "12px",
                 overflow: "hidden",
               }}
@@ -624,7 +626,7 @@ export default function ExomemPage() {
                 <div
                   key={b.value}
                   data-reveal
-                  style={{ background: "#0e0c0a", padding: "30px 28px 32px" }}
+                  style={{ background: "var(--bg-panel)", padding: "30px 28px 32px" }}
                 >
                   <p
                     style={{
@@ -705,7 +707,7 @@ export default function ExomemPage() {
               <div
                 data-reveal
                 style={{
-                  border: "1px solid rgba(236,233,226,0.08)",
+                  border: "1px solid rgba(var(--ink-rgb), 0.08)",
                   borderRadius: "12px",
                   padding: "30px 28px",
                   background: "transparent",
@@ -743,7 +745,7 @@ export default function ExomemPage() {
                         fontSize: "0.95rem",
                         fontWeight: 300,
                         lineHeight: 1.6,
-                        color: "#8a8478",
+                        color: "var(--fg-muted)",
                       }}
                     >
                       <span
@@ -763,11 +765,11 @@ export default function ExomemPage() {
                 data-reveal-delay="120"
                 style={{
                   position: "relative",
-                  border: "1px solid rgba(255,176,0,0.22)",
+                  border: "1px solid rgba(var(--amber-rgb), 0.22)",
                   borderRadius: "12px",
                   padding: "30px 28px",
-                  background: "#100e0b",
-                  boxShadow: "0 0 60px rgba(255,176,0,0.05)",
+                  background: "var(--bg-panel)",
+                  boxShadow: "0 0 60px rgba(var(--amber-rgb), 0.05)",
                 }}
               >
                 <span
@@ -792,7 +794,7 @@ export default function ExomemPage() {
                     fontWeight: 500,
                     letterSpacing: "0.16em",
                     textTransform: "uppercase",
-                    color: "var(--exo-amber)",
+                    color: "var(--exo-amber-text)",
                   }}
                 >
                   <span
@@ -830,7 +832,7 @@ export default function ExomemPage() {
                         fontSize: "0.95rem",
                         fontWeight: 300,
                         lineHeight: 1.6,
-                        color: "#c8c3b8",
+                        color: "var(--fg-body)",
                       }}
                     >
                       <span aria-hidden="true" style={{ color: "var(--exo-amber)", flex: "none" }}>
@@ -1021,7 +1023,7 @@ export default function ExomemPage() {
                 border: "1px solid var(--exo-border-card)",
                 borderRadius: "12px",
                 padding: "clamp(28px,4vw,44px)",
-                background: "#0e0c0a",
+                background: "var(--bg-panel)",
               }}
             >
               <p style={label}>06 — Exomem Cloud</p>

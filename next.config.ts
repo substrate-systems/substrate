@@ -21,6 +21,11 @@ const nextConfig: NextConfig = {
   // PostHog's ingest endpoints are trailing-slash sensitive; Next's default
   // redirect would break the proxied requests.
   skipTrailingSlashRedirect: true,
+  // Exomem routes can read the tokens stylesheet at runtime (src/lib/exomem/design-tokens.ts),
+  // which the bundler cannot see through an fs read. The glob covers any route that starts to.
+  outputFileTracingIncludes: {
+    "/exomem/**": ["./src/app/exomem/exomem-tokens.css"],
+  },
   async rewrites() {
     return {
       afterFiles: [

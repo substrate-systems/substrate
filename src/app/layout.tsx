@@ -4,6 +4,8 @@ import "./globals.css";
 import { siteConfig } from "@/lib/seo";
 import { PostHogProvider } from "./providers";
 import { PrivacySafeAnalytics } from "./privacy-safe-analytics";
+import { exomemThemeScript } from "@/lib/exomem/theme";
+import { ExomemThemeScope } from "./exomem-theme-scope";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -72,8 +74,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    // The Exomem theme script below sets data-exomem and data-theme on <html> before
+    // React hydrates, so the server markup cannot match those two attributes.
+    <html
+      lang="en"
+      className={`dark ${inter.variable} ${plexMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
+        {/* Before first paint: on /exomem/** only, apply the stored Exomem theme. */}
+        <script dangerouslySetInnerHTML={{ __html: exomemThemeScript }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -116,7 +126,9 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} ${plexMono.variable} antialiased`}>
+      {/* The font variables sit on <html> so the Exomem font tokens resolve there too. */}
+      <body className="antialiased">
+        <ExomemThemeScope />
         <PostHogProvider>{children}</PostHogProvider>
         <PrivacySafeAnalytics />
       </body>
