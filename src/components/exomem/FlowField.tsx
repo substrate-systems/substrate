@@ -10,6 +10,7 @@ import {
   type CSSProperties,
 } from "react";
 import { buildFieldLayout, type FieldLayout } from "./flow-field-layout";
+import phoneStyles from "./phone.module.css";
 import styles from "./FlowField.module.css";
 
 /**
@@ -26,8 +27,6 @@ export type FieldKind = "quiet" | "live" | "hold" | "go" | "done" | "stop";
 // The design widths the web is laid out at; it is then scaled to the page's width.
 const DESKTOP_WIDTH = 1280;
 const PHONE_WIDTH = 390;
-// Below this page width the field uses the phone layout (as PairedTiles.module.css).
-const PHONE_BREAKPOINT = 640;
 // The light walks one note further every 1.15 s; a walk sometimes jumps (12%).
 const WALK_MS = 1150;
 const WALK_JUMP = 0.12;
@@ -89,7 +88,7 @@ const NO_HOVER: Hover = { c0: -1, c1: new Set() };
  */
 export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [size, setSize] = useState<{ width: number; height: number; phone: boolean } | null>(null);
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const coarse = useMediaQuery("(pointer: coarse)");
 
@@ -100,7 +99,11 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
     const measure = () => {
       const { width, height } = host.getBoundingClientRect();
       if (!width || !height) return;
-      setSize((old) => (old && old.width === width ? old : { width, height }));
+      // The phone layout follows the shared breakpoint in phone.module.css.
+      const phone = getComputedStyle(host).getPropertyValue("--field-phone").trim() === "1";
+      setSize((old) =>
+        old && old.width === width && old.phone === phone ? old : { width, height, phone }
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -108,7 +111,7 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
     return () => observer.disconnect();
   }, []);
 
-  const phone = size !== null && size.width < PHONE_BREAKPOINT;
+  const phone = size?.phone ?? false;
   const layout = useMemo(() => {
     if (!size) return null;
     const vw = phone ? PHONE_WIDTH : DESKTOP_WIDTH;
@@ -200,7 +203,7 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
       .join(" ");
 
   return (
-    <div ref={hostRef} className={styles.field} aria-hidden="true">
+    <div ref={hostRef} className={`${styles.field} ${phoneStyles.fieldLayout}`} aria-hidden="true">
       {layout && size && (
         <div
           className={cls("canvas", "m-web", phase, kind === "stop" && "k-stop")}

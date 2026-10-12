@@ -33,6 +33,16 @@
   padding: 0;
 }
 
+/* The sheet clips its top edge, so the handle's 40 px tap area grows down into the sheet,
+   not up (phone.module.css draws it centred; the extra class outranks that rule in any
+   stylesheet order). */
+@media (pointer: coarse) {
+  .sheet .handle::after {
+    top: 0;
+    transform: translateX(-50%);
+  }
+}
+
 .bar {
   width: 36px;
   height: 4px;

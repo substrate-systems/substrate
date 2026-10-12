@@ -369,7 +369,8 @@ function Fields({
 }) {
   return (
     <>
-      <Group label="DESKTOP · HOVER LIGHTS THE NEAREST NOTE">
+      {/* The field takes the phone layout on a phone-sized screen, as it does on a page. */}
+      <Group label="EVERY KIND · HOVER LIGHTS THE NEAREST NOTE">
         <div className={styles.row}>
           {FIELD_KINDS.map((k) => (
             <Button
@@ -383,16 +384,6 @@ function Fields({
         </div>
         <div className={`${styles.fieldFrame} ${styles.desktopField}`}>
           <FlowField key={`${kind}-${replay}`} kind={kind} />
-        </div>
-      </Group>
-      <Group label="PHONE · EVERY KIND">
-        <div className={styles.phoneFields}>
-          {FIELD_KINDS.map((k) => (
-            <div key={k} className={`${styles.fieldFrame} ${styles.phoneField}`}>
-              <FlowField key={`${k}-${replay}`} kind={k} />
-              <span className={styles.fieldCaption}>{k}</span>
-            </div>
-          ))}
         </div>
       </Group>
     </>

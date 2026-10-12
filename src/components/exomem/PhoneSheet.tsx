@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import phone from "./phone.module.css";
 import styles from "./PhoneSheet.module.css";
 
 type PhoneSheetProps = {
@@ -14,7 +15,7 @@ export function PhoneSheet({ open, onToggle, children }: PhoneSheetProps) {
     <div className={open ? `${styles.sheet} ${styles.open}` : styles.sheet}>
       <button
         type="button"
-        className={styles.handle}
+        className={`${styles.handle} ${phone.hitArea}`}
         onClick={onToggle}
         aria-label={open ? "Lower the panel" : "Raise the panel"}
         aria-expanded={open}

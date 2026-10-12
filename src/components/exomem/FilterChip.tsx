@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import phone from "./phone.module.css";
 import styles from "./FilterChip.module.css";
 
 /** The 22 × 6 sample of a relation's line style, drawn from that relation's own settings. */
@@ -34,7 +35,7 @@ export function FilterChip({
   return (
     <button
       type="button"
-      className={review ? `${styles.chip} ${styles.review}` : styles.chip}
+      className={`${styles.chip} ${phone.hitArea} ${review ? styles.review : ""}`}
       aria-pressed={pressed}
       onClick={onClick}
       title={title}

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import phone from "./phone.module.css";
 import styles from "./SegmentedSwitch.module.css";
 
 type Option<T extends string> = { value: T; label: string };
@@ -32,7 +33,7 @@ export function SegmentedSwitch<T extends string>({
           <button
             key={option.value}
             type="button"
-            className={styles.segment}
+            className={`${styles.segment} ${phone.hitArea}`}
             aria-pressed={option.value === value}
             onClick={() => onChange(option.value)}
           >

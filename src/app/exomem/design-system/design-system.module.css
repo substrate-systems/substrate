@@ -209,18 +209,6 @@
   overflow: hidden;
 }
 
-.fieldCaption {
-  position: absolute;
-  left: 12px;
-  bottom: 10px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  font-family: var(--font-mono-exo);
-  font-size: 11px;
-  color: var(--fg-muted);
-}
-
 .stack {
   display: flex;
   flex-direction: column;
@@ -229,14 +217,4 @@
 
 .desktopField {
   aspect-ratio: 1280 / 700;
-}
-
-.phoneFields {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-}
-
-.phoneField {
-  aspect-ratio: 9 / 16;
 }

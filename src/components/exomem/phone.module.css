@@ -1,0 +1,39 @@
+/* What changes on a phone, shared by the Exomem components.
+
+   The phone layout covers viewports up to 640 px wide: the one Exomem breakpoint.
+   PairedTiles reads --pair-w; FlowField reads --field-phone to lay out its web. */
+.pairLine {
+  --pair-w: 120px;
+}
+
+.fieldLayout {
+  --field-phone: 0;
+}
+
+@media (max-width: 640px) {
+  .pairLine {
+    --pair-w: 88px;
+  }
+
+  .fieldLayout {
+    --field-phone: 1;
+  }
+}
+
+/* On a touch screen each control takes taps over at least 40 × 40 px; what is drawn
+   stays the same size. */
+.hitArea {
+  position: relative;
+}
+
+@media (pointer: coarse) {
+  .hitArea::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 40px);
+    height: max(100%, 40px);
+    transform: translate(-50%, -50%);
+  }
+}

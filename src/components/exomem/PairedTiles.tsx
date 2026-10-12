@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { DOT_E_INK, DOT_E_LIT, DOT_E_RADIUS } from "./dot-e";
+import phone from "./phone.module.css";
 import styles from "./PairedTiles.module.css";
 
 // Each ink dot lights a little after the one before, in reading order; the slot the
@@ -16,7 +17,7 @@ type PairedTilesProps = {
 /** The consent page's pairing: the app's tile, a line, and the Exomem tile. */
 export function PairedTiles({ state, app }: PairedTilesProps) {
   return (
-    <div className={`${styles.tiles} ${state === "idle" ? "" : styles[state]}`}>
+    <div className={`${styles.tiles} ${phone.pairLine} ${state === "idle" ? "" : styles[state]}`}>
       {app && (
         <>
           <div className={styles.tile} title={app.name} style={{ fontSize: app.glyphSize }}>

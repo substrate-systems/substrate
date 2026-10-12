@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes } from "react";
+import phone from "./phone.module.css";
 import styles from "./Button.module.css";
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
@@ -24,6 +25,7 @@ export function Button({
 }: ButtonProps) {
   const classes = [
     styles.button,
+    phone.hitArea,
     variant !== "secondary" && styles[variant],
     variant !== "ghost" && size === "page" && styles.page,
   ]

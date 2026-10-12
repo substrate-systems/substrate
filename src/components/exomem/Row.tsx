@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import phone from "./phone.module.css";
 import styles from "./Row.module.css";
 
 type RowProps = {
@@ -18,7 +19,11 @@ export function Row({ title, meta, onSelect }: RowProps) {
   );
   if (!onSelect) return <div className={styles.row}>{content}</div>;
   return (
-    <button type="button" className={`${styles.row} ${styles.interactive}`} onClick={onSelect}>
+    <button
+      type="button"
+      className={`${styles.row} ${styles.interactive} ${phone.hitArea}`}
+      onClick={onSelect}
+    >
       {content}
     </button>
   );

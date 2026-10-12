@@ -1,17 +1,10 @@
 /* Paired tiles (components.md: Brand and live). The consent page's app tile ↔ Exomem tile,
    from .pl / .pd / .xt / .ed / .md on the Journey board. */
+/* The pairing line is --pair-w long (phone.module.css: 120 px, 88 px on a phone). */
 .tiles {
   display: flex;
   align-items: center;
-  /* The pairing line: 120 px, 88 px on a phone (below 640 px, as FlowField). */
-  --pair-w: 120px;
   --pw: calc(var(--pair-w) - 8px);
-}
-
-@media (max-width: 640px) {
-  .tiles {
-    --pair-w: 88px;
-  }
 }
 
 .tile {

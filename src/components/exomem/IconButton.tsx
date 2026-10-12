@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes } from "react";
+import phone from "./phone.module.css";
 import styles from "./IconButton.module.css";
 
 type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
@@ -14,7 +15,7 @@ export function IconButton({ label, type = "button", title, ...rest }: IconButto
       type={type}
       aria-label={label}
       title={title ?? label}
-      className={styles.iconButton}
+      className={`${styles.iconButton} ${phone.hitArea}`}
     />
   );
 }
