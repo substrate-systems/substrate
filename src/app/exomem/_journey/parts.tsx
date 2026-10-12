@@ -205,7 +205,12 @@ export function SignedInLine({
   const at = email.lastIndexOf("@");
   const local = at < 0 ? email : email.slice(0, at);
   const domain = at < 0 ? "" : email.slice(at);
-  const longLocal = Array.from(new Intl.Segmenter().segment(local)).length > KEPT_LOCAL_CHARACTERS;
+  // Firefox before 125 has no Intl.Segmenter; code points only count a combined letter twice.
+  const characters =
+    typeof Intl.Segmenter === "function"
+      ? Array.from(new Intl.Segmenter().segment(local)).length
+      : Array.from(local).length;
+  const longLocal = characters > KEPT_LOCAL_CHARACTERS;
   return (
     <div
       className={onDesktop ? styles.signedIn : `${styles.signedIn} ${styles.phoneOnly}`}
