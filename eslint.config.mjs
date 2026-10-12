@@ -47,7 +47,11 @@ export default defineConfig([
   },
   {
     // The Exomem palette is locked: a raw colour in Exomem source fails lint.
-    files: ["src/app/exomem/**/*.{ts,tsx}", "src/components/exomem/**/*.{ts,tsx}"],
+    files: [
+      "src/app/exomem/**/*.{ts,tsx}",
+      "src/components/exomem/**/*.{ts,tsx}",
+      "src/lib/email-templates/exomem-*.ts",
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",
