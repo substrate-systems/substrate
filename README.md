@@ -36,7 +36,7 @@ This single codebase serves the marketing site, the blog, the Hosted Backup API 
 
 ## Content discipline
 
-Public copy on this site must match the canonical product facts. The source of truth for product positioning lives in the Knowledge Base under `Identity/` (notably `Identity/Tech Stack.md` and `Identity/Products.md`). Check those before adding or editing any product description.
+Public copy on this site must match the canonical product facts. The source of truth for product positioning lives in the owner's private product notes. Check those before adding or editing any product description.
 
 ### Endstate
 

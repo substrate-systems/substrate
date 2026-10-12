@@ -17,6 +17,6 @@
 ## 3. Release
 
 - [ ] 3.1 Commit with `feat(updates): manifest endpoint for Endstate auto-updater`.
-- [ ] 3.2 Hugo deploys manually via `cd /home/hugoa/projects/substrate && vercel --prod`.
+- [ ] 3.2 Hugo deploys manually via `cd <substrate checkout> && vercel --prod`.
 - [ ] 3.3 Post-deploy: `curl https://substratesystems.io/updates/latest.json` returns 200 with current release manifest.
 - [ ] 3.4 Archive the OpenSpec change: `openspec archive add-updater-manifest-endpoint` once deploy is verified.
