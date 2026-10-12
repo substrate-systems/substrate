@@ -32,13 +32,23 @@ export function inviterOf(inspection: InvitationInspection): string | null {
   return inspection.kind === "standard" ? null : (inspection.inviter?.name ?? null);
 }
 
-/** Whether an existing owner may take the friend price, as far as the answer can say. */
+/** Whether an existing owner may take the friend price: Paddle previewed it for their plan. */
 export function friendPriceOffered(inspection: InvitationInspection): boolean {
   if (inspection.kind !== "friend" || !inviterOf(inspection)) return false;
-  const price = inspection.price;
-  // Paddle did not answer: the decision checks the plan itself.
-  if (price.value === null) return price.reason === "price_unavailable";
-  return price.value.friend.value !== null;
+  return inspection.price.value?.friend.value != null;
+}
+
+/**
+ * Paddle did not answer, so the page cannot tell whether the friend price fits the plan.
+ * A failed preview is neither an offer nor a refusal.
+ */
+export function friendPriceUnchecked(inspection: InvitationInspection): boolean {
+  return (
+    inspection.kind === "friend" &&
+    inviterOf(inspection) !== null &&
+    inspection.price.value === null &&
+    inspection.price.reason === "price_unavailable"
+  );
 }
 
 /** The price panel, or null when the invitation carries no price to show. */

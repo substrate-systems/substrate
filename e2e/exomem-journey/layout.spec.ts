@@ -69,6 +69,28 @@ async function app(where: "web" | "computer") {
   );
 }
 
+/**
+ * This server has no Paddle credentials, so its invitation answers carry no price. Here
+ * the answer gets the prices Paddle previews when it answers, so a step can show the
+ * friend price that the decision route then applies; the decision itself stays real.
+ */
+async function withPaddlePrices(context: BrowserContext) {
+  await context.route("**/api/exomem/access/inspect", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.price?.reason === "price_unavailable") {
+      body.price = {
+        value: {
+          usual: { amount: "1500", currencyCode: "EUR" },
+          friend: { value: { amount: "1000", currencyCode: "EUR" }, reason: null },
+        },
+        reason: null,
+      };
+    }
+    await route.fulfill({ response, json: body });
+  });
+}
+
 /** The app's callback page, answered so a handback never leaves the test. */
 async function answerApps(context: BrowserContext) {
   for (const origin of ["https://claude-app.example.test", "http://127.0.0.1:47124"]) {
@@ -185,6 +207,7 @@ const STEPS: Step[] = [
     name: "invite-existing",
     open: async (page, context) => {
       const owner = await signedIn(context, "ready");
+      await withPaddlePrices(context);
       const { link } = await seedInvitation({
         email: owner.email,
         kind: "friend",
@@ -195,6 +218,22 @@ const STEPS: Step[] = [
       await expect(
         page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") })
       ).toBeVisible();
+      await expect(page.getByText(inviteCopy.price.perMonth("€10"))).toBeVisible();
+    },
+  },
+  {
+    // Paddle did not answer: neither the friend price nor a refusal, and a way to ask again.
+    name: "invite-existing-unchecked",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "ready");
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.existing.title);
+      await expect(page.getByText(inviteCopy.existing.unchecked("Alex"))).toBeVisible();
     },
   },
   {
@@ -216,6 +255,7 @@ const STEPS: Step[] = [
     name: "invite-applied-at-checkout",
     open: async (page, context) => {
       const owner = await signedIn(context, "unpaid");
+      await withPaddlePrices(context);
       const { link } = await seedInvitation({
         email: owner.email,
         kind: "friend",

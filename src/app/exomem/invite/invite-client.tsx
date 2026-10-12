@@ -23,7 +23,7 @@ import {
   StepNotice,
   WorkingBar,
 } from "../_journey/parts";
-import { friendPriceOffered, inviterOf, pricePanel } from "./invite-view";
+import { friendPriceOffered, friendPriceUnchecked, inviterOf, pricePanel } from "./invite-view";
 
 type Choice = "use_friend_price" | "keep_plan";
 
@@ -281,8 +281,11 @@ export default function InviteClient() {
         break;
       }
       const deciding = mode.kind === "deciding" ? mode.choice : null;
-      const offered =
-        friendPriceOffered(inspection) && !(mode.kind === "existing" && mode.refusedFriendPrice);
+      const refusedNow = mode.kind === "existing" && mode.refusedFriendPrice;
+      const offered = friendPriceOffered(inspection) && !refusedNow;
+      // Paddle did not answer: the page offers neither the friend price nor a refusal,
+      // and lets the owner ask again.
+      const unchecked = friendPriceUnchecked(inspection) && !refusedNow;
       const panel = offered ? pricePanel(inspection) : null;
       const failure = mode.kind === "existing" ? mode.failure : null;
       const keep = {
@@ -298,9 +301,11 @@ export default function InviteClient() {
             lede={
               offered && by
                 ? inviteCopy.existing.lede(by)
-                : inspection.kind === "friend" && by
-                  ? inviteCopy.existing.otherPrice(by)
-                  : inviteCopy.existing.noOffer(by)
+                : unchecked && by
+                  ? inviteCopy.existing.unchecked(by)
+                  : inspection.kind === "friend" && by
+                    ? inviteCopy.existing.otherPrice(by)
+                    : inviteCopy.existing.noOffer(by)
             }
           />
           {failure ? <StepNotice alert>{failure}</StepNotice> : null}
@@ -314,9 +319,11 @@ export default function InviteClient() {
                     working: deciding === "use_friend_price",
                     onClick: () => void decide(inspection, "use_friend_price"),
                   }
-                : keep
+                : unchecked
+                  ? { label: TRY_AGAIN, disabled: deciding !== null, onClick: () => void inspect() }
+                  : keep
             }
-            secondary={offered && by ? keep : null}
+            secondary={(offered && by) || unchecked ? keep : null}
           />
           {signedInLine}
         </>

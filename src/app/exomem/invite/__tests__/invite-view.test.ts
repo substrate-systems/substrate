@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { InvitationInspection } from "@/lib/exomem-hosted/invites";
-import { friendPriceOffered, pricePanel } from "../invite-view";
+import { friendPriceOffered, friendPriceUnchecked, pricePanel } from "../invite-view";
 
 const EXPIRES = "2026-11-11T10:00:00.000Z";
 
@@ -64,6 +64,21 @@ describe("the invitation's price panel", () => {
       "Nothing to pay"
     );
     assert.equal(pricePanel({ status: "existing", signedIn: true, ...covered }), null);
+  });
+
+  it("neither offers nor refuses the friend price when Paddle did not answer", () => {
+    const inspection: InvitationInspection = {
+      status: "existing",
+      signedIn: true,
+      kind: "friend",
+      inviter: { name: "Alex" },
+      note: null,
+      price: { value: null, reason: "price_unavailable" },
+    };
+
+    assert.equal(friendPriceOffered(inspection), false);
+    assert.equal(friendPriceUnchecked(inspection), true);
+    assert.equal(pricePanel(inspection), null);
   });
 
   it("offers an owner no friend price when their plan is on another price", () => {

@@ -329,8 +329,8 @@ test("a friend's invitation leads to checkout at the friend price", async ({ pag
 
 // An owner on a paid plan answers a friend's invitation. Paddle cannot confirm the plan
 // here (no friend discount is configured), so the server answers 503
-// FRIEND_PRICE_UNAVAILABLE: the page says it did not finish, offers both answers again,
-// and the invitation stays usable.
+// FRIEND_PRICE_UNAVAILABLE: the page says it did not finish, the answer can be given
+// again, and the invitation stays usable.
 test("an owner's answer that Paddle cannot confirm stays open to try again", async ({
   page,
   context,
@@ -348,9 +348,6 @@ test("an owner's answer that Paddle cannot confirm stays open to try again", asy
   await page.getByRole("button", { name: inviteCopy.existing.keep }).click();
 
   await expect(page.getByText(inviteCopy.existing.notFinished)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") })
-  ).toBeEnabled();
   await expect(page.getByRole("button", { name: inviteCopy.existing.keep })).toBeEnabled();
   expect(await invitationConsumed(invitation.id)).toBe(false);
 });
