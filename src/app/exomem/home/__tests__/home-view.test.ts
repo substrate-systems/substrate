@@ -37,6 +37,7 @@ function account(overrides: Partial<HomeAccount> = {}): HomeAccount {
       friendPrice: { applied: false, inviterName: null },
     },
     nextPaymentAt: { value: "2026-10-31T09:00:00Z", reason: null },
+    nextPaymentAmount: { value: null, reason: "not_reported" },
     readOnlyUntil: { value: null, reason: "not_past_due" },
     keptUntil: { value: null, reason: "not_ended" },
     reviewerEndsAt: { value: null, reason: "not_reviewer" },

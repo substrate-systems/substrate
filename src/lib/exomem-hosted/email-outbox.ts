@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import {
   renderExomemHoldReminderEmail,
+  renderExomemInviteEmail,
   renderExomemPlaceOpenedEmail,
   renderExomemWaitlistEmail,
   renderExomemWelcomeEmail,
@@ -30,12 +31,21 @@ import {
   renderExomemReadyEmail,
   renderExomemSubscriptionEndedEmail,
 } from "@/lib/email-templates/exomem-lifecycle";
+import {
+  renderExomemCoveredInvitationEmail,
+  renderExomemFriendInvitationEmail,
+  renderExomemInvitationEndedEmail,
+  renderExomemInvitationReminderEmail,
+  renderExomemInvitationUsedEmail,
+} from "@/lib/email-templates/exomem-invites";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { exomemPaddleDunningDays } from "./account-view";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
+import type { ExomemInviteKind } from "./invitation-contract";
+import { CURRENCY_CODE, MONEY_MINOR_UNITS } from "./paddle-billing";
 import {
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
@@ -289,6 +299,135 @@ async function endedPeriodStillHolds(
   return keptUntil > checkedAt ? { owner: ownerOf(row), keptUntil, checkedAt } : null;
 }
 
+/** The invitee reminder (email 11) goes this many days before an invitation ends. */
+export const INVITATION_REMINDER_LEAD_DAYS = 3;
+
+export type FriendInvitationPayload = StartLinkPayload & {
+  usualAmount: string;
+  usualCurrency: string;
+  friendAmount: string;
+  friendCurrency: string;
+};
+
+export type InvitationNoticePayload = { version: 1; inviteId: string };
+
+function readFriendInvitationPayload(
+  value: Record<string, unknown>
+): FriendInvitationPayload | null {
+  const fields = readFields(value, [
+    "inviteId",
+    "token",
+    "expiresAt",
+    "usualAmount",
+    "usualCurrency",
+    "friendAmount",
+    "friendCurrency",
+  ] as const);
+  if (
+    !fields ||
+    !UUID.test(fields.inviteId) ||
+    !Number.isFinite(Date.parse(fields.expiresAt)) ||
+    !MONEY_MINOR_UNITS.test(fields.usualAmount) ||
+    !MONEY_MINOR_UNITS.test(fields.friendAmount) ||
+    !CURRENCY_CODE.test(fields.usualCurrency) ||
+    !CURRENCY_CODE.test(fields.friendCurrency)
+  ) {
+    return null;
+  }
+  return { version: 1, ...fields };
+}
+
+function readInvitationNoticePayload(
+  value: Record<string, unknown>
+): InvitationNoticePayload | null {
+  const fields = readFields(value, ["inviteId"] as const);
+  return fields && UUID.test(fields.inviteId) ? { version: 1, ...fields } : null;
+}
+
+type UsableInvitation = {
+  kind: ExomemInviteKind;
+  email: string;
+  inviterName: string | null;
+  note: string | null;
+  /** The invitee's, when their address already has an Exomem account. */
+  timeZone: string | null;
+};
+
+/**
+ * The time zone the Exomem account at this address last reported, or null
+ * when none is known; the email then labels its dates UTC. Read at send
+ * time, so a zone reported after the email was queued still counts.
+ */
+async function accountTimeZone(tx: ExomemSql, email: string): Promise<string | null> {
+  const { rows } = await tx`
+    /* exomem:email-account-time-zone */
+    SELECT tenant.time_zone
+    FROM users
+    JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+    WHERE users.email = ${email}
+      AND users.deleted_at IS NULL
+      AND tenant.time_zone IS NOT NULL
+    ORDER BY tenant.updated_at DESC
+    LIMIT 1
+  `;
+  return (rows[0] as { time_zone: string } | undefined)?.time_zone ?? null;
+}
+
+/**
+ * The invitation behind an invitation email, while its token can still be
+ * used. Names and the note are read here, not stored in the payload, so an
+ * account deletion that clears them also stops them being sent.
+ */
+async function usableInvitation(
+  tx: ExomemSql,
+  payload: StartLinkPayload
+): Promise<UsableInvitation | null> {
+  const digest = tokenDigest(payload.token);
+  if (!digest) return null;
+  const { rows } = await tx`
+    /* exomem:email-invitation-usable */
+    SELECT kind, email_normalized::text AS email, inviter_name, note
+    FROM exomem_invites
+    WHERE id = ${payload.inviteId}::uuid
+      AND token_digest = ${digest}
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+  `;
+  const row = rows[0] as
+    | {
+        kind: UsableInvitation["kind"];
+        email: string;
+        inviter_name: string | null;
+        note: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    kind: row.kind,
+    email: row.email,
+    inviterName: row.inviter_name,
+    note: row.note,
+    timeZone: await accountTimeZone(tx, row.email),
+  };
+}
+
+/** A friend or covered invitation's email names the inviter; without the name it is not sent. */
+async function namedInvitation(
+  tx: ExomemSql,
+  payload: StartLinkPayload,
+  kind: "friend" | "covered"
+): Promise<(UsableInvitation & { inviterName: string }) | null> {
+  const invitation = await usableInvitation(tx, payload);
+  return invitation?.kind === kind && invitation.inviterName
+    ? { ...invitation, inviterName: invitation.inviterName }
+    : null;
+}
+
+function invitationUrl(input: { publicBaseUrl: string; payload: StartLinkPayload }): string {
+  return exomemPublicFragmentUrl(input.publicBaseUrl, "/exomem/invite", input.payload.token);
+}
+
 const EXOMEM_EMAILS = {
   /** Email 01w: a start link from "Start with your email", or a re-sent one. */
   start: defineEmail({
@@ -336,6 +475,8 @@ const EXOMEM_EMAILS = {
   /**
    * Email 18: two days before an unpaid hold ends. It holds only while the
    * cell is still stopped and the tenant has not paid for the first time.
+   * It names the inviter from the invitation that admitted the tenant, read
+   * when it is sent, so an inviter's account deletion also removes the name.
    */
   hold_reminder: defineEmail({
     readPayload: (value): HoldReminderPayload | null => {
@@ -354,10 +495,20 @@ const EXOMEM_EMAILS = {
       }
       return { version: 1, ...fields, inviterName };
     },
-    stillHolds: async (tx, payload): Promise<{ owner: ExomemEmailAddressee } | null> => {
+    stillHolds: async (
+      tx,
+      payload
+    ): Promise<{ owner: ExomemEmailAddressee; inviterName: string | null } | null> => {
       const { rows } = await tx`
         /* exomem:email-hold-reminder-still-unpaid */
-        SELECT owner.email::text AS owner_email, tenant.time_zone
+        SELECT owner.email::text AS owner_email, tenant.time_zone,
+               (
+                 SELECT invite.inviter_name
+                 FROM exomem_invites AS invite
+                 WHERE invite.redeemed_tenant_id = tenant.id AND invite.inviter_name IS NOT NULL
+                 ORDER BY invite.consumed_at DESC
+                 LIMIT 1
+               ) AS inviter_name
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
         JOIN users AS owner ON owner.id = tenant.owner_user_id
@@ -367,15 +518,15 @@ const EXOMEM_EMAILS = {
           AND entitlement.source = 'paddle'
           AND entitlement.source_state = ANY(${[...FIRST_PAYMENT_SOURCE_STATES]}::text[])
       `;
-      const row = rows[0] as OwnerRow | undefined;
-      return row ? { owner: ownerOf(row) } : null;
+      const row = rows[0] as (OwnerRow & { inviter_name: string | null }) | undefined;
+      return row ? { owner: ownerOf(row), inviterName: row.inviter_name } : null;
     },
     addressee: (context) => context.owner,
-    render: ({ payload, timeZone, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, publicBaseUrl }) =>
       renderExomemHoldReminderEmail({
         setupUrl: new URL("/exomem/setup", `${publicBaseUrl}/`).toString(),
         holdEndsAt: new Date(payload.holdEndsAt),
-        inviterName: payload.inviterName,
+        inviterName: context.inviterName,
         timeZone,
       }),
   }),
@@ -558,6 +709,145 @@ const EXOMEM_EMAILS = {
     },
     render: ({ context, timeZone, now }) =>
       renderExomemDeletedEmail({ deletedAt: context.finishedAt, now, timeZone }),
+  }),
+  /** Email 02: a standard operator invitation. */
+  invitation: defineEmail({
+    readPayload: readStartLinkPayload,
+    stillHolds: async (tx, payload) => {
+      const invitation = await usableInvitation(tx, payload);
+      return invitation?.kind === "standard" ? invitation : null;
+    },
+    render: (input) =>
+      renderExomemInviteEmail({
+        accessUrl: invitationUrl(input),
+        expiresAt: new Date(input.payload.expiresAt),
+        email: input.context.email,
+        now: input.now,
+        timeZone: input.context.timeZone ?? input.timeZone,
+      }),
+    afterSent: markStartLinkDelivered,
+    afterFailed: revokeUndeliveredStartLink,
+  }),
+  /** Email 09: a friend invitation, with the prices Paddle previewed when it was issued. */
+  friend_invitation: defineEmail({
+    readPayload: readFriendInvitationPayload,
+    stillHolds: (tx, payload) => namedInvitation(tx, payload, "friend"),
+    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+      renderExomemFriendInvitationEmail({
+        acceptUrl: invitationUrl({ publicBaseUrl, payload }),
+        inviterName: context.inviterName,
+        note: context.note,
+        inviteeEmail: context.email,
+        expiresAt: new Date(payload.expiresAt),
+        timeZone: context.timeZone ?? timeZone,
+        usualPrice: { amount: payload.usualAmount, currencyCode: payload.usualCurrency },
+        friendPrice: { amount: payload.friendAmount, currencyCode: payload.friendCurrency },
+      }),
+    afterSent: markStartLinkDelivered,
+    afterFailed: revokeUndeliveredStartLink,
+  }),
+  /** Email 10: a covered (complimentary) invitation. */
+  covered_invitation: defineEmail({
+    readPayload: readStartLinkPayload,
+    stillHolds: (tx, payload) => namedInvitation(tx, payload, "covered"),
+    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+      renderExomemCoveredInvitationEmail({
+        acceptUrl: invitationUrl({ publicBaseUrl, payload }),
+        inviterName: context.inviterName,
+        note: context.note,
+        inviteeEmail: context.email,
+        expiresAt: new Date(payload.expiresAt),
+        timeZone: context.timeZone ?? timeZone,
+      }),
+    afterSent: markStartLinkDelivered,
+    afterFailed: revokeUndeliveredStartLink,
+  }),
+  /** Email 11: the one reminder before an unused friend invitation ends. */
+  invitation_reminder: defineEmail({
+    readPayload: readStartLinkPayload,
+    stillHolds: (tx, payload) => namedInvitation(tx, payload, "friend"),
+    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+      renderExomemInvitationReminderEmail({
+        acceptUrl: invitationUrl({ publicBaseUrl, payload }),
+        inviterName: context.inviterName,
+        expiresAt: new Date(payload.expiresAt),
+        leadDays: INVITATION_REMINDER_LEAD_DAYS,
+        timeZone: context.timeZone ?? timeZone,
+      }),
+  }),
+  /** Email 12, to the inviter: the friend invitation was used with the friend price. */
+  invitation_used: defineEmail({
+    readPayload: readInvitationNoticePayload,
+    stillHolds: async (
+      tx,
+      payload
+    ): Promise<{ inviteeName: string; usedAt: Date; timeZone: string | null } | null> => {
+      const { rows } = await tx`
+        /* exomem:email-invitation-used */
+        SELECT invitee_name, consumed_at, inviter_email::text AS inviter_email
+        FROM exomem_invites
+        WHERE id = ${payload.inviteId}::uuid
+          AND kind = 'friend'
+          AND consumed_at IS NOT NULL
+          AND inviter_email IS NOT NULL
+          AND invitee_name IS NOT NULL
+      `;
+      const row = rows[0] as
+        | { invitee_name: string; consumed_at: Date | string; inviter_email: string }
+        | undefined;
+      return row
+        ? {
+            inviteeName: row.invitee_name,
+            usedAt: new Date(row.consumed_at),
+            timeZone: await accountTimeZone(tx, row.inviter_email),
+          }
+        : null;
+    },
+    render: ({ context, timeZone }) =>
+      renderExomemInvitationUsedEmail({
+        inviteeName: context.inviteeName,
+        usedAt: context.usedAt,
+        // No price is stored when the invitation is used; the row is left out.
+        friendPrice: null,
+        timeZone: context.timeZone ?? timeZone,
+      }),
+  }),
+  /** Email 13, to the inviter: the friend invitation ended unused. */
+  invitation_ended: defineEmail({
+    readPayload: readInvitationNoticePayload,
+    stillHolds: async (
+      tx,
+      payload
+    ): Promise<{ inviteeName: string; issuedAt: Date; expiredAt: Date } | null> => {
+      const { rows } = await tx`
+        /* exomem:email-invitation-ended */
+        SELECT invitee_name, created_at, expires_at
+        FROM exomem_invites
+        WHERE id = ${payload.inviteId}::uuid
+          AND kind = 'friend'
+          AND consumed_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at <= now()
+          AND inviter_email IS NOT NULL
+          AND invitee_name IS NOT NULL
+      `;
+      const row = rows[0] as
+        | { invitee_name: string; created_at: Date | string; expires_at: Date | string }
+        | undefined;
+      return row
+        ? {
+            inviteeName: row.invitee_name,
+            issuedAt: new Date(row.created_at),
+            expiredAt: new Date(row.expires_at),
+          }
+        : null;
+    },
+    render: ({ context }) =>
+      renderExomemInvitationEndedEmail({
+        inviteeName: context.inviteeName,
+        issuedAt: context.issuedAt,
+        expiredAt: context.expiredAt,
+      }),
   }),
 };
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;

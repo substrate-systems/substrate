@@ -22,8 +22,12 @@ import {
 async function runCloudLane(): Promise<{
   expired: number;
   activationsSkipped: number;
+  /** Unpaid holds that Paddle time did not reach this tick; null when the expiry lane failed. */
+  expiriesDeferred: number | null;
   reconciled: number;
   deleted: number;
+  /** Lapsed cells kept because Paddle could not settle their checkout; null when the sweep failed. */
+  cellsWaitingForPaddle: number | null;
   noticesRetried: number;
   noticesSent: number;
   deletionsFinished: number;
@@ -87,8 +91,14 @@ async function runCloudLane(): Promise<{
   return {
     expired: expiryOutcomes.filter((outcome) => outcome.outcome === "expired").length,
     activationsSkipped: expiryOutcomes.filter((outcome) => outcome.outcome === "skipped").length,
+    expiriesDeferred:
+      expiryResult.status === "fulfilled"
+        ? expiryResult.value.filter((outcome) => outcome.outcome === "deferred").length
+        : null,
     reconciled: sweep.reconciled,
     deleted: sweep.deleted,
+    cellsWaitingForPaddle:
+      sweepResult.status === "fulfilled" ? sweepResult.value.waitingForPaddle : null,
     noticesRetried: notices.attempted,
     noticesSent: notices.sent,
     deletionsFinished: deletions.finished,

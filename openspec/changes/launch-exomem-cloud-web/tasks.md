@@ -41,17 +41,27 @@
 
 ## 4. Friend invitations and resubscribe (migration 0065)
 
-- [ ] 4.1 Add migration 0065: invitation kind, inviter and note fields, decision fields, friend offer on the tenant
-- [ ] 4.2 Add `POST /access/inspect` with the identical 404, the price preview cache and its rate limit
-- [ ] 4.3 Add `POST /api/exomem/invites/decision` with the Paddle update before consume
-- [ ] 4.4 Return `transactionId` from checkout and attach the friend discount on the server only
-- [ ] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
-- [ ] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
-- [ ] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
-- [ ] 4.8 Show free Cloud capacity on the operator page, block every invitation kind when none is free, and keep its paid default and covered confirmation
-- [ ] 4.9 Scrub the new personal data and outbox rows in deletion finish
-- [ ] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
+- [x] 4.1 Add migration 0065: invitation kind, inviter and note fields, decision fields, friend offer on the tenant
+- [x] 4.2 Add `POST /access/inspect` with the identical 404, the price preview cache and its rate limit
+- [x] 4.3 Add `POST /api/exomem/invites/decision` with the Paddle update before consume
+- [x] 4.4 Return `transactionId` from checkout and attach the friend discount on the server only
+- [x] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
+- [x] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
+- [x] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
+- [x] 4.8 Show free Cloud capacity on the operator page, block every invitation kind when none is free, and keep its paid default and covered confirmation
+- [x] 4.9 Scrub the new personal data and outbox rows in deletion finish
+- [x] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
+  - Sandbox evidence, 2026-10-12. The substituted Paddle in these tests follows these sandbox answers:
+    1. `GET /discounts` returns the field names that the discount verification checks.
+    2. A pricing preview with `discount_id` and `customer_ip_address` returns `data.currency_code` "EUR", `details.line_items[].price.id`, `totals.total` as a string in minor units ("1000") and `line.discounts[].discount.id`. A US address still prices in EUR.
+    3. `POST /transactions` with `customer_id` and `discount_id` but no `address_id` returns a "draft" transaction that echoes `discount_id` and has `checkout.url`. Paddle accepts a cancel of that transaction.
+    4. `PATCH /subscriptions/{id}` with a discount accepts the request shape. Paddle refuses it with "discount is not valid for any items in subscription" when the subscription's price is not the price that the discount is restricted to. Task 4.12 keeps such owners to their plan before any Paddle call.
+    5. The `subscription.created` event carries `transaction_id` and `custom_data`.
 - [ ] 4.11 Run a dedicated security review of the friend price
+- [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
+- [x] 4.13 Cancel an open resubscribe checkout at Paddle before a lapsed kept window deletes the cell, and keep the cell read-only while Paddle cannot answer
+- [x] 4.14 Fix the independent review's findings: check the friend discount on every reopened checkout, read Paddle before storing `kept`, settle a lapsed checkout only on proof and within a time budget, recover a paid resubscription without its event, refuse checkout during deletion, scrub the inviter's note and copied name, date invitation emails in the reader's time zone, and share the invitation kinds and limits
+- [x] 4.15 Cancel a bound resubscribe transaction or its subscription when deletion finishes, record the friend offer from a subscription event, budget the unpaid-hold expiry's Paddle calls, index invitations by redeemed tenant, and show the next payment amount from Paddle
 
 ## 5. Cell home channel, storage and export (migration 0066)
 
@@ -77,7 +87,7 @@
 - [ ] 6.1 Add a renderer registry keyed by email kind with the existing renderers behind it
 - [ ] 6.2 Add the waitlist and place-opened kinds with the approved copy
 - [ ] 6.3 Route emails 01, 01w, 03 to 08 and 18 through the outbox with their dedupe keys and preconditions
-- [ ] 6.4 Route friend emails 09 to 13 through the outbox, including the invitee reminder and the two inviter notices
+- [x] 6.4 Route friend emails 09 to 13 through the outbox, including the invitee reminder and the two inviter notices
 - [ ] 6.5 Enqueue the export-ready email once per export, linking to Home
 - [ ] 6.6 Render every time limit at send time in the recipient's time zone, UTC labelled when unknown
 

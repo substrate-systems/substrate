@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   invitationBlocked,
+  invitationRequestBody,
   parseOperatorCapacity,
   requiresComplimentaryConfirmation,
 } from "../operator-state";
@@ -41,9 +42,28 @@ describe("Exomem operator state", () => {
     );
   });
 
-  it("requires a separate confirmation only for complimentary access", () => {
-    assert.equal(requiresComplimentaryConfirmation("paid", false), false);
-    assert.equal(requiresComplimentaryConfirmation("complimentary", false), true);
-    assert.equal(requiresComplimentaryConfirmation("complimentary", true), false);
+  it("requires a separate confirmation only for covered (complimentary) access", () => {
+    assert.equal(requiresComplimentaryConfirmation("standard", false), false);
+    assert.equal(requiresComplimentaryConfirmation("friend", false), false);
+    assert.equal(requiresComplimentaryConfirmation("covered", false), true);
+    assert.equal(requiresComplimentaryConfirmation("covered", true), false);
+  });
+
+  it("sends an inviter's email only with a friend invitation, which alone notifies inviters", () => {
+    const draft = {
+      email: " friend@example.test ",
+      inviterName: "Alex",
+      inviterEmail: "alex@example.test",
+      inviteeName: "Sam",
+      note: "",
+    };
+    assert.deepEqual(invitationRequestBody({ ...draft, kind: "friend" }), {
+      email: "friend@example.test",
+      kind: "friend",
+      inviterName: "Alex",
+      inviterEmail: "alex@example.test",
+      inviteeName: "Sam",
+    });
+    assert.equal("inviterEmail" in invitationRequestBody({ ...draft, kind: "covered" }), false);
   });
 });

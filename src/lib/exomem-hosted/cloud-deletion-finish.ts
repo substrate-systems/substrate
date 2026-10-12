@@ -131,6 +131,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           deleted_at = now(),
           bound_cell_id = NULL,
           time_zone = NULL,
+          friend_offer_invite_id = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
       RETURNING deleted_at::text AS deleted_at
@@ -247,6 +248,16 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
             SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
             WHERE authority.invite_id = invite.id
           )
+      `;
+      // The owner as an inviter: invitations they asked for keep no trace
+      // of them, their note included. Every email that names an inviter
+      // reads the name from the invitation when it is sent, so their
+      // outstanding friend invitations and hold reminders stop naming them.
+      await tx`
+        /* exomem-cloud:deletion-finish-inviter */
+        UPDATE exomem_invites
+        SET inviter_email = NULL, inviter_name = NULL, note = NULL
+        WHERE inviter_email = ${ownerEmail}
       `;
     }
     // Every email row about the account, at whatever address, and every row

@@ -24,7 +24,10 @@ async function openControls(page: Page) {
 }
 
 test.describe("private Exomem operator", () => {
-  test("keeps the bearer ephemeral and sends paid access by default", async ({ context, page }) => {
+  test("keeps the bearer ephemeral and sends a paid invitation by default", async ({
+    context,
+    page,
+  }) => {
     const capacityRequests: Request[] = [];
     const inviteBodies: unknown[] = [];
     await context.addCookies([
@@ -36,7 +39,7 @@ test.describe("private Exomem operator", () => {
     });
     await page.route(INVITES, async (route) => {
       inviteBodies.push(route.request().postDataJSON());
-      await route.fulfill({ status: 201, json: { success: true, status: "sent" } });
+      await route.fulfill({ status: 201, json: { success: true, status: "queued" } });
     });
 
     await page.goto("/exomem/operator");
@@ -46,12 +49,12 @@ test.describe("private Exomem operator", () => {
     expect(capacityRequests[0]!.headers()["cookie"]).toBeUndefined();
     expect(capacityRequests[0]!.headers()["referer"]).toBeUndefined();
     await expect(page.getByText("Cloud places free").locator("..").getByText("2")).toBeVisible();
-    await expect(page.getByLabel("Access")).toHaveValue("paid");
+    await expect(page.getByLabel("Access")).toHaveValue("standard");
 
-    await page.getByLabel("Friend's email").fill("friend@example.com");
+    await page.getByLabel("Invitee's email").fill("invitee@example.com");
     await page.getByRole("button", { name: "Send paid invitation" }).click();
-    await expect(page.getByRole("status")).toHaveText("Paid invitation sent.");
-    expect(inviteBodies).toEqual([{ email: "friend@example.com", source: "paid" }]);
+    await expect(page.getByRole("status")).toHaveText("The paid invitation is queued.");
+    expect(inviteBodies).toEqual([{ email: "invitee@example.com", kind: "standard" }]);
 
     expect(await page.evaluate(() => localStorage.length)).toBe(0);
     expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
@@ -59,35 +62,64 @@ test.describe("private Exomem operator", () => {
     await expect(page.getByLabel("Admin bearer")).toBeVisible();
   });
 
-  test("makes complimentary access explicit and surfaces capacity refusal", async ({ page }) => {
-    let inviteCount = 0;
+  test("sends a friend invitation with the inviter's details, makes covered access explicit and surfaces capacity refusal", async ({
+    page,
+  }) => {
+    const inviteBodies: unknown[] = [];
     await page.route(CAPACITY, async (route) => {
       await route.fulfill({ status: 200, json: { success: true, capacity } });
     });
     await page.route(INVITES, async (route) => {
-      inviteCount += 1;
-      if (inviteCount === 1) {
+      inviteBodies.push(route.request().postDataJSON());
+      if (inviteBodies.length === 1) {
         await route.fulfill({
           status: 409,
           json: { success: false, error: { code: "CAPACITY_UNAVAILABLE" } },
         });
         return;
       }
-      await route.fulfill({ status: 201, json: { success: true, status: "sent" } });
+      await route.fulfill({ status: 201, json: { success: true, status: "queued" } });
     });
 
     await page.goto("/exomem/operator");
     await openControls(page);
-    await page.getByLabel("Friend's email").fill("friend@example.com");
+    await page.getByLabel("Invitee's email").fill("invitee@example.com");
     await page.getByRole("button", { name: "Send paid invitation" }).click();
     await expect(page.getByText("No Cloud places are free.", { exact: true })).toBeVisible();
 
-    await page.getByLabel("Access").selectOption("complimentary");
-    const complimentary = page.getByRole("button", { name: "Send complimentary invitation" });
-    await expect(complimentary).toBeDisabled();
+    // A friend invitation names its inviter; an inviter's email needs the invitee's name.
+    await page.getByLabel("Access").selectOption("friend");
+    await page.getByLabel("Inviter's name").fill("Alex Example");
+    await page.getByLabel("Inviter's email").fill("alex@example.com");
+    await expect(page.getByLabel("Invitee's name")).toHaveAttribute("required", "");
+    await page.getByLabel("Invitee's name").fill("Sam Example");
+    await page.getByLabel("Note from the inviter").fill("This is what I have been building.");
+    await page.getByRole("button", { name: "Send friend invitation" }).click();
+    await expect(page.getByRole("status")).toHaveText("The friend invitation is queued.");
+    expect(inviteBodies[1]).toEqual({
+      email: "invitee@example.com",
+      kind: "friend",
+      inviterName: "Alex Example",
+      inviterEmail: "alex@example.com",
+      inviteeName: "Sam Example",
+      note: "This is what I have been building.",
+    });
+    // Each send returns the form to a paid invitation.
+    await expect(page.getByLabel("Access")).toHaveValue("standard");
+
+    await page.getByLabel("Invitee's email").fill("covered@example.com");
+    await page.getByLabel("Access").selectOption("covered");
+    await page.getByLabel("Inviter's name").fill("Alex Example");
+    const covered = page.getByRole("button", { name: "Send covered invitation" });
+    await expect(covered).toBeDisabled();
     await page.getByLabel("Confirm this person will not be asked to subscribe.").check();
-    await expect(complimentary).toBeEnabled();
-    await complimentary.click();
-    await expect(page.getByRole("status")).toHaveText("Complimentary invitation sent.");
+    await expect(covered).toBeEnabled();
+    await covered.click();
+    await expect(page.getByRole("status")).toHaveText("The covered invitation is queued.");
+    expect(inviteBodies[2]).toEqual({
+      email: "covered@example.com",
+      kind: "covered",
+      inviterName: "Alex Example",
+    });
   });
 });

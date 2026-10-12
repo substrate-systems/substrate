@@ -1,8 +1,10 @@
 import type { CloudCapacityStatus } from "@/lib/exomem-hosted/cloud-capacity";
+import {
+  inviterEmailAllowed,
+  type ExomemInviteKind,
+} from "@/lib/exomem-hosted/invitation-contract";
 
 export type OperatorCapacity = CloudCapacityStatus;
-
-export type InviteSource = "paid" | "complimentary";
 
 function count(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -38,7 +40,7 @@ export function parseOperatorCapacity(value: unknown): OperatorCapacity | null {
 }
 
 /**
- * Every invitation, paid or complimentary, takes a Cloud place, so the page
+ * Every invitation, of any kind, takes a Cloud place, so the page
  * blocks sending while no place is free or capacity is unknown. The server
  * refuses the same request; this only saves a round trip.
  */
@@ -47,8 +49,32 @@ export function invitationBlocked(capacity: OperatorCapacity): boolean {
 }
 
 export function requiresComplimentaryConfirmation(
-  source: InviteSource,
+  kind: ExomemInviteKind,
   confirmed: boolean
 ): boolean {
-  return source === "complimentary" && !confirmed;
+  return kind === "covered" && !confirmed;
+}
+
+export type InvitationDraft = {
+  email: string;
+  kind: ExomemInviteKind;
+  inviterName: string;
+  inviterEmail: string;
+  inviteeName: string;
+  note: string;
+};
+
+/** The request body for one invitation: blank optional fields are left out. */
+export function invitationRequestBody(draft: InvitationDraft): Record<string, string> {
+  const body: Record<string, string> = { email: draft.email.trim(), kind: draft.kind };
+  const optional: Array<[string, string]> = [
+    ["inviterName", draft.inviterName],
+    ["inviteeName", draft.inviteeName],
+    ["note", draft.note],
+  ];
+  if (inviterEmailAllowed(draft.kind)) optional.push(["inviterEmail", draft.inviterEmail]);
+  for (const [key, value] of optional) {
+    if (value.trim()) body[key] = value.trim();
+  }
+  return body;
 }

@@ -7,13 +7,18 @@
 
 import { randomBytes } from "node:crypto";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
-import { loadExomemCloudResource } from "./cloud-config";
+import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
-import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
+import { FIRST_PAYMENT_SOURCE_STATES, LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
-import { cancelExomemCheckoutTransaction, type PaddleTransport } from "./paddle-billing";
+import { recordInvitationUse } from "./invites";
+import {
+  cancelExomemCheckoutTransaction,
+  paddleTransportUntil,
+  type PaddleTransport,
+} from "./paddle-billing";
 import {
   loadExomemPaddleTransactionConfig,
   type ExomemPaddleConfig,
@@ -306,8 +311,8 @@ export async function redeemCloudInviteAtomic(
       desiredState: desiredCellState,
       recipient: invite.email_normalized,
       recipientTimeZone: timeZone,
-      // Invitations record no inviter name yet. The friend-invitation change
-      // that adds it passes it here.
+      // The hold reminder reads the inviter's name from this invitation when
+      // it is sent, so deleting the inviter's account also removes it there.
       inviterName: null,
     });
     if (!cellId) throw exomemErrors.accessTokenInvalid();
@@ -335,6 +340,7 @@ export async function redeemCloudInviteAtomic(
     `;
     if (!consumedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
     await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
+    await recordInvitationUse(tx, { inviteId: invite.id, tenantId });
 
     return { userId: owner.id, tenantId, sessionId: session.id, cellId, paid: !isComplimentary };
   });
@@ -416,7 +422,7 @@ async function lockExistingCloudTenant(
   if (row.has_live_cell || row.status === "deletion_pending") return REFUSED;
   const liveSubscription =
     row.provider_subscription_ref !== null &&
-    ["active", "trialing", "past_due", "paused"].includes(row.source_state ?? "");
+    (LIVE_SUBSCRIPTION_SOURCE_STATES as readonly string[]).includes(row.source_state ?? "");
   if (liveSubscription) return REFUSED;
   const prePayment =
     row.source_state === "awaiting_checkout" || row.source_state === "checkout_pending";
@@ -713,6 +719,7 @@ async function consumeCloudOAuthInvite(
   `;
   if (!consumed.rows[0]) throw new CloudOAuthAdmissionRejected();
   await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
+  await recordInvitationUse(tx, { inviteId: invite.id, tenantId });
 }
 
 export type CloudAwaitingCheckoutTenant = {
@@ -770,13 +777,17 @@ async function expireCloudCellAtomic(tenantId: string): Promise<boolean> {
 export type CloudInviteExpiryOutcome =
   | { tenantId: string; outcome: "expired" }
   | { tenantId: string; outcome: "activated" }
-  | { tenantId: string; outcome: "skipped" };
+  | { tenantId: string; outcome: "skipped" }
+  /** Paddle time ran out before this tenant's checkout was settled; the next tick tries again. */
+  | { tenantId: string; outcome: "deferred" };
 
 export type CloudInviteExpiryDependencies = {
   cancelTransaction?: typeof cancelExomemCheckoutTransaction;
   transport?: PaddleTransport;
   expiryDays?: number;
   config?: ExomemPaddleConfig;
+  /** Paddle time for the whole batch. */
+  budgetMs?: number;
 };
 
 /**
@@ -788,6 +799,10 @@ export type CloudInviteExpiryDependencies = {
  * the activation webhook to set `running` as usual — this function does
  * not activate it itself, to keep "the webhook is what activates" a single
  * code path. Otherwise the row is expired (`deleted`), releasing the slot.
+ *
+ * Every Paddle call of the batch shares one deadline, so a slow Paddle costs
+ * the cron at most the budget. A tenant whose checkout the budget does not
+ * settle stays stopped, holding its slot, until the next tick.
  */
 export async function expireCloudAwaitingCheckoutTenants(
   dependencies: CloudInviteExpiryDependencies = {}
@@ -796,6 +811,8 @@ export async function expireCloudAwaitingCheckoutTenants(
   const expiryDays = dependencies.expiryDays ?? CLOUD_UNPAID_HOLD_DAYS;
   const tenants = await findExpiredCloudAwaitingCheckoutTenants(expiryDays);
   const outcomes: CloudInviteExpiryOutcome[] = [];
+  const deadline = AbortSignal.timeout(dependencies.budgetMs ?? CLOUD_SWEEP_PADDLE_BUDGET_MS);
+  const transport = paddleTransportUntil(deadline, dependencies.transport);
   for (const tenant of tenants) {
     // Security review finding 8: one tenant's provider call throwing (e.g. a
     // transient Paddle error) used to abort this loop entirely, leaving
@@ -811,6 +828,10 @@ export async function expireCloudAwaitingCheckoutTenants(
         outcomes.push({ tenantId: tenant.tenantId, outcome: "expired" });
         continue;
       }
+      if (deadline.aborted) {
+        outcomes.push({ tenantId: tenant.tenantId, outcome: "deferred" });
+        continue;
+      }
       const config = dependencies.config ?? loadExomemPaddleTransactionConfig();
       const result = await cancelTransaction(
         {
@@ -819,7 +840,7 @@ export async function expireCloudAwaitingCheckoutTenants(
           transactionId: tenant.transactionRef,
           environment: tenant.providerEnvironment,
         },
-        { config, transport: dependencies.transport }
+        { config, transport }
       );
       if (result.state === "completed") {
         // The provider already completed the transaction; leave the row for
@@ -830,6 +851,10 @@ export async function expireCloudAwaitingCheckoutTenants(
       await expireCloudCellAtomic(tenant.tenantId);
       outcomes.push({ tenantId: tenant.tenantId, outcome: "expired" });
     } catch {
+      if (deadline.aborted) {
+        outcomes.push({ tenantId: tenant.tenantId, outcome: "deferred" });
+        continue;
+      }
       console.error("exomem-cloud: awaiting-checkout expiry failed for one tenant");
     }
   }

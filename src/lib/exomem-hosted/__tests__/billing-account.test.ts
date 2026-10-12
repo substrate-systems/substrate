@@ -19,7 +19,14 @@ const ACCOUNT: OwnerBillingAccount = {
   subscriptionRef: null,
   transactionRef: null,
   providerEnvironment: null,
+  sourceOccurredAt: null,
+  sourceRevision: null,
+  manuallySuspended: false,
+  friendOffer: false,
+  deleting: false,
 };
+
+const NEW_TRANSACTION = `txn_${"n".repeat(26)}`;
 
 describe("owner Exomem billing account", () => {
   it("exposes checkout only for an awaiting-payment Paddle invite", () => {
@@ -55,7 +62,10 @@ describe("owner Exomem billing account", () => {
       load: async () => ACCOUNT,
       checkout: async (value) => {
         input = value;
-        return { checkoutUrl: "https://checkout.paddle.test/exomem" };
+        return {
+          checkoutUrl: "https://checkout.paddle.test/exomem",
+          transactionId: NEW_TRANSACTION,
+        };
       },
     });
     assert.deepEqual(input, { userId: ACCOUNT.userId, tenantId: ACCOUNT.tenantId });
@@ -74,7 +84,10 @@ describe("owner Exomem billing account", () => {
         load: async () => ACCOUNT,
         checkout: async () => {
           checkoutCalled = true;
-          return { checkoutUrl: "https://checkout.paddle.test/exomem" };
+          return {
+            checkoutUrl: "https://checkout.paddle.test/exomem",
+            transactionId: NEW_TRANSACTION,
+          };
         },
         assertCloudCellOwnership: async (tenantId) => {
           ownershipCheckedTenantId = tenantId;
@@ -92,7 +105,10 @@ describe("owner Exomem billing account", () => {
     let ownershipChecked = false;
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
       load: async () => ACCOUNT,
-      checkout: async () => ({ checkoutUrl: "https://checkout.paddle.test/exomem" }),
+      checkout: async () => ({
+        checkoutUrl: "https://checkout.paddle.test/exomem",
+        transactionId: NEW_TRANSACTION,
+      }),
       assertCloudCellOwnership: async () => {
         ownershipChecked = true;
       },
@@ -112,7 +128,11 @@ describe("owner Exomem billing account", () => {
       },
       resume: async (value) => {
         resumed = value;
-        return { state: "open", checkoutUrl: "https://checkout.paddle.test/resumed" };
+        return {
+          state: "open",
+          checkoutUrl: "https://checkout.paddle.test/resumed",
+          discountId: null,
+        };
       },
     });
 
@@ -139,6 +159,7 @@ describe("owner Exomem billing account", () => {
           return {
             state: "open",
             checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${transactionRef}`,
+            discountId: null,
           };
         },
       }
@@ -306,7 +327,7 @@ describe("owner Exomem billing account", () => {
         }),
         resume: async () => {
           resumeCalls += 1;
-          return { state: "open", checkoutUrl: "https://example.invalid" };
+          return { state: "open", checkoutUrl: "https://example.invalid", discountId: null };
         },
       }),
       (error) => error instanceof ExomemHostedError && error.code === "EXOMEM_ENTITLEMENT_DENIED"
@@ -355,7 +376,7 @@ describe("owner Exomem billing account", () => {
         load: async () => ({ ...ACCOUNT, transactionRef: `txn_${"a".repeat(26)}` }),
         resume: async () => {
           resumeCalls += 1;
-          return { state: "open", checkoutUrl: "https://example.invalid" };
+          return { state: "open", checkoutUrl: "https://example.invalid", discountId: null };
         },
       }),
       (error) => error instanceof ExomemHostedError && error.code === "EXOMEM_ENTITLEMENT_DENIED"
@@ -380,7 +401,10 @@ describe("owner Exomem billing account", () => {
       },
       checkout: async (input) => {
         calls.push({ operation: "checkout", input });
-        return { checkoutUrl: "https://checkout.paddle.test/replacement" };
+        return {
+          checkoutUrl: "https://checkout.paddle.test/replacement",
+          transactionId: NEW_TRANSACTION,
+        };
       },
     });
 
@@ -410,6 +434,7 @@ describe("owner Exomem billing account", () => {
     ]);
     assert.deepEqual(result, {
       checkoutUrl: "https://checkout.paddle.test/replacement",
+      transactionId: NEW_TRANSACTION,
     });
   });
 
@@ -427,7 +452,7 @@ describe("owner Exomem billing account", () => {
         clearTransaction: async () => false,
         checkout: async () => {
           checkoutCalls += 1;
-          return { checkoutUrl: "https://example.invalid" };
+          return { checkoutUrl: "https://example.invalid", transactionId: NEW_TRANSACTION };
         },
       }),
       (error) =>
@@ -500,5 +525,40 @@ describe("owner Exomem billing account", () => {
         },
       },
     ]);
+  });
+
+  it("replaces an open checkout without the friend discount once the owner has a friend offer", async () => {
+    const transactionRef = `txn_${"a".repeat(26)}`;
+    const cancelled: string[] = [];
+    let options: unknown;
+    const bound = { ...ACCOUNT, transactionRef, providerEnvironment: "sandbox" as const };
+
+    const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+      assertCloudCellOwnership: async () => undefined,
+      load: async () => ({ ...bound, friendOffer: true }),
+      verifyFriendDiscount: async () => `dsc_${"f".repeat(26)}`,
+      resume: async () => ({
+        state: "open",
+        checkoutUrl: "https://checkout.paddle.test/full-price",
+        discountId: null,
+      }),
+      cancelTransaction: async (input) => {
+        cancelled.push(input.transactionId);
+        return { state: "canceled" };
+      },
+      clearTransaction: async () => true,
+      checkout: async (_input, _dependencies, checkoutOptions) => {
+        options = checkoutOptions;
+        return {
+          checkoutUrl: "https://checkout.paddle.test/friend",
+          transactionId: NEW_TRANSACTION,
+        };
+      },
+    });
+
+    // The full-price checkout is cancelled at Paddle, and a friend-price one replaces it.
+    assert.deepEqual(cancelled, [transactionRef]);
+    assert.deepEqual(options, { friendPrice: true, customerId: null });
+    assert.equal(result.transactionId, NEW_TRANSACTION);
   });
 });

@@ -11,12 +11,12 @@ let rateAllowed = true;
 
 before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
-  mock.module("@/lib/exomem-hosted/access", {
+  mock.module("@/lib/exomem-hosted/invites", {
     namedExports: {
       issueOperatorInvite: async (input: Record<string, unknown>) => {
         issueCalls.push(input);
         if (issueError) throw issueError;
-        return { inviteId: "018f2d91-7c42-7000-8000-000000000010", delivery: "sent" };
+        return { inviteId: "018f2d91-7c42-7000-8000-000000000010", delivery: "queued" };
       },
     },
   });
@@ -54,7 +54,9 @@ function request(input: {
   return new Request("https://substratesystems.io/api/exomem/admin/invites", {
     method: "POST",
     headers,
-    body: JSON.stringify(input.body ?? { email: SENTINEL, source: "complimentary" }),
+    body: JSON.stringify(
+      input.body ?? { email: SENTINEL, kind: "covered", inviterName: "Alex Example" }
+    ),
   }) as unknown as import("next/server").NextRequest;
 }
 
@@ -66,12 +68,12 @@ describe("POST /api/exomem/admin/invites", () => {
     assert.equal(issueCalls.length, 0);
   });
 
-  it("creates and delivers a valid operator invite", async () => {
+  it("creates a valid operator invite and answers that its email is queued", async () => {
     const { POST } = await import("../route");
     const response = await POST(request({ authorization: `Bearer ${ADMIN_TOKEN}` }));
     assert.equal(response.status, 201);
     const body = (await response.json()) as Record<string, unknown>;
-    assert.equal(body.status, "sent");
+    assert.equal(body.status, "queued");
     assert.equal(JSON.stringify(body).includes(SENTINEL), false);
     assert.equal(issueCalls.length, 1);
   });
@@ -81,18 +83,23 @@ describe("POST /api/exomem/admin/invites", () => {
     const response = await POST(
       request({
         authorization: `Bearer ${ADMIN_TOKEN}`,
-        body: { email: SENTINEL, source: "complimentary", marketplaceReviewerPurpose: true },
+        body: {
+          email: SENTINEL,
+          kind: "covered",
+          inviterName: "Alex Example",
+          marketplaceReviewerPurpose: true,
+        },
       })
     );
     assert.equal(response.status, 201);
     assert.equal(issueCalls[0]?.marketplaceReviewerPurpose, true);
   });
 
-  it("returns content-free delivery failures and logs no sentinels", async () => {
+  it("returns content-free issue failures and logs no sentinels", async () => {
     issueError = new ExomemHostedError({
-      code: "EMAIL_DELIVERY_UNAVAILABLE",
+      code: "FRIEND_PRICE_UNAVAILABLE",
       status: 503,
-      message: "access email delivery is temporarily unavailable",
+      message: "the friend price cannot be confirmed right now",
       retryable: true,
     });
     const lines: string[] = [];
@@ -103,7 +110,7 @@ describe("POST /api/exomem/admin/invites", () => {
       assert.equal(response.status, 503);
       assert.equal((await response.text()).includes(SENTINEL), false);
       assert.equal(lines.join("\n").includes(SENTINEL), false);
-      assert.match(lines.join("\n"), /EMAIL_DELIVERY_UNAVAILABLE/);
+      assert.match(lines.join("\n"), /FRIEND_PRICE_UNAVAILABLE/);
     } finally {
       setOperationalEventSinkForTests(null);
     }

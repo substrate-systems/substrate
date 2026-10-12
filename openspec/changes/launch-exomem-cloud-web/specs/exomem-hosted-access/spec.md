@@ -230,7 +230,7 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 #### Scenario: Invitee reminder
 
-- **WHEN** an operator issues an invitation
+- **WHEN** an operator issues a friend invitation that lasts longer than three days
 - **THEN** the system queues a reminder for three days before the invitation expires, with the token encrypted in the payload
 - **AND** it sends the reminder only while the invitation is still usable
 
@@ -245,6 +245,12 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 - **WHEN** a person who has not paid redeems an invitation and the system stops the cell
 - **THEN** the system queues the hold reminder for five days after that cell's creation
 - **AND** it cancels the reminder if the cell no longer stops or the tenant has paid
+- **AND** it names the inviter from the invitation when it sends the reminder, so a name that the inviter's account deletion removed is never sent
+
+#### Scenario: Recipient's account has a time zone
+
+- **WHEN** the system sends an invitation email or an inviter notice to an address whose Exomem account has a stored time zone
+- **THEN** the email shows its dates in that time zone, read when the email is sent
 
 #### Scenario: Recipient time zone is unknown
 
@@ -253,7 +259,7 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 ### Requirement: Email and waitlist data are kept for a limited time
 
-The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the later of the person's last request and the expiry of the entry's last start link, unless the address owns an account. Deleting an account SHALL scrub its outbox rows. The privacy page SHALL state these periods.
+The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the later of the person's last request and the expiry of the entry's last start link, unless the address owns an account. Deleting an account SHALL scrub its outbox rows, and the inviter name, inviter email and note of each invitation that the account asked for. The privacy page SHALL state these periods.
 
 #### Scenario: Settled email ages
 
@@ -484,7 +490,7 @@ The reviewer sign-in route SHALL accept a username and password without an OAuth
 
 ### Requirement: Friend invitations name the inviter and carry the friend price
 
-An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and an optional inviter email. A covered invitation SHALL grant complimentary access with no checkout. Invitees SHALL see names and notes as plain text.
+An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and an optional inviter email. A covered invitation SHALL carry the name of the person who covers it and SHALL grant complimentary access with no checkout. An inviter email SHALL require the invitee's name, which the inviter's notices use. Invitees SHALL see names and notes as plain text.
 
 #### Scenario: Operator issues a friend invitation
 
@@ -542,6 +548,12 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 - **THEN** the system applies the discount to the subscription from the next billing period, then consumes the invitation and records the decision
 - **AND** it answers 200 `applied` with the next payment time
 
+#### Scenario: Owner on another price
+
+- **WHEN** an owner's live subscription is on a price other than the base price that the friend discount is restricted to, or its price was never reported
+- **THEN** inspect shows the friend price as unknown with the reason `plan_price_differs` or `plan_price_unknown`
+- **AND** the decision accepts only `keep_plan` and does not call Paddle
+
 #### Scenario: Subscription already ended
 
 - **WHEN** the owner's subscription has ended and they choose `use_friend_price`
@@ -551,6 +563,30 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 - **WHEN** an owner chooses `keep_plan`
 - **THEN** the system consumes the invitation, changes no billing, and answers 200 `kept`
+
+#### Scenario: Paddle reports the friend discount first
+
+- **WHEN** the newest subscription event that the system applies, from a webhook or from reconciliation, shows the configured friend discount and the tenant holds no friend offer
+- **THEN** the system records the offer of a friend invitation addressed to the owner in the same transaction, so a later resubscribe keeps the friend price
+- **AND** an older event that arrives late records nothing
+
+#### Scenario: An earlier answer reached Paddle
+
+- **WHEN** an owner's `use_friend_price` reached Paddle but its answer was lost, and the owner then chooses `keep_plan`
+- **THEN** the system checks the stored subscription facts, and reads the subscription at Paddle when they do not show the friend discount, before it stores a decision
+- **AND** because the subscription carries the friend discount, it records `applied` and the friend offer, and answers 200 `applied`
+- **AND** a friend offer that the tenant holds never stands in for that check
+
+#### Scenario: Owner already took the friend price through another invitation
+
+- **WHEN** an owner who took the friend price through one invitation, at signup or by answering it, chooses `keep_plan` on another friend invitation
+- **THEN** the system records `kept` for that invitation and tells its inviter nothing, and the tenant keeps the friend offer it has
+- **AND** an offer that the tenant holds from an invitation the owner never used does not count, so an answer whose update reached Paddle still records `applied`
+
+#### Scenario: Friend discount is not configured
+
+- **WHEN** an owner chooses `keep_plan` on a friend invitation for a live subscription and no friend discount is configured
+- **THEN** the system answers 503 with `FRIEND_PRICE_UNAVAILABLE` and leaves the invitation unconsumed, because nothing can show the discount absent
 
 #### Scenario: Payment provider fails
 

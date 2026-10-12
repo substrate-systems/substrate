@@ -8,6 +8,7 @@ import {
   type ExomemPaddleEnvironment,
 } from "./paddle-config";
 import {
+  carriesFriendDiscount,
   mapPaddleSubscriptionState,
   paddleExomemItem,
   paddleSubscriptionFacts,
@@ -48,6 +49,20 @@ export async function reconcileExomemPaddleSubscription(
   target: PaddleReconciliationTarget,
   dependencies: ReconciliationDependencies
 ): Promise<ExomemPaddleStoreResult> {
+  const application = await readExomemPaddleSubscriptionApplication(target, dependencies);
+  return dependencies.store.applyVerifiedEventAndMarkProcessedAtomically(application);
+}
+
+/**
+ * Reads the subscription once from Paddle and checks it against the target:
+ * its id, a known state, the Exomem item and the owner's correlation. The
+ * result is what reconciliation applies; resubscribe recovery checks it
+ * before it binds the subscription, then applies the same snapshot.
+ */
+export async function readExomemPaddleSubscriptionApplication(
+  target: PaddleReconciliationTarget,
+  dependencies: Omit<ReconciliationDependencies, "store">
+): Promise<ExomemPaddleEventApplication> {
   assertExomemPaddlePurpose(dependencies.config, "reconciliation");
   if (target.environment !== dependencies.config.environment) throw invalid();
   const transport = dependencies.transport ?? paddleFetch;
@@ -102,6 +117,7 @@ export async function reconcileExomemPaddleSubscription(
   // v2 also stores the subscription facts. A new id, which sorts after the
   // unversioned one, lets one pass refresh rows reconciled before v2 existed.
   const eventId = `reconcile:v2:${target.tenantId}:${occurredAt}`;
+  const subscriptionFacts = paddleSubscriptionFacts(data, item);
   const application: ExomemPaddleEventApplication = {
     eventId,
     eventType: "subscription.reconciled",
@@ -126,7 +142,11 @@ export async function reconcileExomemPaddleSubscription(
       productId: dependencies.config.productId,
       priceId: item.priceId,
     },
-    subscriptionFacts: paddleSubscriptionFacts(data, item),
+    subscriptionFacts,
+    subscriptionCarriesFriendDiscount: carriesFriendDiscount(
+      subscriptionFacts,
+      dependencies.config.friendDiscountId
+    ),
   };
-  return dependencies.store.applyVerifiedEventAndMarkProcessedAtomically(application);
+  return application;
 }

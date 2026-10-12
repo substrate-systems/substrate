@@ -40,6 +40,12 @@ export type ExomemPaddleEventApplication = Readonly<{
   };
   /** Stored only for `subscription.*` events; null when Paddle reports no value. */
   subscriptionFacts: PaddleSubscriptionFacts;
+  /**
+   * The subscription carries the configured friend discount. The store then
+   * gives the tenant a friend offer in the same transaction, when this event
+   * is the newest it applied.
+   */
+  subscriptionCarriesFriendDiscount: boolean;
 }>;
 
 export type PaddleSubscriptionFacts = Readonly<{
@@ -178,6 +184,14 @@ function itemReferences(data: Record<string, unknown>): PaddleItemReference[] {
       },
     ];
   });
+}
+
+/** Whether a subscription's facts show the configured friend discount; unconfigured, never. */
+export function carriesFriendDiscount(
+  facts: PaddleSubscriptionFacts,
+  friendDiscountId: string | null
+): boolean {
+  return friendDiscountId !== null && facts.discountId === friendDiscountId;
 }
 
 /** The Exomem item of a Paddle payload: the configured product, else the first item. */
@@ -365,6 +379,9 @@ export async function dispatchVerifiedExomemPaddleEvent(
 
   const isSubscriptionEvent = eventType.startsWith("subscription.");
   const matchingReference = paddleExomemItem(data, config.productId);
+  const subscriptionFacts = isSubscriptionEvent
+    ? paddleSubscriptionFacts(data, matchingReference)
+    : NO_SUBSCRIPTION_FACTS;
   const application: ExomemPaddleEventApplication = {
     eventId,
     eventType,
@@ -393,9 +410,11 @@ export async function dispatchVerifiedExomemPaddleEvent(
       productId: matchingReference?.productId ?? null,
       priceId: matchingReference?.priceId ?? null,
     },
-    subscriptionFacts: isSubscriptionEvent
-      ? paddleSubscriptionFacts(data, matchingReference)
-      : NO_SUBSCRIPTION_FACTS,
+    subscriptionFacts,
+    subscriptionCarriesFriendDiscount: carriesFriendDiscount(
+      subscriptionFacts,
+      config.friendDiscountId
+    ),
   };
 
   try {

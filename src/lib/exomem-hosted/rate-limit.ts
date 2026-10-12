@@ -42,6 +42,13 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 20,
     windowSeconds: 60 * 60,
   },
+  // Invitation inspect is public and calls Paddle's price preview, so each
+  // network address is bounded before the token is looked up.
+  inviteInspectIp: {
+    scope: "exomem:invite-inspect:ip",
+    limit: 60,
+    windowSeconds: 10 * 60,
+  },
   oauthAuthorizeIp: {
     scope: "exomem:oauth-authorize:ip",
     limit: 60,

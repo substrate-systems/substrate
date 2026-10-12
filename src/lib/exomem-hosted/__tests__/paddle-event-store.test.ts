@@ -41,6 +41,7 @@ function application(
       productId: "pro_control_plane",
       priceId: "pri_control_plane",
     },
+    subscriptionCarriesFriendDiscount: false,
     subscriptionFacts: {
       priceName: null,
       nextBilledAt: null,

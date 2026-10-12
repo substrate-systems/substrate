@@ -25,6 +25,7 @@ before(() => {
         return [
           { tenantId: "t-expired", outcome: "expired" },
           { tenantId: "t-skipped", outcome: "skipped" },
+          { tenantId: "t-deferred", outcome: "deferred" },
         ];
       },
     },
@@ -44,7 +45,7 @@ before(() => {
         if (cloudGate) await cloudGate;
         await new Promise<void>((resolve) => setImmediate(resolve));
         cloudOrder.push("reconcile");
-        return { reconciled: 4, deleted: 1 };
+        return { reconciled: 4, deleted: 1, waitingForPaddle: 2 };
       },
     },
   });
@@ -167,8 +168,10 @@ describe("GET /api/cron/exomem-reconcile", () => {
       cloud: {
         expired: 1,
         activationsSkipped: 1,
+        expiriesDeferred: 1,
         reconciled: 4,
         deleted: 1,
+        cellsWaitingForPaddle: 2,
         noticesRetried: 2,
         noticesSent: 1,
         deletionsFinished: 2,

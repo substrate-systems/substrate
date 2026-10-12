@@ -5,6 +5,7 @@ import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
 import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
+import type { ExomemInviteKind } from "./invitation-contract";
 
 export type ExomemSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -147,6 +148,14 @@ export type CreateInviteRecordInput = {
   marketplaceReviewerPurpose?: boolean;
   operatorPrincipalDigest: Buffer;
   expiresAt: Date;
+  /** Defaults from the entitlement source (migration 0065). */
+  kind?: ExomemInviteKind;
+  inviterName?: string | null;
+  inviterEmail?: string | null;
+  inviteeName?: string | null;
+  note?: string | null;
+  /** Runs in the creating transaction, so the invitation's emails are enqueued with it. */
+  afterCreate?: (tx: ExomemSql, invite: { inviteId: string; createdAt: Date }) => Promise<void>;
 };
 
 export async function createInviteRecord(
@@ -163,7 +172,12 @@ export async function createInviteRecord(
       entitlement_limits,
       marketplace_reviewer_purpose,
       created_by_principal_digest,
-      expires_at
+      expires_at,
+      kind,
+      inviter_name,
+      inviter_email,
+      invitee_name,
+      note
     ) SELECT
       ${input.tokenDigest},
       ${input.emailNormalized},
@@ -172,7 +186,12 @@ export async function createInviteRecord(
       ${JSON.stringify(input.resourceLimits)}::jsonb,
       ${input.marketplaceReviewerPurpose === true},
       ${input.operatorPrincipalDigest},
-      ${input.expiresAt.toISOString()}
+      ${input.expiresAt.toISOString()},
+      ${input.kind ?? null},
+      ${input.inviterName ?? null},
+      ${input.inviterEmail ?? null},
+      ${input.inviteeName ?? null},
+      ${input.note ?? null}
     WHERE NOT (
       ${input.marketplaceReviewerPurpose === true}
       AND EXISTS (
@@ -189,10 +208,11 @@ export async function createInviteRecord(
                OR block.tenant_id IS NOT NULL)
       )
     )
-    RETURNING id
+    RETURNING id, created_at
   `;
-    const row = rows[0] as { id: string } | undefined;
+    const row = rows[0] as { id: string; created_at: Date | string } | undefined;
     if (!row) throw new Error("createInviteRecord returned no row");
+    await input.afterCreate?.(tx, { inviteId: row.id, createdAt: new Date(row.created_at) });
     return { inviteId: row.id };
   };
   return withExomemTransaction(async (tx) => {
@@ -209,52 +229,6 @@ export async function createInviteRecord(
     }
     return create(tx);
   });
-}
-
-export async function markInviteDelivered(inviteId: string): Promise<void> {
-  await sql`
-    /* exomem:invite-delivered */
-    UPDATE exomem_invites
-    SET delivery_state = 'sent',
-        delivery_attempts = delivery_attempts + 1,
-        delivered_at = now(),
-        delivery_error_code = NULL
-    WHERE id = ${inviteId} AND consumed_at IS NULL AND revoked_at IS NULL
-  `;
-}
-
-export async function markInviteDeliveryFailed(inviteId: string, errorCode: string): Promise<void> {
-  await sql`
-    /* exomem:invite-delivery-failed */
-    UPDATE exomem_invites
-    SET delivery_state = 'failed',
-        delivery_attempts = delivery_attempts + 1,
-        delivery_error_code = ${errorCode},
-        revoked_at = COALESCE(revoked_at, now())
-    WHERE id = ${inviteId} AND consumed_at IS NULL
-  `;
-}
-
-export async function inspectValidInvite(
-  tokenDigest: Buffer
-): Promise<{ emailNormalized: string; expiresAt: string } | null> {
-  const { rows } = await sql`
-    /* exomem:inspect-invite */
-    SELECT email_normalized, expires_at
-    FROM exomem_invites
-    WHERE token_digest = ${tokenDigest}
-      AND consumed_at IS NULL
-      AND revoked_at IS NULL
-      AND expires_at > now()
-    LIMIT 1
-  `;
-  const row = rows[0];
-  return row
-    ? {
-        emailNormalized: String(row.email_normalized),
-        expiresAt: new Date(String(row.expires_at)).toISOString(),
-      }
-    : null;
 }
 
 export type RedeemedAccess = {

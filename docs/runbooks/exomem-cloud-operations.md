@@ -495,6 +495,21 @@ minute with exponential backoff capped at six hours. If paid rows exist but the
 Paddle configuration is missing or a stored reference belongs to another
 environment, the job returns a stable `503` before any Paddle call.
 
+### A lapsed cell that waits for Paddle
+
+When an ended owner's kept window ends, the reconcile job deletes the cell only
+after Paddle settles the transaction still bound to it. Until then the cell
+stays read-only and holds its Cloud place, and the job counts it in
+`cellsWaitingForPaddle`. If that count stays above zero after Paddle is
+reachable again:
+
+1. Find the transaction ID in the tenant's `exomem_entitlements.provider_transaction_ref`.
+2. Cancel that transaction in the Paddle dashboard, unless it is paid.
+3. Wait for the next reconcile run.
+
+The job reads the cancelled transaction, clears the binding and deletes the
+cell. A paid transaction resumes the owner instead; do not cancel it.
+
 ## Invitations
 
 ### Start admission
@@ -601,8 +616,9 @@ Run the count again and require zero.
 
 1. Open `/exomem/operator` directly; it is absent from public navigation and the sitemap.
 2. Paste `EXOMEM_ADMIN_TOKEN` into the page. The page holds it only until refresh or "Lock".
-3. Enter one email and leave "Paid" selected. "Complimentary" needs its own confirmation.
-4. Send the invitation. The page then refreshes its capacity figures.
+3. Enter one email and choose the "Access": "Paid", "Friend (paid, friend price)" or "Covered (complimentary)".
+4. For a friend or covered invitation, enter the inviter's name. "Covered" also needs its own confirmation.
+5. Send the invitation. The page then refreshes its capacity figures.
 
 The page shows "Cloud places free" from the same count that admission uses.
 It shows "Unknown" when no fresh Cloud capacity observation exists. Every
@@ -621,12 +637,31 @@ curl --fail-with-body \
   -X POST "$EXOMEM_PUBLIC_BASE_URL/api/exomem/admin/invites" \
   -H "Authorization: Bearer $EXOMEM_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
-  --data '{"email":"invitee@example.com","source":"paid"}'
+  --data '{"email":"invitee@example.com","kind":"standard"}'
 ```
+
+`kind` is `standard`, `friend` or `covered`. A friend or covered invitation
+also needs `inviterName`.
 
 The response contains only an opaque invite ID and request ID. Brevo sends the
 token in the URL fragment, so request logs never contain it. A complimentary
 redemption creates a cell row with `desired_state = running`.
+
+### Remove a friend price
+
+A tenant's friend offer makes every later checkout carry the friend discount.
+To end an owner's friend price:
+
+1. Remove the friend discount from the owner's subscription in the Paddle dashboard.
+2. Run this statement against the production database, with the owner's tenant ID:
+
+   ```sql
+   UPDATE exomem_tenants SET friend_offer_invite_id = NULL, updated_at = now()
+   WHERE id = '<tenant id>';
+   ```
+
+Without step 2, a resubscribe after the subscription ends charges the friend
+price again.
 
 ## Account deletion
 

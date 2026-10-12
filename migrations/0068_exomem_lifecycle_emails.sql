@@ -6,20 +6,23 @@
 --
 -- THE KIND LIST. Each kind has one renderer in code, so the set is fixed by
 -- code. Every migration that adds kinds replaces this one constraint with the
--- full list: this list is the union of 0063's kinds and this change's.
+-- full list: this list is the union of 0063's kinds, 0065's invitation kinds
+-- and this change's. A Postgres test compares it with the code's registry.
 ALTER TABLE exomem_email_outbox DROP CONSTRAINT exomem_email_outbox_kind_check;
 ALTER TABLE exomem_email_outbox
   ADD CONSTRAINT exomem_email_outbox_kind_check
   CHECK (kind IN (
     'start', 'place_opened', 'waitlist', 'hold_reminder',
+    'invitation', 'friend_invitation', 'covered_invitation',
+    'invitation_reminder', 'invitation_used', 'invitation_ended',
     'ready', 'payment_failed', 'subscription_ended', 'deletion_reminder', 'deleted'
   ));
 
 -- THE ACCOUNT AN EMAIL IS ABOUT. An account email belongs to its tenant, not
 -- to the address it was first queued for: the owner's address can change
 -- before it is sent. Account deletion removes every row of the tenant, at
--- whatever address, before it queues email 07. Start links and waitlist
--- emails belong to no tenant yet and keep this NULL.
+-- whatever address, before it queues email 07. Start links, waitlist emails
+-- and invitation emails belong to no tenant and keep this NULL.
 ALTER TABLE exomem_email_outbox
   ADD COLUMN tenant_id uuid REFERENCES exomem_tenants(id) ON DELETE CASCADE;
 CREATE INDEX exomem_email_outbox_tenant_idx
@@ -29,7 +32,7 @@ CREATE INDEX exomem_email_outbox_tenant_idx
 -- The only account email queued before this migration is the unpaid-hold
 -- reminder, keyed 'hold-reminder:' || cell_id (cloud-admission.ts). Each one,
 -- pending or settled, takes its cell's tenant, so account deletion removes it
--- too. Start link and waitlist rows keep NULL.
+-- too. Start link, waitlist and invitation rows keep NULL.
 UPDATE exomem_email_outbox AS outbox
 SET tenant_id = cell.tenant_id
 FROM exomem_cloud_cells AS cell

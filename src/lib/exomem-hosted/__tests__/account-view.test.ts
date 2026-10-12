@@ -15,12 +15,14 @@ function paidRow(overrides: Partial<ExomemAccountRow> = {}): ExomemAccountRow {
     manuallySuspended: false,
     sourceOccurredAt: new Date("2026-10-01T09:00:00.000Z"),
     subscriptionRef: "sub_example",
+    providerEnvironment: "sandbox",
     priceId: "pri_monthly_example",
     priceName: "Monthly",
     nextBilledAt: new Date("2026-11-01T09:00:00.000Z"),
     discountId: null,
     graceStartedAt: null,
     reviewerExpiresAt: null,
+    friendInviterName: null,
     ...overrides,
   };
 }
