@@ -2,147 +2,112 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  friendlyHostedError,
   HostedBrowserError,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import styles from "../private-shell.module.css";
-import { inviteRefusal } from "./invite-refusal";
+import { failureCopy, inviteCopy, TRY_AGAIN } from "../_journey/copy";
+import { JourneyPage } from "../_journey/JourneyPage";
+import { StepActions, StepHeading, StepNotice, WorkingBar } from "../_journey/parts";
 
-type InviteState =
+type Mode =
   | { kind: "checking" }
-  | { kind: "ready"; email: string; expiresAt: string }
-  | { kind: "accepting"; email: string; expiresAt: string }
-  // `retryable` decides which of two very different things went wrong. A spent
-  // or malformed invitation needs a fresh link; a service that is not admitting
-  // right now needs the same link, later. Telling someone to ask for a new link
-  // while the response underneath says their invitation is still valid is the
-  // page contradicting itself.
-  | { kind: "error"; message: string; retryable: boolean };
+  | { kind: "invite"; failure: string | null }
+  | { kind: "accepting" }
+  | { kind: "unusable" }
+  /** Inspecting failed on our side: the same link may work in a moment. */
+  | { kind: "failed" };
 
-function failure(error: unknown): InviteState {
-  return {
-    kind: "error",
-    message: friendlyHostedError(error),
-    retryable: error instanceof HostedBrowserError && error.retryable,
-  };
+// A refused token (expired, used, revoked, malformed) is final: one identical answer
+// that names no one. A retryable refusal means Exomem cannot open it right now.
+function refused(error: unknown): boolean {
+  return error instanceof HostedBrowserError && !error.retryable;
 }
 
+/**
+ * An invitation link. The token is in the fragment; the page takes it out of the
+ * address bar first. Accepting creates the Exomem and signs this browser in; a paid
+ * invitation continues at setup, a covered one at Home, and one opened from an app's
+ * consent page continues that connection (the redeem route decides).
+ */
 export default function InviteClient() {
-  const tokenRef = useRef<string | null>(null);
-  const startedRef = useRef(false);
-  const [state, setState] = useState<InviteState>({ kind: "checking" });
-  // Held across a retryable failure so the same invitation can be offered again
-  // without the person going back to their email.
-  const acceptedRef = useRef<{ email: string; expiresAt: string } | null>(null);
+  const token = useRef<string | null>(null);
+  const started = useRef(false);
+  const [mode, setMode] = useState<Mode>({ kind: "checking" });
 
   const inspect = useCallback(async () => {
-    const token = tokenRef.current;
-    if (!token) return;
-    setState({ kind: "checking" });
+    if (!token.current) return;
+    setMode({ kind: "checking" });
     try {
-      const result = await postPublicJson("/api/exomem/access/inspect", { token });
-      if (typeof result.email !== "string" || typeof result.expiresAt !== "string") {
-        throw new Error("invalid invite response");
-      }
-      acceptedRef.current = { email: result.email, expiresAt: result.expiresAt };
-      setState({ kind: "ready", email: result.email, expiresAt: result.expiresAt });
+      await postPublicJson("/api/exomem/access/inspect", { token: token.current });
+      setMode({ kind: "invite", failure: null });
     } catch (error) {
-      setState(failure(error));
+      setMode({ kind: refused(error) ? "unusable" : "failed" });
     }
   }, []);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    tokenRef.current = takeFragmentToken();
-    if (!tokenRef.current) {
-      // No token means nothing to press again, which is why this refusal is the
-      // one case declared non-retryable regardless of any envelope.
-      setState({
-        kind: "error",
-        message: "This invite link is incomplete or has expired.",
-        retryable: false,
-      });
-      return;
-    }
-    void inspect();
+    if (started.current) return;
+    started.current = true;
+    token.current = takeFragmentToken();
+    if (!token.current) setMode({ kind: "unusable" });
+    else void inspect();
   }, [inspect]);
 
-  /** Offer the same invitation again — from wherever it got as far as. */
-  function retry() {
-    const invitation = acceptedRef.current;
-    if (!tokenRef.current) return;
-    if (invitation) setState({ kind: "ready", ...invitation });
-    else void inspect();
-  }
-
   async function accept() {
-    if (state.kind !== "ready" || !tokenRef.current) return;
-    setState({ kind: "accepting", email: state.email, expiresAt: state.expiresAt });
+    if (!token.current) return;
+    setMode({ kind: "accepting" });
     try {
       const result = await postPublicJson("/api/exomem/access/redeem", {
-        token: tokenRef.current,
+        token: token.current,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
-      tokenRef.current = null;
+      token.current = null;
       window.location.replace(
         typeof result.destination === "string" ? result.destination : "/exomem/home"
       );
     } catch (error) {
-      setState(failure(error));
+      if (refused(error)) setMode({ kind: "unusable" });
+      else setMode({ kind: "invite", failure: failureCopy.invitationNotReady });
     }
   }
 
-  return (
-    <section className={styles.card} aria-labelledby="invite-title">
-      <p className={styles.eyebrow}>Your private memory</p>
-      <h1 className={styles.title} id="invite-title">
-        Start your Exomem.
-      </h1>
-      {state.kind === "checking" ? (
-        <>
-          <p className={styles.lede}>Checking your private invitation…</p>
-          <div className={styles.spinner} role="status" aria-label="Checking invite" />
-        </>
-      ) : state.kind === "error" ? (
-        <>
-          <p className={styles.lede}>{inviteRefusal(state.retryable).lede}</p>
-          <p className={`${styles.status} ${styles.error}`} role="alert">
-            {state.message}
-          </p>
-          {inviteRefusal(state.retryable).offerRetry ? (
-            <div className={styles.form}>
-              <button className={styles.button} type="button" onClick={retry}>
-                Try again
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <p className={styles.lede}>
-            Exomem keeps things you want to remember and helps you find them again. No setup,
-            folders, or technical knowledge needed.
-          </p>
-          <span className={styles.boundEmail}>
-            This invitation belongs to <strong>{state.email}</strong>
-          </span>
-          <div className={styles.form}>
-            <button
-              className={styles.button}
-              type="button"
-              onClick={accept}
-              disabled={state.kind === "accepting"}
-            >
-              {state.kind === "accepting" ? "Creating your Exomem…" : "Accept invitation"}
-            </button>
-            <p className={styles.status} aria-live="polite">
-              The link can be used once. Your browser will stay signed in on this device.
-            </p>
-          </div>
-        </>
-      )}
-    </section>
-  );
+  switch (mode.kind) {
+    case "checking":
+      return <JourneyPage kind="quiet" stepKey="checking" />;
+    case "unusable":
+      return (
+        <JourneyPage kind="quiet" stepKey="unusable">
+          <StepHeading title={inviteCopy.unusable.title} lede={inviteCopy.unusable.lede} />
+          <StepActions
+            primary={{
+              label: inviteCopy.unusable.primary,
+              onClick: () => window.location.assign("/exomem/sign-in"),
+            }}
+          />
+        </JourneyPage>
+      );
+    case "failed":
+      return (
+        <JourneyPage kind="quiet" stepKey="failed">
+          <StepNotice alert>{failureCopy.generic}</StepNotice>
+          <StepActions primary={{ label: TRY_AGAIN, onClick: () => void inspect() }} />
+        </JourneyPage>
+      );
+    case "accepting":
+      return (
+        <JourneyPage kind="hold" stepKey="accepting">
+          <StepHeading title={inviteCopy.accepting.title} lede={inviteCopy.accepting.lede} />
+          <WorkingBar label={inviteCopy.accepting.title} />
+        </JourneyPage>
+      );
+    case "invite":
+      return (
+        <JourneyPage kind="quiet" stepKey="invite">
+          <StepHeading title={inviteCopy.standardTitle} lede={inviteCopy.lede} />
+          {mode.failure ? <StepNotice alert>{mode.failure}</StepNotice> : null}
+          <StepActions primary={{ label: inviteCopy.accept, onClick: () => void accept() }} />
+        </JourneyPage>
+      );
+  }
 }
