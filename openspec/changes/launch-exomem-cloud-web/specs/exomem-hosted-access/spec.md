@@ -525,6 +525,12 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 - **AND** because the subscription carries the friend discount, it records `applied` and the friend offer, and answers 200 `applied`
 - **AND** a friend offer that the tenant holds never stands in for that check
 
+#### Scenario: Owner already took the friend price through another invitation
+
+- **WHEN** an owner who took the friend price through one invitation, at signup or by answering it, chooses `keep_plan` on another friend invitation
+- **THEN** the system records `kept` for that invitation and tells its inviter nothing, and the tenant keeps the friend offer it has
+- **AND** an offer that the tenant holds from an invitation the owner never used does not count, so an answer whose update reached Paddle still records `applied`
+
 #### Scenario: Friend discount is not configured
 
 - **WHEN** an owner chooses `keep_plan` on a friend invitation for a live subscription and no friend discount is configured

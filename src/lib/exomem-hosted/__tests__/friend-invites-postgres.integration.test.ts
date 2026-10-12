@@ -927,6 +927,58 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(await friendOffer(reconciled.tenantId), reconciledInvitation.inviteId);
   });
 
+  it("keeps a second inviter's invitation as kept, and tells that inviter nothing, when the owner already took the friend price", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    const first = await issueFriendInvitation({
+      email: owner.email,
+      inviterEmail: newAddress("first-inviter"),
+    });
+    assert.equal(
+      (await decideInvitation({ token: first.token, choice: "use_friend_price", session })).status,
+      "applied"
+    );
+    const second = await issueFriendInvitation({
+      email: owner.email,
+      inviterEmail: newAddress("second-inviter"),
+    });
+
+    const decision = await decideInvitation({ token: second.token, choice: "keep_plan", session });
+
+    assert.deepEqual(decision, { status: "kept" });
+    assert.equal((await invitation(second.inviteId)).decision, "kept");
+    assert.equal(await friendOffer(owner.tenantId), first.inviteId);
+    assert.equal(
+      (await outboxRows(second.inviteId)).some((row) => row.kind === "invitation_used"),
+      false
+    );
+  });
+
+  it("records the friend price for an answer whose update reached Paddle, when the event gave the offer of another invitation the owner never used", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    const answered = await issueFriendInvitation({ email: owner.email });
+    const unused = await issueFriendInvitation({ email: owner.email });
+    paddle.subscriptionUpdateAnswerLost = true;
+    await assert.rejects(
+      decideInvitation({ token: answered.token, choice: "use_friend_price", session }),
+      (error) => error instanceof ExomemHostedError && error.status === 503
+    );
+    paddle.subscriptionUpdateAnswerLost = false;
+    // Paddle's event gives the tenant the offer of the newest friend invitation.
+    await subscriptionEvent(owner, { occurredAt: new Date(), discountId: FRIEND_DISCOUNT });
+    assert.equal(await friendOffer(owner.tenantId), unused.inviteId);
+
+    const decision = await decideInvitation({
+      token: answered.token,
+      choice: "keep_plan",
+      session,
+    });
+
+    assert.equal(decision.status, "applied");
+    assert.equal((await invitation(answered.inviteId)).decision, "applied");
+  });
+
   it("records the friend offer from Paddle's subscription event when the decision's answer was lost", async () => {
     const owner = await paidOwner({ sourceState: "active", cell: "running" });
     const { inviteId, token } = await issueFriendInvitation({ email: owner.email });

@@ -609,9 +609,19 @@ export async function decideInvitation(
         /* exomem:invitation-decision-billing */
         SELECT entitlement.source, entitlement.source_state, entitlement.provider_environment,
                entitlement.provider_subscription_ref, entitlement.provider_next_billed_at,
-               entitlement.provider_price_id, entitlement.provider_discount_id
+               entitlement.provider_price_id, entitlement.provider_discount_id,
+               -- The owner already took the friend price through another
+               -- invitation: used at signup, or answered with the friend
+               -- price. An offer recorded from an invitation the owner never
+               -- used does not count.
+               (offer.id IS NOT NULL
+                 AND offer.id <> ${invite.id}::uuid
+                 AND offer.consumed_at IS NOT NULL
+                 AND offer.consumed_by_user_id = tenant.owner_user_id
+                 AND offer.decision IS DISTINCT FROM 'kept') AS friend_price_taken_elsewhere
         FROM exomem_entitlements AS entitlement
         JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
+        LEFT JOIN exomem_invites AS offer ON offer.id = tenant.friend_offer_invite_id
         WHERE tenant.id = ${input.session.tenantId}::uuid
           AND tenant.owner_user_id = ${input.session.userId}::uuid
       `;
@@ -624,6 +634,7 @@ export async function decideInvitation(
             provider_next_billed_at: Date | string | null;
             provider_price_id: string | null;
             provider_discount_id: string | null;
+            friend_price_taken_elsewhere: boolean;
           }
         | undefined;
       if (!billing) throw exomemErrors.sessionInvalid();
@@ -654,9 +665,11 @@ export async function decideInvitation(
       if (input.choice === "keep_plan") {
         // An earlier `use_friend_price` may have reached Paddle although its
         // answer was lost, so "kept" is stored only once the subscription is
-        // shown not to carry the friend discount now.
+        // shown not to carry the friend discount now. A friend price the
+        // owner took through another invitation explains the discount: this
+        // answer stays "kept", and its inviter is told nothing.
         const inForce =
-          offer.offered && subscription
+          offer.offered && subscription && !billing.friend_price_taken_elsewhere
             ? await friendDiscountInForce(billing, subscription, deps)
             : null;
         decision = inForce
