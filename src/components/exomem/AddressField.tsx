@@ -29,17 +29,18 @@ export function AddressField({ label, address }: { label: string; address: strin
     []
   );
 
+  // "Copied ✓" only once the clipboard took the address; refused or unavailable keeps "Copy".
   const copy = () => {
-    try {
-      navigator.clipboard?.writeText(address).catch(() => {
+    navigator.clipboard?.writeText(address).then(
+      () => {
+        setCopied(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+      },
+      () => {
         // Refused (no permission): the address stays visible to copy by hand.
-      });
-    } catch {
-      // No clipboard (insecure context): the address stays visible to copy by hand.
-    }
-    setCopied(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+      }
+    );
   };
 
   const parts = splitAfterHost(address);

@@ -6,7 +6,7 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & 
   variant?: "primary" | "secondary" | "amber" | "ghost";
   /** panel: h 36 inside panels · page: h 48, a page's main action. Ghost buttons have one size. */
   size?: "panel" | "page";
-  /** Shows the button as working: the label (the caller's) says what happens; clicks are ignored. */
+  /** Shows the button as working: the label (the caller's) says what happens; clicks do nothing. */
   working?: boolean;
 };
 
@@ -36,7 +36,8 @@ export function Button({
       className={classes}
       aria-busy={working || undefined}
       aria-disabled={working || rest["aria-disabled"]}
-      onClick={working ? undefined : onClick}
+      // Working: a click does nothing, and a submit button does not submit its form again.
+      onClick={working ? (event) => event.preventDefault() : onClick}
     />
   );
 }
