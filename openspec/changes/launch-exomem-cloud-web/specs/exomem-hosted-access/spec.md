@@ -293,7 +293,7 @@ The system SHALL send emails 03 to 07 through the email outbox, each under a ded
 - 04 "Your payment didn't go through": in the statement that moves a subscription into past due.
 - 05 "Your Exomem subscription has ended": in the transaction that claims the cancellation notice of a cancelled, read-only cell.
 - 06, the deletion reminder: queued with email 05 for seven days before the kept-until date, only while more than seven days are left. When the kept-until date moves later, email 06 SHALL wait until seven days before the new date.
-- 07 "Your Exomem has been deleted": queued by the one transaction that deletes the Exomem when its kept window ends, or by the account deletion finish after it scrubs the account's other emails. It names the tenant's deletion time, goes to the owner's address at deletion, and SHALL be sent only after the cell controller reports every cell of the tenant deleted.
+- 07 "Your Exomem has been deleted": queued by the one transaction that deletes the Exomem when its kept window ends, or by the account deletion finish after it scrubs the account's other emails. It names the tenant's deletion time, goes to the owner's address at deletion, and SHALL be sent only after the cell controller reports every cell of the tenant deleted. It SHALL give the date of that report as the deletion date.
 
 The row of email 07 SHALL keep the owner's address and time zone only until 30 days after it settles, and its encrypted payload only until it settles.
 
@@ -328,6 +328,7 @@ The row of email 07 SHALL keep the owner's address and time zone only until 30 d
 
 - **WHEN** the tenant is deleted but the cell controller has not yet reported its cell deleted
 - **THEN** email 07 waits, for at most seven days
+- **AND** once the controller reports the cell deleted, email 07 goes out with the date of that report
 - **AND** a re-admission or a later deletion cancels it
 
 #### Scenario: Account deletion finishes

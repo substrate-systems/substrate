@@ -819,7 +819,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     );
     await pool!.query(
       `UPDATE exomem_cloud_cells
-       SET observed_state = 'deleted', observed_generation = generation
+       SET observed_state = 'deleted', observed_generation = generation, observed_at = now()
        WHERE tenant_id = $1`,
       [tenant.tenantId]
     );

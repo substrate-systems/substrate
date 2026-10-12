@@ -522,35 +522,40 @@ const EXOMEM_EMAILS = {
    * Email 07: the Exomem was deleted. It holds while the tenant is still
    * deleted by this deletion, the one whose `deleted_at` it names: a
    * re-admission, or a later deletion, cancels it. It says the vault, its
-   * backups and its keys are gone, so it waits until cellctl reports every
-   * cell of the tenant deleted at its current generation, after which only
-   * the deletion receipt remains (design `adopt-exomem-cloud-plain-cells`,
-   * D4). The one definition is `exomem_cloud_cell_deletion_finished`
-   * (migration 0068), which capacity uses too.
+   * backups and its keys are gone, so it waits until cellctl has deleted
+   * every cell of the tenant
+   * (`exomem_cloud_cell_deletion_finished`, migration 0068). The date it
+   * gives is when cellctl finished: cellctl stops observing a deleted cell,
+   * so the latest `observed_at` of the tenant's cells is that moment.
    */
   deleted: defineEmail({
     readPayload: (value): DeletedPayload | null =>
       readShape(value, { tenantId: "uuid", deletedAt: "instant" }),
-    stillHolds: async (tx, payload): Promise<true | NotYet | null> => {
+    stillHolds: async (tx, payload): Promise<{ finishedAt: Date } | NotYet | null> => {
       const { rows } = await tx`
         /* exomem:email-deleted-still-deleted */
-        SELECT EXISTS (
-                 SELECT 1 FROM exomem_cloud_cells AS cell
-                 WHERE cell.tenant_id = tenant.id
-                   AND NOT exomem_cloud_cell_deletion_finished(cell)
-               ) AS cell_live,
+        SELECT count(*) FILTER (
+                 WHERE NOT exomem_cloud_cell_deletion_finished(cell) OR cell.observed_at IS NULL
+               )::int AS unfinished,
+               max(cell.observed_at) AS finished_at,
                now() + (${DELETED_RECHECK_MINUTES} * interval '1 minute') AS recheck_at
         FROM exomem_tenants AS tenant
+        JOIN exomem_cloud_cells AS cell ON cell.tenant_id = tenant.id
         WHERE tenant.id = ${payload.tenantId}::uuid
           AND tenant.status = 'deleted'
           AND tenant.deleted_at = ${payload.deletedAt}::timestamptz
+        GROUP BY tenant.id
       `;
-      const row = rows[0] as { cell_live: boolean; recheck_at: Date | string } | undefined;
+      const row = rows[0] as
+        | { unfinished: number; finished_at: Date | string | null; recheck_at: Date | string }
+        | undefined;
       if (!row) return null;
-      return row.cell_live ? new NotYet(new Date(row.recheck_at)) : true;
+      if (row.unfinished > 0 || row.finished_at === null)
+        return new NotYet(new Date(row.recheck_at));
+      return { finishedAt: new Date(row.finished_at) };
     },
-    render: ({ payload, timeZone, now }) =>
-      renderExomemDeletedEmail({ deletedAt: new Date(payload.deletedAt), now, timeZone }),
+    render: ({ context, timeZone, now }) =>
+      renderExomemDeletedEmail({ deletedAt: context.finishedAt, now, timeZone }),
   }),
 };
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;

@@ -140,7 +140,10 @@ async function drain(): Promise<{ sent: Sent[]; cancelled: number; deferred: num
 /** What cellctl writes once it has deleted every cell of a tenant. */
 async function markCellsDeleted(tenantId: string): Promise<void> {
   await pool.query(
-    "UPDATE exomem_cloud_cells SET observed_state = 'deleted', observed_generation = generation, ready = false WHERE tenant_id = $1",
+    `UPDATE exomem_cloud_cells
+     SET observed_state = 'deleted', observed_generation = generation, ready = false,
+         observed_at = now()
+     WHERE tenant_id = $1`,
     [tenantId]
   );
 }
@@ -469,15 +472,20 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     assert.deepEqual(rows, [{ state: "pending", on_time: true }]);
   });
 
-  it("07: tells the owner once, after cellctl has deleted the Exomem the kept window ended", async () => {
+  it("07: tells the owner once, after cellctl has deleted the Exomem, with the day cellctl did it", async () => {
     const tenant = await seedTenant({
       source: "paddle",
       sourceState: "cancelled",
       cell: "read_only",
-      sourceOccurredAt: new Date(Date.now() - 31 * DAY),
+      sourceOccurredAt: new Date(Date.now() - 32 * DAY),
     });
 
-    assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), "deleted");
+    // The kept window deleted it yesterday; cellctl finishes today.
+    const yesterday = new Date(Date.now() - DAY);
+    assert.equal(
+      await reconcileCloudCellDesiredState(tenant.tenantId, { now: yesterday }),
+      "deleted"
+    );
     assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), null);
     // The vault, its backups and its keys still exist: the email waits.
     const early = await drain();
