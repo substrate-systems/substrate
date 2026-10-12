@@ -103,6 +103,12 @@ Checkout SHALL accept a self-serve owner and an owner whose subscription ended i
 - **THEN** the server creates a new transaction for the same customer
 - **AND** service resumes on the kept data when the new subscription becomes active
 
+#### Scenario: Kept window ends with an open resubscribe checkout
+
+- **WHEN** an ended owner's kept window ends while a checkout they opened to resubscribe is still open
+- **THEN** the system cancels that transaction at Paddle before it deletes the cell
+- **AND** the cell stays read-only while Paddle cannot answer, or while a payment for a new subscription is on its way
+
 #### Scenario: Kept window has passed
 
 - **WHEN** an ended owner starts checkout after the kept window

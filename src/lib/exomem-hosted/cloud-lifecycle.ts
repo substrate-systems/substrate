@@ -27,6 +27,12 @@ import {
   CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS,
   DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS,
 } from "./cloud-config";
+import {
+  cancelExomemCheckoutTransaction,
+  ExomemBillingError,
+  type PaddleTransport,
+} from "./paddle-billing";
+import { loadExomemPaddleTransactionConfig, type ExomemPaddleConfig } from "./paddle-config";
 
 export type CloudDesiredCellState = "running" | "read_only" | "stopped" | "deleted";
 
@@ -109,6 +115,7 @@ type EntitlementRow = {
   source_state: string;
   manual_suspended_at: Date | null;
   source_occurred_at: Date | null;
+  provider_transaction_ref: string | null;
 };
 
 /**
@@ -142,6 +149,112 @@ function toSourceProjection(
     return null;
   }
   return { source: "paddle", state: row.source_state as RecognizedPaddleState };
+}
+
+export type LapsedCheckoutOutcome = "none" | "settled" | "waiting";
+
+export type LapsedCheckoutOptions = {
+  cancelledRetentionDays?: number;
+  now?: Date;
+  cancelTransaction?: typeof cancelExomemCheckoutTransaction;
+  config?: ExomemPaddleConfig;
+  transport?: PaddleTransport;
+};
+
+/**
+ * Before a lapsed export window deletes a cancelled tenant's cell, the
+ * Paddle transaction still bound to it is settled, the way
+ * `expireCloudAwaitingCheckoutTenants` settles an unpaid hold: an open
+ * resubscription checkout is cancelled at Paddle. A transaction that is
+ * cancelled, or that belongs to the ended subscription, or that is not a
+ * checkout this owner opened, can no longer pay for this cell, so its
+ * binding is cleared and the cell may go.
+ *
+ * It waits instead, and the cell stays read-only, while a payment is on its
+ * way (a completed transaction for a new subscription, which its
+ * subscription event resumes) or while Paddle cannot answer. If Paddle
+ * stays down, every lapsed cell with a bound transaction outlives its
+ * window and keeps its Cloud slot until Paddle answers; each tick asks again.
+ */
+export async function settleLapsedCheckout(
+  tenantId: string,
+  options: LapsedCheckoutOptions = {}
+): Promise<LapsedCheckoutOutcome> {
+  const { rows } = await executeExomemSql`
+    /* exomem-cloud:lapsed-checkout */
+    SELECT tenant.owner_user_id, entitlement.source_occurred_at, entitlement.source_revision,
+           entitlement.provider_transaction_ref, entitlement.provider_environment,
+           entitlement.provider_subscription_ref
+    FROM exomem_entitlements AS entitlement
+    JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
+    WHERE entitlement.tenant_id = ${tenantId}::uuid
+      AND entitlement.source = 'paddle'
+      AND entitlement.source_state = 'cancelled'
+      AND entitlement.manual_suspended_at IS NULL
+      AND entitlement.provider_transaction_ref IS NOT NULL
+      AND entitlement.source_occurred_at IS NOT NULL
+      AND tenant.status NOT IN ('deletion_pending', 'deleted')
+      AND tenant.desired_state <> 'deleted'
+      AND EXISTS (
+        SELECT 1 FROM exomem_cloud_cells AS cell
+        WHERE cell.tenant_id = tenant.id AND cell.desired_state <> 'deleted'
+      )
+  `;
+  const row = rows[0] as
+    | {
+        owner_user_id: string;
+        source_occurred_at: Date | string;
+        source_revision: string | null;
+        provider_transaction_ref: string;
+        provider_environment: "sandbox" | "production" | null;
+        provider_subscription_ref: string | null;
+      }
+    | undefined;
+  if (!row) return "none";
+  const keptUntil = cloudCancelledKeptUntil(
+    new Date(row.source_occurred_at),
+    options.cancelledRetentionDays
+  );
+  if (keptUntil.getTime() > (options.now ?? new Date()).getTime()) return "none";
+
+  let settles: boolean;
+  try {
+    if (!row.provider_environment) throw new Error("EXOMEM_PADDLE_ENVIRONMENT_UNKNOWN");
+    const result = await (options.cancelTransaction ?? cancelExomemCheckoutTransaction)(
+      {
+        userId: row.owner_user_id,
+        tenantId,
+        transactionId: row.provider_transaction_ref,
+        environment: row.provider_environment,
+      },
+      {
+        config: options.config ?? loadExomemPaddleTransactionConfig(),
+        transport: options.transport,
+      }
+    );
+    settles =
+      result.state === "canceled" || result.subscriptionId === row.provider_subscription_ref;
+  } catch (error) {
+    // A transaction that is not this owner's checkout cannot pay for this
+    // cell; anything else is an unanswered question, so the cell waits.
+    settles =
+      error instanceof ExomemBillingError && error.code === "EXOMEM_BILLING_STATE_CONFLICT";
+  }
+  if (!settles) {
+    console.error("exomem-cloud: a lapsed cell waits for its Paddle checkout to settle");
+    return "waiting";
+  }
+  const cleared = await executeExomemSql`
+    /* exomem-cloud:lapsed-checkout-cleared */
+    UPDATE exomem_entitlements
+    SET provider_transaction_ref = NULL, updated_at = now()
+    WHERE tenant_id = ${tenantId}::uuid
+      AND source_state = 'cancelled'
+      AND provider_transaction_ref = ${row.provider_transaction_ref}
+      AND source_revision IS NOT DISTINCT FROM ${row.source_revision}
+    RETURNING tenant_id
+  `;
+  return cleared.rows.length === 1 ? "settled" : "waiting";
 }
 
 type CloudTenantMirror = {
@@ -205,6 +318,7 @@ export async function reconcileCloudCellDesiredState(
       /* exomem-cloud:reconcile-entitlement */
       SELECT entitlement.tenant_id, entitlement.source, entitlement.source_state,
              entitlement.manual_suspended_at, entitlement.source_occurred_at,
+             entitlement.provider_transaction_ref,
              tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state
       FROM exomem_entitlements AS entitlement
       JOIN exomem_cloud_cells AS cell
@@ -234,7 +348,7 @@ export async function reconcileCloudCellDesiredState(
     // recognised paddle branches allows at least a read, so guessing one
     // would risk repeating the finding-1 bug. `stopped` is the only D1/D4
     // answer for "the mapping does not recognise this state."
-    const target: CloudDesiredCellState = accountDeleted
+    const mapped: CloudDesiredCellState = accountDeleted
       ? "deleted"
       : sourceProjection
       ? desiredCloudCellState(
@@ -247,6 +361,15 @@ export async function reconcileCloudCellDesiredState(
           options
         )
       : "stopped";
+    // A lapsed export window deletes the cell only once no Paddle checkout
+    // is bound to it: a resubscription opened inside the window could
+    // otherwise be paid for a deleted cell. `settleLapsedCheckout` clears
+    // the binding once Paddle confirms nothing is still open; until then the
+    // cell stays read-only.
+    const target: CloudDesiredCellState =
+      mapped === "deleted" && !accountDeleted && row.provider_transaction_ref !== null
+        ? "read_only"
+        : mapped;
 
     // The cancellation-notice claim (migration 0057) is cleared the moment
     // the cell returns to running — security review finding 9: otherwise a
@@ -325,6 +448,8 @@ export type CloudReconcileResult = {
   reconciled: number;
   deleted: number;
   failed: number;
+  /** Lapsed cells kept this tick because their Paddle checkout could not be settled. */
+  waitingForPaddle: number;
 };
 
 /**
@@ -341,6 +466,7 @@ export async function runBoundedCloudReconcile(
     maxTenants?: number;
     cancelledRetentionDays?: number;
     reconcileTenant?: typeof reconcileCloudCellDesiredState;
+    settleCheckout?: typeof settleLapsedCheckout;
   } = {}
 ): Promise<CloudReconcileResult> {
   const maxTenants = options.maxTenants ?? 200;
@@ -349,11 +475,17 @@ export async function runBoundedCloudReconcile(
   let reconciled = 0;
   let deleted = 0;
   let failed = 0;
+  let waitingForPaddle = 0;
+  const settleCheckout = options.settleCheckout ?? settleLapsedCheckout;
   for (const tenantId of tenantIds) {
     // Each tenant is isolated, as the expiry lane's are (security review
     // finding 8): one tenant that throws must not stop every other tenant's
     // reconcile, and account deletion relies on this sweep as its backstop.
     try {
+      const settled = await settleCheckout(tenantId, {
+        cancelledRetentionDays: options.cancelledRetentionDays,
+      });
+      if (settled === "waiting") waitingForPaddle += 1;
       const target = await reconcileTenant(tenantId, {
         cancelledRetentionDays: options.cancelledRetentionDays,
       });
@@ -366,7 +498,7 @@ export async function runBoundedCloudReconcile(
       console.error("exomem-cloud: lifecycle reconcile failed for one tenant");
     }
   }
-  return { reconciled, deleted, failed };
+  return { reconciled, deleted, failed, waitingForPaddle };
 }
 
 export { CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS };

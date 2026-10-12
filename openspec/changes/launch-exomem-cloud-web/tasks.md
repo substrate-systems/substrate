@@ -53,6 +53,7 @@
 - [x] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
 - [ ] 4.11 Run a dedicated security review of the friend price
 - [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
+- [x] 4.13 Cancel an open resubscribe checkout at Paddle before a lapsed kept window deletes the cell, and keep the cell read-only while Paddle cannot answer
 
 ## 5. Cell home channel, storage and export (migration 0066)
 

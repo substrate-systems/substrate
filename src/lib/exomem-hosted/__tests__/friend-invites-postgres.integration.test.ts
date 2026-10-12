@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { startOwnerCheckout } from "../billing-account";
 import { redeemCloudInvite, redeemCloudInviteAtomic } from "../cloud-admission";
+import { reconcileCloudCellDesiredState, runBoundedCloudReconcile } from "../cloud-lifecycle";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { drainExomemEmailOutbox } from "../email-outbox";
 import { ExomemHostedError } from "../errors";
@@ -55,6 +56,8 @@ const paddle = {
   subscriptionUpdateFails: false,
   // Holds Paddle's answer, so two requests overlap while one waits on it.
   subscriptionUpdateDelayMs: 0,
+  // Paddle's transaction API is unreachable.
+  transactionsDown: false,
   transactions: new Map<string, Record<string, unknown>>(),
 };
 
@@ -104,6 +107,15 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
     return Response.json({
       data: { id: pathname.split("/")[2], next_billed_at: "2026-11-12T09:00:00Z" },
     });
+  }
+  if (paddle.transactionsDown && pathname.startsWith("/transactions")) {
+    return new Response("{}", { status: 503 });
+  }
+  if (method === "PATCH" && pathname.startsWith("/transactions/")) {
+    const transaction = paddle.transactions.get(pathname.split("/")[2]!);
+    if (!transaction) return new Response("{}", { status: 404 });
+    if (body?.status === "canceled") transaction.status = "canceled";
+    return Response.json({ data: transaction });
   }
   if (method === "POST" && pathname === "/transactions") {
     const id = `txn_${randomUUID().replaceAll("-", "").slice(0, 26)}`;
@@ -331,6 +343,31 @@ async function sessionCount(): Promise<number> {
   return rows[0]!.n;
 }
 
+/** An ended owner with an open resubscribe checkout, whose kept window then lapses. */
+async function lapsedOwnerWithCheckout() {
+  const owner = await paidOwner({ sourceState: "cancelled", cell: "read_only", endedDaysAgo: 29 });
+  const { transactionId } = await startOwnerCheckout(owner.userId, owner.tenantId);
+  await pool!.query(
+    "UPDATE exomem_entitlements SET source_occurred_at = now() - interval '31 days' WHERE tenant_id = $1",
+    [owner.tenantId]
+  );
+  return { ...owner, transactionId };
+}
+
+async function lapsedCell(tenantId: string) {
+  const { rows } = await pool!.query<{
+    desired_state: string;
+    provider_transaction_ref: string | null;
+  }>(
+    `SELECT cell.desired_state, entitlement.provider_transaction_ref
+     FROM exomem_cloud_cells AS cell
+     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
+     WHERE cell.tenant_id = $1`,
+    [tenantId]
+  );
+  return rows[0]!;
+}
+
 describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     for (const [key, value] of Object.entries(ENV)) {
@@ -376,6 +413,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     paddle.discount = validDiscount();
     paddle.subscriptionUpdateFails = false;
     paddle.subscriptionUpdateDelayMs = 0;
+    paddle.transactionsDown = false;
     __clearExomemPriceCacheForTests();
     await pool!.query("UPDATE exomem_cloud_capacity SET observed_at = now()");
   });
@@ -793,5 +831,55 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
         error instanceof ExomemHostedError && error.code === "EXOMEM_FRIEND_DISCOUNT_INVALID"
     );
     assert.equal(paddleCalls("POST", "/transactions").length, 0);
+  });
+
+  it("cancels an open resubscribe checkout at Paddle before the lapsed window deletes the cell, and keeps a cell whose resubscription was paid", async () => {
+    const abandoned = await lapsedOwnerWithCheckout();
+    const paid = await lapsedOwnerWithCheckout();
+    const newSubscription = `sub_${randomUUID().replaceAll("-", "").slice(0, 26)}`;
+    Object.assign(paddle.transactions.get(paid.transactionId)!, {
+      status: "completed",
+      subscription_id: newSubscription,
+    });
+
+    await runBoundedCloudReconcile();
+
+    assert.ok(
+      paddleCalls("PATCH", `/transactions/${abandoned.transactionId}`).some(
+        (call) => call.body?.status === "canceled"
+      )
+    );
+    assert.deepEqual(await lapsedCell(abandoned.tenantId), {
+      desired_state: "deleted",
+      provider_transaction_ref: null,
+    });
+    // The paid checkout is neither cancelled nor its cell deleted: its
+    // subscription event resumes the cell.
+    assert.equal(paddleCalls("PATCH", `/transactions/${paid.transactionId}`).length, 0);
+    assert.deepEqual(await lapsedCell(paid.tenantId), {
+      desired_state: "read_only",
+      provider_transaction_ref: paid.transactionId,
+    });
+  });
+
+  it("keeps a lapsed cell read-only while Paddle cannot settle its checkout, and deletes it once Paddle answers", async () => {
+    const owner = await lapsedOwnerWithCheckout();
+    paddle.transactionsDown = true;
+
+    const waiting = await runBoundedCloudReconcile();
+    assert.ok(waiting.waitingForPaddle >= 1);
+    // No other path deletes it either while the checkout is still bound.
+    assert.equal(await reconcileCloudCellDesiredState(owner.tenantId), "read_only");
+    assert.deepEqual(await lapsedCell(owner.tenantId), {
+      desired_state: "read_only",
+      provider_transaction_ref: owner.transactionId,
+    });
+
+    paddle.transactionsDown = false;
+    await runBoundedCloudReconcile();
+    assert.deepEqual(await lapsedCell(owner.tenantId), {
+      desired_state: "deleted",
+      provider_transaction_ref: null,
+    });
   });
 });

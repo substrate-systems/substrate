@@ -42,7 +42,7 @@ before(() => {
         if (cloudGate) await cloudGate;
         await new Promise<void>((resolve) => setImmediate(resolve));
         cloudOrder.push("reconcile");
-        return { reconciled: 4, deleted: 1 };
+        return { reconciled: 4, deleted: 1, waitingForPaddle: 2 };
       },
     },
   });
@@ -156,6 +156,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
         activationsSkipped: 1,
         reconciled: 4,
         deleted: 1,
+        cellsWaitingForPaddle: 2,
         noticesRetried: 2,
         noticesSent: 1,
         deletionsFinished: 2,

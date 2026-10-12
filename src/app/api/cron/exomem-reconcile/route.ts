@@ -23,6 +23,8 @@ async function runCloudLane(): Promise<{
   activationsSkipped: number;
   reconciled: number;
   deleted: number;
+  /** Lapsed cells kept because Paddle could not settle their checkout; null when the sweep failed. */
+  cellsWaitingForPaddle: number | null;
   noticesRetried: number;
   noticesSent: number;
   deletionsFinished: number;
@@ -88,6 +90,8 @@ async function runCloudLane(): Promise<{
     activationsSkipped: expiryOutcomes.filter((outcome) => outcome.outcome === "skipped").length,
     reconciled: sweep.reconciled,
     deleted: sweep.deleted,
+    cellsWaitingForPaddle:
+      sweepResult.status === "fulfilled" ? sweepResult.value.waitingForPaddle : null,
     noticesRetried: notices.attempted,
     noticesSent: notices.sent,
     deletionsFinished: deletions.finished,
