@@ -6,7 +6,7 @@
  */
 
 import { clientPlatformName, type OAuthClientDisplayNameSource } from "./client-platforms";
-import { isSafeLoopbackOAuthRedirect } from "./oauth-client-admission";
+import { isLoopbackRedirectDestination } from "./oauth-client-admission";
 
 export type OAuthClientIdentity = {
   /** The stored `client_name`, or null when the client has none. */
@@ -52,7 +52,7 @@ export function oauthClientDisplayName(
  * receives its codes on the owner's own machine, so it is a local app.
  */
 export function isLocalOAuthClient(redirectUris: readonly string[]): boolean {
-  return redirectUris.length > 0 && redirectUris.every(isSafeLoopbackOAuthRedirect);
+  return redirectUris.length > 0 && redirectUris.every(isLoopbackRedirectDestination);
 }
 
 /**
