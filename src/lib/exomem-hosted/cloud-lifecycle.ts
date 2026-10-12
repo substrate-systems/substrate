@@ -17,6 +17,7 @@
 
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
+import { enqueueDeletedEmail } from "./lifecycle-emails";
 import {
   evaluateExomemEntitlement,
   EXOMEM_ALPHA_BUNDLE,
@@ -275,6 +276,26 @@ export async function reconcileCloudCellDesiredState(
             deleted_at = ${deletedAt}
         WHERE id = ${tenantId}::uuid
       `;
+      // Email 07, once: the row above was not yet deleted. An account
+      // deletion sends it from its finish instead (cloud-deletion-finish.ts).
+      if (deletedAt && !accountDeleted) {
+        const { rows: owners } = await tx`
+          /* exomem-cloud:deleted-email-owner */
+          SELECT owner.email::text AS email, tenant.time_zone
+          FROM exomem_tenants AS tenant
+          JOIN users AS owner ON owner.id = tenant.owner_user_id
+          WHERE tenant.id = ${tenantId}::uuid
+        `;
+        const owner = owners[0] as { email: string; time_zone: string | null } | undefined;
+        if (owner) {
+          await enqueueDeletedEmail(tx, {
+            tenantId,
+            deletedAt,
+            recipient: owner.email,
+            timeZone: owner.time_zone,
+          });
+        }
+      }
     }
 
     return target;

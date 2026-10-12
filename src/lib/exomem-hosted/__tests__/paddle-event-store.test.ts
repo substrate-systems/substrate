@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
+
+// A past_due event seals email 04's payload inside the same statement.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 const USER_ID = "018f2d91-7c42-7000-8000-000000000061";
 const TENANT_ID = "018f2d91-7c42-7000-8000-000000000062";

@@ -1,0 +1,303 @@
+import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
+import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { after, before, describe, it } from "node:test";
+import { Pool, type PoolClient } from "pg";
+import { applyMigrations } from "../../../../scripts/migrate";
+import { randomCloudCellId } from "../cloud-admission";
+import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { drainExomemEmailOutbox } from "../email-outbox";
+import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
+import type { ExomemPaddleEventApplication } from "../paddle-webhook";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
+
+// The account lifecycle emails against real PostgreSQL: each is queued once with
+// the fact it announces, and cancelled at send when that fact no longer holds.
+
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
+
+const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
+const MIGRATIONS = resolve(process.cwd(), "migrations");
+const LIFECYCLE_EMAILS_MIGRATION = "0068_exomem_lifecycle_emails.sql";
+const DAY = 24 * 60 * 60 * 1000;
+
+let pool: Pool;
+let schema: string;
+let migrationsBefore: string;
+// Cells that existed when migration 0068 ran.
+let startedBeforeDeploy: { email: string; cellId: string };
+let inHoldAtDeploy: { email: string; cellId: string; tenantId: string };
+
+function taggedSql(client: Pool | PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    let text = strings[0];
+    for (let index = 0; index < values.length; index += 1) {
+      text += `$${index + 1}${strings[index + 1]}`;
+    }
+    const result = await client.query(text, values);
+    return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+  };
+}
+
+async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await callback(taggedSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function seedTenant(input: {
+  source: "paddle" | "complimentary";
+  sourceState: string;
+  cell: "running" | "read_only" | "stopped";
+  sourceOccurredAt?: Date;
+}): Promise<{ email: string; userId: string; tenantId: string; cellId: string; subscriptionId: string }> {
+  const email = `lifecycle-${randomUUID()}@example.test`;
+  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
+  const userId = String(user.rows[0].id);
+  const tenant = await pool.query(
+    "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+    [userId]
+  );
+  const tenantId = String(tenant.rows[0].id);
+  const subscriptionId = `sub_${randomUUID().replaceAll("-", "")}`;
+  await pool.query(
+    `INSERT INTO exomem_entitlements (
+       tenant_id, source, source_state, effective_state, provider_environment,
+       provider_subscription_ref, source_occurred_at, source_revision
+     ) VALUES ($1, $2, $3, 'active', $4, $5, $6, 'evt_initial')`,
+    [
+      tenantId,
+      input.source,
+      input.sourceState,
+      input.source === "paddle" ? "sandbox" : null,
+      input.source === "paddle" ? subscriptionId : null,
+      input.sourceOccurredAt ?? new Date("2026-09-01T00:00:00Z"),
+    ]
+  );
+  const cellId = randomCloudCellId();
+  await pool.query(
+    "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, $3)",
+    [cellId, tenantId, input.cell]
+  );
+  return { email, userId, tenantId, cellId, subscriptionId };
+}
+
+/** What cellctl writes once a cell has started. */
+async function markReady(cellId: string): Promise<void> {
+  await pool.query(
+    "UPDATE exomem_cloud_cells SET desired_state = 'running', observed_state = 'running', ready = true WHERE cell_id = $1",
+    [cellId]
+  );
+}
+
+async function queued(email: string): Promise<Array<{ kind: string; state: string }>> {
+  const { rows } = await pool.query<{ kind: string; state: string }>(
+    "SELECT kind, state FROM exomem_email_outbox WHERE recipient = $1 ORDER BY created_at",
+    [email]
+  );
+  return rows;
+}
+
+type Sent = { to: string; subject: string; textContent: string; senderName?: string };
+
+async function drain(): Promise<{ sent: Sent[]; cancelled: number }> {
+  const sent: Sent[] = [];
+  const result = await drainExomemEmailOutbox(
+    {},
+    {
+      sendEmail: async (input) => {
+        sent.push(input);
+        return { success: true };
+      },
+    }
+  );
+  return { sent, cancelled: result.cancelled };
+}
+
+function pastDueEvent(
+  tenant: { userId: string; tenantId: string; subscriptionId: string },
+  input: { eventId: string; occurredAt: string; sourceState: "past_due" | "active" }
+): ExomemPaddleEventApplication {
+  return {
+    eventId: input.eventId,
+    eventType: input.sourceState === "past_due" ? "subscription.past_due" : "subscription.activated",
+    environment: "sandbox",
+    origin: "webhook",
+    revision: { occurredAt: input.occurredAt, eventId: input.eventId },
+    correlation: { productKey: "exomem-hosted", userId: tenant.userId, tenantId: tenant.tenantId },
+    sourceState: input.sourceState,
+    capabilities: ["capture", "recall", "export"],
+    resourceLimits: { storageBytes: 1, uploadBytes: 1, workerCount: 0 },
+    providerReferences: {
+      customerId: null,
+      subscriptionId: tenant.subscriptionId,
+      transactionId: null,
+      productId: null,
+      priceId: null,
+    },
+    subscriptionFacts: { priceName: null, nextBilledAt: null, discountId: null, scheduledChangeAt: null },
+  };
+}
+
+describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => {
+  before(async () => {
+    schema = `lifecycle_emails_it_${randomUUID().replaceAll("-", "")}`;
+    await ensureExomemPostgresTestExtensions(databaseUrl!);
+    const admin = new Pool({ connectionString: databaseUrl });
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    await admin.end();
+    const scoped = new URL(databaseUrl!);
+    scoped.searchParams.set("options", `-c search_path=${schema},public`);
+
+    // Upgrade a populated database: every migration before 0068, then cells, then 0068.
+    migrationsBefore = mkdtempSync(join(tmpdir(), "exomem-lifecycle-emails-migrations-"));
+    for (const name of readdirSync(MIGRATIONS).filter((file) => file < LIFECYCLE_EMAILS_MIGRATION)) {
+      copyFileSync(join(MIGRATIONS, name), join(migrationsBefore, name));
+    }
+    await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir: migrationsBefore });
+    pool = new Pool({ connectionString: scoped.toString() });
+    startedBeforeDeploy = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+    });
+    inHoldAtDeploy = await seedTenant({
+      source: "paddle",
+      sourceState: "awaiting_checkout",
+      cell: "stopped",
+    });
+    await applyMigrations({ databaseUrl: scoped.toString() });
+
+    __setExomemSqlForTests(taggedSql(pool));
+    __setExomemTransactionForTests(interactiveTransaction);
+  });
+
+  after(async () => {
+    __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
+    await pool?.end();
+    const admin = new Pool({ connectionString: databaseUrl });
+    await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await admin.end();
+    rmSync(migrationsBefore, { recursive: true, force: true });
+  });
+
+  it("03: welcomes a cell the first time it is ready, but never one that had started before deploy", async () => {
+    // Both cells are ready now: the deployed one restarted, the held one was paid for.
+    await pool.query("UPDATE exomem_entitlements SET source_state = 'active' WHERE tenant_id = $1", [
+      inHoldAtDeploy.tenantId,
+    ]);
+    await markReady(startedBeforeDeploy.cellId);
+    await markReady(inHoldAtDeploy.cellId);
+    const admittedAfterDeploy = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+    });
+    await markReady(admittedAfterDeploy.cellId);
+
+    const first = await drain();
+    const second = await drain();
+
+    assert.deepEqual(
+      first.sent.map((email) => [email.to, email.subject]).sort(),
+      [
+        [admittedAfterDeploy.email, "Your Exomem is ready"],
+        [inHoldAtDeploy.email, "Your Exomem is ready"],
+      ].sort()
+    );
+    assert.deepEqual(second.sent, []);
+    assert.deepEqual(await queued(startedBeforeDeploy.email), []);
+    // The covered Exomem has no Paddle line; the paid one does.
+    const covered = first.sent.find((email) => email.to === admittedAfterDeploy.email)!;
+    assert.doesNotMatch(covered.textContent, /Paddle/);
+  });
+
+  it("03: cancels the welcome when the cell stopped being ready before it went out", async () => {
+    const tenant = await seedTenant({ source: "complimentary", sourceState: "complimentary_active", cell: "running" });
+    await markReady(tenant.cellId);
+    // Queue it without sending, then the cell goes down.
+    const { enqueueReadyEmails } = await import("../lifecycle-emails");
+    assert.deepEqual(await enqueueReadyEmails(), { enqueued: 1 });
+    await pool.query("UPDATE exomem_cloud_cells SET ready = false WHERE cell_id = $1", [tenant.cellId]);
+
+    const result = await drain();
+
+    assert.deepEqual(result.sent, []);
+    assert.deepEqual(await queued(tenant.email), [{ kind: "ready", state: "cancelled" }]);
+  });
+
+  it("04: queues the payment email in the statement that starts past due, once per period, and drops it on recovery", async () => {
+    const store = createSqlExomemPaddleEventStore(taggedSql(pool));
+    const tenant = await seedTenant({ source: "paddle", sourceState: "active", cell: "running" });
+
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      pastDueEvent(tenant, { eventId: "evt_past_due_1", occurredAt: "2026-10-02T10:00:00.000Z", sourceState: "past_due" })
+    );
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      pastDueEvent(tenant, { eventId: "evt_past_due_2", occurredAt: "2026-10-03T10:00:00.000Z", sourceState: "past_due" })
+    );
+    assert.deepEqual(await queued(tenant.email), [{ kind: "payment_failed", state: "pending" }]);
+
+    const previous = process.env.EXOMEM_PADDLE_DUNNING_DAYS;
+    process.env.EXOMEM_PADDLE_DUNNING_DAYS = "14";
+    try {
+      const sent = (await drain()).sent;
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0]!.subject, "Your payment didn’t go through");
+      // Grace started 2 October; 14 dunning days later, in UTC because no zone is stored.
+      assert.match(sent[0]!.textContent, /by 16 October \(UTC\), your subscription ends\./);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PADDLE_DUNNING_DAYS;
+      else process.env.EXOMEM_PADDLE_DUNNING_DAYS = previous;
+    }
+
+    // A second period after recovery gets its own email, which recovery then cancels.
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      pastDueEvent(tenant, { eventId: "evt_recovered", occurredAt: "2026-10-04T10:00:00.000Z", sourceState: "active" })
+    );
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      pastDueEvent(tenant, { eventId: "evt_past_due_3", occurredAt: "2026-10-20T10:00:00.000Z", sourceState: "past_due" })
+    );
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      pastDueEvent(tenant, { eventId: "evt_recovered_2", occurredAt: "2026-10-21T10:00:00.000Z", sourceState: "active" })
+    );
+    const afterRecovery = await drain();
+    assert.deepEqual(afterRecovery.sent, []);
+    assert.deepEqual(await queued(tenant.email), [
+      { kind: "payment_failed", state: "sent" },
+      { kind: "payment_failed", state: "cancelled" },
+    ]);
+  });
+
+  it("07: tells the owner once when the kept window deletes their Exomem", async () => {
+    const tenant = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      cell: "read_only",
+      sourceOccurredAt: new Date(Date.now() - 31 * DAY),
+    });
+
+    assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), "deleted");
+    assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), null);
+    const sent = (await drain()).sent;
+
+    assert.deepEqual(
+      sent.map((email) => [email.to, email.subject]),
+      [[tenant.email, "Your Exomem has been deleted"]]
+    );
+    assert.match(sent[0]!.textContent, /permanently deleted today\./);
+  });
+});

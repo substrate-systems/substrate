@@ -4,6 +4,7 @@ import type {
   ExomemPaddleStoreResult,
 } from "./paddle-webhook";
 import { sql as pgSql } from "../db/pg-sql";
+import { sealExomemEmailPayload } from "./email-outbox";
 
 export type ExomemPaddleSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -47,6 +48,17 @@ export function createSqlExomemPaddleEventStore(
       const canBindSubscriptionByTransaction =
         application.eventType === "subscription.created" ||
         application.eventType === "subscription.activated";
+      // Email 04 announces the move into past due that this statement may
+      // apply. The statement enqueues it only if it applies that move.
+      const graceStartedAt = application.revision.occurredAt;
+      const mayStartGrace = isSubscriptionEvent && application.sourceState === "past_due";
+      const paymentFailedPayload = mayStartGrace
+        ? sealExomemEmailPayload("payment_failed", {
+            version: 1,
+            tenantId: application.correlation.tenantId,
+            graceStartedAt,
+          })
+        : null;
 
       const { rows } = await sql`
         /* exomem:paddle-event-atomic-apply */
@@ -105,6 +117,7 @@ export function createSqlExomemPaddleEventStore(
                  authoritative_target.manual_suspended_at,
                  authoritative_target.source_occurred_at,
                  authoritative_target.source_revision,
+                 authoritative_target.source_state AS prior_source_state,
                  authoritative_target.entitlement_id IS NOT NULL AS is_authoritative,
                  CASE
                    WHEN authoritative_target.entitlement_id IS NULL THEN 'ignored'
@@ -241,6 +254,25 @@ export function createSqlExomemPaddleEventStore(
             AND ${application.sourceState}::text IS NULL
             AND EXISTS (SELECT 1 FROM claimed)
           RETURNING entitlement.id
+        ),
+        payment_failed_email AS (
+          INSERT INTO exomem_email_outbox (
+            kind, dedupe_key, recipient, recipient_time_zone, payload_ciphertext
+          )
+          SELECT 'payment_failed',
+                 'payment-failed:' || decision.tenant_id::text || ':' || ${graceStartedAt}::text,
+                 owner.email,
+                 tenant.time_zone,
+                 ${paymentFailedPayload}::jsonb
+          FROM projected
+          JOIN decision ON decision.entitlement_id = projected.id
+          JOIN exomem_tenants AS tenant ON tenant.id = decision.tenant_id
+          JOIN users AS owner ON owner.id = tenant.owner_user_id
+          WHERE ${mayStartGrace}::boolean
+            AND decision.prior_source_state IS DISTINCT FROM 'past_due'
+            AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
+          ON CONFLICT (dedupe_key) DO NOTHING
+          RETURNING id
         ),
         completion AS (
           SELECT count(*)::integer AS claimed_count,

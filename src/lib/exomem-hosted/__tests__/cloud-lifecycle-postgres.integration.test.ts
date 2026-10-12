@@ -9,6 +9,9 @@ import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql 
 import { issueOAuthTokensFromCodeAtomic } from "../oauth-store";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
+// The lifecycle emails this suite's facts enqueue carry an encrypted payload.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
+
 // Task 3.7: entitlement -> Cloud cell desired_state (design D4) against real
 // PostgreSQL, including the cancelled-tenant export window and its
 // generation bump.

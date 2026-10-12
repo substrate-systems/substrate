@@ -771,7 +771,18 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       [kept]
     );
     assert.match(sent[0]!.textContent, /https:\/\/substratesystems\.io\/exomem\/invite#/);
-    assert.match(sent[0]!.textContent, /\(Europe\/Paris\)/);
+    // The time limit is the requester's Paris time, not UTC.
+    const link = await pool!.query<{ expires_at: Date }>(
+      "SELECT expires_at FROM exomem_invites WHERE email_normalized = $1",
+      [kept]
+    );
+    const parisTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(link.rows[0]!.expires_at);
+    assert.match(sent[0]!.textContent, new RegExp(`until \\d+ \\w+, ${parisTime} \\(`));
     const settled = await pool!.query<{ recipient: string; state: string; has_payload: boolean }>(
       "SELECT recipient::text, state, payload_ciphertext IS NOT NULL AS has_payload FROM exomem_email_outbox ORDER BY recipient"
     );
