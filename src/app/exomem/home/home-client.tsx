@@ -614,6 +614,7 @@ export default function HomeClient({
           apps={apps}
           failed={appsFailed}
           ended={variant === "ended"}
+          checkoutAvailable={billing?.checkoutAvailable ?? false}
           disconnected={disconnected}
           onDisconnect={onDisconnect}
           connectorUrl={status?.connectorUrl ?? null}

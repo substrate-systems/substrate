@@ -21,6 +21,11 @@ type AppsProps = {
   failed: boolean;
   /** Ended: the apps are off until a new subscription, and nothing can be added. */
   ended: boolean;
+  /**
+   * Whether a checkout can start, the banner's own condition: only then do the ended
+   * lines name resubscribing (design.md (af)).
+   */
+  checkoutAvailable: boolean;
   disconnected: ReadonlySet<string>;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
   connectorUrl: string | null;
@@ -34,6 +39,7 @@ type AppsProps = {
 function AppRow({
   app,
   ended,
+  checkoutAvailable,
   off,
   onDisconnect,
   reviewer,
@@ -41,6 +47,7 @@ function AppRow({
 }: {
   app: HomeApp;
   ended: boolean;
+  checkoutAvailable: boolean;
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
   reviewer: boolean;
@@ -51,7 +58,8 @@ function AppRow({
   const [failed, setFailed] = useState(false);
 
   let meta = appMeta(app, clock, reviewer);
-  if (ended) meta = "off for now · reconnects when you resubscribe";
+  if (ended)
+    meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
   else if (failed) meta = "That didn’t finish. Try again in a minute.";
   else if (confirming) meta = "It loses access until you connect it again.";
@@ -239,7 +247,9 @@ export function ConnectedApps(props: AppsProps) {
         // Ended with no app to list: the board's "off for now" in place of an empty panel
         // (design.md (ag)).
         <div className={`${styles.row} ${styles.panelNote}`}>
-          Off for now. Connect an app when you resubscribe.
+          {props.checkoutAvailable
+            ? "Off for now. Connect an app when you resubscribe."
+            : "Off for now."}
         </div>
       )}
       {props.apps?.map((app) => (
@@ -247,6 +257,7 @@ export function ConnectedApps(props: AppsProps) {
           key={app.id}
           app={app}
           ended={props.ended}
+          checkoutAvailable={props.checkoutAvailable}
           off={props.disconnected.has(app.id)}
           onDisconnect={props.onDisconnect}
           reviewer={props.reviewer}
