@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   ANSWER_NOTE,
   DESKTOP_LAYOUT,
@@ -48,8 +54,8 @@ type GraphProps = {
 };
 
 function HeroGraph({ layout, shortNames, className, active, onActive }: GraphProps) {
-  // Mouse: hover lights a note. Touch and pen: a tap names it, another tap or a tap
-  // elsewhere puts it out.
+  // Mouse: hover lights a note. Touch and pen: a tap names it; another tap on it, or a
+  // tap anywhere else on the page (HeroPanel listens for that), puts it out.
   const pointer = useRef<string>("mouse");
   const at = (note: number) => layout.notes[note];
   const linkClass = (from: number, to: number, base: string) =>
@@ -57,7 +63,7 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
       .filter(Boolean)
       .join(" ");
 
-  const hover = (note: number | null) => (event: PointerEvent) => {
+  const hover = (note: number | null) => (event: ReactPointerEvent) => {
     pointer.current = event.pointerType;
     if (event.pointerType === "mouse") onActive(note);
   };
@@ -71,9 +77,6 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
       aria-hidden="true"
       data-active={active !== null || undefined}
       onPointerDown={(event) => (pointer.current = event.pointerType)}
-      onClick={() => {
-        if (pointer.current !== "mouse") onActive(null);
-      }}
     >
       <defs>
         <pattern
@@ -191,11 +194,11 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
           <g
             key={note.path}
             className={classes}
+            data-note={index}
             onPointerEnter={hover(index)}
             onPointerLeave={hover(null)}
-            onClick={(event) => {
+            onClick={() => {
               if (pointer.current === "mouse") return;
-              event.stopPropagation();
               onActive(isActive ? null : index);
             }}
           >
@@ -352,6 +355,22 @@ const LEGEND = ["supports", "refines", "contradicts", "supersedes"] as const;
  */
 export function HeroPanel({ latency }: { latency: string }) {
   const [active, setActive] = useState<number | null>(null);
+
+  // A note lit by a tap goes out, and the loop resumes, when the next tap lands anywhere
+  // but on that note. (A tap on the note itself toggles it in HeroGraph.)
+  useEffect(() => {
+    if (active === null) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "mouse") return;
+      if (event.target instanceof Element && event.target.closest(`[data-note="${active}"]`)) {
+        return;
+      }
+      setActive(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [active]);
+
   const answer = HERO_NOTES[ANSWER_NOTE].path;
   const superseded = HERO_NOTES[SUPERSEDED_NOTE].path;
   return (
