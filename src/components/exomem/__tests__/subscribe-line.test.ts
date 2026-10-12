@@ -10,19 +10,17 @@ describe("the subscribe line", () => {
     );
     assert.equal(
       subscribeLine({
-        total: "€10.00",
+        total: { amount: "1000", currencyCode: "EUR" },
         billingCycle: { interval: "month", frequency: 1 },
-        includesTax: true,
       }),
-      "€10.00 per month, including tax. Cancel any time through Paddle. Then add it to your assistant."
+      "€10 a month. Cancel any time through Paddle. Then add it to your assistant."
     );
     assert.equal(
       subscribeLine({
-        total: "$27.00",
+        total: { amount: "2750", currencyCode: "USD" },
         billingCycle: { interval: "month", frequency: 3 },
-        includesTax: false,
       }),
-      "$27.00 every 3 months. Cancel any time through Paddle. Then add it to your assistant."
+      "US$27.50 every 3 months. Cancel any time through Paddle. Then add it to your assistant."
     );
   });
 

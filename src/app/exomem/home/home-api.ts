@@ -14,7 +14,7 @@ import type {
   CloudHomeLevelsView,
 } from "@/lib/exomem-hosted/cloud-home-mcp";
 import type { CloudExportSummary } from "@/lib/exomem-hosted/cloud-exports";
-import { isExomemMoney } from "@/lib/exomem-hosted/exomem-money";
+import { isExomemMoney } from "@/lib/exomem/money";
 import type { CloudStorageObservation } from "@/lib/exomem-hosted/cloud-status";
 import { csrfCookie, getPrivateJson, HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
 import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";

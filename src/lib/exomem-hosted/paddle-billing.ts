@@ -13,7 +13,12 @@ import {
   paddleSubscriptionFacts,
   type PaddleSourceState,
 } from "./paddle-webhook";
-import { CURRENCY_CODE, isExomemMoney, MONEY_MINOR_UNITS, type ExomemMoney } from "./exomem-money";
+import {
+  CURRENCY_CODE,
+  isExomemMoney,
+  MONEY_MINOR_UNITS,
+  type ExomemMoney,
+} from "@/lib/exomem/money";
 
 export type PaddleTransport = (path: string, init?: RequestInit) => Promise<Response>;
 

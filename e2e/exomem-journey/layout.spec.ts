@@ -34,6 +34,7 @@ import {
   authorizeRequest,
   seedCapacity,
   seedClient,
+  seedInvitation,
   seedOwner,
   startLinkFor,
   uniqueEmail,
@@ -66,6 +67,28 @@ async function app(where: "web" | "computer") {
         }
       : { name: "Claude Code", redirectUri: "http://127.0.0.1:47124/callback", platform: null }
   );
+}
+
+/**
+ * This server has no Paddle credentials, so its invitation answers carry no price. Here
+ * the answer gets the prices Paddle previews when it answers, so a step can show the
+ * friend price that the decision route then applies; the decision itself stays real.
+ */
+async function withPaddlePrices(context: BrowserContext) {
+  await context.route("**/api/exomem/access/inspect", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (body.price?.reason === "price_unavailable") {
+      body.price = {
+        value: {
+          usual: { amount: "1500", currencyCode: "EUR" },
+          friend: { value: { amount: "1000", currencyCode: "EUR" }, reason: null },
+        },
+        reason: null,
+      };
+    }
+    await route.fulfill({ response, json: body });
+  });
 }
 
 /** The app's callback page, answered so a handback never leaves the test. */
@@ -151,6 +174,126 @@ const STEPS: Step[] = [
     },
   },
   {
+    // A friend's invitation with their note. Paddle has no credentials here, so the
+    // amount says it shows at checkout.
+    name: "invite-friend",
+    open: async (page) => {
+      const { link } = await seedInvitation({
+        email: uniqueEmail("friend"),
+        kind: "friend",
+        inviterName: "Alex",
+        note: "This is what I’ve been building. I’d love to know what you think.",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.friendTitle("Alex"));
+      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+    },
+  },
+  {
+    name: "invite-covered",
+    open: async (page) => {
+      const { link } = await seedInvitation({
+        email: uniqueEmail("covered"),
+        kind: "covered",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.friendTitle("Alex"));
+      await expect(page.getByText(inviteCopy.price.nothingToPay)).toBeVisible();
+    },
+  },
+  {
+    // The invited address already has an Exomem, and this browser is signed in as it.
+    name: "invite-existing",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "ready");
+      await withPaddlePrices(context);
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.existing.title);
+      await expect(
+        page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") })
+      ).toBeVisible();
+      await expect(page.getByText(inviteCopy.price.perMonth("€10"))).toBeVisible();
+    },
+  },
+  {
+    // Paddle did not answer: neither the friend price nor a refusal, and a way to ask again.
+    name: "invite-existing-unchecked",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "ready");
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.existing.title);
+      await expect(page.getByText(inviteCopy.existing.unchecked("Alex"))).toBeVisible();
+    },
+  },
+  {
+    name: "invite-existing-signed-out",
+    open: async (page) => {
+      const owner = await seedOwner("ready");
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.existing.title);
+      await expect(page.getByText(inviteCopy.existing.signIn("Alex"))).toBeVisible();
+    },
+  },
+  {
+    // An owner who has not paid yet takes the friend price to their first checkout.
+    name: "invite-applied-at-checkout",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "unpaid");
+      await withPaddlePrices(context);
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") }).click();
+      await heading(page, inviteCopy.appliedOnResubscribe.title);
+      await expect(page.getByText(inviteCopy.appliedOnResubscribe.done)).toBeVisible();
+    },
+  },
+  {
+    name: "invite-kept",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "ready");
+      const { link } = await seedInvitation({ email: owner.email, kind: "standard" });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.existing.keep }).click();
+      await heading(page, inviteCopy.kept.title);
+    },
+  },
+  {
+    // An account that holds a friend offer: the friend price card, its amount left to checkout.
+    name: "setup-subscribe-friend",
+    open: async (page) => {
+      await seedCapacity();
+      const { link } = await seedInvitation({
+        email: uniqueEmail("friend"),
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.accept }).click();
+      await heading(page, subscribeCopy.title);
+      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+    },
+  },
+  {
     name: "setup-subscribe",
     open: async (page, context) => {
       await signedIn(context, "unpaid");
@@ -194,7 +337,8 @@ const STEPS: Step[] = [
     },
   },
   {
-    // The tallest step: an app without the plugin gets the instructions to paste.
+    // The tallest step: an app without the plugin gets the instructions to paste, and a
+    // picked level that this server cannot save says so.
     name: "setup-joined-without-plugin",
     open: async (page, context) => {
       await signedIn(context, "ready");
@@ -207,6 +351,8 @@ const STEPS: Step[] = [
         page.getByRole("heading", { name: joinedCopy.title("Claude Code") })
       ).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
+      await page.getByRole("button", { name: "Light", exact: true }).click();
+      await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
     },
   },
   {
@@ -264,6 +410,25 @@ const STEPS: Step[] = [
     open: async (page, context) => {
       await consentFor(page, context, "unpaid");
       await heading(page, subscribeCopy.title);
+    },
+  },
+  {
+    // The same friend offer in an app's context: the board's friend lede and price card.
+    name: "consent-subscribe-friend",
+    open: async (page, context) => {
+      await seedCapacity();
+      const { link } = await seedInvitation({
+        email: uniqueEmail("friend"),
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.accept }).click();
+      await heading(page, subscribeCopy.title);
+      await consentFor(page, context, null);
+      await heading(page, subscribeCopy.title);
+      await expect(page.getByText(subscribeCopy.friendLede("Alex"))).toBeVisible();
+      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
     },
   },
   {

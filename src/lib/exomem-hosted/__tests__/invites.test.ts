@@ -27,7 +27,8 @@ describe("Exomem invitations", () => {
         },
       }
     );
-    assert.deepEqual(inspection?.price, { value: null, reason: "price_unavailable" });
+    assert.ok(inspection?.status === "invite");
+    assert.deepEqual(inspection.price, { value: null, reason: "price_unavailable" });
   });
 
   it("refuses an inviter name that could pose as an address or break the sender line, before anything is stored", async () => {

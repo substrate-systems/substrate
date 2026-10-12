@@ -8,9 +8,8 @@
  * zone, from the caller's typed facts.
  */
 
-import type { ExomemMoney } from "@/lib/exomem-hosted/exomem-money";
+import { formatMoney, type ExomemMoney } from "@/lib/exomem/money";
 import { renderExomemEmail, type ExomemEmailFact, type RenderedExomemEmail } from "./exomem-email";
-import { emailMoney } from "./exomem-email-money";
 import {
   emailClock,
   emailCount,
@@ -56,7 +55,7 @@ export function renderExomemReadyEmail(input: {
   const friend = input.billing?.friendInviterName ?? null;
   const rows: ExomemEmailFact[] = [];
   if (input.billing?.price) {
-    const price = emailMoney(input.billing.price);
+    const price = formatMoney(input.billing.price);
     rows.push({
       label: "Your price",
       value: friend ? `${price} a month · from ${friend}’s invitation` : `${price} a month`,

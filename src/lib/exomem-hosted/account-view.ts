@@ -9,7 +9,7 @@ import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, type ExomemSessionRow } from "./db";
 import { exomemErrors } from "./errors";
 import { known, unknown, type Known } from "./known";
-import type { ExomemMoney } from "./exomem-money";
+import type { ExomemMoney } from "@/lib/exomem/money";
 import { readExomemNextPaymentAmount } from "./paddle-billing";
 import { exomemPaddleFriendDiscountId, loadExomemPaddleConfig } from "./paddle-config";
 

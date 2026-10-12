@@ -82,6 +82,40 @@ export function StepActions({
   );
 }
 
+/** A friend's note on their invitation, and their name under it. */
+export function InviteNote({ note, by }: { note: string; by: string }) {
+  return (
+    <figure className={styles.inviteNote}>
+      <blockquote className={styles.inviteNoteText}>“{note}”</blockquote>
+      <figcaption className={styles.inviteNoteBy}>{by}</figcaption>
+    </figure>
+  );
+}
+
+/** What an invitation costs: who it is from, the amount, and how long it lasts. */
+export function PriceCard({
+  label,
+  main,
+  was,
+  note,
+}: {
+  label: string;
+  main: string;
+  was: string | null;
+  note: string;
+}) {
+  return (
+    <div className={`${styles.panel} ${styles.price}`}>
+      <span className={styles.priceLabel}>{label}</span>
+      <div className={styles.priceRow}>
+        <span className={styles.priceMain}>{main}</span>
+        {was ? <s className={styles.priceWas}>{was}</s> : null}
+      </div>
+      <span className={styles.priceNote}>{note}</span>
+    </div>
+  );
+}
+
 /** Opens an address outside Exomem in a new tab ("Open Claude ↗", "Status page ↗"). */
 export function openElsewhere(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
@@ -228,9 +262,12 @@ const COUNT = new Intl.NumberFormat("en-GB");
 export function LevelTune({
   level,
   onLevel,
+  saveNote = null,
 }: {
   level: InvolvementLevelKey;
   onLevel: (level: InvolvementLevelKey) => void;
+  /** Whether the pick was saved, in words; one quiet line, so the step still fits a phone. */
+  saveNote?: string | null;
 }) {
   const current = involvementLevel(level);
   const [copied, setCopied] = useState(false);
@@ -265,6 +302,11 @@ export function LevelTune({
         }}
         description={current.description}
       />
+      {saveNote ? (
+        <p className={styles.saveNote} role="status">
+          {saveNote}
+        </p>
+      ) : null}
       <div className={styles.blockHead}>
         <span>{joinedCopy.instructions(current.label)}</span>
         <span className={styles.blockCount}>
@@ -274,7 +316,8 @@ export function LevelTune({
       <div className={styles.block}>{current.block}</div>
       <div className={styles.pasteRow}>
         <span className={styles.pasteHint}>{joinedCopy.paste}</span>
-        <Button onClick={copy} aria-live="polite">
+        {/* The board's block copy button: min-width 112, the shared detail size. */}
+        <Button size="detail" onClick={copy} aria-live="polite">
           {copied ? joinedCopy.copied : joinedCopy.copy}
         </Button>
       </div>

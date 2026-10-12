@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
+import { subscribeLine } from "@/components/exomem/subscribe-line";
 import type { FieldKind } from "@/components/exomem/FlowField";
-import type { InvolvementLevelKey } from "@/components/exomem/involvement-levels";
 import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import { getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import type { Known } from "@/lib/exomem-hosted/known";
+import { usePaddlePricePreview } from "@/lib/paddle";
 import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
 import {
   breakCopy,
@@ -27,6 +28,7 @@ import {
   DoneLine,
   LevelTune,
   openElsewhere,
+  PriceCard,
   SignedInLine,
   StepActions,
   StepHeading,
@@ -37,7 +39,10 @@ import {
 } from "../_journey/parts";
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
+import { levelContextTitle } from "../home/home-view";
+import { friendCheckoutPanel } from "../invite/invite-view";
 import { joinedSince, pollDelay, type ListedApp } from "./join-rule";
+import { useLevelSave } from "./level-save";
 import type { SetupScreen } from "./setup-screen";
 
 export type SetupFacts = {
@@ -52,6 +57,10 @@ export type SetupFacts = {
   settings: Record<PluginApp, string | null>;
   /** Whether sign-in offers the app reviewer's entry, as the sign-in page does. */
   reviewerEnabled: boolean;
+  /** The price checkout charges, previewed in the browser; null shows no amount. */
+  priceId: string | null;
+  /** Who gave this account its friend offer, which checkout applies; null without one. */
+  friendInviter: string | null;
 };
 
 type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
@@ -90,12 +99,14 @@ function listedApps(body: Record<string, unknown>): ListedApp[] {
     const app = item as Record<string, unknown>;
     return typeof app.id === "string" &&
       typeof app.displayName === "string" &&
-      typeof app.lastAuthorizedAt === "string"
+      typeof app.lastAuthorizedAt === "string" &&
+      (app.context === "coding" || app.context === "conversation")
       ? [
           {
             id: app.id,
             displayName: app.displayName,
             platform: typeof app.platform === "string" ? app.platform : null,
+            context: app.context,
             lastAuthorizedAt: app.lastAuthorizedAt,
           },
         ]
@@ -108,13 +119,41 @@ function connectedPlatforms(apps: ListedApp[]): Set<string> {
   return new Set(apps.flatMap((app) => (app.platform ? [app.platform] : [])));
 }
 
+/**
+ * The joined step for an app without the plugin: pick a level, read and copy its
+ * instructions. The pick is saved for the app's context when the cell can take it.
+ */
+function JoinedLevels({ app }: { app: ListedApp }) {
+  // The board starts an app without the plugin at Balanced, the coding agents' default.
+  const { level, choose, save, savable } = useLevelSave(app.context, "balanced");
+  return (
+    <>
+      <StepHeading
+        title={joinedCopy.title(app.displayName)}
+        lede={savable ? joinedCopy.ledeSaving : joinedCopy.ledeWithoutPlugin}
+      />
+      <LevelTune
+        level={level}
+        onLevel={choose}
+        saveNote={
+          save.kind === "not_saved"
+            ? joinedCopy.notSaved
+            : save.kind === "refused"
+              ? save.text
+              : save.kind === "saved"
+                ? joinedCopy.saved(levelContextTitle(app.context).toLowerCase())
+                : null
+        }
+      />
+    </>
+  );
+}
+
 export default function SetupClient({ facts }: { facts: SetupFacts }) {
   const [phase, setPhase] = useState<Phase>(facts.screen);
   const [waitingFor, setWaitingFor] = useState<PluginApp>("claude");
   const [joined, setJoined] = useState<ListedApp | null>(null);
   const [connected, setConnected] = useState<Set<string>>(new Set());
-  // The board starts an app without the plugin at Balanced, the coding agents' default.
-  const [level, setLevel] = useState<InvolvementLevelKey>("balanced");
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const keptUntil = useReaderDate(facts.keptUntil);
@@ -123,6 +162,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   const onSettled = useCallback(() => window.location.reload(), []);
   const checkout = useCheckout(onSettled);
   const current: Phase = checkout.confirming ? "confirming" : phase;
+  // A friend offer's price is not the previewed one, so it is not previewed.
+  const price = usePaddlePricePreview(
+    current === "subscribe" && !facts.friendInviter ? facts.priceId : null
+  );
 
   // Preparing: ask for the cell's state until it is ready.
   useEffect(() => {
@@ -245,7 +288,15 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "subscribe":
       body = (
         <>
-          <StepHeading title={subscribeCopy.title} lede={subscribeCopy.lede(null)} />
+          <StepHeading
+            title={subscribeCopy.title}
+            lede={
+              facts.friendInviter
+                ? subscribeCopy.friendLede(facts.friendInviter)
+                : subscribeLine(price)
+            }
+          />
+          {facts.friendInviter ? <PriceCard {...friendCheckoutPanel(facts.friendInviter)} /> : null}
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <StepActions
             primary={{
@@ -355,11 +406,11 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
       const next: PluginApp = app.platform === "claude" ? "openai" : "claude";
       body = (
         <>
-          <StepHeading
-            title={joinedCopy.title(app.displayName)}
-            lede={plugin ? joinedCopy.lede : joinedCopy.ledeWithoutPlugin}
-          />
-          {plugin ? null : <LevelTune level={level} onLevel={setLevel} />}
+          {plugin ? (
+            <StepHeading title={joinedCopy.title(app.displayName)} lede={joinedCopy.lede} />
+          ) : (
+            <JoinedLevels app={app} />
+          )}
           <StepActions
             primary={{ label: joinedCopy.home, onClick: goHome }}
             secondary={{
@@ -376,7 +427,13 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "ended":
       body = (
         <>
-          <StepHeading title={breakCopy.ended.title} lede={breakCopy.ended.lede(keptUntil, app)} />
+          <StepHeading
+            title={breakCopy.ended.title}
+            lede={
+              breakCopy.ended.lede(keptUntil, app) +
+              (facts.friendInviter ? breakCopy.ended.friendBack(facts.friendInviter) : "")
+            }
+          />
           <StepActions secondary={exportMemory} />
         </>
       );

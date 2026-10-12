@@ -60,8 +60,60 @@ export const inviteCopy = {
    * ("Alex invited you to Exomem"); this is the subject of email 02, listed as a deviation.
    */
   standardTitle: "You’re invited to Exomem",
+  friendTitle: (by: string) => `${by} invited you to Exomem`,
   lede: "A knowledge base that every assistant you use shares. It keeps where each thing came from, and what changed.",
   accept: "Accept invitation",
+  price: {
+    friend: (by: string) => `Friend price from ${by}`,
+    covered: (by: string) => `Covered by ${by}`,
+    /** The Exomem price is monthly; the invitation emails write it the same way. */
+    perMonth: (amount: string) => `${amount} a month`,
+    nothingToPay: "Nothing to pay",
+    atCheckout: "Shown at checkout",
+    whileSubscribed: "For as long as you stay subscribed.",
+    whileCovered: "For as long as it’s covered. We’ll email you before that changes.",
+    exactAtCheckout: "Paddle shows the exact amount before you pay.",
+  },
+  existing: {
+    title: "You already have Exomem",
+    lede: (by: string) =>
+      `${by}’s invitation can’t start a second one, but ${by}’s friend price can go on the plan you have. It starts with your next payment.`,
+    useFriendPrice: (by: string) => `Use ${by}’s friend price`,
+    keep: "Keep my plan as it is",
+    /**
+     * Not drawn by the board (design.md deviation (o)): an invitation that offers the
+     * plan nothing, and an owner who has not signed in yet.
+     */
+    noOffer: (by: string | null) =>
+      `${by ? `${by}’s invitation` : "This invitation"} can’t start a second one, and it doesn’t change the plan you have.`,
+    unchecked: (by: string) =>
+      `${by}’s invitation can’t start a second one. We couldn’t check ${by}’s friend price against the plan you have just now.`,
+    otherPrice: (by: string) =>
+      `${by}’s invitation can’t start a second one, and ${by}’s friend price doesn’t apply to the plan you have.`,
+    signIn: (by: string | null) =>
+      `Sign in to answer ${by ? `${by}’s invitation` : "this invitation"}, then open it again from the email.`,
+    signInPrimary: "Sign in",
+    /** The friend price may already be on the plan when the answer fails, so no "Nothing changed". */
+    notFinished: "That didn’t finish. Try again in a minute.",
+    notOffered: "The friend price doesn’t apply to the plan you have.",
+  },
+  applied: {
+    title: "Friend price added",
+    lede: (by: string) =>
+      `${by}’s friend price starts with your next payment. Paddle sends the new amount on your receipt.`,
+    done: "friend price · from your next payment",
+  },
+  /** Not drawn by the board (design.md deviation (o)): no live subscription to change yet. */
+  appliedOnResubscribe: {
+    title: "Friend price added",
+    lede: (by: string) => `${by}’s friend price applies when you subscribe.`,
+    done: "friend price · at checkout",
+  },
+  kept: {
+    title: "Nothing changed",
+    lede: "Your plan stays as it is. The invitation is used up, so nobody else can use it.",
+  },
+  home: "Go to Home",
   accepting: {
     title: "Setting up your Exomem",
     lede: "A few seconds. Then add it to your assistant.",
@@ -80,8 +132,12 @@ export const signedInCopy = {
 
 export const subscribeCopy = {
   title: "Subscribe to finish setting up",
-  lede: (app: string | null) =>
-    `Paddle shows the price at checkout. ${app === null ? "Then add it to your assistant." : `Then ${app} connects in one step.`}`,
+  /**
+   * An account that holds a friend offer. The usual price would be wrong for this person,
+   * so the step shows the friend price card with the amount left to checkout.
+   */
+  friendLede: (by: string) =>
+    `${by}’s friend price is applied at checkout. Cancel any time through Paddle. Then add it to your assistant.`,
   primary: "Subscribe",
   notNow: "Not now",
   confirming: {
@@ -131,11 +187,15 @@ export const otherAppCopy = {
 export const joinedCopy = {
   title: (app: string) => `${app} is connected.`,
   lede: "Try it: ask it to remember something today, then ask again tomorrow.",
-  /**
-   * The board adds "; we save your choice." The choice is not saved until the joined
-   * step saves the level (Cloud Home levels), so the page does not say it is.
-   */
+  /** The board's lede, when the cell can take the level now. */
+  ledeSaving:
+    "Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.",
+  /** Without the save promise while the level cannot be saved (design.md deviation (l)). */
   ledeWithoutPlugin: "Without the plugin, your app needs instructions. Pick how much it joins in.",
+  /** A level belongs to every app of a kind, "chat apps" or "coding agents". */
+  saved: (apps: string) => `Saved for all your ${apps}.`,
+  /** Not drawn by the board (design.md deviation (l)). */
+  notSaved: "Not saved yet: your Exomem can’t take it now.",
   done: (app: string) => `${app} · memory on`,
   home: "Go to Home",
   addToo: (app: string) => `Add ${app} too`,
@@ -225,6 +285,8 @@ export const breakCopy = {
     title: "Your subscription has ended",
     lede: (until: string, app: string) =>
       `Your memory is read-only and kept until ${until}. Export it any time before then, or resubscribe to connect ${app}.`,
+    /** Added to the lede when the account holds a friend offer, which checkout applies again. */
+    friendBack: (by: string) => ` ${by}’s friend price comes back if you do.`,
     resubscribe: "Resubscribe",
   },
   paused: {
@@ -252,7 +314,7 @@ export const breakCopy = {
 
 /**
  * The authorization endpoint's answer to an app it does not know or no longer admits.
- * Not drawn by the board (owner approval pending).
+ * Not drawn by the board (design.md deviation (n)).
  */
 export const unknownAppCopy = {
   title: "Exomem doesn’t recognise this app",

@@ -531,6 +531,7 @@ The inspect route SHALL take a bearer token and return the invitation's kind, bo
 
 - **WHEN** the bound email already owns a live tenant
 - **THEN** the answer says the owner exists and whether the caller is signed in
+- **AND** the answer carries the prices only when the caller is signed in as that owner
 - **AND** the system mints no session from the token
 
 #### Scenario: Inspect is rate limited

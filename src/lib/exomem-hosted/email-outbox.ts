@@ -45,7 +45,7 @@ import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
 import type { ExomemInviteKind } from "./invitation-contract";
-import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "./exomem-money";
+import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "@/lib/exomem/money";
 import {
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,

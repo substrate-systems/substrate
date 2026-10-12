@@ -3,7 +3,7 @@
 // (docs/exomem-design/reference/boards/Home-Page.dc.html) and the approved export
 // copy; a value the server does not know drops its clause rather than inventing one.
 
-import { emailMoney } from "@/lib/email-templates/exomem-email-money";
+import { formatMoney } from "@/lib/exomem/money";
 import { CLIENT_PLATFORM_NAMES, displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
 import type {
   ActivityClientFamily,
@@ -481,6 +481,11 @@ const LEVEL_ROWS: readonly { context: LevelContext; title: string }[] = [
   { context: "coding", title: "Coding agents" },
 ];
 
+/** "Chat apps" or "Coding agents": the row a context's level shows in. */
+export function levelContextTitle(context: LevelContext): string {
+  return LEVEL_ROWS.find((row) => row.context === context)!.title;
+}
+
 export type LevelsView =
   | { state: "hidden" }
   | { state: "loading" }
@@ -599,7 +604,7 @@ export function planView(
     // shows no number at all, and so does a payment with no date: no money is promised
     // for a payment that may not come.
     const amount = account.nextPaymentAt.value ? account.nextPaymentAmount.value : null;
-    const price = amount && emailMoney(amount);
+    const price = amount && formatMoney(amount);
     meta = joined([price, inviter && `from ${inviter}’s invitation`, nextPayment(account, clock)]);
   }
 
