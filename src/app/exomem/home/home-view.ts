@@ -28,7 +28,6 @@ import {
   type Clock,
 } from "./home-format";
 import type { Lifecycle } from "./home-state";
-import type { PaddlePricePreview } from "@/lib/paddle";
 
 // --- Which Home ---
 
@@ -197,20 +196,6 @@ export function liveLine(
 export function firstNoteLine(facts: ActivityFacts | null, clock: Clock): string | null {
   if (!facts || facts.noteCount !== 1 || !facts.lastSave) return null;
   return `saved by ${clientName(facts.lastSave.client)} ${ago(facts.lastSave.at, cellNow(facts, clock))}`;
-}
-
-// --- Subscribe ---
-
-/** The subscribe line: the price Paddle previews for checkout when it is known. */
-export function subscribeLine(price: PaddlePricePreview | null): string {
-  if (!price) return "Paddle shows the price at checkout. Then add it to your assistant.";
-  const cycle = price.billingCycle;
-  const cadence = !cycle
-    ? ""
-    : cycle.frequency === 1
-      ? ` per ${cycle.interval}`
-      : ` every ${cycle.frequency} ${cycle.interval}s`;
-  return `${price.total}${cadence}${price.includesTax ? ", including tax" : ""}. Then add it to your assistant.`;
 }
 
 // --- Headline and status line ---

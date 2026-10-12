@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
+import phone from "@/components/exomem/phone.module.css";
+import { subscribeLine } from "@/components/exomem/subscribe-line";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import {
   type PaddleTransactionFailure,
@@ -56,7 +58,6 @@ import {
   planView,
   statusCopy,
   storageView,
-  subscribeLine,
 } from "./home-view";
 import styles from "./home.module.css";
 
@@ -521,7 +522,7 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
                   {referenceCopied ? "Copied" : "Copy reference"}
                 </Button>
               ) : notice.action === "support" ? (
-                <a className={styles.inlineButton} href="/exomem/support">
+                <a className={`${styles.inlineButton} ${phone.hitArea}`} href="/exomem/support">
                   Contact support
                 </a>
               ) : undefined
