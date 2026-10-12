@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
@@ -450,6 +450,80 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       { kind: "payment_failed", state: "sent" },
       { kind: "payment_failed", state: "cancelled" },
     ]);
+  });
+
+  it("03: names the friend inviter and Paddle's price as Home shows them, and leaves out what Paddle does not report", async () => {
+    const paddleId = (prefix: string) =>
+      `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 26)}`;
+    const friendDiscount = paddleId("dsc");
+    const friend = await seedTenant({ source: "paddle", sourceState: "active", cell: "running" });
+    const own = await seedTenant({ source: "paddle", sourceState: "active", cell: "running" });
+    const subscriptions = new Map([
+      [friend.tenantId, paddleId("sub")],
+      [own.tenantId, paddleId("sub")],
+    ]);
+    for (const [tenantId, subscription] of subscriptions) {
+      await pool.query(
+        "UPDATE exomem_entitlements SET provider_subscription_ref = $2 WHERE tenant_id = $1",
+        [tenantId, subscription]
+      );
+    }
+    // The friend tenant accepted Alex's friend invitation, and its subscription carries the discount.
+    const { rows: offer } = await pool.query<{ id: string }>(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+         entitlement_limits, created_by_principal_digest, expires_at, kind, inviter_name
+       ) VALUES ($1, $2, 'paddle', '["capture","recall"]'::jsonb, '{}'::jsonb, $3,
+                 now() + interval '7 days', 'friend', 'Alex')
+       RETURNING id`,
+      [randomBytes(32), friend.email, randomBytes(32)]
+    );
+    await pool.query("UPDATE exomem_tenants SET friend_offer_invite_id = $2 WHERE id = $1", [
+      friend.tenantId,
+      offer[0]!.id,
+    ]);
+    await pool.query(
+      "UPDATE exomem_entitlements SET provider_discount_id = $2 WHERE tenant_id = $1",
+      [friend.tenantId, friendDiscount]
+    );
+    // Paddle previews the friend tenant's next payment and none for the other.
+    const paddleEnvironment = {
+      PADDLE_ENVIRONMENT: "sandbox",
+      PADDLE_API_KEY: "pdl_sdbx_apikey_example",
+      EXOMEM_PADDLE_PRODUCT_ID: "pro_exomem_example",
+      EXOMEM_PADDLE_FRIEND_DISCOUNT_ID: friendDiscount,
+    };
+    const previous = Object.fromEntries(
+      Object.keys(paddleEnvironment).map((name) => [name, process.env[name]])
+    );
+    Object.assign(process.env, paddleEnvironment);
+    const paddle = mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+      const subscription = new URL(String(url)).pathname.split("/").at(-1);
+      const nextTransaction =
+        subscription === subscriptions.get(friend.tenantId)
+          ? { details: { totals: { grand_total: "1000", currency_code: "EUR" } } }
+          : null;
+      return Response.json({
+        data: { id: subscription, currency_code: "EUR", next_transaction: nextTransaction },
+      });
+    });
+    try {
+      await markReady(friend.cellId);
+      await markReady(own.cellId);
+
+      const sent = (await drain()).sent;
+
+      const to = (tenant: { email: string }) => sent.find((email) => email.to === tenant.email)!;
+      assert.match(to(friend).textContent, /Your price: €10 a month · from Alex’s invitation/);
+      assert.match(to(friend).textContent, /You joined from Alex’s invitation\./);
+      assert.doesNotMatch(to(own).textContent, /Your price|Alex/);
+    } finally {
+      paddle.mock.restore();
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 
   it("03, 04 and 05: go to the owner's address when they are sent, not the one they were queued for", async () => {

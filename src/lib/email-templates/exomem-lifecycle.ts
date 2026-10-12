@@ -8,7 +8,9 @@
  * zone, from the caller's typed facts.
  */
 
+import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
 import { renderExomemEmail, type ExomemEmailFact, type RenderedExomemEmail } from "./exomem-email";
+import { emailMoney } from "./exomem-email-money";
 import {
   emailClock,
   emailCount,
@@ -44,8 +46,8 @@ export function renderExomemReadyEmail(input: {
   connected: boolean;
   /** The paid plan's facts; `null` for an Exomem someone covers. */
   billing: {
-    /** The monthly price as Paddle formats it ("€15"), or `null` when unknown. */
-    price: string | null;
+    /** The next payment's amount as Paddle reports it, or `null` when unknown. */
+    price: ExomemMoney | null;
     nextPaymentAt: Date | null;
     friendInviterName: string | null;
   } | null;
@@ -54,11 +56,10 @@ export function renderExomemReadyEmail(input: {
   const friend = input.billing?.friendInviterName ?? null;
   const rows: ExomemEmailFact[] = [];
   if (input.billing?.price) {
+    const price = emailMoney(input.billing.price);
     rows.push({
       label: "Your price",
-      value: friend
-        ? `${input.billing.price} a month · from ${friend}’s invitation`
-        : `${input.billing.price} a month`,
+      value: friend ? `${price} a month · from ${friend}’s invitation` : `${price} a month`,
     });
   }
   if (input.billing?.nextPaymentAt) {

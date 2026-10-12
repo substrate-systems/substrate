@@ -31,7 +31,11 @@ describe("Exomem emails", () => {
       homeUrl: "https://substratesystems.io/exomem/home",
       recipientName: "<img src=x onerror=alert(1)>",
       connected: true,
-      billing: { price: "€10", nextPaymentAt: null, friendInviterName: "Alex</td><script>" },
+      billing: {
+        price: { amount: "1000", currencyCode: "EUR" },
+        nextPaymentAt: null,
+        friendInviterName: "Alex</td><script>",
+      },
       timeZone: "Europe/Berlin",
     });
     assert.equal(rendered.htmlContent.includes("<img src=x"), false);

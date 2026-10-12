@@ -103,14 +103,18 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
         homeUrl: home,
         recipientName: "Maria",
         connected: true,
-        billing: { price: "€10", nextPaymentAt: at(30 * DAY), friendInviterName: "Alex" },
+        billing: {
+          price: { amount: "1000", currencyCode: "EUR" },
+          nextPaymentAt: at(30 * DAY),
+          friendInviterName: "Alex",
+        },
         timeZone: ZONE,
       }),
     },
     {
       id: "03-plain",
       number: "03",
-      note: "ready, own plan, nothing connected yet, price not stored",
+      note: "ready, own plan, nothing connected yet, price unknown",
       email: renderExomemReadyEmail({
         homeUrl: home,
         recipientName: null,
