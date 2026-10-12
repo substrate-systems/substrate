@@ -430,18 +430,26 @@
   min-width: 0;
 }
 
+/* A local part longer than its kept characters gives way before the domain does: it
+   shrinks a million times faster, so the domain loses nothing until the local part is
+   down to the width that its inline style keeps. */
+.signedInLocal {
+  flex-shrink: 1000000;
+}
+
+/* A local part no longer than its kept characters never gives way. */
+.signedInLocalWhole {
+  flex: none;
+}
+
 .signedInLocal,
 .signedInDomain {
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* The domain keeps its full width while the address has room for it, but leaves the
-   local part its first characters (up to six), so the line still tells accounts apart. */
 .signedInDomain {
-  flex: none;
-  max-width: calc(100% - min(6ch, var(--local-chars)));
+  min-width: 0;
 }
 
 .signedIn .inlineButton {

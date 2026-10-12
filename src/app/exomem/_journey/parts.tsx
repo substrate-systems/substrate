@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { SegmentedSwitch } from "@/components/exomem/SegmentedSwitch";
@@ -181,6 +181,9 @@ export function openElsewhere(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/** How many characters of an address's local part stay visible however long its domain is. */
+const KEPT_LOCAL_CHARACTERS = 6;
+
 /**
  * "Signed in as … · Switch account". A desktop repeats the header's email here only
  * on some steps (`onDesktop`); a phone has no header email, so it always shows.
@@ -196,12 +199,13 @@ export function SignedInLine({
 }) {
   // At most two lines at any email length: the line breaks only before "Switch account",
   // and an address too long for its line gives way, its local part first, then its domain.
-  // A long domain still leaves the local part its first characters. The text keeps the
-  // whole address for screen readers, and the title shows it on hover (design.md (ai)).
+  // The local part keeps room for its first characters, so a long domain cannot hide whose
+  // account this is. The text keeps the whole address for screen readers, and the title
+  // shows it on hover (design.md (ai)).
   const at = email.lastIndexOf("@");
   const local = at < 0 ? email : email.slice(0, at);
   const domain = at < 0 ? "" : email.slice(at);
-  const address = { "--local-chars": `${[...local].length}ch` } as CSSProperties;
+  const longLocal = Array.from(new Intl.Segmenter().segment(local)).length > KEPT_LOCAL_CHARACTERS;
   return (
     <div
       className={onDesktop ? styles.signedIn : `${styles.signedIn} ${styles.phoneOnly}`}
@@ -209,8 +213,13 @@ export function SignedInLine({
     >
       <span className={styles.signedInWho}>
         <span className={styles.signedInFixed}>{signedInCopy.prefix}</span>
-        <span className={styles.signedInAddress} style={address}>
-          <span className={styles.signedInLocal}>{local}</span>
+        <span className={styles.signedInAddress}>
+          <span
+            className={longLocal ? styles.signedInLocal : styles.signedInLocalWhole}
+            style={longLocal ? { minWidth: `${KEPT_LOCAL_CHARACTERS}ch` } : undefined}
+          >
+            {local}
+          </span>
           <span className={styles.signedInDomain}>{domain}</span>
         </span>
         <span className={styles.signedInFixed}>{signedInCopy.separator}</span>
