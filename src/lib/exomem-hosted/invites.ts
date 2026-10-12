@@ -664,16 +664,14 @@ export async function decideInvitation(
       if (!invite) throw invitationUnusable();
       if (!invite.same_address) throw invitationForAnotherAddress();
       // One friend price per Exomem: answers to two invitations at once take
-      // turns on the tenant. The lock is its own statement, so the read below
+      // turns on a lock that only these answers take, because the answer
+      // holds it while Paddle answers, and no reconcile, Paddle event or sweep
+      // must wait on Paddle. The lock is its own statement, so the read below
       // takes a fresh snapshot and sees the friend offer the first answer
-      // recorded; a lock in that read would keep the offer row it first read.
+      // recorded.
       await tx`
         /* exomem:lock-invitation-decision-tenant */
-        SELECT tenant.id
-        FROM exomem_tenants AS tenant
-        WHERE tenant.id = ${input.session.tenantId}::uuid
-          AND tenant.owner_user_id = ${input.session.userId}::uuid
-        FOR UPDATE
+        SELECT pg_advisory_xact_lock(hashtext('exomem-friend-decision:' || ${input.session.tenantId}::text))
       `;
       const facts = await tx`
         /* exomem:invitation-decision-billing */

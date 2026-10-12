@@ -49,11 +49,9 @@ export type CloudDeletionFinishDependencies = {
   terminateBilling: (tenantId: string) => Promise<BillingDeletionTarget | null>;
 };
 
-// The cron lane's Paddle calls carry no timeout of their own otherwise: a
-// stalled provider connection would hold the finish (and the lane's own time
-// budget below) open indefinitely. `paddleFetch` itself stays untouched --
-// every other Paddle caller keeps its own timeout policy -- this wraps only
-// the transport this lane's billing termination uses.
+// The cron lane's Paddle calls get a tighter deadline than paddleFetch's own,
+// so a slow provider cannot run the finish past the lane's time budget below.
+// This wraps only the transport this lane's billing termination uses.
 export function timeoutTransport(transport: PaddleTransport, timeoutMs: number): PaddleTransport {
   return (path, init) => transport(path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }

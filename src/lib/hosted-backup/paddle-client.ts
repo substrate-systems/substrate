@@ -33,6 +33,14 @@ export class PaddleApiError extends Error {
 }
 
 /**
+ * Every Paddle call ends within this time, so a stalled connection cannot hold
+ * a request, or a lock taken before the call, open. Ten seconds is the longest
+ * deadline an Exomem caller set before this bound existed; a caller with a
+ * tighter budget passes its own signal, and the earlier of the two ends the call.
+ */
+const PADDLE_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
  * Authenticated fetch against the Paddle API. Prefixes the path with the
  * base URL from `paddleApiBaseUrl()` and attaches the bearer token.
  * Caller is responsible for parsing the body. Non-2xx responses are NOT
@@ -54,7 +62,9 @@ export async function paddleFetch(
   if (init.body && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
-  return fetch(url, { ...init, headers });
+  const timeout = AbortSignal.timeout(PADDLE_REQUEST_TIMEOUT_MS);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+  return fetch(url, { ...init, headers, signal });
 }
 
 export async function assertOk(res: Response): Promise<void> {

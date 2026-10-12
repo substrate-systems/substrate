@@ -22,8 +22,6 @@ import {
 
 export type PaddleTransport = (path: string, init?: RequestInit) => Promise<Response>;
 
-const PADDLE_TIMEOUT_MS = 10_000;
-
 export class ExomemBillingError extends Error {
   readonly code:
     | "EXOMEM_BILLING_INPUT_REJECTED"
@@ -124,8 +122,7 @@ function safeConfigurationError(error: unknown): ExomemBillingError {
 
 /**
  * A Paddle API call whose failure says nothing about the provider's answer.
- * Every call has a deadline: some run inside a database transaction that
- * holds a row lock until Paddle answers.
+ * paddleFetch gives every call a deadline.
  */
 async function safePaddleJson(
   transport: PaddleTransport,
@@ -134,10 +131,7 @@ async function safePaddleJson(
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await transport(path, {
-      ...init,
-      signal: init.signal ?? AbortSignal.timeout(PADDLE_TIMEOUT_MS),
-    });
+    response = await transport(path, init);
   } catch {
     throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 503);
   }

@@ -71,6 +71,8 @@ const paddle = {
   subscriptionsDown: false,
   // Runs while Paddle answers a transaction read, as a concurrent request would.
   duringTransactionRead: null as null | (() => Promise<void>),
+  // Runs while Paddle answers a subscription update, as a concurrent request would.
+  duringSubscriptionUpdate: null as null | (() => Promise<void>),
   transactions: new Map<string, Record<string, unknown>>(),
   subscriptions: new Map<string, Record<string, unknown>>(),
 };
@@ -134,6 +136,7 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
   }
   if (method === "PATCH" && pathname.startsWith("/subscriptions/")) {
     await new Promise((resolve) => setTimeout(resolve, paddle.subscriptionUpdateDelayMs));
+    if (paddle.duringSubscriptionUpdate) await paddle.duringSubscriptionUpdate();
     if (paddle.subscriptionUpdateFails) return new Response("{}", { status: 500 });
     const subscription = paddle.subscriptions.get(pathname.split("/")[2]!);
     const discount = body?.discount as { id: string } | undefined;
@@ -577,6 +580,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     paddle.transactionsHang = false;
     paddle.subscriptionsDown = false;
     paddle.duringTransactionRead = null;
+    paddle.duringSubscriptionUpdate = null;
     __clearExomemPriceCacheForTests();
     await pool!.query("UPDATE exomem_cloud_capacity SET observed_at = now()");
   });
@@ -1049,6 +1053,25 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       );
     }
     assert.equal(usedEmails.length, 1);
+  });
+
+  it("lets a reconcile of the owner's Exomem finish while an answer waits on Paddle", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    const { token } = await issueFriendInvitation({ email: owner.email });
+    let reconciled: unknown = "not run";
+    paddle.duringSubscriptionUpdate = async () => {
+      // Two seconds stands in for a slow Paddle; the reconcile must not wait on it.
+      reconciled = await Promise.race([
+        reconcileCloudCellDesiredState(owner.tenantId),
+        new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000)),
+      ]);
+    };
+
+    const decision = await decideInvitation({ token, choice: "use_friend_price", session });
+
+    assert.equal(decision.status, "applied");
+    assert.equal(reconciled, "running");
   });
 
   it("offers nothing to an owner who has not paid yet and holds another invitation's friend price, and keeps that offer when the owner asks anyway", async () => {
