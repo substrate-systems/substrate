@@ -175,6 +175,7 @@ export async function issueOperatorInvite(
   const rendered = renderExomemInviteEmail({
     accessUrl,
     expiresAt: input.expiresAt,
+    email: emailNormalized,
   });
   let delivery: Awaited<ReturnType<SendEmail>>;
   try {

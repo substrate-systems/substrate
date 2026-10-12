@@ -73,8 +73,10 @@ export function renderExomemWelcomeEmail(input: {
 }
 
 /**
- * Email 02: an operator's invitation. The board's small print names the
- * invited address; it shows only when the caller passes it.
+ * Email 02: an operator's invitation. The board's body named four
+ * assistants; the product never names a fixed number of them, so the first
+ * sentence is the positioning line instead. The small print names the
+ * invited address when the caller passes it.
  */
 export function renderExomemInviteEmail(input: {
   accessUrl: string;
@@ -90,7 +92,7 @@ export function renderExomemInviteEmail(input: {
     band: "arrive",
     headline: "Start your Exomem",
     body: [
-      "One memory that every assistant you use shares: Claude, ChatGPT, Claude Code and Codex. Everything you keep stays yours, with its source.",
+      "One memory for every assistant and every session you connect. Everything you keep stays yours, with its source.",
     ],
     action: { label: "Accept invitation", url: input.accessUrl },
     smallPrint: input.email
