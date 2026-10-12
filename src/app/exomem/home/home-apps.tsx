@@ -205,7 +205,7 @@ function AddAnotherApp({
           />
           <button
             type="button"
-            className={styles.textToggle}
+            className={`${styles.textToggle} ${phone.hitArea}`}
             aria-expanded={showFull}
             onClick={() => setShowFull(!showFull)}
           >

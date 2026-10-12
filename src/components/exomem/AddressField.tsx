@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import styles from "./AddressField.module.css";
+import phone from "./phone.module.css";
 
 const COPIED_MS = 1600;
 
@@ -68,7 +69,12 @@ export function AddressField({ label, address, size = "page" }: AddressFieldProp
             address
           )}
         </span>
-        <button type="button" className={styles.copy} onClick={copy} aria-live="polite">
+        <button
+          type="button"
+          className={`${styles.copy} ${phone.hitArea}`}
+          onClick={copy}
+          aria-live="polite"
+        >
           {copied ? "Copied ✓" : "Copy"}
         </button>
       </div>
