@@ -9,7 +9,7 @@
 // this script starts.
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFakeBrevo } from "./fake-brevo";
@@ -20,7 +20,11 @@ async function main() {
   const environment = homeE2eEnvironment();
   // The gateway stand-in reads the same configuration as the gateway it replaces.
   Object.assign(process.env, environment.serverEnv);
-  const certificates = mkdtempSync(join(tmpdir(), "exomem-home-e2e-"));
+  // One fixed folder, made fresh each run: a run that is killed leaves this one folder,
+  // and the next run replaces it, so killed runs never pile up.
+  const certificates = join(tmpdir(), "exomem-home-e2e");
+  rmSync(certificates, { recursive: true, force: true });
+  mkdirSync(certificates, { mode: 0o700 });
   const keyPath = join(certificates, "key.pem");
   const certPath = join(certificates, "cert.pem");
   execFileSync(
