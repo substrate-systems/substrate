@@ -351,6 +351,12 @@ function cloudDesiredStateToTenantMirror(target: CloudDesiredCellState): CloudTe
  * The tenant mirror write runs in the same transaction as the cell's
  * desired_state write (this round's ruling): both change together, or
  * neither does.
+ *
+ * The first read locks the tenant, then the entitlement, in the order the
+ * Paddle event store locks them, and every write follows from that locked
+ * read. A deletion confirmation or a Paddle event that commits meanwhile
+ * waits, so the reconcile never writes over it from a stale read. The
+ * transaction makes no network call while it holds the locks.
  */
 export async function reconcileCloudCellDesiredState(
   tenantId: string,
@@ -363,13 +369,14 @@ export async function reconcileCloudCellDesiredState(
              entitlement.manual_suspended_at, entitlement.source_occurred_at,
              entitlement.provider_transaction_ref,
              tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state
-      FROM exomem_entitlements AS entitlement
+      FROM exomem_tenants AS tenant
+      JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
       JOIN exomem_cloud_cells AS cell
-        ON cell.tenant_id = entitlement.tenant_id
+        ON cell.tenant_id = tenant.id
        AND cell.desired_state <> 'deleted'
-      JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
-      WHERE entitlement.tenant_id = ${tenantId}::uuid
+      WHERE tenant.id = ${tenantId}::uuid
       LIMIT 1
+      FOR UPDATE OF tenant, entitlement
     `;
     const row = rows[0] as
       | (EntitlementRow & { tenant_status: string; tenant_desired_state: string })
@@ -447,27 +454,6 @@ export async function reconcileCloudCellDesiredState(
         WHERE id = ${tenantId}::uuid
         RETURNING deleted_at::text AS deleted_at
       `;
-      // A Paddle event that applied while the tenant was provisioning stored
-      // the entitlement as provisioning, and no later event need come. Once
-      // the tenant runs, the entitlement takes its source state's projection,
-      // unless an event changed that source state since the read above.
-      if (mirror.status === "active" && sourceProjection) {
-        const projected = projectedEntitlement(sourceProjection, EXOMEM_ALPHA_BUNDLE);
-        await tx`
-          /* exomem-cloud:activate-entitlement */
-          UPDATE exomem_entitlements
-          SET effective_state = ${projected.effectiveState},
-              capabilities = ${JSON.stringify(projected.capabilities)}::jsonb,
-              updated_at = now()
-          WHERE tenant_id = ${tenantId}::uuid
-            AND effective_state = 'provisioning'
-            AND manual_suspended_at IS NULL
-            -- An admitted complimentary row is active already; only Paddle waits on a payment.
-            AND source = 'paddle'
-            AND source = ${row.source}
-            AND source_state = ${row.source_state}
-        `;
-      }
       // Email 07, once: this transaction moved the cell to deleted. An
       // account deletion sends it from its finish instead
       // (cloud-deletion-finish.ts).
@@ -490,6 +476,27 @@ export async function reconcileCloudCellDesiredState(
           });
         }
       }
+    }
+
+    // A Paddle event that applied while the tenant was provisioning stored
+    // the entitlement as provisioning, and no later event need come. Once
+    // the tenant is past provisioning, whatever the cell's state, the
+    // entitlement takes the projection of the source state read above.
+    const tenantStatus = mirror?.status ?? row.tenant_status;
+    if ((tenantStatus === "active" || tenantStatus === "suspended") && sourceProjection) {
+      const projected = projectedEntitlement(sourceProjection, EXOMEM_ALPHA_BUNDLE);
+      await tx`
+        /* exomem-cloud:activate-entitlement */
+        UPDATE exomem_entitlements
+        SET effective_state = ${projected.effectiveState},
+            capabilities = ${JSON.stringify(projected.capabilities)}::jsonb,
+            updated_at = now()
+        WHERE tenant_id = ${tenantId}::uuid
+          AND effective_state = 'provisioning'
+          AND manual_suspended_at IS NULL
+          -- An admitted complimentary row is active already; only Paddle waits on a payment.
+          AND source = 'paddle'
+      `;
     }
 
     return target;
