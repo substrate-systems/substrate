@@ -48,11 +48,15 @@ export type ExomemAccountView = {
     | "dunning_window_unconfigured"
     | "dunning_window_invalid"
   >;
-  keptUntil: Known<string, "complimentary" | "suspended" | "not_ended" | "not_reported">;
+  /** When the subscription ended: Paddle's cancellation, which the kept window counts from. */
+  endedAt: Known<string, EndedUnknown>;
+  keptUntil: Known<string, EndedUnknown>;
   reviewerEndsAt: Known<string, "not_reviewer" | "not_reported">;
 };
 
 type NoNextPayment = "complimentary" | "no_subscription" | "ended" | "paused";
+
+type EndedUnknown = "complimentary" | "suspended" | "not_ended" | "not_reported";
 
 type NextPaymentAmountUnknown = "not_reported" | "unavailable";
 
@@ -169,12 +173,20 @@ function readOnlyUntil(
 
 // The same conditions under which desiredCloudCellState runs the cancelled
 // window: a Paddle cancellation that no manual suspension overrides.
-function keptUntil(row: ExomemAccountRow): ExomemAccountView["keptUntil"] {
+function endedAt(row: ExomemAccountRow): ExomemAccountView["endedAt"] {
   if (row.source === "complimentary") return unknown("complimentary");
   if (row.manuallySuspended) return unknown("suspended");
   if (row.sourceState !== "cancelled") return unknown("not_ended");
   if (!row.sourceOccurredAt) return unknown("not_reported");
-  return known(cloudCancelledKeptUntil(row.sourceOccurredAt).toISOString());
+  return known(row.sourceOccurredAt.toISOString());
+}
+
+// The kept window counts from the end, so it is known exactly when the end is.
+function keptUntil(row: ExomemAccountRow): ExomemAccountView["keptUntil"] {
+  const ended = endedAt(row);
+  return ended.value === null
+    ? ended
+    : known(cloudCancelledKeptUntil(new Date(ended.value)).toISOString());
 }
 
 export function buildExomemAccountView(
@@ -208,6 +220,7 @@ export function buildExomemAccountView(
     nextPaymentAt: nextPaymentAt(row),
     nextPaymentAmount: none ? unknown(none) : (options.nextPaymentAmount ?? unknown("unavailable")),
     readOnlyUntil: readOnlyUntil(row, environment),
+    endedAt: endedAt(row),
     keptUntil: keptUntil(row),
     reviewerEndsAt: !options.reviewer
       ? unknown("not_reviewer")

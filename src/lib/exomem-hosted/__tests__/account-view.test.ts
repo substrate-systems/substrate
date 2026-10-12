@@ -150,8 +150,25 @@ describe("Exomem account view", () => {
     );
 
     assert.equal(view.step, "ended");
+    assert.deepEqual(view.endedAt, { value: "2026-10-11T12:00:00.000Z", reason: null });
     assert.deepEqual(view.keptUntil, { value: "2026-11-10T12:00:00.000Z", reason: null });
     assert.deepEqual(view.nextPaymentAt, { value: null, reason: "ended" });
+  });
+
+  it("says when an ended subscription ended is unknown, and so its kept-until, without a cancellation time", () => {
+    const view = buildExomemAccountView(
+      paidRow({ sourceState: "cancelled", effectiveState: "cancelled", sourceOccurredAt: null }),
+      owner
+    );
+
+    assert.deepEqual(view.endedAt, { value: null, reason: "not_reported" });
+    assert.deepEqual(view.keptUntil, { value: null, reason: "not_reported" });
+  });
+
+  it("gives a live subscription no end date, though Paddle reported when it last changed", () => {
+    const view = buildExomemAccountView(paidRow(), owner);
+
+    assert.deepEqual(view.endedAt, { value: null, reason: "not_ended" });
   });
 
   it("shows no kept-until or read-only date while an operator suspension stops the cell", () => {
@@ -169,6 +186,7 @@ describe("Exomem account view", () => {
       { reviewer: false, environment: { EXOMEM_PADDLE_DUNNING_DAYS: "14" } }
     );
 
+    assert.deepEqual(cancelled.endedAt, { value: null, reason: "suspended" });
     assert.deepEqual(cancelled.keptUntil, { value: null, reason: "suspended" });
     assert.deepEqual(pastDue.readOnlyUntil, { value: null, reason: "suspended" });
   });

@@ -42,6 +42,7 @@ function account(overrides: Partial<HomeAccount> = {}): HomeAccount {
     nextPaymentAt: { value: "2026-10-31T09:00:00Z", reason: null },
     nextPaymentAmount: { value: null, reason: "not_reported" },
     readOnlyUntil: { value: null, reason: "not_past_due" },
+    endedAt: { value: null, reason: "not_ended" },
     keptUntil: { value: null, reason: "not_ended" },
     reviewerEndsAt: { value: null, reason: "not_reviewer" },
     ...overrides,
@@ -351,6 +352,20 @@ describe("notices and the account banner", () => {
       banner("ended", ended, { ...closed, checkoutAvailable: true }, clock, true)?.action,
       "resubscribe"
     );
+  });
+
+  it("dates an ended plan from the cancellation, in the reader's zone, and drops a date it does not know", () => {
+    const endedOn = account({
+      step: "ended",
+      endedAt: { value: "2026-10-11T23:30:00Z", reason: null },
+    });
+    assert.equal(planView("ended", endedOn, null, clock).meta, "ended 11 October");
+    assert.equal(
+      planView("ended", endedOn, null, { now: NOW, timeZone: "Europe/Tallinn" }).meta,
+      "ended 12 October"
+    );
+    const undated = account({ step: "ended", endedAt: { value: null, reason: "not_reported" } });
+    assert.equal(planView("ended", undated, null, clock).meta, "ended");
   });
 
   it("sends an ended owner to support for a copy, not to an export, while Home offers none", () => {

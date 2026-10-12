@@ -654,8 +654,11 @@ export function planView(
 
   let meta: string | null;
   if (variant === "readonly") meta = "payment failed · retrying";
-  else if (variant === "ended") meta = "ended";
-  else {
+  else if (variant === "ended") {
+    // The board's "ended 12 October"; a date the account does not know drops out.
+    const ended = account.endedAt.value;
+    meta = ended ? `ended ${dayMonth(ended, clock.timeZone)}` : "ended";
+  } else {
     const inviter = friend && plan.friendPrice.inviterName;
     // The amount Paddle previews for the next payment, in en-GB like Home's dates. Unknown
     // shows no number at all, and so does a payment with no date: no money is promised
