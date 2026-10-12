@@ -5,6 +5,7 @@ import {
   createExomemCheckout,
   ExomemBillingError,
   previewExomemPrices,
+  readExomemNextPaymentAmount,
   type PaddleTransport,
 } from "../paddle-billing";
 import { loadExomemPaddleConfig } from "../paddle-config";
@@ -138,5 +139,42 @@ describe("the friend price at Paddle", () => {
     now += 10 * 60 * 1000 + 1;
     await preview("DE");
     assert.equal(fake.calls.filter((call) => call === "POST /pricing-preview").length, 3);
+  });
+});
+
+describe("the next payment's amount", () => {
+  it("reads Paddle afresh once a friend price is stored, instead of serving the cached amount", async () => {
+    const subscriptionId = `sub_${"s".repeat(26)}`;
+    // Paddle's next transaction carries the friend discount once it is applied.
+    let discounted = false;
+    const reads: string[] = [];
+    const transport: PaddleTransport = async (path) => {
+      reads.push(path);
+      return Response.json({
+        data: {
+          id: subscriptionId,
+          currency_code: "EUR",
+          next_transaction: {
+            details: {
+              totals: { grand_total: discounted ? "1000" : "1500", currency_code: "EUR" },
+            },
+          },
+        },
+      });
+    };
+    const read = (discountId: string | null) =>
+      readExomemNextPaymentAmount(
+        { subscriptionId, environment: "sandbox", discountId, priceId: BASE_PRICE },
+        { config: config(), transport, now: () => 0 }
+      );
+
+    assert.deepEqual((await read(null)).value, { amount: "1500", currencyCode: "EUR" });
+    // The friend decision applies the discount; the webhook stores its id seconds later.
+    discounted = true;
+    assert.deepEqual((await read(FRIEND_DISCOUNT)).value, { amount: "1000", currencyCode: "EUR" });
+    assert.equal(reads.length, 2);
+    // With nothing stored changing, the cached amount still serves.
+    await read(FRIEND_DISCOUNT);
+    assert.equal(reads.length, 2);
   });
 });

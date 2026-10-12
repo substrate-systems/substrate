@@ -548,10 +548,18 @@ export async function previewExomemPrices(
  * transaction: its grand total in minor units, with discounts and tax, so a
  * friend price or an older price shows its own amount, never the base
  * price. `not_reported` when Paddle previews no next payment. Each answer
- * is cached 10 minutes per subscription; a failure throws and is not cached.
+ * is cached 10 minutes per subscription and the discount and price stored for
+ * it, so a stored change (a friend price applied, a new price) is read afresh
+ * at once. A failure throws and is not cached.
  */
 export async function readExomemNextPaymentAmount(
-  input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
+  input: {
+    subscriptionId: string;
+    environment: ExomemPaddleConfig["environment"];
+    /** The discount and price the subscription row stores, as the webhook last wrote them. */
+    discountId: string | null;
+    priceId: string | null;
+  },
   dependencies: BillingDependencies & { now?: () => number } = {}
 ): Promise<Known<ExomemMoney, "not_reported">> {
   if (!safePaddleId(input.subscriptionId, "sub")) {
@@ -567,7 +575,7 @@ export async function readExomemNextPaymentAmount(
     throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
   }
   const now = (dependencies.now ?? Date.now)();
-  const key = `${input.environment}|${input.subscriptionId}`;
+  const key = `${input.environment}|${input.subscriptionId}|${input.discountId ?? ""}|${input.priceId ?? ""}`;
   const hit = nextPaymentCache.get(key);
   if (hit && hit.expiresAt > now) return hit.value;
   const payload = await safePaddleJson(

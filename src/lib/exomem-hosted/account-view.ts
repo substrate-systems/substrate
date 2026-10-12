@@ -124,14 +124,18 @@ function nextPaymentAt(row: ExomemAccountRow): ExomemAccountView["nextPaymentAt"
 
 /** Paddle's preview of the next payment's amount; asked only when a next payment is due. */
 async function nextPaymentAmount(
-  subscriptionId: string,
-  providerEnvironment: ExomemAccountRow["providerEnvironment"],
+  account: ExomemAccountRow & { subscriptionRef: string },
   environment: Environment
 ): Promise<Known<ExomemMoney, NextPaymentAmountUnknown>> {
-  if (!providerEnvironment) return unknown("unavailable");
+  if (!account.providerEnvironment) return unknown("unavailable");
   try {
     return await readExomemNextPaymentAmount(
-      { subscriptionId, environment: providerEnvironment },
+      {
+        subscriptionId: account.subscriptionRef,
+        environment: account.providerEnvironment,
+        discountId: account.discountId,
+        priceId: account.priceId,
+      },
       { config: loadExomemPaddleConfig(environment) }
     );
   } catch {
@@ -276,8 +280,7 @@ export async function loadExomemAccountView(
       noNextPayment(account) || !account.subscriptionRef
         ? undefined
         : await nextPaymentAmount(
-            account.subscriptionRef,
-            account.providerEnvironment,
+            { ...account, subscriptionRef: account.subscriptionRef },
             environment
           ),
   });
