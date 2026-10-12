@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { SegmentedSwitch } from "@/components/exomem/SegmentedSwitch";
@@ -9,8 +9,7 @@ import {
   involvementLevel,
   type InvolvementLevelKey,
 } from "@/components/exomem/involvement-levels";
-import type { Known } from "@/lib/exomem-hosted/known";
-import { consentCopy, joinedCopy, sentCopy, signedInCopy, unknownDate } from "./copy";
+import { consentCopy, joinedCopy, sentCopy, signedInCopy } from "./copy";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
@@ -280,26 +279,5 @@ export function LevelTune({
         </Button>
       </div>
     </div>
-  );
-}
-
-const noChange = () => () => {};
-
-function dayMonth(iso: string, timeZone: string | undefined): string {
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", timeZone }).format(
-    new Date(iso)
-  );
-}
-
-/**
- * A date as the board writes it ("10 November"), in the reader's own time zone.
- * The server renders before it knows that zone, so it writes the UTC date and the
- * browser replaces it as soon as the page hydrates. Unknown is said in words.
- */
-export function useReaderDate(date: Known<string>): string {
-  return useSyncExternalStore(
-    noChange,
-    () => (date.value === null ? unknownDate : dayMonth(date.value, undefined)),
-    () => (date.value === null ? unknownDate : dayMonth(date.value, "UTC"))
   );
 }

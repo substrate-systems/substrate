@@ -31,11 +31,11 @@ import {
   StepActions,
   StepHeading,
   StepNotice,
-  useReaderDate,
   WaitNote,
   WorkingBar,
   type Choice,
 } from "../_journey/parts";
+import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
 import { joinedSince, pollDelay, type ListedApp } from "./join-rule";
 import type { SetupScreen } from "./setup-screen";

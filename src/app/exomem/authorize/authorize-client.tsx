@@ -24,8 +24,8 @@ import {
   StepActions,
   StepHeading,
   StepNotice,
-  useReaderDate,
 } from "../_journey/parts";
+import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
 import styles from "../_journey/journey.module.css";
 import { offersConnect, type ConsentScreen } from "./consent-screen";
