@@ -82,6 +82,40 @@ export function StepActions({
   );
 }
 
+/** A friend's note on their invitation, and their name under it. */
+export function InviteNote({ note, by }: { note: string; by: string }) {
+  return (
+    <figure className={styles.inviteNote}>
+      <blockquote className={styles.inviteNoteText}>“{note}”</blockquote>
+      <figcaption className={styles.inviteNoteBy}>{by}</figcaption>
+    </figure>
+  );
+}
+
+/** What an invitation costs: who it is from, the amount, and how long it lasts. */
+export function PriceCard({
+  label,
+  main,
+  was,
+  note,
+}: {
+  label: string;
+  main: string;
+  was: string | null;
+  note: string;
+}) {
+  return (
+    <div className={`${styles.panel} ${styles.price}`}>
+      <span className={styles.priceLabel}>{label}</span>
+      <div className={styles.priceRow}>
+        <span className={styles.priceMain}>{main}</span>
+        {was ? <s className={styles.priceWas}>{was}</s> : null}
+      </div>
+      <span className={styles.priceNote}>{note}</span>
+    </div>
+  );
+}
+
 /** Opens an address outside Exomem in a new tab ("Open Claude ↗", "Status page ↗"). */
 export function openElsewhere(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");

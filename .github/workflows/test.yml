@@ -154,6 +154,8 @@ jobs:
           EXOMEM_CLOUD_MCP_URL: https://cloud.example.test/mcp/v1
           EXOMEM_CLOUD_MCP_PATH: /mcp/v1
           EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true"
+          # The base price an owner's plan is on; no Paddle credentials, so no call leaves.
+          EXOMEM_PADDLE_PRICE_ID: pri_journey_e2e
           EXOMEM_CONNECTOR_SETTINGS_URLS: >-
             {"claude":"https://claude.example.test/settings/connectors","openai":"https://chatgpt.example.test/settings/connectors"}
           PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/journey

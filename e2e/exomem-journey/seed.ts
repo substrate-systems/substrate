@@ -18,6 +18,10 @@ import {
   generateMarketplaceReviewerCredential,
   hashMarketplaceReviewerPassword,
 } from "../../src/lib/exomem-hosted/reviewer-access";
+import {
+  EXOMEM_INVITE_CAPABILITIES,
+  EXOMEM_INVITE_LIMITS,
+} from "../../src/lib/exomem-hosted/self-serve-admission";
 
 const databaseUrl = process.env.EXOMEM_E2E_DATABASE_URL;
 if (!databaseUrl) {
@@ -349,4 +353,63 @@ export async function startLinkFor(email: string): Promise<string> {
     decryptSecret(rows[0].payload as Parameters<typeof decryptSecret>[0]).reveal()
   ) as { token: string };
   return `${BASE_URL}/exomem/invite#${payload.token}`;
+}
+
+/**
+ * An operator's invitation to `email`, delivered, and its link as the email carries it.
+ * A friend or covered invitation names its inviter, as the operator page requires.
+ */
+export async function seedInvitation(input: {
+  email: string;
+  kind: "standard" | "friend" | "covered";
+  inviterName?: string;
+  note?: string;
+}): Promise<{ id: string; link: string }> {
+  const token = generateExternalToken();
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO exomem_invites (
+       token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+       entitlement_limits, created_by_principal_digest, expires_at, kind, inviter_name,
+       note, delivery_state, delivered_at
+     ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, now() + interval '7 days', $7, $8, $9,
+       'sent', now())
+     RETURNING id`,
+    [
+      tokenDigest(token),
+      input.email,
+      input.kind === "covered" ? "complimentary" : "paddle",
+      JSON.stringify(EXOMEM_INVITE_CAPABILITIES),
+      JSON.stringify(EXOMEM_INVITE_LIMITS),
+      createHash("sha256").update("journey-e2e-operator").digest(),
+      input.kind,
+      input.inviterName ?? null,
+      input.note ?? null,
+    ]
+  );
+  return { id: rows[0]!.id, link: `${BASE_URL}/exomem/invite#${token}` };
+}
+
+/** Whether an invitation was used up (accepted, or answered by an existing owner). */
+export async function invitationConsumed(id: string): Promise<boolean> {
+  const { rows } = await pool.query<{ consumed: boolean }>(
+    "SELECT consumed_at IS NOT NULL AS consumed FROM exomem_invites WHERE id = $1",
+    [id]
+  );
+  return rows[0]!.consumed;
+}
+
+/**
+ * Puts an owner's plan on a live Paddle subscription to the base price
+ * (EXOMEM_PADDLE_PRICE_ID), as the subscription webhook records it. No call reaches
+ * Paddle: the server has no Paddle credentials here.
+ */
+export async function seedSubscription(owner: Owner): Promise<void> {
+  const priceId = process.env.EXOMEM_PADDLE_PRICE_ID;
+  if (!priceId) throw new Error("EXOMEM_PADDLE_PRICE_ID is not set: it names the base price");
+  await pool.query(
+    `UPDATE exomem_entitlements
+     SET provider_subscription_ref = $2, provider_environment = 'sandbox', provider_price_id = $3
+     WHERE tenant_id = $1`,
+    [owner.tenantId, `sub_${randomBytes(13).toString("hex")}`, priceId]
+  );
 }

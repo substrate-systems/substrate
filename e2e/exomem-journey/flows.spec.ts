@@ -24,9 +24,12 @@ import {
 import {
   authorizeRequest,
   grantCount,
+  invitationConsumed,
   seedCapacity,
   seedClient,
+  seedInvitation,
   seedOwner,
+  seedSubscription,
   signInLinkFor,
   startLinkFor,
   uniqueEmail,
@@ -303,4 +306,49 @@ test("a level the cell cannot take yet stays picked and is not called saved", as
     "true"
   );
   await expect(page.getByText(/^Saved for/)).toHaveCount(0);
+});
+
+// A friend invitation for a new person: accepting it signs them in, and setup asks them to
+// subscribe with the friend's price, never the usual one.
+test("a friend's invitation leads to checkout at the friend price", async ({ page }) => {
+  await seedCapacity();
+  const { link } = await seedInvitation({
+    email: uniqueEmail("friend"),
+    kind: "friend",
+    inviterName: "Alex",
+  });
+
+  await page.goto(link);
+  await page.getByRole("button", { name: inviteCopy.accept }).click();
+
+  await expect(page).toHaveURL(/\/exomem\/setup$/);
+  await expect(page.getByText(subscribeCopy.friendLede("Alex", null))).toBeVisible();
+});
+
+// An owner on a paid plan answers a friend's invitation. Paddle cannot confirm the plan
+// here (no friend discount is configured), so the server answers 503
+// FRIEND_PRICE_UNAVAILABLE: the page says it did not finish, offers both answers again,
+// and the invitation stays usable.
+test("an owner's answer that Paddle cannot confirm stays open to try again", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  await seedSubscription(owner);
+  await context.addCookies(owner.cookies);
+  const invitation = await seedInvitation({
+    email: owner.email,
+    kind: "friend",
+    inviterName: "Alex",
+  });
+
+  await page.goto(invitation.link);
+  await page.getByRole("button", { name: inviteCopy.existing.keep }).click();
+
+  await expect(page.getByText(inviteCopy.existing.notFinished)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") })
+  ).toBeEnabled();
+  await expect(page.getByRole("button", { name: inviteCopy.existing.keep })).toBeEnabled();
+  expect(await invitationConsumed(invitation.id)).toBe(false);
 });

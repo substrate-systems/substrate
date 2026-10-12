@@ -169,6 +169,74 @@
   text-align: left;
 }
 
+/* A friend's note on the invitation (Journey board, "invite"): an amber edge, the note,
+   and the inviter's name. */
+.inviteNote {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border-left: 2px solid var(--exo-amber);
+  padding: 2px 0 2px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.inviteNoteText {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.inviteNoteBy {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* The invitation's price (Journey board, "invite" and "inviteexisting"). */
+.price {
+  gap: 6px;
+}
+
+.priceLabel {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--exo-amber-text);
+}
+
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.priceMain {
+  font-family: var(--font-mono-exo);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+}
+
+.priceWas {
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.priceNote {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
 .sent {
   gap: 10px;
   font-size: 13.5px;

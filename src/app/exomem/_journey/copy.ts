@@ -60,8 +60,58 @@ export const inviteCopy = {
    * ("Alex invited you to Exomem"); this is the subject of email 02, listed as a deviation.
    */
   standardTitle: "You’re invited to Exomem",
+  friendTitle: (by: string) => `${by} invited you to Exomem`,
   lede: "A knowledge base that every assistant you use shares. It keeps where each thing came from, and what changed.",
   accept: "Accept invitation",
+  price: {
+    friend: (by: string) => `Friend price from ${by}`,
+    covered: (by: string) => `Covered by ${by}`,
+    /** The Exomem price is monthly; the invitation emails write it the same way. */
+    perMonth: (amount: string) => `${amount} a month`,
+    nothingToPay: "Nothing to pay",
+    atCheckout: "Shown at checkout",
+    whileSubscribed: "For as long as you stay subscribed.",
+    whileCovered: "For as long as it’s covered. We’ll email you before that changes.",
+    exactAtCheckout: "Paddle shows the exact amount before you pay.",
+  },
+  existing: {
+    title: "You already have Exomem",
+    lede: (by: string) =>
+      `${by}’s invitation can’t start a second one, but ${by}’s friend price can go on the plan you have. It starts with your next payment.`,
+    useFriendPrice: (by: string) => `Use ${by}’s friend price`,
+    keep: "Keep my plan as it is",
+    /**
+     * Not drawn by the board (design.md deviation (o)): an invitation that offers the
+     * plan nothing, and an owner who has not signed in yet.
+     */
+    noOffer: (by: string | null) =>
+      `${by ? `${by}’s invitation` : "This invitation"} can’t start a second one, and it doesn’t change the plan you have.`,
+    otherPrice: (by: string) =>
+      `${by}’s invitation can’t start a second one, and ${by}’s friend price doesn’t apply to the plan you have.`,
+    signIn: (by: string | null) =>
+      `Sign in to answer ${by ? `${by}’s invitation` : "this invitation"}, then open it again from the email.`,
+    signInPrimary: "Sign in",
+    /** The friend price may already be on the plan when the answer fails, so no "Nothing changed". */
+    notFinished: "That didn’t finish. Try again in a minute.",
+    notOffered: "The friend price doesn’t apply to the plan you have.",
+  },
+  applied: {
+    title: "Friend price added",
+    lede: (by: string) =>
+      `${by}’s friend price starts with your next payment. Paddle sends the new amount on your receipt.`,
+    done: "friend price · from your next payment",
+  },
+  /** Not drawn by the board (design.md deviation (o)): no live subscription to change yet. */
+  appliedOnResubscribe: {
+    title: "Friend price added",
+    lede: (by: string) => `${by}’s friend price applies when you subscribe.`,
+    done: "friend price · at checkout",
+  },
+  kept: {
+    title: "Nothing changed",
+    lede: "Your plan stays as it is. The invitation is used up, so nobody else can use it.",
+  },
+  home: "Go to Home",
   accepting: {
     title: "Setting up your Exomem",
     lede: "A few seconds. Then add it to your assistant.",

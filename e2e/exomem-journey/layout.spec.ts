@@ -34,6 +34,7 @@ import {
   authorizeRequest,
   seedCapacity,
   seedClient,
+  seedInvitation,
   seedOwner,
   startLinkFor,
   uniqueEmail,
@@ -148,6 +149,92 @@ const STEPS: Step[] = [
     open: async (page) => {
       await page.goto("/exomem/invite#not-an-invitation");
       await heading(page, inviteCopy.unusable.title);
+    },
+  },
+  {
+    // A friend's invitation with their note. Paddle has no credentials here, so the
+    // amount says it shows at checkout.
+    name: "invite-friend",
+    open: async (page) => {
+      const { link } = await seedInvitation({
+        email: uniqueEmail("friend"),
+        kind: "friend",
+        inviterName: "Alex",
+        note: "This is what I’ve been building. I’d love to know what you think.",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.friendTitle("Alex"));
+      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+    },
+  },
+  {
+    name: "invite-covered",
+    open: async (page) => {
+      const { link } = await seedInvitation({
+        email: uniqueEmail("covered"),
+        kind: "covered",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.friendTitle("Alex"));
+      await expect(page.getByText(inviteCopy.price.nothingToPay)).toBeVisible();
+    },
+  },
+  {
+    // The invited address already has an Exomem, and this browser is signed in as it.
+    name: "invite-existing",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "ready");
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.existing.title);
+      await expect(
+        page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") })
+      ).toBeVisible();
+    },
+  },
+  {
+    name: "invite-existing-signed-out",
+    open: async (page) => {
+      const owner = await seedOwner("ready");
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await heading(page, inviteCopy.existing.title);
+      await expect(page.getByText(inviteCopy.existing.signIn("Alex"))).toBeVisible();
+    },
+  },
+  {
+    // An owner who has not paid yet takes the friend price to their first checkout.
+    name: "invite-applied-at-checkout",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "unpaid");
+      const { link } = await seedInvitation({
+        email: owner.email,
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.existing.useFriendPrice("Alex") }).click();
+      await heading(page, inviteCopy.appliedOnResubscribe.title);
+      await expect(page.getByText(inviteCopy.appliedOnResubscribe.done)).toBeVisible();
+    },
+  },
+  {
+    name: "invite-kept",
+    open: async (page, context) => {
+      const owner = await signedIn(context, "ready");
+      const { link } = await seedInvitation({ email: owner.email, kind: "standard" });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.existing.keep }).click();
+      await heading(page, inviteCopy.kept.title);
     },
   },
   {
