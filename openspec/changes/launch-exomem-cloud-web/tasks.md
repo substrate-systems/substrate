@@ -51,6 +51,12 @@
 - [x] 4.8 Show free Cloud capacity on the operator page, block every invitation kind when none is free, and keep its paid default and covered confirmation
 - [x] 4.9 Scrub the new personal data and outbox rows in deletion finish
 - [x] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
+  - Sandbox evidence, 2026-10-12. The substituted Paddle in these tests follows these sandbox answers:
+    1. `GET /discounts` returns the field names that the discount verification checks.
+    2. A pricing preview with `discount_id` and `customer_ip_address` returns `data.currency_code` "EUR", `details.line_items[].price.id`, `totals.total` as a string in minor units ("1000") and `line.discounts[].discount.id`. A US address still prices in EUR.
+    3. `POST /transactions` with `customer_id` and `discount_id` but no `address_id` returns a "draft" transaction that echoes `discount_id` and has `checkout.url`. Paddle accepts a cancel of that transaction.
+    4. `PATCH /subscriptions/{id}` with a discount accepts the request shape. Paddle refuses it with "discount is not valid for any items in subscription" when the subscription's price is not the price that the discount is restricted to. Task 4.12 keeps such owners to their plan before any Paddle call.
+    5. The `subscription.created` event carries `transaction_id` and `custom_data`.
 - [ ] 4.11 Run a dedicated security review of the friend price
 - [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
 - [x] 4.13 Cancel an open resubscribe checkout at Paddle before a lapsed kept window deletes the cell, and keep the cell read-only while Paddle cannot answer
