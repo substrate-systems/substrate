@@ -10,7 +10,7 @@ import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
 /**
- * How long "Send another link" waits after a send. The server's limit is silent by
+ * How long "Send the email again" waits after a send. The server's limit is silent by
  * design (every request answers the same 202), so without a wait an impatient person
  * spends the hourly allowance with nothing to show for it. This is not a security
  * control; the server enforces the real limit.

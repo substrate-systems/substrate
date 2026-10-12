@@ -28,14 +28,15 @@ export const startCopy = {
 export const sentCopy = {
   title: "Check your email",
   /**
-   * The board says "We sent you a link." Every request answers alike, and a waitlist
-   * email carries no link, so the page says only what is true of all of them.
+   * The board says "We sent you a link." Every request answers alike: a waitlist email
+   * carries no link, and the server has only queued the email when the page shows. So
+   * this card claims neither a link nor a sent email (design.md deviation (j)).
    */
-  lede: "We sent you an email. Open it to continue. You can close this tab.",
-  sentTo: "Sent to",
-  openHere: "Open it on this device. It brings you back here.",
-  resend: "Send another link",
-  resendIn: (clock: string) => `Send another link in ${clock}`,
+  lede: "Open the email from us to continue. You can close this tab.",
+  sentTo: "To",
+  openHere: "Open it on this device.",
+  resend: "Send the email again",
+  resendIn: (clock: string) => `Send the email again in ${clock}`,
   differentEmail: "Use a different email",
 };
 
