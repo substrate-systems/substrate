@@ -37,6 +37,9 @@ const BELOW_AA: { theme: Theme; text: string; ground: string }[] = [
   { theme: "light", text: "--fg-tertiary", ground: "--bg-panel" },
   // Muted labels on the light frame ground (#EDEAE3), which is darker than paper: 4.2:1.
   { theme: "light", text: "--fg-muted", ground: "--bg-frame" },
+  // The landing's "$ pip install exomem · Copy" box in the self-host door: muted text on the
+  // light deep ground (#F3F0EA), 4.45:1. The board draws it so; the fix is the owner's call.
+  { theme: "light", text: "--fg-muted", ground: "--bg-deep" },
   // Paper-coloured text on an amber fill: fills keep --exo-amber, 4.0:1 in light.
   { theme: "light", text: "--bg-base", ground: "--exo-amber" },
 ];

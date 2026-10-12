@@ -1,0 +1,15 @@
+{
+  "$comment": "The recall measurements the landing shows, copied from the Exomem benchmark page named in `source`. Update this file when that page publishes new figures; the landing reads it at render.",
+  "source": "https://github.com/Artexis10/exomem/blob/b2999e4f6b099666daa1bd8f7f0b23c38bee3e94/docs/benchmarks.md",
+  "realVault": {
+    "section": "Real-vault check: the same lanes on a production vault (2026-07-04)",
+    "measuredOn": "2026-07-04",
+    "queries": 4,
+    "findTotalMs": { "min": 94, "max": 159 }
+  },
+  "scale": {
+    "section": "Lexical backend at scale (10k–50k notes, FTS5 vs in-process)",
+    "notes": 50000,
+    "findMedianMs": 864
+  }
+}

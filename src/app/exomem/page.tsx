@@ -1,12 +1,21 @@
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
-import RevealManager from "./reveal-manager";
-import MemoryGraph from "./memory-graph";
-import CopyButton from "./copy-button";
-import HostedAccessForm from "./hosted-access-form";
-import FaqAccordion, { type ExoFaq } from "./faq-accordion";
-import { GithubMark } from "@/components/GithubMark";
+import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "@/lib/exomem-hosted/cloud-config";
+import { ButtonLink } from "@/components/exomem/Button";
+import { ThemeToggle } from "@/components/exomem/ThemeToggle";
+import { Wordmark } from "@/components/exomem/Wordmark";
+import phone from "@/components/exomem/phone.module.css";
+import { HeroPanel } from "./landing/HeroPanel";
+import { ConnectDrawing, EvolveDrawing, LivingMap, RememberDrawing } from "./landing/Illustrations";
+import { PipInstall } from "./landing/PipInstall";
+import { proofFigures } from "./landing/proof";
+import recallBenchmarks from "./landing/recall-benchmarks.json";
+import responsive from "./landing/responsive.module.css";
+import styles from "./landing/landing.module.css";
+
+const HERO_TEXT =
+  "Exomem is the knowledge base all your assistants share. Claude, ChatGPT, Claude Code, Codex and every session you connect read from it and add to it. When something changes, it keeps what was true, why it changed and what replaced it, as plain Markdown you own.";
 
 export const metadata = {
   ...buildMetadata({
@@ -15,8 +24,7 @@ export const metadata = {
     // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
     // flagged over-long titles elsewhere.
     title: "Exomem — MCP memory server over your Markdown knowledge base",
-    description:
-      "Exomem is an open-source MCP memory server that turns the Markdown knowledge base you already own into durable memory for Claude Code, Codex and Cursor. Hybrid local search, no cloud, no lock-in.",
+    description: HERO_TEXT,
     path: "/exomem",
     ogImage: "/exomem/og",
     standaloneTitle: true,
@@ -24,6 +32,13 @@ export const metadata = {
   // Exomem subtree uses its own "E" monogram as the favicon (matches /exomem/og lockup).
   icons: { icon: "/exomem/icons/mark.svg" },
 };
+
+const GITHUB = "https://github.com/Artexis10/exomem";
+const PYPI = "https://pypi.org/project/exomem/";
+const README = `${GITHUB}#readme`;
+const SIGN_IN = "/exomem/sign-in";
+const START = "Start with your email →";
+const ASSISTANTS = ["Claude", "ChatGPT", "Claude Code", "Codex"];
 
 const softwareJsonLd = {
   "@context": "https://schema.org",
@@ -34,8 +49,8 @@ const softwareJsonLd = {
   description:
     "Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at 50,000 notes, measured, with local OCR, ASR, and image indexing.",
   url: `${siteConfig.url}/exomem`,
-  downloadUrl: "https://pypi.org/project/exomem/",
-  installUrl: "https://pypi.org/project/exomem/",
+  downloadUrl: PYPI,
+  installUrl: PYPI,
   offers: {
     "@type": "Offer",
     price: "0",
@@ -47,8 +62,8 @@ const softwareJsonLd = {
     name: siteConfig.name,
     url: siteConfig.url,
   },
-  license: "https://github.com/Artexis10/exomem/blob/main/LICENSE",
-  sameAs: ["https://github.com/Artexis10/exomem", "https://pypi.org/project/exomem/"],
+  license: `${GITHUB}/blob/main/LICENSE`,
+  sameAs: [GITHUB, PYPI],
   // SoftwareApplication does not carry `codeRepository` or `programmingLanguage`; both
   // belong to SoftwareSourceCode, and emitting them here invalidated the entire item.
   isBasedOn: {
@@ -56,7 +71,7 @@ const softwareJsonLd = {
     name: "Exomem",
     description:
       "Open-source MCP server exposing a Markdown or Obsidian vault as a governed, searchable knowledge substrate.",
-    codeRepository: "https://github.com/Artexis10/exomem",
+    codeRepository: GITHUB,
     programmingLanguage: "Python",
     license: "https://www.gnu.org/licenses/agpl-3.0.html",
   },
@@ -67,128 +82,120 @@ const breadcrumb = breadcrumbJsonLd([
   { name: "Exomem", path: "/exomem" },
 ]);
 
-const capabilities = [
-  {
-    num: "01",
-    title: "MCP tools",
-    text: "Search, capture, notes, evidence, audit, and review queues — usable from any MCP client.",
-  },
-  {
-    num: "02",
-    title: "Hybrid retrieval",
-    text: "Keyword and vector search over typed Markdown knowledge bases. Sub-second at 50,000 notes, measured.",
-  },
-  {
-    num: "03",
-    title: "Local index",
-    text: "SQLite FTS5 for lexical lanes, sqlite-vec for vectors. No external search service, ever.",
-  },
-  {
-    num: "04",
-    title: "Media ingestion",
-    text: "Local OCR, ASR, PDF, Office extraction, and CLIP image indexing — screenshots and recordings become searchable.",
-  },
-  {
-    num: "05",
-    title: "One registry",
-    text: "CLI and REST surfaces generated from the same operation registry as the MCP tools.",
-  },
-];
+const external = { target: "_blank", rel: "noopener noreferrer" } as const;
 
-const benchmarks = [
-  {
-    value: "864",
-    unit: "ms",
-    color: "var(--exo-amber-text)", // the measured live value — amber is earned
-    label:
-      "Hybrid find() end-to-end at 50,000 notes — hot cache off, methodology public in the repo.",
-  },
-  {
-    value: "<10",
-    unit: "ms",
-    color: "var(--fg-primary)",
-    label: "Keyword and lexical lanes, served straight from the SQLite FTS5 index.",
-  },
-  {
-    value: "0",
-    unit: "cloud deps",
-    color: "var(--fg-primary)",
-    label: "In the lean install. A GPU is optional — never required.",
-  },
-];
+/** Copy the boards word differently on desktop and on a phone. */
+function Copy({ desk, phone: onPhone }: { desk: ReactNode; phone: ReactNode }) {
+  return (
+    <>
+      <span className={responsive.deskOnly}>{desk}</span>
+      <span className={responsive.phoneOnly}>{onPhone}</span>
+    </>
+  );
+}
 
-// Grounded in the exomem README; approved copy for the redesign.
-const displayFaqs: ExoFaq[] = [
-  {
-    q: "Which agents and clients work with Exomem?",
-    a: "Any MCP-capable client — Claude Code, Claude Desktop, Codex, Cursor, or a custom agent. The same memory is also reachable from a CLI (kb / exomem) and a personal REST facade, all generated from one operation registry.",
-  },
-  {
-    q: "Do my notes ever leave my machine?",
-    a: "No. Your vault stays plain Markdown files you own, and the search indexes are local SQLite sidecar files next to it. The lean install has no cloud dependency — nothing is uploaded.",
-  },
-  {
-    q: "How fast is search on a large vault?",
-    a: "Measured on a 50,000-note corpus: hybrid search runs end-to-end in 864 ms on the reference desktop, hot cache off, with the keyword and lexical lanes answering in milliseconds from the FTS5 index. The methodology is published in docs/benchmarks.md.",
-  },
-  {
-    q: "How is Exomem different from cloud memory services?",
-    a: "Cloud memory tools extract your data into a vector database or knowledge graph in their cloud. Exomem keeps your memory as plain Markdown in a vault you own and indexes it locally — your files are the memory, not a derived copy.",
-  },
-  {
-    q: "Do I need a GPU?",
-    a: "No. The lean install runs keyword and BM25 search out of the box — SQLite's FTS5 engine ships inside Python's standard library. Optional extras add local embeddings, CLIP image search, OCR, and speech-to-text; a GPU accelerates those, but is never required.",
-  },
-];
+function Eyebrow({ children }: { children: ReactNode }) {
+  return <div className={styles.eyebrow}>{children}</div>;
+}
 
-const faqJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: displayFaqs.map((faq) => ({
-    "@type": "Question",
-    name: faq.q,
-    acceptedAnswer: {
-      "@type": "Answer",
-      text: faq.a,
-    },
-  })),
-};
+function Assistants() {
+  return (
+    <div className={styles.chips}>
+      {ASSISTANTS.map((name) => (
+        <span key={name} className={styles.chip}>
+          {name}
+        </span>
+      ))}
+    </div>
+  );
+}
 
-// ---- shared style tokens ----------------------------------------------------
-const MONO = "var(--font-mono-exo)";
-
-const shell: CSSProperties = {
-  maxWidth: "72rem",
-  margin: "0 auto",
-  padding: "clamp(72px,10vh,120px) clamp(20px,5vw,48px)",
-};
-const sectionBorder: CSSProperties = { borderTop: "1px solid var(--exo-rule)" };
-const label: CSSProperties = {
-  margin: 0,
-  fontFamily: MONO,
-  fontSize: "11px",
-  fontWeight: 500,
-  letterSpacing: "0.18em",
-  textTransform: "uppercase",
-  color: "var(--fg-tertiary)",
-};
-const h2: CSSProperties = {
-  margin: "24px 0 0",
-  fontFamily: MONO,
-  fontSize: "clamp(1.5rem,2.8vw,2.15rem)",
-  fontWeight: 500,
-  lineHeight: 1.3,
-  letterSpacing: "-0.03em",
-  color: "var(--fg-primary)",
-};
-const externalLink = {
-  target: "_blank",
-  rel: "noopener noreferrer",
-} as const;
+function days(count: number): string {
+  return `${count} ${count === 1 ? "day" : "days"}`;
+}
 
 export default function ExomemPage() {
+  const proof = proofFigures(recallBenchmarks);
+  const kept = days(DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS);
+
+  const proofCells = [
+    { value: proof.recall, caption: "to recall from a real vault" },
+    { value: proof.scaleNotes, caption: "notes, still under a second" },
+    {
+      value: "1",
+      caption: (
+        <Copy
+          desk="knowledge base for every assistant and session you connect"
+          phone="knowledge base for every assistant and session"
+        />
+      ),
+    },
+    { value: ".md", caption: "plain Markdown you own" },
+  ];
+
+  const pillars = [
+    {
+      title: "Remember",
+      drawing: <RememberDrawing />,
+      desk: "Every assistant you connect reads from it and adds to it. Ask in your own words; decisions, sources and what you learned are kept, not lost when the chat ends.",
+      phone:
+        "Every assistant you connect reads from it and adds to it. What you decided and learned is kept, not lost when the chat ends.",
+    },
+    {
+      title: "Connect",
+      drawing: <ConnectDrawing />,
+      desk: "Notes link by what they mean: this supports that, this contradicts that. Contradictions come up for review instead of one answer quietly winning.",
+      phone:
+        "Notes link by what they mean: this supports that, this contradicts that. Contradictions come up for review.",
+    },
+    {
+      title: "Evolve",
+      drawing: <EvolveDrawing />,
+      desk: "Nothing is thrown away. When you change your mind, the old note is superseded and kept, so you can still ask what you knew in March, and why.",
+      phone:
+        "Nothing is thrown away. The old note is superseded and kept, so you can still ask what you knew in March, and why.",
+    },
+  ];
+
+  const cloudSteps = [
+    { desk: "Start with your email; no password", phone: "Start with your email" },
+    { desk: "Subscribe; your vault is ready in a minute", phone: "Subscribe; ready in a minute" },
+    {
+      desk: "Add Exomem in Claude’s connectors or ChatGPT’s plugins",
+      phone: "Add it to Claude or ChatGPT",
+    },
+  ];
+
+  const promises = [
+    {
+      desk: "Storage and transport encrypted; each account’s vault runs in its own cell",
+      phone: "Encrypted, in its own cell",
+    },
+    {
+      desk: "If a payment fails, memory turns read-only while Paddle retries. Nothing is lost.",
+      phone: "Payment fails? Read-only while Paddle retries. Nothing lost.",
+    },
+    {
+      desk: `If you cancel, we keep everything for ${kept}, read-only, then delete it.`,
+      phone: `Cancel, and we keep it ${kept}, read-only.`,
+    },
+    {
+      desk: "Export a verified copy of your vault any time, in any state.",
+      phone: "Export a verified copy any time.",
+    },
+  ];
+
+  const footerLinks = [
+    { label: "How it works", href: "#lp-true" },
+    { label: "Benchmarks", href: "#lp-proof" },
+    { label: "Privacy", href: "/exomem/privacy" },
+    { label: "Terms", href: "/exomem/terms" },
+    { label: "Support", href: "/exomem/support" },
+    { label: "GitHub", href: GITHUB, external: true },
+  ];
+
   return (
-    <div className="brand-exomem" style={{ minHeight: "100vh" }}>
+    <div className={`brand-exomem ${styles.page}`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
@@ -197,973 +204,285 @@ export default function ExomemPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
       />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
-      />
-      <RevealManager />
 
-      {/* ============ NAV ============ */}
-      <header
-        style={{
-          maxWidth: "72rem",
-          margin: "0 auto",
-          padding: "28px clamp(20px,5vw,48px)",
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "10px 16px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <span
-            aria-hidden="true"
-            style={{
-              width: "26px",
-              height: "26px",
-              borderRadius: "7px",
-              background: "var(--bg-hover)",
-              border: "1px solid var(--exo-border-input)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: MONO,
-              fontSize: "14px",
-              fontWeight: 600,
-              color: "var(--fg-primary)",
-            }}
-          >
-            E
-          </span>
-          <span
-            style={{
-              fontFamily: MONO,
-              fontSize: "14px",
-              fontWeight: 600,
-              letterSpacing: "-0.02em",
-              color: "var(--fg-primary)",
-            }}
-          >
-            exomem
-          </span>
-          <Link href="/" className="exo-link-ts" style={{ fontSize: "12px", fontWeight: 300 }}>
-            by Substrate Systems
-          </Link>
-        </div>
-        <nav
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "22px",
-            fontFamily: MONO,
-            fontSize: "12px",
-          }}
-        >
-          <a
-            href="https://github.com/Artexis10/exomem"
-            {...externalLink}
-            className="exo-link-sp"
-            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-          >
-            <GithubMark size={13} />
-            GitHub
-          </a>
-          {/* PyPI stays text: its mark is the Python blocks logo, which reads as
-              "Python" beside the Octocat, and is a registered PSF trademark. */}
-          <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-sp">
-            PyPI
-          </a>
-        </nav>
-      </header>
-
-      <main>
-        {/* ============ HERO ============ */}
-        <section
-          style={{
-            maxWidth: "72rem",
-            margin: "0 auto",
-            padding: "clamp(40px,7vh,88px) clamp(20px,5vw,48px) clamp(72px,10vh,128px)",
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
-              gap: "clamp(40px,5vw,72px)",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ containerType: "inline-size" }}>
-              <p data-reveal data-reveal-delay="0" style={label}>
-                MCP memory server
-              </p>
-              <h1
-                data-reveal
-                data-reveal-delay="100"
-                style={{
-                  margin: "22px 0 0",
-                  fontFamily: MONO,
-                  fontSize: "clamp(1.75rem,8.4cqw,2.95rem)",
-                  fontWeight: 600,
-                  lineHeight: 1.12,
-                  letterSpacing: "-0.045em",
-                  color: "var(--fg-primary)",
-                  textWrap: "balance",
-                }}
-              >
-                Agents get memory.
-                <br />
-                You keep the files.
-              </h1>
-              <p
-                data-reveal
-                data-reveal-delay="200"
-                style={{
-                  margin: "26px 0 0",
-                  maxWidth: "34rem",
-                  fontSize: "1.125rem",
-                  fontWeight: 300,
-                  lineHeight: 1.7,
-                  color: "var(--fg-secondary)",
-                }}
-              >
-                Exomem is an open-source MCP memory server that runs over the Markdown knowledge
-                base you already own — a plain folder, or your Obsidian vault. Claude Code, Codex,
-                and Cursor get durable context; you keep the files, the provenance, and the review
-                loop.
-              </p>
-              <div
-                data-reveal
-                data-reveal-delay="300"
-                style={{
-                  marginTop: "36px",
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "12px",
-                  alignItems: "center",
-                }}
-              >
-                <a
-                  href="https://github.com/Artexis10/exomem"
-                  {...externalLink}
-                  className="exo-cta-primary"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    background: "var(--fg-primary)",
-                    color: "var(--bg-base)",
-                    fontFamily: MONO,
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    padding: "13px 22px",
-                    borderRadius: "8px",
-                    textDecoration: "none",
-                  }}
-                >
-                  View source →
-                </a>
-                <CopyButton variant="cta" />
-              </div>
-              <p
-                data-reveal
-                data-reveal-delay="400"
-                style={{
-                  margin: "26px 0 0",
-                  fontFamily: MONO,
-                  fontSize: "11.5px",
-                  color: "var(--fg-tertiary)",
-                }}
-              >
-                Python · AGPL-3.0 · self-hosted · no account
-              </p>
-            </div>
-
-            <MemoryGraph />
-          </div>
-        </section>
-
-        {/* ============ 01 — WHY ============ */}
-        <section style={sectionBorder}>
-          <div style={shell}>
-            <p data-reveal style={label}>
-              01 — Why it exists
-            </p>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))",
-                gap: "clamp(28px,4vw,64px)",
-                marginTop: "28px",
-              }}
-            >
-              <h2
-                data-reveal
-                data-reveal-delay="80"
-                style={{ ...h2, margin: 0, textWrap: "balance" }}
-              >
-                Memory should be inspectable infrastructure you own — not hidden assistant state in
-                someone else&rsquo;s cloud.
-              </h2>
-              <div
-                data-reveal
-                data-reveal-delay="180"
-                style={{
-                  fontSize: "1rem",
-                  fontWeight: 300,
-                  lineHeight: 1.75,
-                  color: "var(--fg-secondary)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "20px",
-                }}
-              >
-                <p style={{ margin: 0 }}>
-                  Exomem gives agents a shared substrate without asking you to move your knowledge
-                  into another app. Source material, compiled notes, typed entities, evidence, and
-                  supersession history remain plain files — open any of them in a text editor.
-                </p>
-                <p style={{ margin: 0 }}>
-                  The server measures and routes: search, embeddings, extraction, file writes, graph
-                  health, review queues. Judgment stays with the human and the client model using
-                  the tools.
-                </p>
-              </div>
-
-              {/* file-proof card */}
-              <div
-                data-reveal
-                data-reveal-delay="260"
-                style={{
-                  gridColumn: "1 / -1",
-                  maxWidth: "44rem",
-                  marginTop: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    border: "1px solid var(--exo-border-card)",
-                    borderRadius: "12px",
-                    background: "var(--bg-panel)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                      padding: "12px 18px",
-                      borderBottom: "1px solid var(--exo-rule)",
-                      fontFamily: MONO,
-                      fontSize: "11px",
-                      color: "var(--fg-tertiary)",
-                    }}
-                  >
-                    <span>notes/old-plan.md</span>
-                    <span>plain Markdown</span>
-                  </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: "18px 18px 20px",
-                      fontFamily: MONO,
-                      fontSize: "12.5px",
-                      lineHeight: 1.8,
-                      color: "var(--fg-secondary)",
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    <span style={{ color: "var(--fg-tertiary)" }}>{"---\ntype:"}</span>
-                    {" decision\n"}
-                    <span style={{ color: "var(--fg-tertiary)" }}>status:</span>
-                    {" superseded\n"}
-                    <span style={{ color: "var(--fg-tertiary)" }}>superseded_by:</span>{" "}
-                    <span style={{ color: "var(--exo-amber-text)" }}>
-                      &quot;[[newer-constraint]]&quot;
-                    </span>
-                    {"\n"}
-                    <span style={{ color: "var(--fg-tertiary)" }}>---</span>
-                    {"\n\nBatch embeddings at 256 on 16 GB cards.\nReplaced after "}
-                    <span style={{ color: "var(--exo-amber-text)" }}>
-                      [[benchmark-run-014]]
-                    </span>
-                    {" showed VRAM\nheadroom, not throughput, is the bound."}
-                  </pre>
-                </div>
-                <p
-                  style={{
-                    margin: "14px 0 0",
-                    fontSize: "13px",
-                    fontWeight: 300,
-                    lineHeight: 1.6,
-                    color: "var(--fg-tertiary)",
-                  }}
-                >
-                  Supersession lives in the file, not in a hidden database — grep it, diff it,
-                  version it.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ============ 02 — CAPABILITIES ============ */}
-        <section style={sectionBorder}>
-          <div style={shell}>
-            <p data-reveal style={label}>
-              02 — Capabilities
-            </p>
-            <h2 data-reveal data-reveal-delay="80" style={h2}>
-              The whole stack, local.
-            </h2>
-            <div
-              style={{
-                marginTop: "44px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,300px),1fr))",
-                gap: "0 clamp(24px,3vw,48px)",
-              }}
-            >
-              {capabilities.map((cap) => (
-                <div
-                  key={cap.num}
-                  data-reveal
-                  className="exo-cap"
-                  style={{ padding: "20px 0 30px" }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "baseline",
-                      gap: "14px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: "11px",
-                        color: "var(--fg-tertiary)",
-                      }}
-                    >
-                      {cap.num}
-                    </span>
-                    <h3
-                      style={{
-                        margin: 0,
-                        fontFamily: MONO,
-                        fontSize: "15px",
-                        fontWeight: 500,
-                        letterSpacing: "-0.01em",
-                        color: "var(--fg-primary)",
-                      }}
-                    >
-                      {cap.title}
-                    </h3>
-                  </div>
-                  <p
-                    style={{
-                      margin: "10px 0 0",
-                      paddingLeft: "33px",
-                      fontSize: "0.9rem",
-                      fontWeight: 300,
-                      lineHeight: 1.65,
-                      color: "var(--fg-secondary)",
-                    }}
-                  >
-                    {cap.text}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ============ 03 — MEASURED ============ */}
-        <section style={sectionBorder}>
-          <div style={shell}>
-            <p data-reveal style={label}>
-              03 — Measured at scale
-            </p>
-            <h2
-              data-reveal
-              data-reveal-delay="80"
-              style={{ ...h2, maxWidth: "44rem", textWrap: "balance" }}
-            >
-              Sub-second at 50,000 notes — measured, not asserted.
-            </h2>
-            <p
-              data-reveal
-              data-reveal-delay="160"
-              style={{
-                margin: "22px 0 0",
-                maxWidth: "38rem",
-                fontSize: "1rem",
-                fontWeight: 300,
-                lineHeight: 1.7,
-                color: "var(--fg-secondary)",
-              }}
-            >
-              Most memory tools claim they scale. Exomem publishes the numbers — and the
-              methodology, so you can reproduce them on your own vault.
-            </p>
-            <div
-              style={{
-                marginTop: "48px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))",
-                gap: "1px",
-                background: "rgba(var(--ink-rgb), 0.09)",
-                border: "1px solid rgba(var(--ink-rgb), 0.09)",
-                borderRadius: "12px",
-                overflow: "hidden",
-              }}
-            >
-              {benchmarks.map((b) => (
-                <div
-                  key={b.value}
-                  data-reveal
-                  style={{ background: "var(--bg-panel)", padding: "30px 28px 32px" }}
-                >
-                  <p
-                    style={{
-                      margin: 0,
-                      fontFamily: MONO,
-                      fontSize: "clamp(2rem,3.4vw,2.6rem)",
-                      fontWeight: 500,
-                      letterSpacing: "-0.03em",
-                      lineHeight: 1,
-                      color: b.color,
-                    }}
-                  >
-                    {b.value}
-                    <span
-                      style={{
-                        fontSize: "0.45em",
-                        fontWeight: 400,
-                        color: "var(--fg-tertiary)",
-                        marginLeft: "8px",
-                      }}
-                    >
-                      {b.unit}
-                    </span>
-                  </p>
-                  <p
-                    style={{
-                      margin: "16px 0 0",
-                      fontSize: "0.875rem",
-                      fontWeight: 300,
-                      lineHeight: 1.6,
-                      color: "var(--fg-secondary)",
-                    }}
-                  >
-                    {b.label}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <p
-              data-reveal
-              style={{
-                margin: "24px 0 0",
-                fontFamily: MONO,
-                fontSize: "12px",
-                lineHeight: 1.7,
-                color: "var(--fg-tertiary)",
-              }}
-            >
-              Reference desktop — Ryzen 7 5800X3D · RTX 5080 · 32 GB RAM.{" "}
-              <a
-                href="https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md"
-                {...externalLink}
-                className="exo-underline-sp"
-              >
-                See the methodology →
-              </a>
-            </p>
-          </div>
-        </section>
-
-        {/* ============ 04 — THE DIFFERENCE ============ */}
-        <section style={sectionBorder}>
-          <div style={shell}>
-            <p data-reveal style={label}>
-              04 — The difference
-            </p>
-            <h2 data-reveal data-reveal-delay="80" style={{ ...h2, maxWidth: "44rem" }}>
-              Your memory stays yours.
-            </h2>
-            <div
-              style={{
-                marginTop: "44px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))",
-                gap: "clamp(16px,2vw,24px)",
-              }}
-            >
-              <div
-                data-reveal
-                style={{
-                  border: "1px solid rgba(var(--ink-rgb), 0.08)",
-                  borderRadius: "12px",
-                  padding: "30px 28px",
-                  background: "transparent",
-                }}
-              >
-                <p
-                  style={{
-                    ...label,
-                    fontSize: "11px",
-                    letterSpacing: "0.16em",
-                  }}
-                >
-                  Cloud memory services
-                </p>
-                <ul
-                  style={{
-                    margin: "22px 0 0",
-                    padding: 0,
-                    listStyle: "none",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "14px",
-                  }}
-                >
-                  {[
-                    "Extract your data into a vector database or knowledge graph in their cloud",
-                    "The memory is a derived copy — you never get plain files back",
-                    "Account and subscription required; your data leaves your machine",
-                  ].map((li) => (
-                    <li
-                      key={li}
-                      style={{
-                        display: "flex",
-                        gap: "12px",
-                        fontSize: "0.95rem",
-                        fontWeight: 300,
-                        lineHeight: 1.6,
-                        color: "var(--fg-muted)",
-                      }}
-                    >
-                      <span
-                        aria-hidden="true"
-                        style={{ color: "var(--fg-tertiary)", flex: "none" }}
-                      >
-                        –
-                      </span>
-                      {li}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div
-                data-reveal
-                data-reveal-delay="120"
-                style={{
-                  position: "relative",
-                  border: "1px solid rgba(var(--amber-rgb), 0.22)",
-                  borderRadius: "12px",
-                  padding: "30px 28px",
-                  background: "var(--bg-panel)",
-                  boxShadow: "0 0 60px rgba(var(--amber-rgb), 0.05)",
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    top: "-1px",
-                    left: "24px",
-                    right: "24px",
-                    height: "1px",
-                    background: "var(--exo-amber)",
-                  }}
-                />
-                <p
-                  style={{
-                    margin: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    fontFamily: MONO,
-                    fontSize: "11px",
-                    fontWeight: 500,
-                    letterSpacing: "0.16em",
-                    textTransform: "uppercase",
-                    color: "var(--exo-amber-text)",
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: "6px",
-                      height: "6px",
-                      borderRadius: "50%",
-                      background: "var(--exo-amber)",
-                      display: "inline-block",
-                    }}
-                  />
-                  Exomem
-                </p>
-                <ul
-                  style={{
-                    margin: "22px 0 0",
-                    padding: 0,
-                    listStyle: "none",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "14px",
-                  }}
-                >
-                  {[
-                    "Plain Markdown in a vault you own — edit it anywhere, forever",
-                    "The index is a local SQLite sidecar — the files themselves are the memory",
-                    "Self-hosted, no account — with the lean install, nothing leaves your machine",
-                  ].map((li) => (
-                    <li
-                      key={li}
-                      style={{
-                        display: "flex",
-                        gap: "12px",
-                        fontSize: "0.95rem",
-                        fontWeight: 300,
-                        lineHeight: 1.6,
-                        color: "var(--fg-body)",
-                      }}
-                    >
-                      <span aria-hidden="true" style={{ color: "var(--exo-amber)", flex: "none" }}>
-                        ▸
-                      </span>
-                      {li}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-            <p
-              data-reveal
-              style={{
-                margin: "28px 0 0",
-                fontSize: "0.95rem",
-                fontWeight: 300,
-                color: "var(--fg-secondary)",
-              }}
-            >
-              <Link href="/blog/exomem-vs-mem0-letta-zep" className="exo-underline-pp">
-                Full comparison vs mem0, Letta, Zep, cognee, and Basic Memory →
-              </Link>
-              <br />
-              <Link href="/blog/exomem-vs-claude-mem" className="exo-underline-pp">
-                Exomem vs claude-mem: session continuity vs durable knowledge →
-              </Link>
-              <br />
-              <Link href="/exomem/benchmarks" className="exo-underline-pp">
-                How we benchmark memory systems — the fairness rules, before the results →
-              </Link>
-            </p>
-          </div>
-        </section>
-
-        {/* ============ 05 — INSTALL ============ */}
-        <section style={sectionBorder}>
-          <div style={shell}>
-            <p data-reveal style={label}>
-              05 — Install
-            </p>
-            <div
-              style={{
-                marginTop: "28px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,340px),1fr))",
-                gap: "clamp(24px,4vw,56px)",
-                alignItems: "start",
-                maxWidth: "64rem",
-              }}
-            >
-              <div
-                data-reveal
-                data-reveal-delay="80"
-                style={{
-                  border: "1px solid var(--exo-border-card)",
-                  borderRadius: "12px",
-                  background: "var(--bg-panel)",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    padding: "12px 18px",
-                    borderBottom: "1px solid var(--exo-rule)",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: MONO,
-                      fontSize: "11px",
-                      color: "var(--fg-tertiary)",
-                    }}
-                  >
-                    terminal
-                  </span>
-                  <CopyButton variant="terminal" />
-                </div>
-                <div
-                  style={{
-                    padding: "20px 18px",
-                    fontFamily: MONO,
-                    fontSize: "13.5px",
-                    lineHeight: 2,
-                    color: "var(--fg-secondary)",
-                  }}
-                >
-                  <p style={{ margin: 0 }}>
-                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>pip install exomem
-                  </p>
-                  <p style={{ margin: 0 }}>
-                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>exomem --help
-                  </p>
-                  <p style={{ margin: 0, color: "var(--fg-tertiary)" }}>
-                    # extras: local embeddings · CLIP · OCR · ASR
-                  </p>
-                </div>
-              </div>
-
-              <div data-reveal data-reveal-delay="140">
-                <p style={{ ...label, margin: "4px 0 0" }}>Works with</p>
-                <div
-                  style={{
-                    marginTop: "18px",
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "10px",
-                  }}
-                >
-                  {["Claude Code", "Claude Desktop", "Codex", "Cursor", "any MCP client"].map(
-                    (chip) => (
-                      <span
-                        key={chip}
-                        style={{
-                          border: "1px solid var(--exo-border-input)",
-                          borderRadius: "999px",
-                          padding: "7px 15px",
-                          fontFamily: MONO,
-                          fontSize: "11.5px",
-                          color: "var(--fg-secondary)",
-                        }}
-                      >
-                        {chip}
-                      </span>
-                    )
-                  )}
-                </div>
-                <p
-                  style={{
-                    margin: "22px 0 0",
-                    maxWidth: "26rem",
-                    fontSize: "13.5px",
-                    fontWeight: 300,
-                    lineHeight: 1.7,
-                    color: "var(--fg-secondary)",
-                  }}
-                >
-                  The same memory is also reachable from the CLI and a personal REST facade — all
-                  generated from one operation registry.
-                </p>
-              </div>
-            </div>
-            <div
-              data-reveal
-              data-reveal-delay="160"
-              style={{
-                marginTop: "28px",
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "12px 32px",
-                fontFamily: MONO,
-                fontSize: "12.5px",
-              }}
-            >
-              <a
-                href="https://github.com/Artexis10/exomem"
-                {...externalLink}
-                className="exo-link-sp"
-              >
-                GitHub source →
-              </a>
-              <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-sp">
-                PyPI package →
-              </a>
-              <a
-                href="https://github.com/Artexis10/exomem/blob/main/README.md"
-                {...externalLink}
-                className="exo-link-sp"
-              >
-                README →
-              </a>
-            </div>
-          </div>
-        </section>
-
-        {/* ============ 06 — CLOUD ============ */}
-        <section style={sectionBorder}>
-          <div style={shell}>
-            <div
-              data-reveal
-              style={{
-                maxWidth: "44rem",
-                margin: "0 auto",
-                border: "1px solid var(--exo-border-card)",
-                borderRadius: "12px",
-                padding: "clamp(28px,4vw,44px)",
-                background: "var(--bg-panel)",
-              }}
-            >
-              <p style={label}>06 — Exomem Cloud</p>
-              <h2
-                style={{
-                  ...h2,
-                  margin: "20px 0 0",
-                  fontSize: "clamp(1.3rem,2.4vw,1.7rem)",
-                  lineHeight: 1.3,
-                  letterSpacing: "-0.02em",
-                }}
-              >
-                Exomem Cloud is a friends-only private alpha.
-              </h2>
-              <p
-                style={{
-                  margin: "18px 0 0",
-                  fontSize: "0.95rem",
-                  fontWeight: 300,
-                  lineHeight: 1.7,
-                  color: "var(--fg-secondary)",
-                }}
-              >
-                Self-hosted Exomem stays the full open-source product you run yourself. Cloud runs
-                it for a small friends cohort while we finish the v1 alpha. Tenant cells process
-                plaintext for search; storage and transport are encrypted. Express interest below;
-                invitations are personally issued and there is no public checkout.
-              </p>
-              <p
-                style={{
-                  margin: "16px 0 0",
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: "6px 10px",
-                  fontFamily: MONO,
-                  fontSize: "11.5px",
-                  lineHeight: 1.6,
-                  color: "var(--fg-tertiary)",
-                }}
-              >
-                <span>friends-only v1 alpha</span>
-                <span aria-hidden="true">·</span>
-                <span>your data exportable any time</span>
-                <span aria-hidden="true">·</span>
-                <Link href="/exomem/setup" className="exo-link-ts">
-                  Self-hosted setup →
-                </Link>
-              </p>
-              <HostedAccessForm />
-            </div>
-          </div>
-        </section>
-
-        {/* ============ 07 — FAQ ============ */}
-        <section style={sectionBorder}>
-          <div style={{ ...shell, maxWidth: "48rem" }}>
-            <p data-reveal style={label}>
-              07 — FAQ
-            </p>
-            <h2 data-reveal data-reveal-delay="80" style={h2}>
-              Common questions
-            </h2>
-            <FaqAccordion items={displayFaqs} />
-          </div>
-        </section>
-      </main>
-
-      {/* ============ FOOTER ============ */}
-      <footer style={sectionBorder}>
-        <div
-          style={{
-            maxWidth: "72rem",
-            margin: "0 auto",
-            padding: "56px clamp(20px,5vw,48px)",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "24px 48px",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <p
-              style={{
-                margin: 0,
-                fontFamily: MONO,
-                fontSize: "13px",
-                fontWeight: 500,
-                color: "var(--fg-primary)",
-              }}
-            >
-              exomem
-            </p>
-            <p
-              style={{
-                margin: "8px 0 0",
-                fontSize: "12px",
-                fontWeight: 300,
-                color: "var(--fg-tertiary)",
-              }}
-            >
-              © 2026 Substrate Systems OÜ · AGPL-3.0
-            </p>
-          </div>
-          <nav
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "12px 28px",
-              fontSize: "12.5px",
-              fontWeight: 300,
-            }}
-          >
-            <Link href="/" className="exo-link-ts">
-              Substrate
+      <div className={styles.main}>
+        <header className={styles.header}>
+          <div className={styles.brand}>
+            <span className={`${styles.wordmark} ${responsive.deskOnly}`}>
+              <Wordmark height={19} />
+            </span>
+            <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
+              <Wordmark height={17} />
+            </span>
+            <Link href="/" className={`${styles.byline} ${responsive.deskOnly}`}>
+              by Substrate Systems
             </Link>
-            <Link href="/endstate" className="exo-link-ts">
-              Endstate
-            </Link>
-            <a href="https://github.com/Artexis10/exomem" {...externalLink} className="exo-link-ts">
-              Exomem source
+          </div>
+          <nav className={styles.nav} aria-label="Exomem">
+            <a href="#lp-true" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+              How it works
             </a>
-            <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-ts">
-              PyPI
-            </a>
-            <Link href="/exomem/benchmarks" className="exo-link-ts">
+            <a href="#lp-proof" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
               Benchmarks
-            </Link>
-            <Link href="/exomem/privacy" className="exo-link-ts">
-              Privacy
-            </Link>
-            <Link href="/exomem/terms" className="exo-link-ts">
-              Terms
-            </Link>
-            <Link href="/exomem/support" className="exo-link-ts">
-              Support
+            </a>
+            <a href="#lp-cloud" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+              Cloud
+            </a>
+            <a
+              href={GITHUB}
+              {...external}
+              className={`${styles.sectionLink} ${responsive.deskOnly}`}
+            >
+              GitHub
+            </a>
+            <ThemeToggle />
+            <Link href={SIGN_IN} className={styles.signIn}>
+              Sign in
             </Link>
           </nav>
-        </div>
-      </footer>
+        </header>
+
+        {/* data-sec names each section as the Landing-Page board does, so design QA can
+            match the page to the prototype section by section. */}
+        <main>
+          <section className={styles.hero} data-sec="hero">
+            <div className={styles.heroCopy}>
+              <Eyebrow>
+                <Copy
+                  desk="An epistemic knowledge base, built around you"
+                  phone="An epistemic knowledge base"
+                />
+              </Eyebrow>
+              <h1 className={styles.display}>
+                Grows with you.
+                <br />
+                Stays true.
+              </h1>
+              <p className={styles.lede}>
+                <Copy
+                  desk={HERO_TEXT}
+                  phone="The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it, as plain Markdown you own."
+                />
+              </p>
+              <div className={styles.heroActions}>
+                <div className={styles.heroCtas}>
+                  <ButtonLink href={SIGN_IN} variant="primary" size="landing">
+                    {START}
+                  </ButtonLink>
+                  <span className={responsive.deskOnly}>
+                    <PipInstall look="hero" />
+                  </span>
+                  <a href="#lp-doors" className={`${styles.runLink} ${responsive.phoneOnly}`}>
+                    Run it yourself, free →
+                  </a>
+                </div>
+                <Assistants />
+              </div>
+            </div>
+            <HeroPanel latency={proof.heroLatency} />
+          </section>
+
+          <section id="lp-proof" className={styles.proof} data-sec="proof">
+            {proofCells.map(({ value, caption }) => (
+              <div key={value} className={styles.proofCell}>
+                <span className={styles.proofValue}>{value}</span>
+                <span className={styles.proofCaption}>{caption}</span>
+              </div>
+            ))}
+          </section>
+
+          <section id="lp-true" className={`${styles.section} ${styles.pillars}`} data-sec="true">
+            <Eyebrow>01 · How it stays true</Eyebrow>
+            <h2 className={styles.h2}>Built to change without forgetting.</h2>
+            <div className={styles.pillarGrid}>
+              {pillars.map(({ title, drawing, desk, phone: onPhone }, index) => (
+                <div key={title} className={styles.pillar}>
+                  {drawing}
+                  <div className={styles.pillarTitle}>
+                    <span className={styles.pillarNumber}>
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <h3>{title}</h3>
+                  </div>
+                  <p className={styles.body}>
+                    <Copy desk={desk} phone={onPhone} />
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section
+            id="lp-viewer"
+            className={`${styles.section} ${styles.viewer}`}
+            data-sec="viewer"
+          >
+            <div className={styles.viewerCopy}>
+              <Eyebrow>02 · See it</Eyebrow>
+              <h2 className={`${styles.h2} ${styles.viewerTitle}`}>
+                Your knowledge, as a living map.
+              </h2>
+              <p className={styles.body}>
+                <Copy
+                  desk="In your Exomem account: click any note to see what supports it, what it replaced and where it came from. Scrub back in time. Watch your assistants recall, live."
+                  phone="Click any note to see what supports it and what it replaced. Scrub back in time. Watch your assistants recall, live."
+                />
+              </p>
+            </div>
+            <div className={styles.frame}>
+              <LivingMap />
+            </div>
+          </section>
+
+          <section
+            id="lp-doors"
+            className={`${styles.section} ${styles.doorsSection}`}
+            data-sec="doors"
+          >
+            <Eyebrow>03 · Two ways in</Eyebrow>
+            <h2 className={`${styles.h2} ${styles.doorsTitle}`}>
+              Use it in your assistant, or run it yourself.
+            </h2>
+            <div className={styles.doors}>
+              <div className={`${styles.door} ${styles.cloudDoor}`}>
+                <div className={styles.doorHead}>
+                  <h3>In your assistant</h3>
+                  <span className={`${styles.tag} ${styles.cloudTag}`}>
+                    <Copy desk="Exomem Cloud" phone="Cloud" />
+                  </span>
+                </div>
+                <ol className={styles.steps}>
+                  {cloudSteps.map(({ desk, phone: onPhone }, index) => (
+                    <li key={desk} className={styles.step}>
+                      <span className={styles.stepNumber}>{index + 1}</span>
+                      <Copy desk={desk} phone={onPhone} />
+                    </li>
+                  ))}
+                </ol>
+                <div className={responsive.deskOnly}>
+                  <Assistants />
+                </div>
+                <div className={`${styles.doorCta} ${responsive.phoneOnly}`}>
+                  <ButtonLink href={SIGN_IN} variant="primary" size="landing">
+                    {START}
+                  </ButtonLink>
+                </div>
+                <div className={styles.doorNote}>
+                  <Copy
+                    desk="Monthly · cancel any time · export whenever you like"
+                    phone="Monthly · cancel any time · export any time"
+                  />
+                </div>
+              </div>
+              <div className={styles.door}>
+                <div className={styles.doorHead}>
+                  <h3>Run it yourself</h3>
+                  <span className={styles.tag}>open source</span>
+                </div>
+                <div className={styles.tagline}>
+                  <Copy
+                    desk="Agents get memory. You keep the files."
+                    phone={
+                      <>
+                        Agents get memory.
+                        <br />
+                        You keep the files.
+                      </>
+                    }
+                  />
+                </div>
+                <PipInstall look="door" />
+                <div className={`${styles.doorText} ${responsive.deskOnly}`}>
+                  Open source. Runs on your machine with any MCP client, Cursor included.
+                </div>
+                <div className={styles.sourceLinks}>
+                  <a href={GITHUB} {...external} className={phone.hitArea}>
+                    GitHub
+                  </a>
+                  {" · "}
+                  <a href={PYPI} {...external} className={phone.hitArea}>
+                    PyPI
+                  </a>
+                  {" · "}
+                  <a href={README} {...external} className={phone.hitArea}>
+                    README
+                  </a>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="lp-cloud" className={`${styles.section} ${styles.cloud}`} data-sec="cloud">
+            <div className={styles.cloudCopy}>
+              <Eyebrow>04 · Yours to leave</Eyebrow>
+              <h2 className={`${styles.h2} ${styles.cloudTitle}`}>
+                Hosted, private, and yours to leave.
+              </h2>
+              <p className={`${styles.cloudLede} ${responsive.deskOnly}`}>
+                Same open-source engine, run for you. Your vault stays plain Markdown you can export
+                at any time, including after you stop paying.
+              </p>
+              <div className={styles.cloudCta}>
+                <ButtonLink href={SIGN_IN} variant="primary" size="landing">
+                  {START}
+                </ButtonLink>
+              </div>
+            </div>
+            <ol className={styles.promises}>
+              {promises.map(({ desk, phone: onPhone }, index) => (
+                <li key={desk} className={styles.promise}>
+                  <span className={styles.promiseNumber}>{String(index + 1).padStart(2, "0")}</span>
+                  <Copy desk={desk} phone={onPhone} />
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          <section className={styles.developers} data-sec="stays">
+            <Link href="/exomem/benchmarks" className={styles.developersLink}>
+              <span className={styles.developersCopy}>
+                <span className={styles.developersTitle}>For developers</span>
+                <span className={styles.developersText}>
+                  <Copy
+                    desk="How it works inside, the full benchmarks and methodology, and how it compares."
+                    phone="Internals, benchmarks, comparison"
+                  />
+                </span>
+              </span>
+              <span className={styles.developersAction}>
+                <Copy desk="Read the details →" phone="→" />
+              </span>
+            </Link>
+          </section>
+        </main>
+
+        <footer className={styles.footer}>
+          <span className={styles.wordmark}>
+            <Wordmark height={15} />
+          </span>
+          <nav className={styles.footerLinks} aria-label="Exomem pages">
+            {footerLinks.map(({ label, href, external: isExternal }) =>
+              href.startsWith("/") ? (
+                <Link key={label} href={href} className={phone.hitArea}>
+                  {label}
+                </Link>
+              ) : (
+                <a
+                  key={label}
+                  href={href}
+                  className={phone.hitArea}
+                  {...(isExternal ? external : {})}
+                >
+                  {label}
+                </a>
+              )
+            )}
+          </nav>
+          <span className={styles.copyright}>
+            © {new Date().getFullYear()} Substrate Systems OÜ
+          </span>
+        </footer>
+      </div>
     </div>
   );
 }

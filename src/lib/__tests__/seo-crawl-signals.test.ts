@@ -105,8 +105,8 @@ describe("SEO crawl signals", () => {
     assert.doesNotMatch(endstateLayout, /SoftwareApplication|FAQPage/);
     assert.match(endstatePage, /SoftwareApplication/);
     assert.match(endstatePage, /FAQPage/);
-    assert.match(exomemPage, /mainEntity: displayFaqs\.map/);
-    assert.doesNotMatch(exomemPage, /mainEntity: faqs\.map/);
+    // The Exomem landing shows no FAQ, so it carries no FAQ structured data.
+    assert.doesNotMatch(exomemPage, /FAQPage/);
   });
 
   it("makes Endstate Cloud's bounded backup scope explicit", () => {

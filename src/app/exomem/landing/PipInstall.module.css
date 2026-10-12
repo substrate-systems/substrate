@@ -1,0 +1,51 @@
+/* "$ pip install exomem" with Copy (Landing-Page board: the hero beside the main action,
+   and the "Run it yourself" door; R20-Mobile on a phone, where the hero drops it). */
+.pip {
+  display: inline-flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  border-radius: 8px;
+  font-family: var(--font-mono-exo);
+  line-height: normal;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hero {
+  padding: 13px 18px;
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  background: transparent;
+  color: var(--fg-body);
+  font-size: 13.5px;
+}
+
+.door {
+  display: flex;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--exo-rule);
+  background: var(--bg-deep);
+  color: var(--fg-primary);
+  font-size: 13px;
+}
+
+.pip:hover {
+  filter: brightness(1.06);
+}
+
+.prompt,
+.copy {
+  color: var(--fg-muted);
+}
+
+.copy {
+  font-size: 11.5px;
+}
+
+@media (max-width: 640px) {
+  .door {
+    padding: 12px 14px;
+  }
+}
