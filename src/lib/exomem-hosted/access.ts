@@ -48,7 +48,7 @@ const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * whatever its outcome, so its timing does not tell whether the address owns
  * an Exomem, was admitted or was queued.
  */
-export const START_RESPONSE_FLOOR_MS = 600;
+const START_RESPONSE_FLOOR_MS = 600;
 
 type SendEmail = typeof sendTransactionalEmail;
 
