@@ -280,10 +280,10 @@ they hold a live start link gets another link with the same expiry. Using any
 of their links revokes the others. A waiting person who asks again keeps their
 place and gets no second waitlist email.
 
-Emails for start links, waitlist places, promotions and the unpaid-hold
-reminder go through `exomem_email_outbox`. The access-delivery job sends at
-most 20 per run, and retries an email until its own deadline. To see what is
-stuck, run:
+Emails for start links, waitlist places, promotions, the unpaid-hold
+reminder and the account lifecycle (emails 03 to 07) go through
+`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
+retries an email until its own deadline. To see what is stuck, run:
 
 ```sql
 SELECT kind, state, last_error_code, count(*)
@@ -402,3 +402,26 @@ SELECT count(*) FROM exomem_tenants AS tenant
 WHERE tenant.status = 'deletion_pending'
   AND NOT EXISTS (SELECT 1 FROM exomem_cloud_cells AS cell WHERE cell.tenant_id = tenant.id);
 ```
+
+Email 07 ("Your Exomem has been deleted") waits, with no deadline, until
+cellctl reports every cell of the tenant deleted. A receipt that still waits
+after 7 days means cellctl has not finished a deletion. To list those
+receipts and the cells that hold them, run:
+
+```sql
+SELECT outbox.tenant_id, outbox.created_at AS queued_at,
+       cell.cell_id, cell.desired_state, cell.observed_state,
+       cell.generation, cell.observed_generation, cell.observed_at,
+       cell.last_error_code
+FROM exomem_email_outbox AS outbox
+JOIN exomem_cloud_cells AS cell ON cell.tenant_id = outbox.tenant_id
+WHERE outbox.kind = 'deleted'
+  AND outbox.state = 'pending'
+  AND outbox.created_at < now() - interval '7 days'
+  AND (NOT exomem_cloud_cell_deletion_finished(cell) OR cell.observed_at IS NULL)
+ORDER BY outbox.created_at;
+```
+
+The access-delivery job checks a waiting receipt every 5 minutes and sends it
+once cellctl finishes. cellctl runs in Exomem, so investigate the cell there.
+Do not edit the outbox row.

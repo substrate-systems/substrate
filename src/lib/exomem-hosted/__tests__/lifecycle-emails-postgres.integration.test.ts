@@ -487,10 +487,16 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       "deleted"
     );
     assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), null);
-    // The vault, its backups and its keys still exist: the email waits.
+    // The vault, its backups and its keys still exist: the email waits, and
+    // waiting spends no attempt and runs out no deadline.
     const early = await drain();
     assert.deepEqual(early.sent, []);
     assert.equal(early.deferred, 1);
+    const { rows: waiting } = await pool.query(
+      "SELECT state, attempts, expires_at FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
+      [tenant.tenantId]
+    );
+    assert.deepEqual(waiting, [{ state: "pending", attempts: 0, expires_at: null }]);
 
     await markCellsDeleted(tenant.tenantId);
     await dueNow(tenant.tenantId);

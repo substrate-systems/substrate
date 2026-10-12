@@ -327,7 +327,7 @@ The row of email 07 SHALL keep the owner's address and time zone only until 30 d
 #### Scenario: The cell is not yet deleted
 
 - **WHEN** the tenant is deleted but the cell controller has not yet reported its cell deleted
-- **THEN** email 07 waits, for at most seven days
+- **THEN** email 07 waits, with no deadline, and the wait counts no delivery attempt
 - **AND** once the controller reports the cell deleted, email 07 goes out with the date of that report
 - **AND** a re-admission or a later deletion cancels it
 

@@ -69,7 +69,8 @@ export type ExomemEmailAddressee = { email: string; timeZone: string | null };
 
 /**
  * The fact an email announces will hold later but does not yet: the row waits
- * until `until` without counting an attempt, and still fails at its deadline.
+ * until `until`. Waiting is not a delivery attempt, so it counts no attempt;
+ * a kind that can wait stores no deadline.
  */
 export class NotYet {
   constructor(readonly until: Date) {}
@@ -522,8 +523,8 @@ const EXOMEM_EMAILS = {
    * Email 07: the Exomem was deleted. It holds while the tenant is still
    * deleted by this deletion, the one whose `deleted_at` it names: a
    * re-admission, or a later deletion, cancels it. It says the vault, its
-   * backups and its keys are gone, so it waits until cellctl has deleted
-   * every cell of the tenant
+   * backups and its keys are gone, so it waits, without a deadline, until
+   * cellctl has deleted every cell of the tenant
    * (`exomem_cloud_cell_deletion_finished`, migration 0068). The date it
    * gives is when cellctl finished: cellctl stops observing a deleted cell,
    * so the latest `observed_at` of the tenant's cells is that moment.

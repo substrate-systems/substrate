@@ -13,9 +13,6 @@ import { enqueueExomemEmail } from "./email-outbox";
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Email 06 goes out this many days before an ended Exomem is deleted.
 const DELETION_REMINDER_LEAD_DAYS = 7;
-// Email 07 waits this long, from the deletion, for cellctl to finish it; a
-// deletion still unfinished then is an operator's problem, not a receipt.
-const DELETED_RECEIPT_WAIT_DAYS = 7;
 
 /** When email 06 is due for an Exomem kept until `keptUntil`. */
 export function deletionReminderAt(keptUntil: Date): Date {
@@ -78,7 +75,8 @@ export async function enqueueSubscriptionEndedEmails(
  * (cloud-deletion-finish.ts), after that finish has scrubbed the account's
  * other emails. `deletedAt` is the tenant's `deleted_at` as the database's
  * exact text: it names this deletion, so a re-admission and a later deletion
- * can never revive this receipt. It goes out once cellctl has finished.
+ * can never revive this receipt. It goes out once cellctl has finished,
+ * however long that takes: it has no deadline (email-outbox.ts).
  */
 export async function enqueueDeletedEmail(
   tx: ExomemSql,
@@ -91,7 +89,6 @@ export async function enqueueDeletedEmail(
     recipientTimeZone: input.timeZone,
     tenantId: input.tenantId,
     payload: { version: 1, tenantId: input.tenantId, deletedAt: input.deletedAt },
-    expiresAt: new Date(Date.now() + DELETED_RECEIPT_WAIT_DAYS * DAY_MS),
   });
 }
 
