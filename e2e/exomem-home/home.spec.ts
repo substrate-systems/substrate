@@ -22,6 +22,7 @@ import {
   emailsTo,
   refuseEmailTo,
 } from "./seed";
+import { homeE2eEnvironment } from "./environment";
 
 const DAY = 86_400_000;
 
@@ -325,6 +326,10 @@ for (const theme of ["dark", "light"] as const) {
     await expect(apps.getByText(/^disconnected · /)).toBeVisible();
     await apps.getByRole("button", { name: "Set up" }).click();
     await expect(page.getByText("Add this address")).toBeVisible();
+    // The address is the one the server configures, never one Home builds.
+    await expect(apps.getByRole("group", { name: /connector or MCP settings/ })).toContainText(
+      homeE2eEnvironment().mcpUrl
+    );
 
     expect(await seriousViolations(page)).toEqual([]);
 

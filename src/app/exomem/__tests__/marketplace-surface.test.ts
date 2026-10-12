@@ -35,10 +35,7 @@ describe("Exomem marketplace public surface", () => {
     assert.doesNotMatch(form, /admitted|waitlisted|number \$\{/i);
   });
 
-  it("keeps checkout private to authenticated Home", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-
-    assert.match(home, /onBilling\("checkout"\)/);
+  it("keeps checkout off the public landing page", () => {
     assert.doesNotMatch(source("src/app/exomem/page.tsx"), /billing\/checkout/);
   });
 

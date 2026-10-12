@@ -44,14 +44,6 @@ describe("private Exomem Home contract", () => {
     assert.match(signIn, /mode === "confirm"/);
   });
 
-  it("renders only the server-provided connector address", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    assert.doesNotMatch(home, /mcpUrl|tenantId/);
-    // The server address comes from the status response, so the client never
-    // builds an endpoint of its own.
-    assert.doesNotMatch(home, /https:\/\/[a-z]/);
-  });
-
   it("opens a server-created Paddle transaction on the private Exomem return page", () => {
     const page = source("src/app/exomem/home/home-client.tsx");
     const opener = source("src/components/PaddleTransactionOpener.tsx");
