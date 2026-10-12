@@ -61,6 +61,18 @@
   min-width: 112px;
 }
 
+/* Home's billing and export actions (Home board): Manage billing, Fix billing, Resubscribe,
+   Resume subscription, Export. The row's size at 12.5 px; a filled one is 500. */
+.account {
+  height: 44px;
+  min-width: 112px;
+  font-size: 12.5px;
+}
+
+.account.primary {
+  font-weight: 500;
+}
+
 /* The action of a line under a row (Download, Try again) or of a notice (Home board). */
 .detail {
   min-width: 112px;
@@ -74,6 +86,11 @@
 
 .primary:hover {
   border-color: var(--fg-primary);
+}
+
+/* Bordered, in the secondary ink: Home's Disconnect (Home board). */
+.quiet {
+  color: var(--fg-secondary);
 }
 
 /* Only for epistemic actions ("Why is this true?"). */
@@ -99,6 +116,15 @@
 
 .ghost:hover {
   color: var(--fg-primary);
+}
+
+/* A flow page's second action under its main one (Journey board): "Not now", "Use a
+   different email", "Pick another app". The board's muted ink is --fg-secondary. */
+.ghostPage {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 13px;
+  color: var(--fg-secondary);
 }
 
 /* Disabled: 40% with the reason in the label. */

@@ -11,13 +11,20 @@ type ModalProps = {
   title: string;
   /** The current step (ask → working → done) is the caller's. */
   children: ReactNode;
+  /**
+   * The Home board's content width for this modal, inside its 24 px padding: 360 (signed
+   * out, billing), 400 (delete) or 420 (storage, import, restore, email).
+   */
+  width?: 360 | 400 | 420;
 };
+
+const WIDTH_CLASS = { 360: styles.w360, 400: styles.w400, 420: styles.w420 };
 
 /**
  * A modal dialog over a scrim. The native <dialog> in modal mode makes the page
  * behind it inert, so focus stays inside, and turns Esc into `cancel`.
  */
-export function Modal({ open, onClose, title, children }: ModalProps) {
+export function Modal({ open, onClose, title, children, width = 420 }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -31,7 +38,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   return (
     <dialog
       ref={ref}
-      className={styles.modal}
+      className={`${styles.modal} ${WIDTH_CLASS[width]}`}
       aria-labelledby={titleId}
       onCancel={(event) => {
         // Esc: the caller decides what closing means for its current step.

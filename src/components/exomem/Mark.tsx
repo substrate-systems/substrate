@@ -7,31 +7,35 @@ const BREATH_STEP_S = 0.35;
 
 type MarkProps = {
   size: number;
-  /** Home, while the memory is on: the lit row breathes. */
-  breathing?: boolean;
-  /** False while the memory is not live (read-only, ended): the middle row is not amber. */
-  lit?: boolean;
+  /**
+   * Home's status mark. on: the memory is live, so every dot is amber and the middle row
+   * breathes · off: not live (read-only, ended), so the middle row is faint ink. Omitted:
+   * the Dot E icon, its middle row amber.
+   */
+  status?: "on" | "off";
   /** Names the mark for screen readers; omit when the mark sits inside a labelled control. */
   label?: string;
 };
 
 /** The Dot E icon: the E in dots, its middle row amber. */
-export function Mark({ size, breathing = false, lit = true, label }: MarkProps) {
+export function Mark({ size, status, label }: MarkProps) {
+  const ink = status === "on" ? styles.lit : styles.ink;
+  const row = status === "off" ? styles.unlit : styles.lit;
   return (
     <svg
       viewBox="0 0 48 48"
       width={size}
       height={size}
-      className={breathing && lit ? styles.breathing : undefined}
+      className={status === "on" ? styles.breathing : undefined}
       {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
     >
       {DOT_E_INK.map(([cx, cy]) => (
-        <circle key={`${cx},${cy}`} className={styles.ink} cx={cx} cy={cy} r={DOT_E_RADIUS} />
+        <circle key={`${cx},${cy}`} className={ink} cx={cx} cy={cy} r={DOT_E_RADIUS} />
       ))}
       {DOT_E_LIT.map(([cx, cy], i) => (
         <circle
           key={`${cx},${cy}`}
-          className={lit ? styles.lit : styles.unlit}
+          className={`${row} ${styles.row}`}
           cx={cx}
           cy={cy}
           r={DOT_E_RADIUS}

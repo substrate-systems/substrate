@@ -9,11 +9,24 @@ type NoticeProps = {
   attention?: boolean;
   /** column: action under the text at every width · row: Home's desktop notice, action on the right above 640 px. */
   layout?: "column" | "row";
+  /** home: the Home board's notice · flow: the Journey board's, a step's notice (13.5 px). */
+  size?: "home" | "flow";
 };
 
 /** A notice, shown only while it is true: what happened, and the one thing to do. */
-export function Notice({ children, action, attention = false, layout = "column" }: NoticeProps) {
-  const classes = [styles.notice, attention && styles.attention, layout === "row" && styles.row]
+export function Notice({
+  children,
+  action,
+  attention = false,
+  layout = "column",
+  size = "home",
+}: NoticeProps) {
+  const classes = [
+    styles.notice,
+    attention && styles.attention,
+    layout === "row" && styles.row,
+    size === "flow" && styles.flow,
+  ]
     .filter(Boolean)
     .join(" ");
   return (

@@ -130,7 +130,7 @@ export function StatusBlock({
   return (
     <div className={styles.status}>
       <div className={styles.tile}>
-        <Mark size={34} breathing={live} lit={live} label="Exomem" />
+        <Mark size={34} status={live ? "on" : "off"} label="Exomem" />
       </div>
       <div className={styles.statusText}>
         <h1 className={styles.headline}>{headline}</h1>

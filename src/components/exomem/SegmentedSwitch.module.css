@@ -1,5 +1,6 @@
 /* Segmented switch (components.md: Controls). From the level switch on the Journey board (page)
-   and the compact rows on the Home board (row). */
+   and the compact rows on the Home board (row). Both boards draw an unselected segment and
+   the description in their muted ink, which is --fg-secondary. */
 .wrap {
   display: flex;
   flex-direction: column;
@@ -24,7 +25,7 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   font-family: var(--font-mono-exo);
   font-size: 12.5px;
   cursor: pointer;
@@ -44,7 +45,7 @@
 .description {
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   text-align: center;
   min-height: 38px;
   display: flex;

@@ -1,5 +1,5 @@
-/* Mark (Dot E) (components.md: Brand and live). Home: the lit row breathes, each dot a little
-   after the one before (--ed). */
+/* Mark (Dot E) (components.md: Brand and live). Home, while the memory is on, draws every
+   dot amber and the middle row breathes, each dot a little after the one before (--ed). */
 .ink {
   fill: var(--fg-primary);
 }
@@ -14,7 +14,7 @@
   fill: var(--fg-tertiary);
 }
 
-.breathing .lit {
+.breathing .row {
   animation: hpEb 5.5s ease-in-out var(--ed) infinite;
 }
 
