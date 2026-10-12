@@ -40,10 +40,25 @@
 -- script against a per-test schema via `-c search_path=<schema>,public`, it
 -- resolves to that schema -- the same one every unqualified CREATE TABLE in
 -- migrations/*.sql lands in.
+--
+-- Role names come from four custom settings: exomem_grants.app_role,
+-- exomem_grants.owner_role, exomem_grants.gateway_role and
+-- exomem_grants.cellctl_role. An unset or empty setting means production's
+-- name, which the comments in this script use; a run with no setting (the
+-- cutover runbook's psql) therefore grants exactly what they describe.
+-- scripts/migrate.ts sets them from the environment, so staging, a second
+-- database in the same cluster, gets the same grants under its own roles and
+-- none under production's. The value `none` skips that role's grants:
+-- PostgreSQL reserves the role name "none", so no role-existence guard below
+-- can match it.
 
 DO $$
 DECLARE
   target_schema text := current_schema();
+  app_role text := coalesce(nullif(current_setting('exomem_grants.app_role', true), ''), 'substrate_app');
+  owner_role text := coalesce(nullif(current_setting('exomem_grants.owner_role', true), ''), 'substrate_owner');
+  gateway_role text := coalesce(nullif(current_setting('exomem_grants.gateway_role', true), ''), 'exomem_gateway');
+  cellctl_role text := coalesce(nullif(current_setting('exomem_grants.cellctl_role', true), ''), 'exomem_cellctl');
   cloud_role text;
   oauth_table text;
 BEGIN
@@ -51,20 +66,20 @@ BEGIN
   -- later migration creates. Guarded on substrate_app existing so a database
   -- that has provisioned no Cloud roles at all (e.g. most of this repo's own
   -- non-grants tests) sees no behaviour change.
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app') THEN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_role) THEN
     EXECUTE format(
-      'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO substrate_app',
-      target_schema
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I',
+      target_schema, app_role
     );
     EXECUTE format(
-      'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO substrate_app',
-      target_schema
+      'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I',
+      target_schema, app_role
     );
     -- schema_migrations belongs to the migration runner (D7). No runtime
     -- code reads it, so the schema-wide grant just above is taken back from
     -- it on every run.
     IF to_regclass('schema_migrations') IS NOT NULL THEN
-      REVOKE ALL ON schema_migrations FROM substrate_app;
+      EXECUTE format('REVOKE ALL ON schema_migrations FROM %I', app_role);
     END IF;
   END IF;
 
@@ -72,16 +87,17 @@ BEGIN
   -- existing (D7 round item 1). Must be run by substrate_owner itself or a
   -- superuser -- both are true of every path that applies this script
   -- (migrations run as substrate_owner through DATABASE_MIGRATION_URL, or as
-  -- a superuser in a simpler local rehearsal).
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_owner')
-     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app') THEN
+  -- a superuser in a simpler local rehearsal). Staging's migrations run as
+  -- its own owner role, so its owner_role setting must name that role.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = owner_role)
+     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_role) THEN
     EXECUTE format(
-      'ALTER DEFAULT PRIVILEGES FOR ROLE substrate_owner IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO substrate_app',
-      target_schema
+      'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+      owner_role, target_schema, app_role
     );
     EXECUTE format(
-      'ALTER DEFAULT PRIVILEGES FOR ROLE substrate_owner IN SCHEMA %I GRANT USAGE, SELECT ON SEQUENCES TO substrate_app',
-      target_schema
+      'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE, SELECT ON SEQUENCES TO %I',
+      owner_role, target_schema, app_role
     );
   END IF;
 
@@ -93,7 +109,7 @@ BEGIN
   IF to_regclass('exomem_cloud_cells') IS NOT NULL THEN
     REVOKE ALL ON exomem_cloud_cells, exomem_cloud_settings, exomem_cloud_capacity, exomem_cloud_rollout
       FROM PUBLIC;
-    FOREACH cloud_role IN ARRAY ARRAY['substrate_app', 'exomem_cellctl', 'exomem_gateway'] LOOP
+    FOREACH cloud_role IN ARRAY ARRAY[app_role, cellctl_role, gateway_role] LOOP
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cloud_role) THEN
         EXECUTE format(
           'REVOKE ALL ON exomem_cloud_cells, exomem_cloud_settings, exomem_cloud_capacity, exomem_cloud_rollout FROM %I',
@@ -103,13 +119,17 @@ BEGIN
     END LOOP;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app')
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_role)
      AND to_regclass('exomem_cloud_cells') IS NOT NULL THEN
-    GRANT SELECT ON exomem_cloud_cells, exomem_cloud_settings, exomem_cloud_capacity, exomem_cloud_rollout
-      TO substrate_app;
-    GRANT INSERT (cell_id, tenant_id, storage_gib, rollout_priority, desired_state, desired_image)
-      ON exomem_cloud_cells TO substrate_app;
-    GRANT UPDATE (desired_state, desired_image) ON exomem_cloud_cells TO substrate_app;
+    EXECUTE format(
+      'GRANT SELECT ON exomem_cloud_cells, exomem_cloud_settings, exomem_cloud_capacity, exomem_cloud_rollout TO %I',
+      app_role
+    );
+    EXECUTE format(
+      'GRANT INSERT (cell_id, tenant_id, storage_gib, rollout_priority, desired_state, desired_image) ON exomem_cloud_cells TO %I',
+      app_role
+    );
+    EXECUTE format('GRANT UPDATE (desired_state, desired_image) ON exomem_cloud_cells TO %I', app_role);
     -- Migration 0057 (item 5 / task 3.7): the cancellation-notice-sent claim
     -- column, now reflected in the design's C1 privilege table above. Guarded
     -- on the COLUMN's own existence, not just the table's: 0057 lands one
@@ -123,26 +143,30 @@ BEGIN
       WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
         AND column_name = 'cancellation_notice_sent_at'
     ) THEN
-      GRANT UPDATE (cancellation_notice_sent_at) ON exomem_cloud_cells TO substrate_app;
+      EXECUTE format('GRANT UPDATE (cancellation_notice_sent_at) ON exomem_cloud_cells TO %I', app_role);
     END IF;
-    GRANT INSERT, UPDATE ON exomem_cloud_settings TO substrate_app;
-    GRANT UPDATE (paused, error_code, held_cell_id) ON exomem_cloud_rollout TO substrate_app;
+    EXECUTE format('GRANT INSERT, UPDATE ON exomem_cloud_settings TO %I', app_role);
+    EXECUTE format('GRANT UPDATE (paused, error_code, held_cell_id) ON exomem_cloud_rollout TO %I', app_role);
     -- exomem_tenants and its mirror columns (reconcileCloudCellDesiredState,
     -- cloud-lifecycle.ts) are not C1-C1d and are not an exception to the
     -- schema-wide grant above -- the narrow column-scoped grants this round
     -- used to carry here are gone; the schema-wide grant already covers them.
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl')
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cellctl_role)
      AND to_regclass('exomem_cloud_cells') IS NOT NULL THEN
-    GRANT SELECT ON exomem_cloud_cells, exomem_cloud_settings, exomem_cloud_capacity, exomem_cloud_rollout
-      TO exomem_cellctl;
-    GRANT UPDATE (
-      observed_generation, observed_state, observed_image, ready, last_error_code, observed_at,
-      node, volume_id, last_backup_at, last_backup_snapshot,
-      backup_key_wrapped, backup_key_version, b2_key_id, b2_key_wrapped, b2_key_version,
-      hold_kind, hold_started_at
-    ) ON exomem_cloud_cells TO exomem_cellctl;
+    EXECUTE format(
+      'GRANT SELECT ON exomem_cloud_cells, exomem_cloud_settings, exomem_cloud_capacity, exomem_cloud_rollout TO %I',
+      cellctl_role
+    );
+    EXECUTE format($grant$
+      GRANT UPDATE (
+        observed_generation, observed_state, observed_image, ready, last_error_code, observed_at,
+        node, volume_id, last_backup_at, last_backup_snapshot,
+        backup_key_wrapped, backup_key_version, b2_key_id, b2_key_wrapped, b2_key_version,
+        hold_kind, hold_started_at
+      ) ON exomem_cloud_cells TO %I
+    $grant$, cellctl_role);
     -- Migration 0059 (move-cloud-cells-to-local-storage D10): the size cellctl
     -- grew a local cell's volume to, an observed column the Exomem design's
     -- C1 contract lists. Guarded on the column's own existence, as 0057's
@@ -152,7 +176,7 @@ BEGIN
       WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
         AND column_name = 'grown_storage_gib'
     ) THEN
-      GRANT UPDATE (grown_storage_gib) ON exomem_cloud_cells TO exomem_cellctl;
+      EXECUTE format('GRANT UPDATE (grown_storage_gib) ON exomem_cloud_cells TO %I', cellctl_role);
     END IF;
     -- Migration 0066: the disk use cellctl measures, an observed column group.
     -- Guarded on the column's own existence, as 0057's and 0059's grants are.
@@ -161,38 +185,49 @@ BEGIN
       WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
         AND column_name = 'used_bytes'
     ) THEN
-      GRANT UPDATE (used_bytes, filesystem_bytes, usage_observed_at) ON exomem_cloud_cells TO exomem_cellctl;
+      EXECUTE format(
+        'GRANT UPDATE (used_bytes, filesystem_bytes, usage_observed_at) ON exomem_cloud_cells TO %I',
+        cellctl_role
+      );
     END IF;
-    GRANT INSERT, UPDATE ON exomem_cloud_capacity TO exomem_cellctl;
-    GRANT UPDATE (paused, error_code, held_cell_id, last_good_image, updated_at)
-      ON exomem_cloud_rollout TO exomem_cellctl;
+    EXECUTE format('GRANT INSERT, UPDATE ON exomem_cloud_capacity TO %I', cellctl_role);
+    EXECUTE format(
+      'GRANT UPDATE (paused, error_code, held_cell_id, last_good_image, updated_at) ON exomem_cloud_rollout TO %I',
+      cellctl_role
+    );
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = gateway_role)
      AND to_regclass('exomem_cloud_cells') IS NOT NULL THEN
-    GRANT SELECT (cell_id, tenant_id, desired_state) ON exomem_cloud_cells TO exomem_gateway;
+    EXECUTE format('GRANT SELECT (cell_id, tenant_id, desired_state) ON exomem_cloud_cells TO %I', gateway_role);
   END IF;
 
   -- C5 exists only after migration 0060. Revoke inherited table grants before
   -- applying request/observation column grants, including on upgrade reruns.
   IF to_regclass('exomem_cloud_imports') IS NOT NULL THEN
     REVOKE ALL ON exomem_cloud_imports FROM PUBLIC;
-    FOREACH cloud_role IN ARRAY ARRAY['substrate_app', 'exomem_cellctl', 'exomem_gateway'] LOOP
+    FOREACH cloud_role IN ARRAY ARRAY[app_role, cellctl_role, gateway_role] LOOP
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cloud_role) THEN
         EXECUTE format('REVOKE ALL ON exomem_cloud_imports FROM %I', cloud_role);
       END IF;
     END LOOP;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app') THEN
-      GRANT SELECT ON exomem_cloud_imports TO substrate_app;
-      GRANT INSERT (import_id, cell_id, kind, declared_bytes, declared_files, requested_state,
-        part_etags, ciphertext_sha256, ciphertext_bytes) ON exomem_cloud_imports TO substrate_app;
-      GRANT UPDATE (requested_state, part_etags, ciphertext_sha256, ciphertext_bytes)
-        ON exomem_cloud_imports TO substrate_app;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_role) THEN
+      EXECUTE format('GRANT SELECT ON exomem_cloud_imports TO %I', app_role);
+      EXECUTE format($grant$
+        GRANT INSERT (import_id, cell_id, kind, declared_bytes, declared_files, requested_state,
+          part_etags, ciphertext_sha256, ciphertext_bytes) ON exomem_cloud_imports TO %I
+      $grant$, app_role);
+      EXECUTE format(
+        'GRANT UPDATE (requested_state, part_etags, ciphertext_sha256, ciphertext_bytes) ON exomem_cloud_imports TO %I',
+        app_role
+      );
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
-      GRANT SELECT ON exomem_cloud_imports TO exomem_cellctl;
-      GRANT UPDATE (recipient, upload_id, part_urls, urls_expire_at, observed_state, error_code)
-        ON exomem_cloud_imports TO exomem_cellctl;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cellctl_role) THEN
+      EXECUTE format('GRANT SELECT ON exomem_cloud_imports TO %I', cellctl_role);
+      EXECUTE format(
+        'GRANT UPDATE (recipient, upload_id, part_urls, urls_expire_at, observed_state, error_code) ON exomem_cloud_imports TO %I',
+        cellctl_role
+      );
     END IF;
   END IF;
 
@@ -201,25 +236,30 @@ BEGIN
   -- holds nothing on C6.
   IF to_regclass('exomem_cloud_exports') IS NOT NULL THEN
     REVOKE ALL ON exomem_cloud_exports FROM PUBLIC;
-    FOREACH cloud_role IN ARRAY ARRAY['substrate_app', 'exomem_cellctl', 'exomem_gateway'] LOOP
+    FOREACH cloud_role IN ARRAY ARRAY[app_role, cellctl_role, gateway_role] LOOP
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cloud_role) THEN
         EXECUTE format('REVOKE ALL ON exomem_cloud_exports FROM %I', cloud_role);
       END IF;
     END LOOP;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app') THEN
-      GRANT SELECT ON exomem_cloud_exports TO substrate_app;
-      GRANT INSERT (export_id, cell_id, requested_state, link_requested_at) ON exomem_cloud_exports TO substrate_app;
-      GRANT UPDATE (requested_state, link_requested_at) ON exomem_cloud_exports TO substrate_app;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = app_role) THEN
+      EXECUTE format('GRANT SELECT ON exomem_cloud_exports TO %I', app_role);
+      EXECUTE format(
+        'GRANT INSERT (export_id, cell_id, requested_state, link_requested_at) ON exomem_cloud_exports TO %I',
+        app_role
+      );
+      EXECUTE format('GRANT UPDATE (requested_state, link_requested_at) ON exomem_cloud_exports TO %I', app_role);
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
-      GRANT SELECT ON exomem_cloud_exports TO exomem_cellctl;
-      GRANT UPDATE (observed_state, error_code, archive_bytes, archive_sha256, archive_version_id, upload_id,
-        ready_at, expires_at, download_url, download_url_expires_at, link_issued_at)
-        ON exomem_cloud_exports TO exomem_cellctl;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cellctl_role) THEN
+      EXECUTE format('GRANT SELECT ON exomem_cloud_exports TO %I', cellctl_role);
+      EXECUTE format($grant$
+        GRANT UPDATE (observed_state, error_code, archive_bytes, archive_sha256, archive_version_id, upload_id,
+          ready_at, expires_at, download_url, download_url_expires_at, link_issued_at)
+          ON exomem_cloud_exports TO %I
+      $grant$, cellctl_role);
     END IF;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = gateway_role)
      AND to_regclass('exomem_rate_limit_buckets') IS NOT NULL THEN
     -- "Insert and update the rate-limit buckets" (D7) reuses the existing
     -- shared upsert (db.ts's takeRateLimit), whose ON CONFLICT DO UPDATE
@@ -234,7 +274,7 @@ BEGIN
     -- metadata, not tenant or cell data. Guarded on its own existence,
     -- separately from exomem_cloud_cells above, because it is a
     -- pre-existing hosted table rather than part of migration 0056.
-    GRANT SELECT, INSERT, UPDATE ON exomem_rate_limit_buckets TO exomem_gateway;
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE ON exomem_rate_limit_buckets TO %I', gateway_role);
   END IF;
 
   -- 3. Security review finding 3: exomem_gateway also runs
@@ -254,18 +294,24 @@ BEGIN
   -- historical upgrade path (migration-upgrade.integration.test.ts), so a
   -- statement naming a table or column that does not exist yet at that point
   -- would otherwise fail the whole script.
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway') THEN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = gateway_role) THEN
     IF to_regclass('exomem_oauth_access_tokens') IS NOT NULL THEN
-      GRANT SELECT (access_digest, revoked_at, expires_at, resource, family_id, grant_id, client_id, scopes)
-        ON exomem_oauth_access_tokens TO exomem_gateway;
+      EXECUTE format($grant$
+        GRANT SELECT (access_digest, revoked_at, expires_at, resource, family_id, grant_id, client_id, scopes)
+          ON exomem_oauth_access_tokens TO %I
+      $grant$, gateway_role);
     END IF;
     IF to_regclass('exomem_oauth_token_families') IS NOT NULL THEN
-      GRANT SELECT (id, grant_id, client_id, revoked_at, expires_at)
-        ON exomem_oauth_token_families TO exomem_gateway;
+      EXECUTE format(
+        'GRANT SELECT (id, grant_id, client_id, revoked_at, expires_at) ON exomem_oauth_token_families TO %I',
+        gateway_role
+      );
     END IF;
     IF to_regclass('exomem_oauth_grants') IS NOT NULL THEN
-      GRANT SELECT (id, user_id, tenant_id, client_id, resource, revoked_at)
-        ON exomem_oauth_grants TO exomem_gateway;
+      EXECUTE format(
+        'GRANT SELECT (id, user_id, tenant_id, client_id, resource, revoked_at) ON exomem_oauth_grants TO %I',
+        gateway_role
+      );
     END IF;
     -- Migration 0036 adds candidate/reviewer lineage to these tables. Keep
     -- partial historical upgrades safe while granting the lookup's exact reads.
@@ -276,8 +322,8 @@ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = target_schema AND table_name = oauth_table AND column_name = 'candidate_id'
       ) THEN
-        EXECUTE format('GRANT SELECT (candidate_id, reviewer_credential_id) ON %I.%I TO exomem_gateway',
-          target_schema, oauth_table);
+        EXECUTE format('GRANT SELECT (candidate_id, reviewer_credential_id) ON %I.%I TO %I',
+          target_schema, oauth_table, gateway_role);
       END IF;
     END LOOP;
     IF EXISTS (
@@ -285,11 +331,13 @@ BEGIN
       WHERE table_schema = target_schema AND table_name = 'exomem_oauth_clients'
         AND column_name = 'client_platform'
     ) THEN
-      GRANT SELECT (
-        id, client_id, enabled, redirect_uris_digest, redirect_uris, admission_mode,
-        metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-        cimd_host, client_platform
-      ) ON exomem_oauth_clients TO exomem_gateway;
+      EXECUTE format($grant$
+        GRANT SELECT (
+          id, client_id, enabled, redirect_uris_digest, redirect_uris, admission_mode,
+          metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
+          cimd_host, client_platform
+        ) ON exomem_oauth_clients TO %I
+      $grant$, gateway_role);
     END IF;
     -- Migration 0062's stored client name: the gateway names the token's
     -- client to the cell with it. Guarded on the column's own existence.
@@ -298,38 +346,44 @@ BEGIN
       WHERE table_schema = target_schema AND table_name = 'exomem_oauth_clients'
         AND column_name = 'client_name'
     ) THEN
-      GRANT SELECT (client_name) ON exomem_oauth_clients TO exomem_gateway;
+      EXECUTE format('GRANT SELECT (client_name) ON exomem_oauth_clients TO %I', gateway_role);
     END IF;
     IF to_regclass('exomem_oauth_admitted_cimd_hosts') IS NOT NULL THEN
-      GRANT SELECT (host, platform) ON exomem_oauth_admitted_cimd_hosts TO exomem_gateway;
+      EXECUTE format('GRANT SELECT (host, platform) ON exomem_oauth_admitted_cimd_hosts TO %I', gateway_role);
     END IF;
     -- Migration 0062: the generic client arm that findCloudOAuthAccessToken
     -- calls (exomem_oauth_generic_client_admitted, SECURITY INVOKER) reads
     -- the lane's enabled flag.
     IF to_regclass('exomem_oauth_generic_client_lane') IS NOT NULL THEN
-      GRANT SELECT (enabled) ON exomem_oauth_generic_client_lane TO exomem_gateway;
+      EXECUTE format('GRANT SELECT (enabled) ON exomem_oauth_generic_client_lane TO %I', gateway_role);
     END IF;
     IF to_regclass('exomem_oauth_account_blocks') IS NOT NULL THEN
-      GRANT SELECT (tenant_id, owner_user_id) ON exomem_oauth_account_blocks TO exomem_gateway;
+      EXECUTE format('GRANT SELECT (tenant_id, owner_user_id) ON exomem_oauth_account_blocks TO %I', gateway_role);
     END IF;
     -- C310 round 2, L3: findCloudOAuthAccessToken also requires the tenant's
     -- own status to be outside deletion_pending/deleted, so it now joins
     -- exomem_tenants -- not a C1-C1d table, and outside the OAuth grant
     -- above only because it predates this fix.
     IF to_regclass('exomem_tenants') IS NOT NULL THEN
-      GRANT SELECT (id, status) ON exomem_tenants TO exomem_gateway;
+      EXECUTE format('GRANT SELECT (id, status) ON exomem_tenants TO %I', gateway_role);
     END IF;
     -- Migration 0058's predicates are SECURITY INVOKER. The gateway needs
     -- only their eligibility reads, never credential secrets or billing writes.
     IF to_regprocedure('exomem_cloud_reviewer_authorized(uuid,uuid,uuid,text)') IS NOT NULL THEN
-      GRANT SELECT (owner_user_id, marketplace_reviewer_purpose, desired_state, deleted_at)
-        ON exomem_tenants TO exomem_gateway;
-      GRANT SELECT (id, deleted_at) ON users TO exomem_gateway;
-      GRANT SELECT (tenant_id, source, source_state, effective_state,
-        provider_customer_ref, provider_subscription_ref, provider_transaction_ref)
-        ON exomem_entitlements TO exomem_gateway;
-      GRANT SELECT (id, tenant_id, owner_user_id, credential_kind, revoked_at, expires_at, provider)
-        ON exomem_marketplace_reviewer_credentials TO exomem_gateway;
+      EXECUTE format(
+        'GRANT SELECT (owner_user_id, marketplace_reviewer_purpose, desired_state, deleted_at) ON exomem_tenants TO %I',
+        gateway_role
+      );
+      EXECUTE format('GRANT SELECT (id, deleted_at) ON users TO %I', gateway_role);
+      EXECUTE format($grant$
+        GRANT SELECT (tenant_id, source, source_state, effective_state,
+          provider_customer_ref, provider_subscription_ref, provider_transaction_ref)
+          ON exomem_entitlements TO %I
+      $grant$, gateway_role);
+      EXECUTE format($grant$
+        GRANT SELECT (id, tenant_id, owner_user_id, credential_kind, revoked_at, expires_at, provider)
+          ON exomem_marketplace_reviewer_credentials TO %I
+      $grant$, gateway_role);
     END IF;
   END IF;
 END

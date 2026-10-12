@@ -1051,4 +1051,76 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       __setExomemTransactionForTests(null);
     }
   });
+
+  // Staging is a second database in production's cluster, so every production
+  // role exists there too. Migrated as staging's own owner with staging's role
+  // variables, the script must give staging's app role exactly substrate_app's
+  // grants here, and no production role anything.
+  it("gives staging's app role exactly substrate_app's grants, and production roles nothing, under staging's role variables", async () => {
+    const stagingSchema = `cloud_grants_staging_it_${randomUUID().replaceAll("-", "")}`;
+    const stagingEnv = {
+      DATABASE_APP_ROLE: "staging_app",
+      DATABASE_OWNER_ROLE: "staging_owner",
+      DATABASE_GATEWAY_ROLE: "none",
+      DATABASE_CELLCTL_ROLE: "none",
+    };
+    await ensureRole("staging_owner");
+    await ensureRole("staging_app");
+    await adminPool!.query(`CREATE SCHEMA "${stagingSchema}" AUTHORIZATION staging_owner`);
+    await adminPool!.query(`GRANT USAGE ON SCHEMA "${stagingSchema}" TO staging_app`);
+    const stagingOwnerUrl = new URL(databaseUrl!);
+    stagingOwnerUrl.username = "staging_owner";
+    stagingOwnerUrl.password = TEST_PASSWORD;
+    stagingOwnerUrl.searchParams.set("options", `-c search_path=${stagingSchema},public`);
+
+    // Every grant the role holds in the schema: per table and sequence, per
+    // column, and the default privileges for later tables (r) and sequences (S).
+    async function grantsIn(schemaName: string, grantee: string): Promise<string[]> {
+      const { rows } = await adminPool!.query<{ grant: string }>(
+        `SELECT format('%s %s', c.relname, a.privilege_type) AS grant
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         CROSS JOIN LATERAL aclexplode(c.relacl) a
+         WHERE n.nspname = $1 AND a.grantee = $2::regrole
+         UNION ALL
+         SELECT format('%s.%s %s', c.relname, att.attname, a.privilege_type)
+         FROM pg_attribute att
+         JOIN pg_class c ON c.oid = att.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         CROSS JOIN LATERAL aclexplode(att.attacl) a
+         WHERE n.nspname = $1 AND a.grantee = $2::regrole
+         UNION ALL
+         SELECT format('later %s %s', d.defaclobjtype, a.privilege_type)
+         FROM pg_default_acl d
+         JOIN pg_namespace n ON n.oid = d.defaclnamespace
+         CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+         WHERE n.nspname = $1 AND a.grantee = $2::regrole
+         ORDER BY 1`,
+        [schemaName, grantee]
+      );
+      return rows.map((row) => row.grant);
+    }
+
+    Object.assign(process.env, stagingEnv);
+    try {
+      await applyMigrations({ databaseUrl: stagingOwnerUrl.toString() });
+
+      const production = await grantsIn(schema!, "substrate_app");
+      assert.ok(
+        production.includes("exomem_cloud_cells.desired_state UPDATE"),
+        "sanity: column grants are compared"
+      );
+      assert.deepEqual(await grantsIn(stagingSchema, "staging_app"), production);
+      for (const role of ["substrate_owner", ...CLOUD_ROLES]) {
+        assert.deepEqual(
+          await grantsIn(stagingSchema, role),
+          [],
+          `${role} must gain nothing on staging`
+        );
+      }
+    } finally {
+      for (const name of Object.keys(stagingEnv)) delete process.env[name];
+      await adminPool!.query(`DROP SCHEMA IF EXISTS "${stagingSchema}" CASCADE`);
+    }
+  });
 });

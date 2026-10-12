@@ -34,6 +34,10 @@ Vercel's production target keeps its own values.
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                                       | Connection string for role `staging_app` through PgBouncer alias `substrate_staging`.           |
 | `DATABASE_MIGRATION_URL`                             | Connection string for role `staging_owner` through PgBouncer alias `substrate_staging_session`. |
+| `DATABASE_APP_ROLE`                                  | `staging_app`                                                                                   |
+| `DATABASE_OWNER_ROLE`                                | `staging_owner`, the role in `DATABASE_MIGRATION_URL`.                                          |
+| `DATABASE_GATEWAY_ROLE`                              | `none`, because staging runs no gateway.                                                        |
+| `DATABASE_CELLCTL_ROLE`                              | `none`, because staging runs no cellctl.                                                        |
 | `EXOMEM_CONTROL_PLANE_KEY`                           | New 32 random bytes as unpadded base64url. Never the production key.                            |
 | `EXOMEM_ADMIN_TOKEN`                                 | New random token of at least 32 bytes. Held in BWS (`contracts/bws-exomem-staging-v1.json`).    |
 | `EXOMEM_HOSTED_SCHEDULER_SECRET`                     | New random secret. The scheduler command below sends it.                                        |
@@ -63,18 +67,16 @@ variable to it. Production's `DATABASE_URL` and `DATABASE_MIGRATION_URL` stay
 scoped to the Production target, which is why a staging build cannot reach the production
 database.
 
-## Database setup
+## Database grants
 
-The migration runner grants table access only to roles `substrate_app` and `substrate_owner`
-(`scripts/exomem-cloud-grants.sql`). Staging uses other roles, so grant them once, before the
-first deploy, and again after every reset.
+The build grants table access itself. After the migrations, the migration runner applies
+`scripts/exomem-cloud-grants.sql` to the four roles that the `DATABASE_*_ROLE` variables name.
+`staging_app` gets the same privileges as `substrate_app` in production, column by column.
+No production role gets a privilege on the staging database.
 
-1. Set `STAGING_OWNER_URL` to the `staging_owner` URL for alias `substrate_staging_session`.
-2. Run the command in "Reset" below on an empty database. It prepares the schema and the
-   default privileges.
-
-Result: tables that the build migrates are readable and writable by `staging_app`. The cell
-tables get the same broad grant, because staging has no cells and no cell role.
+Set all four variables. Without `DATABASE_OWNER_ROLE`, the build stops at "applying grants"
+with "permission denied to change default privileges". Without one of the other three, the
+script grants to the production role of that kind instead.
 
 ## Paddle sandbox notification destination
 
@@ -110,12 +112,18 @@ returns `200` with a JSON summary. Access emails and awaiting-checkout expiry wa
 
 ## Reset
 
-This empties the staging database and prepares it for the next deploy. The statement stops
-when the connection is not on `substrate_staging`, so it cannot run on production.
+This empties the staging database. The next deploy migrates it and applies the grants again.
 
-```sh
-psql "$STAGING_OWNER_URL" -v ON_ERROR_STOP=1 -1 -c 'DO $$ BEGIN IF current_database() <> $q$substrate_staging$q$ THEN RAISE EXCEPTION $q$not the staging database$q$; END IF; END $$; DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION staging_owner; GRANT USAGE ON SCHEMA public TO staging_app; ALTER DEFAULT PRIVILEGES FOR ROLE staging_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO staging_app; ALTER DEFAULT PRIVILEGES FOR ROLE staging_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO staging_app'
-```
+1. Set `STAGING_OWNER_URL` to the `staging_owner` URL for alias `substrate_staging_session`.
+2. Run the command below. It stops when the connection is not on `substrate_staging`, so it
+   cannot run on production. It recreates the empty schema with `staging_app`'s use of it,
+   because the grants script grants on tables and sequences only.
 
-Then push the branch to `staging` again. The build re-applies every migration.
-Result: `schema_migrations` and all tables exist again and hold no rows.
+   ```sh
+   psql "$STAGING_OWNER_URL" -v ON_ERROR_STOP=1 -1 -c 'DO $$ BEGIN IF current_database() <> $q$substrate_staging$q$ THEN RAISE EXCEPTION $q$not the staging database$q$; END IF; END $$; DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION staging_owner; GRANT USAGE ON SCHEMA public TO staging_app'
+   ```
+
+3. Push the branch to `staging` again.
+
+Result: the build re-applies every migration and the grants. `schema_migrations` and all
+tables exist again and hold no rows.

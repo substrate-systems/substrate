@@ -46,6 +46,19 @@ function getClient(databaseUrl?: string): Client {
 }
 
 /**
+ * The environment variable that names each role the grants script grants to,
+ * and the script's setting it fills. An unset variable leaves the script's
+ * default, production's role name. Staging sets all four: its own app and
+ * owner roles, and `none` for the gateway and cellctl, which it does not run.
+ */
+const GRANT_ROLE_SETTINGS = {
+  DATABASE_APP_ROLE: "exomem_grants.app_role",
+  DATABASE_OWNER_ROLE: "exomem_grants.owner_role",
+  DATABASE_GATEWAY_ROLE: "exomem_grants.gateway_role",
+  DATABASE_CELLCTL_ROLE: "exomem_grants.cellctl_role",
+} as const;
+
+/**
  * Applies scripts/exomem-cloud-grants.sql as one statement batch (the simple
  * query protocol runs a multi-statement string, including a dollar-quoted DO
  * block, as one implicit transaction). Idempotent and role-existence-gated —
@@ -57,6 +70,11 @@ async function applyGrants(sql: Sql, grantsFile: string): Promise<void> {
   const content = readFileSync(grantsFile, "utf8");
   await sql.query("BEGIN");
   try {
+    for (const [variable, setting] of Object.entries(GRANT_ROLE_SETTINGS)) {
+      const role = process.env[variable];
+      // is_local: the setting lasts only for this transaction.
+      if (role) await sql.query("SELECT set_config($1, $2, true)", [setting, role]);
+    }
     await sql.query(content);
     await sql.query("COMMIT");
   } catch (error) {
