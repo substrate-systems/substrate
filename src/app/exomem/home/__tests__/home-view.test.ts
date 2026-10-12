@@ -20,6 +20,7 @@ import {
 const NOW = Date.parse("2026-10-12T10:00:00Z");
 const clock = { now: NOW, timeZone: "UTC" };
 const READY: Lifecycle = { state: "ready", code: "CELL_READY", retryable: false };
+const NONE: ReadonlySet<string> = new Set();
 
 function account(overrides: Partial<HomeAccount> = {}): HomeAccount {
   return {
@@ -131,15 +132,18 @@ describe("which Home the owner sees", () => {
 
 describe("the live line and the note count", () => {
   it("shows nothing, never zero, when the cell cannot answer", () => {
-    const facts = activityFacts({ state: "unavailable", reason: "CELL_UNREACHABLE" });
-    assert.equal(liveLine(facts, [app()], clock), null);
+    const facts = activityFacts({ state: "unavailable", reason: "CELL_UNREACHABLE" }, NOW);
+    assert.equal(liveLine(facts, [app()], NONE, clock), null);
     const status = statusCopy("on", false, facts, clock);
     assert.equal(status.statusLine, null);
   });
 
   it("waits for the first note from the app the owner connected", () => {
-    const facts = activityFacts(activity({ note_count: 0 }));
-    assert.equal(liveLine(facts, [app()], clock)?.text, "Waiting for the first note from Claude");
+    const facts = activityFacts(activity({ note_count: 0 }), NOW);
+    assert.equal(
+      liveLine(facts, [app()], NONE, clock)?.text,
+      "Waiting for the first note from Claude"
+    );
     assert.equal(
       statusCopy("on", false, facts, clock).statusLine,
       "No notes yet · ask your assistant to remember something"
@@ -153,9 +157,10 @@ describe("the live line and the note count", () => {
           { client: "claude-code", action: "recalled", items: 4, at: "2026-10-12T09:59:48Z" },
           { client: "claude-ai", action: "saved", items: 1, at: "2026-10-12T09:58:00Z" },
         ],
-      })
+      }),
+      NOW
     );
-    assert.equal(liveLine(facts, [], clock)?.text, "Claude Code recalled 4 notes · 12 s ago");
+    assert.equal(liveLine(facts, [], NONE, clock)?.text, "Claude Code recalled 4 notes · 12 s ago");
     assert.equal(
       statusCopy("on", false, facts, clock).statusLine,
       "11,402 notes · last saved 2 minutes ago"
@@ -167,15 +172,49 @@ describe("the live line and the note count", () => {
       activity({
         note_count: null,
         events: [{ client: null, action: "saved", items: null, at: "2026-10-12T09:59:00Z" }],
-      })
+      }),
+      NOW
     );
-    assert.equal(liveLine(facts, [], clock)?.text, "Your app saved notes · 1 minute ago");
+    assert.equal(liveLine(facts, [], NONE, clock)?.text, "Your app saved notes · 1 minute ago");
     assert.equal(statusCopy("on", false, facts, clock).statusLine, "Last saved 1 minute ago");
   });
 
+  it("does not name an app the owner has just disconnected", () => {
+    const claude = app();
+    const chatgpt = app({
+      id: "00000000-0000-4000-8000-000000000002",
+      displayName: "ChatGPT",
+      platform: "openai",
+    });
+    const facts = activityFacts(activity({ note_count: 0 }), NOW);
+    assert.equal(
+      liveLine(facts, [claude, chatgpt], new Set([claude.id]), clock)?.text,
+      "Waiting for the first note from ChatGPT"
+    );
+    assert.equal(
+      liveLine(facts, [claude], new Set([claude.id]), clock)?.text,
+      "Waiting for the first note"
+    );
+  });
+
+  it("times an event by the cell's clock when the browser's clock is wrong", () => {
+    // The browser runs five minutes fast: the cell's answer said 10:00 when it read 10:05.
+    const facts = activityFacts(
+      activity({
+        events: [{ client: "codex", action: "saved", items: 1, at: "2026-10-12T09:59:48Z" }],
+      }),
+      NOW + 300_000
+    );
+    const later = { now: NOW + 300_000, timeZone: "UTC" };
+    assert.equal(liveLine(facts, [], NONE, later)?.text, "Codex saved a note · 12 s ago");
+  });
+
   it("says since when nothing happened, after a cell restart", () => {
-    const facts = activityFacts(activity({ events: [] }));
-    assert.equal(liveLine(facts, [], clock)?.text, "No assistant activity since 12 Oct, 08:00");
+    const facts = activityFacts(activity({ events: [] }), NOW);
+    assert.equal(
+      liveLine(facts, [], NONE, clock)?.text,
+      "No assistant activity since 12 Oct, 08:00"
+    );
   });
 });
 

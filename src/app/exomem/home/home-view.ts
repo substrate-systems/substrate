@@ -4,6 +4,7 @@
 // copy; a value the server does not know drops its clause rather than inventing one.
 
 import { CLIENT_PLATFORM_NAMES, displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
+import type { ActivityClientFamily } from "@/lib/exomem-hosted/cloud-home-mcp";
 import type {
   HomeAccount,
   HomeActivity,
@@ -111,11 +112,17 @@ export type ActivityFacts = {
   newest: ActivityEvent | null;
   lastSave: ActivityEvent | null;
   since: string;
+  /** The cell's clock minus the browser's, when the answer arrived. */
+  cellOffsetMs: number;
 };
 
-/** Null when activity is unavailable or not released: Home then shows no count and no line. */
+/**
+ * Null when activity is unavailable or not released: Home then shows no count and no
+ * line. `receivedAt` is the browser's time when the answer arrived.
+ */
 export function activityFacts(
-  activity: HomeActivity | typeof NOT_RELEASED | null
+  activity: HomeActivity | typeof NOT_RELEASED | null,
+  receivedAt: number
 ): ActivityFacts | null {
   if (!activity || activity === "not_released" || activity.state !== "live") return null;
   // The cell lists events newest first.
@@ -124,23 +131,27 @@ export function activityFacts(
     newest: activity.events[0] ?? null,
     lastSave: activity.events.find((event) => event.action === "saved") ?? null,
     since: activity.since,
+    cellOffsetMs: Date.parse(activity.as_of) - receivedAt,
   };
 }
 
-// The cell names a client by its content-free family (exomem privacy_log), a closed
-// set that module fixes. Any other value, or none, is "Your app", as the board names
-// an app it has no name for.
-const CLIENT_FAMILY_NAMES: Record<string, string> = {
+/** Now on the cell's clock, so an event's age does not depend on the browser's clock. */
+function cellNow(facts: ActivityFacts, clock: Clock): number {
+  return clock.now + facts.cellOffsetMs;
+}
+
+// The cell names a client by its content-free family; null is a client it does not
+// name, which the board calls "Your app".
+const CLIENT_FAMILY_NAMES: Record<ActivityClientFamily, string> = {
   "claude-ai": CLIENT_PLATFORM_NAMES.claude,
   chatgpt: CLIENT_PLATFORM_NAMES.openai,
   "claude-code": "Claude Code",
   codex: "Codex",
+  other: "Your app",
 };
 
-export function clientName(family: string | null): string {
-  return family !== null && Object.hasOwn(CLIENT_FAMILY_NAMES, family)
-    ? CLIENT_FAMILY_NAMES[family]
-    : "Your app";
+export function clientName(family: ActivityClientFamily | null): string {
+  return family === null ? "Your app" : CLIENT_FAMILY_NAMES[family];
 }
 
 function eventVerb(event: ActivityEvent): string {
@@ -154,11 +165,12 @@ function eventVerb(event: ActivityEvent): string {
 export function liveLine(
   facts: ActivityFacts | null,
   apps: readonly HomeApp[],
+  disconnected: ReadonlySet<string>,
   clock: Clock
 ): { text: string; key: string } | null {
   if (!facts) return null;
   if (facts.noteCount === 0) {
-    const first = apps[0]?.displayName;
+    const first = apps.find((app) => !disconnected.has(app.id))?.displayName;
     return {
       text: first ? `Waiting for the first note from ${first}` : "Waiting for the first note",
       key: "waiting",
@@ -167,7 +179,7 @@ export function liveLine(
   if (facts.newest) {
     const event = facts.newest;
     return {
-      text: `${clientName(event.client)} ${eventVerb(event)} · ${secondsAgo(event.at, clock.now)}`,
+      text: `${clientName(event.client)} ${eventVerb(event)} · ${secondsAgo(event.at, cellNow(facts, clock))}`,
       key: `${event.at}|${event.client}|${event.action}|${event.items}`,
     };
   }
@@ -180,7 +192,7 @@ export function liveLine(
 /** The first save on a new account. The note's path stays in the cell: the channel is content free. */
 export function firstNoteLine(facts: ActivityFacts | null, clock: Clock): string | null {
   if (!facts || facts.noteCount !== 1 || !facts.lastSave) return null;
-  return `saved by ${clientName(facts.lastSave.client)} ${ago(facts.lastSave.at, clock.now)}`;
+  return `saved by ${clientName(facts.lastSave.client)} ${ago(facts.lastSave.at, cellNow(facts, clock))}`;
 }
 
 // --- Headline and status line ---
@@ -211,7 +223,9 @@ export function statusCopy(
   clock: Clock
 ): { headline: string; statusLine: string | null } {
   const n = facts?.noteCount ?? null;
-  const saved = facts?.lastSave ? `last saved ${ago(facts.lastSave.at, clock.now)}` : null;
+  const saved = facts?.lastSave
+    ? `last saved ${ago(facts.lastSave.at, cellNow(facts, clock))}`
+    : null;
   switch (variant) {
     case "on":
       if (reviewer) {

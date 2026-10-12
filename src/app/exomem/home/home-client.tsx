@@ -84,6 +84,8 @@ export default function HomeClient() {
   const [appsFailed, setAppsFailed] = useState(false);
   const [levels, setLevels] = useState<HomeLevels | typeof NOT_RELEASED | null>(null);
   const [activity, setActivity] = useState<HomeActivity | typeof NOT_RELEASED | null>(null);
+  // The browser's time when the activity arrived: ages are read on the cell's clock.
+  const [activityAt, setActivityAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
   const [disconnected, setDisconnected] = useState<ReadonlySet<string>>(new Set());
@@ -178,7 +180,9 @@ export default function HomeClient() {
   const refreshActivity = useCallback(async () => {
     try {
       const next = await readActivity();
-      if (mounted.current) setActivity(next);
+      if (!mounted.current) return;
+      setActivity(next);
+      setActivityAt(Date.now());
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
     }
@@ -460,7 +464,7 @@ export default function HomeClient() {
 
   const variant = mode.variant;
   const live = isLive(variant);
-  const facts = activityFacts(activity);
+  const facts = activityFacts(activity, activityAt);
   const shownApps = apps ?? [];
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
@@ -490,7 +494,7 @@ export default function HomeClient() {
           live={live}
           headline={status_.headline}
           statusLine={status_.statusLine}
-          liveLine={variant === "ended" ? null : liveLine(facts, shownApps, clock)}
+          liveLine={variant === "ended" ? null : liveLine(facts, shownApps, disconnected, clock)}
         />
         {message}
         {checkoutReturn}
