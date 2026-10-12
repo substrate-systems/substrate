@@ -17,7 +17,7 @@ import {
 export type OperatorOAuthClient = {
   id: string;
   enabled: boolean;
-  admissionMode: "pinned" | "cimd" | "generic";
+  admissionMode: "pinned" | "cimd" | "generic" | "first_party";
   clientFingerprint: string;
   redirectDigest: string;
   redirectCount: number;
@@ -51,7 +51,8 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
       // list omitted would hide registered clients from the operator.
       (row.admission_mode !== "pinned" &&
         row.admission_mode !== "cimd" &&
-        row.admission_mode !== "generic") ||
+        row.admission_mode !== "generic" &&
+        row.admission_mode !== "first_party") ||
       typeof redirectCount !== "number" ||
       !Number.isSafeInteger(redirectCount) ||
       !(redirectDigest instanceof Uint8Array) ||
@@ -73,6 +74,47 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
       },
     ];
   });
+}
+
+export type OAuthClientPartitionHeadroom = { bound: number; used: number; free: number };
+export type OAuthClientHeadroom = {
+  operator: OAuthClientPartitionHeadroom;
+  autoRegistered: OAuthClientPartitionHeadroom;
+  generic: OAuthClientPartitionHeadroom;
+};
+
+// The partition names that `exomem_oauth_client_partitions` returns: the
+// schema's own closed set, mapped to this report's keys.
+const PARTITION_KEYS = {
+  operator: "operator",
+  auto_registered: "autoRegistered",
+  generic: "generic",
+} as const;
+
+/**
+ * Each client partition's bound and use, as the database enforces them. Counts
+ * only; no client identity. Throws rather than report a partition it could not
+ * read.
+ */
+export async function readOAuthClientHeadroom(): Promise<OAuthClientHeadroom> {
+  const { rows } = await executeExomemSql`
+    /* exomem:oauth-client-headroom */
+    SELECT client_partition, bound, used FROM exomem_oauth_client_partitions()
+  `;
+  const headroom: Partial<OAuthClientHeadroom> = {};
+  for (const raw of rows) {
+    const row = raw as { client_partition?: unknown; bound?: unknown; used?: unknown };
+    const key = PARTITION_KEYS[row.client_partition as keyof typeof PARTITION_KEYS];
+    const bound = Number(row.bound);
+    const used = Number(row.used);
+    if (!key || !Number.isSafeInteger(bound) || !Number.isSafeInteger(used)) {
+      throw new Error("OAUTH_CLIENT_HEADROOM_UNREADABLE");
+    }
+    headroom[key] = { bound, used, free: Math.max(bound - used, 0) };
+  }
+  const { operator, autoRegistered, generic } = headroom;
+  if (!operator || !autoRegistered || !generic) throw new Error("OAUTH_CLIENT_HEADROOM_UNREADABLE");
+  return { operator, autoRegistered, generic };
 }
 
 type OperatorClientWriteResult = { id: string; enabled: boolean };
@@ -300,6 +342,9 @@ export async function registerOperatorOAuthClient(
           )
         )
         AND exomem_oauth_clients.reviewer_bootstrap_ever_authorized = false
+        -- A first-party client is seeded by a migration and gets tokens only
+        -- from the server-side mint; an operator registration never rewrites it.
+        AND exomem_oauth_clients.admission_mode <> 'first_party'
       RETURNING id, enabled
     `;
     const row = rows[0] as { id: string; enabled: boolean } | undefined;
@@ -408,6 +453,10 @@ export async function setOperatorOAuthClientEnabled(input: {
             AND artifact.state IN ('pending', 'live')
             AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
           )
+          -- A retired client holds no slot, and an enabled one would be
+          -- admitted without one. An operator client, once retired, stays
+          -- retired: an operator registration of its client ID leaves it so.
+          AND client.retired_at IS NULL
         )
       )
     RETURNING id

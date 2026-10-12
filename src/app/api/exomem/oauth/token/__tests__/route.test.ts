@@ -11,6 +11,21 @@ const RESOURCE = "https://gateway.example.test/mcp";
 
 let exchangeResult: unknown = null;
 let rotateResult: unknown = null;
+let clientRegistered = true;
+// A connector's cached metadata, and whether fetching it again succeeds.
+let metadataFresh = true;
+let refetchSucceeds = false;
+// Whether the presented refresh token is live, and whether a rotation spent it.
+let refreshLive = true;
+let refreshSpent = false;
+// Runs when the route asks for the metadata state, after its rotation was refused.
+let beforeMetadataState: (() => void) | null = null;
+// Fetches of the connector's metadata, and the failures counted against its
+// limit, which the rate-limit mock below keeps like one real bucket.
+let refetches = 0;
+let refetchFailures = 0;
+const REFETCH_FAILURE_SCOPE = "test-connector-metadata-refetch-failure";
+const REFETCH_FAILURE_LIMIT = 10;
 
 before(() => {
   process.env.EXOMEM_CLOUD_MCP_URL = RESOURCE;
@@ -23,15 +38,45 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
-      takeExomemRateLimit: async () => true,
+      takeExomemRateLimit: async (rule: { scope: string }) => {
+        if (rule.scope !== REFETCH_FAILURE_SCOPE) return true;
+        refetchFailures += 1;
+        return refetchFailures <= REFETCH_FAILURE_LIMIT;
+      },
+      exomemRateLimitHasRoom: async () => refetchFailures < REFETCH_FAILURE_LIMIT,
       clientAddressKey: () => "test-address",
-      EXOMEM_RATE_LIMITS: { oauthTokenIp: { scope: "test", limit: 60, windowSeconds: 600 } },
+      EXOMEM_RATE_LIMITS: {
+        oauthTokenIp: { scope: "test", limit: 60, windowSeconds: 600 },
+        oauthConnectorMetadataRefetchFailureClient: {
+          scope: REFETCH_FAILURE_SCOPE,
+          limit: REFETCH_FAILURE_LIMIT,
+          windowSeconds: 600,
+        },
+      },
     },
   });
   mock.module("@/lib/exomem-hosted/oauth-store", {
     namedExports: {
       issueOAuthTokensFromCodeAtomic: async () => exchangeResult,
-      rotateOAuthRefreshTokenAtomic: async () => rotateResult,
+      oauthClientIsRegistered: async () => clientRegistered,
+      refreshCimdMetadataState: async () => {
+        beforeMetadataState?.();
+        if (!refreshLive || !clientRegistered) return "not_eligible";
+        return metadataFresh ? "fresh" : "lapsed";
+      },
+      registerAdmittedCimdClient: async () => {
+        refetches += 1;
+        if (!refetchSucceeds) return null;
+        metadataFresh = true;
+        return { id: "client-row" };
+      },
+      // Rotation needs fresh metadata, as the store's admission predicate does,
+      // and spends the refresh token only when it issues.
+      rotateOAuthRefreshTokenAtomic: async () => {
+        if (!metadataFresh || !refreshLive || refreshSpent || !rotateResult) return null;
+        refreshSpent = true;
+        return rotateResult;
+      },
     },
   });
 });
@@ -45,6 +90,14 @@ after(() => {
 beforeEach(() => {
   exchangeResult = null;
   rotateResult = null;
+  clientRegistered = true;
+  metadataFresh = true;
+  refetchSucceeds = false;
+  refreshLive = true;
+  refreshSpent = false;
+  beforeMetadataState = null;
+  refetches = 0;
+  refetchFailures = 0;
 });
 
 function post(fields: Record<string, string>): Request {
@@ -195,6 +248,206 @@ describe("POST /api/exomem/oauth/token", () => {
       !JSON.stringify(record).includes(REFRESH),
       "the refresh token must never reach the log"
     );
+  });
+
+  // A retired generic client's app keeps sending its old client ID. MCP SDK
+  // clients register again only on invalid_client; on invalid_grant they retry
+  // the dead ID at /authorize, which refuses it without a redirect.
+  const refusedGrants: Array<{ kind: string; fields: Record<string, string> }> = [
+    {
+      kind: "code exchange",
+      fields: {
+        grant_type: "authorization_code",
+        code: CODE,
+        client_id: "retired-client",
+        redirect_uri: "http://127.0.0.1:43123/callback",
+        code_verifier: VERIFIER,
+        resource: RESOURCE,
+      },
+    },
+    {
+      kind: "refresh",
+      fields: {
+        grant_type: "refresh_token",
+        refresh_token: REFRESH,
+        client_id: "retired-client",
+        resource: RESOURCE,
+      },
+    },
+  ];
+  for (const grant of refusedGrants) {
+    it(`answers invalid_client to a ${grant.kind} from a client that holds no registration`, async () => {
+      clientRegistered = false;
+      const { response, record } = await withControlPlaneKey(() => capture(post(grant.fields)));
+
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { error: "invalid_client" });
+      assert.equal(record?.client_registered, false);
+    });
+  }
+
+  // A connector's metadata document is cached for a day, and refresh needs it
+  // fresh. Before the re-fetch, every ChatGPT connector had to be connected
+  // again a day after its last authorization.
+  it("fetches a connector's expired metadata again at refresh, then rotates", async () => {
+    metadataFresh = false;
+    refetchSucceeds = true;
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "https://chatgpt.example.test/client.json",
+          resource: RESOURCE,
+        })
+      )
+    );
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { access_token?: string; refresh_token?: string };
+    assert.ok(body.access_token && body.refresh_token);
+  });
+
+  // In a herd, another request's fetch can commit after this request's rotation
+  // was refused. invalid_grant here would make a live token's client drop it.
+  it("rotates again when another request's fetch made the metadata fresh in between", async () => {
+    metadataFresh = false;
+    refetchSucceeds = false;
+    beforeMetadataState = () => {
+      metadataFresh = true;
+    };
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "https://claude.example.test/client.json",
+          resource: RESOURCE,
+        })
+      )
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(refetches, 0);
+  });
+
+  // Many clients drop their tokens on invalid_grant. A failed fetch at a shared
+  // client's expiry must leave every user's refresh token working.
+  it("answers a retryable server error when the metadata cannot be fetched, and keeps the refresh token", async () => {
+    metadataFresh = false;
+    refetchSucceeds = false;
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const refresh = () =>
+      withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "https://chatgpt.example.test/client.json",
+            resource: RESOURCE,
+          })
+        )
+      );
+
+    const { response, record } = await refresh();
+    assert.equal(response.status, 503);
+    assert.equal(((await response.json()) as { error?: string }).error, "server_error");
+    assert.equal(record?.stage, "refresh_metadata_unavailable");
+    assert.equal(refreshSpent, false);
+
+    refetchSucceeds = true;
+    assert.equal((await refresh()).response.status, 200);
+  });
+
+  it("keeps invalid_grant for a refresh token that is not live while the metadata lapsed", async () => {
+    metadataFresh = false;
+    refreshLive = false;
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "https://chatgpt.example.test/client.json",
+          resource: RESOURCE,
+        })
+      )
+    );
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "invalid_grant" });
+    assert.equal(refetches, 0);
+  });
+
+  // One claude.ai client ID serves every Claude user. When its metadata lapses,
+  // each refresh that arrives while the first fetch runs fetches too, and none
+  // of them may be refused for it.
+  it("never refuses a herd of refreshes whose re-fetches succeed", async () => {
+    refetchSucceeds = true;
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const herd = REFETCH_FAILURE_LIMIT * 3;
+    for (let refresh = 0; refresh < herd; refresh += 1) {
+      // Each refresh is another user's token, arriving while the metadata lapsed.
+      metadataFresh = false;
+      refreshSpent = false;
+      const { response } = await withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "https://claude.example.test/client.json",
+            resource: RESOURCE,
+          })
+        )
+      );
+      assert.equal(response.status, 200);
+    }
+    assert.equal(refetches, herd);
+  });
+
+  // A document that keeps failing must not be fetched on every refresh.
+  it("answers without a fetch once repeated failures spend the limit", async () => {
+    metadataFresh = false;
+    refetchSucceeds = false;
+    for (let refresh = 0; refresh <= REFETCH_FAILURE_LIMIT; refresh += 1) {
+      const { response } = await withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "https://chatgpt.example.test/client.json",
+            resource: RESOURCE,
+          })
+        )
+      );
+      assert.equal(response.status, 503);
+    }
+    assert.equal(refetches, REFETCH_FAILURE_LIMIT);
   });
 
   it("names an unsupported grant type", async () => {

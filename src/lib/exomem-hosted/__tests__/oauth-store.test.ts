@@ -91,7 +91,7 @@ describe("Exomem OAuth token store", () => {
     );
     const attach = source.slice(
       source.indexOf("exomem:attach-existing-owner-oauth"),
-      source.indexOf("exomem:prune-expired-oauth-state")
+      source.indexOf("exomem:prune-unlink-expired-transactions")
     );
     const codeExchange = source.slice(
       source.indexOf("exomem:oauth-code-exchange"),
@@ -206,20 +206,6 @@ describe("Exomem OAuth token store", () => {
   });
 
   it("retains refresh lineage and replay evidence until its family expires", async () => {
-    let query = "";
-    setSqlForTests(async (strings) => {
-      query = strings.join("?");
-      return { rows: [] };
-    });
-
-    await pruneExpiredOAuthState();
-
-    assert.match(query, /NOT EXISTS\s*\(\s*SELECT 1 FROM exomem_oauth_refresh_tokens AS child/i);
-    assert.match(query, /family\.expires_at <= now\(\)/i);
-    assert.doesNotMatch(query, /family\.revoked_at < now\(\) - interval '1 day'/i);
-  });
-
-  it("takes the exclusive cohort lock before disabling expired CIMD clients", async () => {
     const queries: string[] = [];
     setSqlForTests(async (strings) => {
       queries.push(strings.join("?"));
@@ -227,11 +213,41 @@ describe("Exomem OAuth token store", () => {
     });
 
     await pruneExpiredOAuthState();
+    const query =
+      queries.find((text) => text.includes("exomem:prune-expired-refresh-tokens")) ?? "";
 
-    assert.match(queries[0] ?? "", /pg_advisory_xact_lock\(/i);
-    assert.doesNotMatch(queries[0] ?? "", /pg_advisory_xact_lock_shared/i);
-    assert.match(queries[1] ?? "", /UPDATE exomem_oauth_clients/i);
-    assert.match(queries[1] ?? "", /admission_mode = 'cimd'/i);
+    assert.match(query, /NOT EXISTS\s*\(\s*SELECT 1 FROM exomem_oauth_refresh_tokens AS child/i);
+    assert.match(query, /family\.expires_at <= now\(\)/i);
+    assert.doesNotMatch(query, /family\.revoked_at < now\(\) - interval '1 day'/i);
+  });
+
+  // Every authorization and refresh waits on the cohort lock while the sweep
+  // holds it exclusively. Deletes under it held that wait for seconds.
+  it("deletes expired credentials outside the cohort lock, and disables clients under it", async () => {
+    const outside: string[] = [];
+    const locked: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      outside.push(strings.join("?"));
+      return { rows: [] };
+    });
+    __setExomemTransactionForTests(async (callback) =>
+      callback(async (strings) => {
+        locked.push(strings.join("?"));
+        return { rows: [] };
+      })
+    );
+
+    await pruneExpiredOAuthState();
+
+    assert.ok(outside.some((query) => /DELETE FROM exomem_oauth_refresh_tokens/i.test(query)));
+    assert.ok(
+      locked.every((query) => !/DELETE FROM/i.test(query)),
+      "no delete holds the lock"
+    );
+    assert.match(locked[0] ?? "", /pg_advisory_xact_lock\(/i);
+    assert.doesNotMatch(locked[0] ?? "", /pg_advisory_xact_lock_shared/i);
+    assert.match(locked[1] ?? "", /UPDATE exomem_oauth_clients/i);
+    assert.match(locked[1] ?? "", /admission_mode = 'cimd'/i);
   });
 
   it("revokes one family only for its owner and tenant", async () => {

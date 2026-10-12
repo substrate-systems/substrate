@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
-import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
+import { cloudExportsEnabled, readCloudExport } from "@/lib/exomem-hosted/cloud-exports";
+import { getOwnerCloudHomeStatus } from "@/lib/exomem-hosted/cloud-status";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 
@@ -25,10 +26,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       "cache-control": "private, no-store, max-age=0",
       "x-robots-tag": "noindex, nofollow",
     };
-    const status = await getOwnerCloudStatus(session.tenantId);
+    const { status, storage } = await getOwnerCloudHomeStatus(session.tenantId);
+    // The export row rides the poll once the export release flag is on.
+    const exportSummary = cloudExportsEnabled() ? await readCloudExport(session) : undefined;
     const connectorUrl = cloudConnectorUrl();
     return NextResponse.json(
-      { success: true, status, ...(connectorUrl ? { cloudConnectorUrl: connectorUrl } : {}) },
+      {
+        success: true,
+        status,
+        storage,
+        ...(exportSummary ? { export: exportSummary } : {}),
+        ...(connectorUrl ? { cloudConnectorUrl: connectorUrl } : {}),
+      },
       { headers }
     );
   } catch (error) {

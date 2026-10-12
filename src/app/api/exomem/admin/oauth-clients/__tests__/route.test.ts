@@ -14,6 +14,11 @@ let listed = [
     metadataExpiresAt: null,
   },
 ];
+const headroom = {
+  operator: { bound: 96, used: 40, free: 56 },
+  autoRegistered: { bound: 128, used: 128, free: 0 },
+  generic: { bound: 128, used: 3, free: 125 },
+};
 let updated: Record<string, unknown> | null = null;
 let registered: Record<string, unknown> | null = null;
 let reusePreflight: Record<string, unknown> | null = null;
@@ -35,6 +40,7 @@ before(() => {
   mock.module("@/lib/exomem-hosted/operator-controls", {
     namedExports: {
       listOperatorOAuthClients: async () => listed,
+      readOAuthClientHeadroom: async () => headroom,
       setOperatorOAuthClientEnabled: async (input: Record<string, unknown>) => {
         updated = input;
         return true;
@@ -97,7 +103,9 @@ describe("Exomem operator OAuth client controls", () => {
     assert.equal((await GET(request("GET"))).status, 401);
     const response = await GET(request("GET", { authorization: `Bearer ${ADMIN_TOKEN}` }));
     assert.equal(response.status, 200);
-    assert.equal((await response.text()).includes(SENTINEL), false);
+    const text = await response.text();
+    assert.equal(text.includes(SENTINEL), false);
+    assert.deepEqual(JSON.parse(text).headroom, headroom, "each partition's headroom, counts only");
   });
 
   it("accepts one bounded opaque client mutation", async () => {
