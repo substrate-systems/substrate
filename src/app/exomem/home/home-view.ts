@@ -153,7 +153,7 @@ const CLIENT_FAMILY_NAMES: Record<ActivityClientFamily, string> = {
   other: "Your app",
 };
 
-export function clientName(family: ActivityClientFamily | null): string {
+function clientName(family: ActivityClientFamily | null): string {
   return family === null ? "Your app" : CLIENT_FAMILY_NAMES[family];
 }
 
@@ -450,7 +450,7 @@ export function deletionLinkMinutes(
 
 // --- Involvement levels ---
 
-export const LEVEL_ROWS: readonly { context: LevelContext; title: string }[] = [
+const LEVEL_ROWS: readonly { context: LevelContext; title: string }[] = [
   { context: "conversation", title: "Chat apps" },
   { context: "coding", title: "Coding agents" },
 ];

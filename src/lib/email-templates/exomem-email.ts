@@ -97,7 +97,7 @@ const SENDER = "Exomem";
 const MONO = "'IBM Plex Mono', Menlo, Consolas, monospace";
 const SANS = "Inter, Helvetica, Arial, sans-serif";
 
-export function escapeHtml(value: string): string {
+function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

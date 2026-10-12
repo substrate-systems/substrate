@@ -73,7 +73,7 @@ export type ExomemEmailAddressee = { email: string; timeZone: string | null };
  * A deadline still applies while the row waits: the claim fails a row whose
  * `expires_at` has passed before it looks at `NotYet`.
  */
-export class NotYet {
+class NotYet {
   constructor(readonly until: Date) {}
 }
 

@@ -307,7 +307,7 @@ export function renderExomemConfirmNewEmailEmail(input: {
  * "m•••@example.com": the board's mask for the new address in 16b. Only the
  * first character of the local part shows.
  */
-export function maskEmailAddress(address: string): string {
+function maskEmailAddress(address: string): string {
   const at = address.lastIndexOf("@");
   if (at < 1) return "•••";
   return `${[...address.slice(0, at)][0]}•••${address.slice(at)}`;

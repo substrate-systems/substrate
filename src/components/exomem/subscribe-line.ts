@@ -5,7 +5,7 @@
 import type { PaddlePricePreview } from "@/lib/paddle";
 
 /** "€10.00 per month, including tax": Paddle's total, its billing cycle and tax. */
-export function subscribePrice(price: PaddlePricePreview): string {
+function subscribePrice(price: PaddlePricePreview): string {
   const cycle = price.billingCycle;
   const cadence = !cycle
     ? ""

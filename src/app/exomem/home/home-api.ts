@@ -88,7 +88,7 @@ async function send(
 }
 
 /** The refusal code and retry hint in an error envelope, when it has them. */
-export function refusal(body: Record<string, unknown> | null): {
+function refusal(body: Record<string, unknown> | null): {
   code: string | null;
   retryAfterMs: number | null;
 } {
@@ -126,7 +126,7 @@ function parseStorage(value: unknown): HomeStorage | null {
 
 const EXPORT_STATES = new Set(["none", "packing", "ready", "expired", "failed"]);
 
-export function parseExport(value: unknown): HomeExport | null {
+function parseExport(value: unknown): HomeExport | null {
   const summary = record(value);
   if (!summary || typeof summary.pauses_assistants !== "boolean") return null;
   if (typeof summary.state !== "string" || !EXPORT_STATES.has(summary.state)) return null;
