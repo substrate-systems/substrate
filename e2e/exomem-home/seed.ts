@@ -9,6 +9,7 @@ import { Pool } from "pg";
 import { randomCloudCellId } from "../../src/lib/exomem-hosted/cloud-admission";
 import { digestSecret, generateExternalToken } from "../../src/lib/exomem-hosted/security";
 import { homeE2eEnvironment } from "./environment";
+import type { SentEmail } from "./fake-brevo";
 
 const environment = homeE2eEnvironment();
 export const pool = new Pool({ connectionString: environment.databaseUrl, max: 4 });
@@ -233,6 +234,23 @@ export async function setCell(owner: Owner, patch: Record<string, unknown>) {
 export async function cellState(owner: Owner) {
   const response = await fetch(`${environment.controlUrl}/__control/${owner.tenantId}`);
   return response.json();
+}
+
+/** The emails the Brevo stand-in accepted for this owner, oldest first. */
+export async function emailsTo(owner: Owner): Promise<SentEmail[]> {
+  const response = await fetch(
+    `${environment.mailUrl}/__mail?to=${encodeURIComponent(owner.email)}`
+  );
+  return response.json();
+}
+
+/** Every later email to this owner fails at the provider, as in an outage. */
+export async function refuseEmailTo(owner: Owner) {
+  const response = await fetch(`${environment.mailUrl}/__mail/refuse`, {
+    method: "POST",
+    body: JSON.stringify({ to: owner.email }),
+  });
+  if (!response.ok) throw new Error(`fake Brevo control failed: ${response.status}`);
 }
 
 /** A deletion link as the confirmation email carries it; the raw token goes in the fragment. */

@@ -1,5 +1,6 @@
 // Starts what Home's end-to-end tests run against: the gateway-and-cell stand-in over
-// TLS, then the production Next server pointed at it and at the test database.
+// TLS and the Brevo stand-in, then the production Next server pointed at them and at
+// the test database.
 // Playwright's webServer runs this; it also serves a manual look in a browser:
 //
 //   DATABASE_URL=postgresql://… npx tsx e2e/exomem-home/serve.ts
@@ -11,6 +12,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { startFakeBrevo } from "./fake-brevo";
 import { startFakeCell } from "./fake-cell";
 import { homeE2eEnvironment } from "./environment";
 
@@ -50,6 +52,7 @@ async function main() {
     cert: readFileSync(certPath, "utf8"),
     resource: environment.mcpUrl,
   });
+  const mail = await startFakeBrevo({ port: environment.mailPort, apiKey: environment.mailApiKey });
 
   const next = spawn("npx", ["next", "start", "--port", String(environment.port)], {
     stdio: "inherit",
@@ -62,7 +65,7 @@ async function main() {
 
   const stop = async () => {
     next.kill("SIGTERM");
-    await cell.close();
+    await Promise.all([cell.close(), mail.close()]);
     rmSync(certificates, { recursive: true, force: true });
   };
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

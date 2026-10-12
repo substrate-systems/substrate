@@ -1,9 +1,9 @@
 // Home's workflows, driven through the real routes against a real database. Each test
-// makes its own owner, so the tests share nothing but the server. The cell answers
-// through the stand-in in fake-cell.ts.
+// makes its own owner, so the tests share nothing but the server. The cell and Brevo
+// answer through the stand-ins in fake-cell.ts and fake-brevo.ts.
 
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
 import {
   connectApp,
   createDeletionLink,
@@ -19,6 +19,8 @@ import {
   signIn,
   tenantStatus,
   cellState,
+  emailsTo,
+  refuseEmailTo,
 } from "./seed";
 
 const DAY = 86_400_000;
@@ -35,15 +37,25 @@ async function seriousViolations(page: Page) {
     .analyze();
   return results.violations
     .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
-    .map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`);
+    .map(
+      (violation) => `${violation.id}: ${violation.nodes.map((node) => node.target).join(", ")}`
+    );
 }
 
 function panel(page: Page, title: string) {
   return page.locator("section").filter({ has: page.getByRole("heading", { name: title }) });
 }
 
-test.afterAll(async () => {
-  await pool.end();
+// A worker runs tests from this file in any order, so the seed's pool closes once, when
+// the worker stops, not after a group of tests.
+const test = base.extend<object, { database: void }>({
+  database: [
+    async ({}, use) => {
+      await use();
+      await pool.end();
+    },
+    { scope: "worker", auto: true },
+  ],
 });
 
 test("Home shows the account's own values and calls only routes a Cloud account has", async ({
@@ -186,11 +198,29 @@ test("an export packs, becomes ready, and Download follows a fresh link", async 
   expect((await download).url()).toBe(downloadUrl);
 });
 
+test("a checkout return that cannot be checked says so on Home, and Not now clears it", async ({
+  page,
+}) => {
+  // An owner who already pays returns from an old checkout link; the server refuses it.
+  const owner = await createOwner();
+  await signIn(page.context(), owner);
+  await page.goto(`/exomem/home?_ptxn=txn_${"a".repeat(26)}`);
+
+  const failure = page.getByText("We couldn't reconnect to checkout. Your Exomem account is safe.");
+  await expect(failure).toBeVisible();
+  expect(new URL(page.url()).search).toBe("");
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(failure).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Your memory is on" })).toBeVisible();
+  await expect(failure).toBeHidden();
+});
+
 test("a confirmation email that cannot be sent deletes nothing, and Home says so", async ({
   page,
 }) => {
-  // The test server has no email provider key, so the send fails as an outage would.
   const owner = await createOwner();
+  await refuseEmailTo(owner);
   await openHome(page, owner);
 
   await panel(page, "Your data").getByRole("button", { name: "Delete…" }).click();
@@ -199,16 +229,31 @@ test("a confirmation email that cannot be sent deletes nothing, and Home says so
 
   await expect(dialog.getByRole("alert")).toHaveText("That didn’t finish. Try again in a minute.");
   expect(await tenantStatus(owner)).toBe("active");
+  expect(await emailsTo(owner)).toEqual([]);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
 });
 
-test("the deletion link deletes only after the owner confirms on the page", async ({ page }) => {
+test("Delete emails a link, and the link deletes only after the owner confirms", async ({
+  page,
+}) => {
   const owner = await createOwner({ plan: "complimentary" });
-  const token = await createDeletionLink(owner);
-  await signIn(page.context(), owner);
+  await openHome(page, owner);
 
-  await page.goto(`/exomem/delete#${token}`);
+  await panel(page, "Your data").getByRole("button", { name: "Delete…" }).click();
+  await page
+    .getByRole("dialog", { name: "Delete your Exomem?" })
+    .getByRole("button", { name: "Email me a confirmation link" })
+    .click();
+
+  // The minutes come from the link's expiry that the server returns.
+  const sent = page.getByRole("dialog", { name: "Check your email" });
+  await expect(sent.getByText("It works for 15 minutes.", { exact: false })).toBeVisible();
+  const [email] = await emailsTo(owner);
+  // The email links to the configured public origin; the test opens the same path here.
+  const link = email.textContent.match(/https:\/\/app\.example\.test(\/exomem\/delete#[\w-]+)/);
+  expect(link).not.toBeNull();
+  await page.goto(link![1]);
   await expect(page.getByText("There is no undo after you confirm.")).toBeVisible();
   // Opening the link reads the token from the address and clears it; nothing is deleted yet.
   expect(new URL(page.url()).hash).toBe("");
