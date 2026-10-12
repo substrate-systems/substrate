@@ -6,7 +6,11 @@ import {
   type ExomemPaddleConfig,
   type ExomemPaddleEnvironment,
 } from "./paddle-config";
-import { cancelExomemCheckoutTransaction, type PaddleTransport } from "./paddle-billing";
+import {
+  cancelExomemCheckoutTransaction,
+  ExomemBillingError,
+  type PaddleTransport,
+} from "./paddle-billing";
 
 export type BillingDeletionTarget = {
   tenantId: string;
@@ -136,6 +140,44 @@ async function cancelSubscription(
   }
 }
 
+/**
+ * An ended owner may have opened a resubscribe checkout before they
+ * confirmed deletion, and its transaction stays bound to the cancelled
+ * entitlement. A deleted account must never be payable, so the open
+ * transaction is cancelled at Paddle, and a subscription it already paid
+ * for is cancelled at once. True only on that proof. A transaction that
+ * Paddle reports under another owner cannot pay for this account.
+ */
+async function endResubscribeTransaction(
+  target: BillingDeletionTarget & {
+    transactionRef: string;
+    providerEnvironment: ExomemPaddleEnvironment;
+  },
+  config: ExomemPaddleConfig,
+  transport: PaddleTransport
+): Promise<boolean> {
+  let transaction: Awaited<ReturnType<typeof cancelExomemCheckoutTransaction>>;
+  try {
+    transaction = await cancelExomemCheckoutTransaction(
+      {
+        userId: target.userId,
+        tenantId: target.tenantId,
+        transactionId: target.transactionRef,
+        environment: target.providerEnvironment,
+      },
+      { config, transport }
+    );
+  } catch (error) {
+    return error instanceof ExomemBillingError && error.code === "EXOMEM_TRANSACTION_NOT_OWNED";
+  }
+  if (transaction.state === "canceled") return true;
+  // Also the ended subscription's own transaction: cancelling an ended
+  // subscription again is read back as cancelled, and a subscription bound
+  // by resubscribe recovery but not yet reconciled is caught here too.
+  assertExomemPaddlePurpose(config, "portal");
+  return cancelSubscription(transaction.subscriptionId, transport);
+}
+
 export async function terminateExomemBillingForDeletion(
   tenantId: string,
   dependencies?: Partial<BillingDeletionDependencies>
@@ -159,6 +201,20 @@ export async function terminateExomemBillingForDeletion(
     try {
       const config = deps.config ?? loadExomemPaddleConfig();
       if (config.environment !== target.providerEnvironment) return null;
+      if (
+        target.transactionRef &&
+        !(await endResubscribeTransaction(
+          {
+            ...target,
+            transactionRef: target.transactionRef,
+            providerEnvironment: target.providerEnvironment,
+          },
+          config,
+          deps.transport
+        ))
+      ) {
+        return null;
+      }
       return target;
     } catch {
       return null;

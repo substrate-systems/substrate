@@ -122,6 +122,12 @@ Checkout SHALL accept a self-serve owner and an owner whose subscription ended i
 - **WHEN** an owner confirms the account's deletion before or while checkout reopens a transaction
 - **THEN** the server refuses and returns no payable checkout
 
+#### Scenario: Deletion finishes with a resubscribe checkout bound
+
+- **WHEN** the deletion of an ended owner's account finishes while a resubscribe transaction is bound to it
+- **THEN** the system cancels that transaction at Paddle, or cancels at once the subscription it already paid for, before it scrubs the account
+- **AND** the deletion waits while Paddle gives no proof
+
 #### Scenario: Friend discount changes after a checkout opened
 
 - **WHEN** an owner with a friend offer reopens checkout and the friend discount is missing from the configuration or fails its checks at Paddle
