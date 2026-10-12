@@ -138,6 +138,12 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           provider_customer_ref = NULL,
           provider_subscription_ref = NULL,
           provider_transaction_ref = NULL,
+          provider_price_id = NULL,
+          provider_price_name = NULL,
+          provider_next_billed_at = NULL,
+          provider_discount_id = NULL,
+          provider_scheduled_change_at = NULL,
+          grace_started_at = NULL,
           effective_state = 'deleted',
           capabilities = '[]'::jsonb,
           updated_at = now()

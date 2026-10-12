@@ -273,7 +273,10 @@ async function activateSubscription(tenant: AdmittedTenant): Promise<Subscriptio
      SET source = 'paddle', source_state = 'active', effective_state = 'active',
          provider_environment = 'sandbox', provider_customer_ref = $2,
          provider_subscription_ref = $3, provider_transaction_ref = $4,
-         source_revision = $5, source_occurred_at = now()
+         source_revision = $5, source_occurred_at = now(),
+         provider_price_id = 'pri_monthly_example', provider_price_name = 'Monthly',
+         provider_next_billed_at = now() + interval '30 days', provider_discount_id = 'dsc_friend_example',
+         provider_scheduled_change_at = now() + interval '30 days', grace_started_at = now()
      WHERE tenant_id = $1`,
     [
       tenant.tenantId,
@@ -575,7 +578,9 @@ async function assertFinishedReceipt(
   const entitlement = await pool!.query(
     `SELECT source_state, effective_state, capabilities, provider_environment,
             provider_customer_ref, provider_subscription_ref, provider_transaction_ref,
-            provider_provenance_unresolved_fingerprint
+            provider_provenance_unresolved_fingerprint, provider_price_id, provider_price_name,
+            provider_next_billed_at, provider_discount_id, provider_scheduled_change_at,
+            grace_started_at
      FROM exomem_entitlements WHERE tenant_id = $1`,
     [tenant.tenantId]
   );
@@ -588,6 +593,12 @@ async function assertFinishedReceipt(
     provider_subscription_ref: null,
     provider_transaction_ref: null,
     provider_provenance_unresolved_fingerprint: null,
+    provider_price_id: null,
+    provider_price_name: null,
+    provider_next_billed_at: null,
+    provider_discount_id: null,
+    provider_scheduled_change_at: null,
+    grace_started_at: null,
   });
 
   const cells = await pool!.query(

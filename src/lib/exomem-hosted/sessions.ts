@@ -20,7 +20,6 @@ export const EXOMEM_CSRF_HEADER = "x-exomem-csrf";
 export const EXOMEM_MAGIC_CHALLENGE_COOKIE = "exomem_magic_challenge";
 export const EXOMEM_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const EXOMEM_MAGIC_CHALLENGE_TTL_MS = 15 * 60 * 1000;
-export const EXOMEM_SESSION_MAX_AGE_S = Math.floor(EXOMEM_SESSION_TTL_MS / 1000);
 
 export type SessionMaterial = {
   sessionToken: string;
@@ -187,14 +186,17 @@ export function validateMutationRequest(
 
 export function applySessionCookies(
   response: NextResponse,
-  material: Pick<SessionMaterial, "sessionToken" | "csrfToken" | "expiresAt">
+  material: Pick<SessionMaterial, "sessionToken" | "csrfToken" | "expiresAt">,
+  now: Date = new Date()
 ): void {
   const common = {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
     path: "/",
     expires: material.expiresAt,
-    maxAge: EXOMEM_SESSION_MAX_AGE_S,
+    // Browsers prefer Max-Age to Expires, so it must end with the session row,
+    // including a session capped earlier than the usual seven days.
+    maxAge: Math.max(0, Math.floor((material.expiresAt.getTime() - now.getTime()) / 1000)),
   };
   response.cookies.set(EXOMEM_SESSION_COOKIE, material.sessionToken, {
     ...common,

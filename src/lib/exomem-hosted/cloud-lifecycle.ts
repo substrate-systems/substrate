@@ -61,6 +61,18 @@ export type CloudEntitlementSnapshot = {
 };
 
 /**
+ * The last instant a cancelled tenant's memory is kept (read-only) before its
+ * cell becomes `deleted`. `sourceOccurredAt` moves with every later applied
+ * provider event, so the date can move too.
+ */
+export function cloudCancelledKeptUntil(
+  sourceOccurredAt: Date,
+  retentionDays: number = DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS
+): Date {
+  return new Date(sourceOccurredAt.getTime() + retentionDays * 24 * 60 * 60 * 1000);
+}
+
+/**
  * D4's full mapping, including the cancelled-tenant export window: `read_only`
  * while within `cancelledRetentionDays` of the entitlement's last transition,
  * `deleted` once that window has elapsed. Resubscribing within the window
@@ -82,11 +94,13 @@ export function desiredCloudCellState(
   const base = mapEntitlementToCloudDesiredState(entitlement);
   if (entitlement.effectiveState !== "cancelled") return base;
 
-  const retentionDays = options.cancelledRetentionDays ?? DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS;
   if (!snapshot.sourceOccurredAt) return "read_only";
   const now = options.now ?? new Date();
-  const elapsedMs = now.getTime() - snapshot.sourceOccurredAt.getTime();
-  return elapsedMs >= retentionDays * 24 * 60 * 60 * 1000 ? "deleted" : "read_only";
+  const keptUntil = cloudCancelledKeptUntil(
+    snapshot.sourceOccurredAt,
+    options.cancelledRetentionDays
+  );
+  return now.getTime() >= keptUntil.getTime() ? "deleted" : "read_only";
 }
 
 type EntitlementRow = {

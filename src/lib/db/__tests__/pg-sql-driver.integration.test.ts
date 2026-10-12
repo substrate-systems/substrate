@@ -198,6 +198,12 @@ describe("standard PostgreSQL driver (design D6)", { skip: !DATABASE_URL }, () =
         productId: null,
         priceId: null,
       },
+      subscriptionFacts: {
+        priceName: null,
+        nextBilledAt: null,
+        discountId: null,
+        scheduledChangeAt: null,
+      },
     });
     // No matching tenant/entitlement exists in this scoped schema, so the
     // decision CTE correctly reports "ignored" — this proves the round trip

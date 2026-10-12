@@ -9,6 +9,8 @@ import {
 } from "./paddle-config";
 import {
   mapPaddleSubscriptionState,
+  paddleExomemItem,
+  paddleSubscriptionFacts,
   type AtomicExomemPaddleEventStore,
   type ExomemPaddleEventApplication,
   type ExomemPaddleStoreResult,
@@ -76,14 +78,8 @@ export async function reconcileExomemPaddleSubscription(
   const state = mapPaddleSubscriptionState(data.status);
   if (!state) throw invalid();
 
-  const items = Array.isArray(data.items) ? data.items : [];
-  const catalogMatch = items.some(
-    (item) =>
-      isRecord(item) &&
-      isRecord(item.price) &&
-      item.price.product_id === dependencies.config.productId
-  );
-  if (!catalogMatch) throw invalid();
+  const item = paddleExomemItem(data, dependencies.config.productId);
+  if (!item || item.productId !== dependencies.config.productId) throw invalid();
 
   const customData = isRecord(data.custom_data) ? data.custom_data : null;
   if (customData) {
@@ -103,14 +99,17 @@ export async function reconcileExomemPaddleSubscription(
   const sourceTime = stringValue(data.updated_at) ?? observedAt.toISOString();
   if (!Number.isFinite(Date.parse(sourceTime))) throw invalid();
   const occurredAt = new Date(sourceTime).toISOString();
+  // v2 also stores the subscription facts. A new id, which sorts after the
+  // unversioned one, lets one pass refresh rows reconciled before v2 existed.
+  const eventId = `reconcile:v2:${target.tenantId}:${occurredAt}`;
   const application: ExomemPaddleEventApplication = {
-    eventId: `reconcile:${target.tenantId}:${occurredAt}`,
+    eventId,
     eventType: "subscription.reconciled",
     environment: target.environment,
     origin: "reconciliation",
     revision: {
       occurredAt,
-      eventId: `reconcile:${target.tenantId}:${occurredAt}`,
+      eventId,
     },
     correlation: {
       productKey: EXOMEM_PADDLE_PRODUCT_KEY,
@@ -125,8 +124,9 @@ export async function reconcileExomemPaddleSubscription(
       subscriptionId,
       transactionId: null,
       productId: dependencies.config.productId,
-      priceId: null,
+      priceId: item.priceId,
     },
+    subscriptionFacts: paddleSubscriptionFacts(data, item),
   };
   return dependencies.store.applyVerifiedEventAndMarkProcessedAtomically(application);
 }

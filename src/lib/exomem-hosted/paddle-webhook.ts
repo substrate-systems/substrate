@@ -38,6 +38,15 @@ export type ExomemPaddleEventApplication = Readonly<{
     productId: string | null;
     priceId: string | null;
   };
+  /** Stored only for `subscription.*` events; null when Paddle reports no value. */
+  subscriptionFacts: PaddleSubscriptionFacts;
+}>;
+
+export type PaddleSubscriptionFacts = Readonly<{
+  priceName: string | null;
+  nextBilledAt: string | null;
+  discountId: string | null;
+  scheduledChangeAt: string | null;
 }>;
 
 export type ExomemPaddleStoreResult = Readonly<{
@@ -151,10 +160,13 @@ function internalUuid(value: unknown): string | null {
   return candidate && INTERNAL_UUID.test(candidate) ? candidate.toLowerCase() : null;
 }
 
-function itemReferences(data: Record<string, unknown>): Array<{
+type PaddleItemReference = {
   productId: string | null;
   priceId: string | null;
-}> {
+  priceName: string | null;
+};
+
+function itemReferences(data: Record<string, unknown>): PaddleItemReference[] {
   if (!Array.isArray(data.items)) return [];
   return data.items.flatMap((item) => {
     if (!isRecord(item) || !isRecord(item.price)) return [];
@@ -162,10 +174,50 @@ function itemReferences(data: Record<string, unknown>): Array<{
       {
         productId: nonEmptyString(item.price.product_id),
         priceId: nonEmptyString(item.price.id),
+        priceName: nonEmptyString(item.price.name),
       },
     ];
   });
 }
+
+/** The Exomem item of a Paddle payload: the configured product, else the first item. */
+export function paddleExomemItem(
+  data: Record<string, unknown>,
+  productId: string | null
+): PaddleItemReference | null {
+  const references = itemReferences(data);
+  return references.find((item) => item.productId === productId) ?? references[0] ?? null;
+}
+
+function providerTimestamp(value: unknown): string | null {
+  const text = nonEmptyString(value);
+  return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : null;
+}
+
+/**
+ * Reads a Paddle subscription entity the same way for a webhook and for
+ * reconciliation, so both store the same facts for the same subscription.
+ */
+export function paddleSubscriptionFacts(
+  data: Record<string, unknown>,
+  item: PaddleItemReference | null
+): PaddleSubscriptionFacts {
+  return {
+    priceName: item?.priceName ?? null,
+    nextBilledAt: providerTimestamp(data.next_billed_at),
+    discountId: isRecord(data.discount) ? nonEmptyString(data.discount.id) : null,
+    scheduledChangeAt: isRecord(data.scheduled_change)
+      ? providerTimestamp(data.scheduled_change.effective_at)
+      : null,
+  };
+}
+
+const NO_SUBSCRIPTION_FACTS: PaddleSubscriptionFacts = Object.freeze({
+  priceName: null,
+  nextBilledAt: null,
+  discountId: null,
+  scheduledChangeAt: null,
+});
 
 export function mapPaddleSubscriptionState(state: unknown): PaddleSourceState | null {
   switch (state) {
@@ -311,8 +363,8 @@ export async function dispatchVerifiedExomemPaddleEvent(
     }
   }
 
-  const matchingReference =
-    references.find((item) => item.productId === config.productId) ?? references[0];
+  const isSubscriptionEvent = eventType.startsWith("subscription.");
+  const matchingReference = paddleExomemItem(data, config.productId);
   const application: ExomemPaddleEventApplication = {
     eventId,
     eventType,
@@ -332,7 +384,7 @@ export async function dispatchVerifiedExomemPaddleEvent(
     resourceLimits: { ...EXOMEM_ALPHA_BUNDLE.resourceLimits },
     providerReferences: {
       customerId: nonEmptyString(data.customer_id),
-      subscriptionId: eventType.startsWith("subscription.") ? nonEmptyString(data.id) : null,
+      subscriptionId: isSubscriptionEvent ? nonEmptyString(data.id) : null,
       transactionId: eventType.startsWith("transaction.")
         ? nonEmptyString(data.id)
         : eventType === "subscription.created" || eventType === "subscription.activated"
@@ -341,6 +393,9 @@ export async function dispatchVerifiedExomemPaddleEvent(
       productId: matchingReference?.productId ?? null,
       priceId: matchingReference?.priceId ?? null,
     },
+    subscriptionFacts: isSubscriptionEvent
+      ? paddleSubscriptionFacts(data, matchingReference)
+      : NO_SUBSCRIPTION_FACTS,
   };
 
   try {

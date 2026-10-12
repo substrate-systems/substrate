@@ -19,6 +19,11 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/account-view", {
+    namedExports: {
+      loadExomemAccountView: async () => ({ kind: "owner", supportReference: "EX-7Q4M" }),
+    },
+  });
   mock.module("@/lib/exomem-hosted/billing-account", {
     namedExports: {
       ownerBillingSummary: async () => ({
@@ -37,7 +42,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/exomem/account", () => {
-  it("returns only the owner's billing summary, privately", async () => {
+  it("returns the owner's billing summary unchanged next to the account facts, privately", async () => {
     const { GET } = await import("../route");
     const response = await GET(
       new Request(
@@ -49,6 +54,7 @@ describe("GET /api/exomem/account", () => {
     assert.deepEqual(JSON.parse(text), {
       success: true,
       billing: { source: "complimentary", state: "active", portalAvailable: false },
+      account: { kind: "owner", supportReference: "EX-7Q4M" },
     });
     assert.match(response.headers.get("cache-control") ?? "", /private, no-store/i);
   });
@@ -63,6 +69,6 @@ describe("GET /api/exomem/account", () => {
     );
     assert.equal(response.status, 401);
     const text = await response.text();
-    assert.doesNotMatch(text, /billing|complimentary/i);
+    assert.doesNotMatch(text, /billing|complimentary|EX-7Q4M/i);
   });
 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
@@ -13,6 +14,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       {
         success: true,
         billing: await ownerBillingSummary(session.userId, session.tenantId),
+        account: await loadExomemAccountView(session),
       },
       {
         headers: {

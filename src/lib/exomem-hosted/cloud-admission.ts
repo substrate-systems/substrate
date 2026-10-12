@@ -208,6 +208,12 @@ export async function redeemCloudInviteAtomic(
           provider_subscription_ref = NULL,
           provider_transaction_ref = NULL,
           provider_environment = NULL,
+          provider_price_id = NULL,
+          provider_price_name = NULL,
+          provider_next_billed_at = NULL,
+          provider_discount_id = NULL,
+          provider_scheduled_change_at = NULL,
+          grace_started_at = NULL,
           updated_at = now()
       RETURNING tenant_id
     `;
@@ -521,6 +527,12 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
             provider_subscription_ref = NULL,
             provider_transaction_ref = NULL,
             provider_environment = NULL,
+            provider_price_id = NULL,
+            provider_price_name = NULL,
+            provider_next_billed_at = NULL,
+            provider_discount_id = NULL,
+            provider_scheduled_change_at = NULL,
+            grace_started_at = NULL,
             updated_at = now()
         RETURNING tenant_id
       `;

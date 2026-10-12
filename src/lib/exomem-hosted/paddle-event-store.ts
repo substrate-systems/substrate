@@ -196,6 +196,32 @@ export function createSqlExomemPaddleEventStore(
                 ${isTransactionEvent ? application.providerReferences.transactionId : null},
                 entitlement.provider_transaction_ref
               ),
+              -- A subscription event carries the whole subscription, so NULL
+              -- is what Paddle reports (no discount, no next payment).
+              provider_price_id = CASE WHEN ${isSubscriptionEvent}::boolean
+                THEN ${application.providerReferences.priceId}::text
+                ELSE entitlement.provider_price_id END,
+              provider_price_name = CASE WHEN ${isSubscriptionEvent}::boolean
+                THEN ${application.subscriptionFacts.priceName}::text
+                ELSE entitlement.provider_price_name END,
+              provider_next_billed_at = CASE WHEN ${isSubscriptionEvent}::boolean
+                THEN ${application.subscriptionFacts.nextBilledAt}::timestamptz
+                ELSE entitlement.provider_next_billed_at END,
+              provider_discount_id = CASE WHEN ${isSubscriptionEvent}::boolean
+                THEN ${application.subscriptionFacts.discountId}::text
+                ELSE entitlement.provider_discount_id END,
+              provider_scheduled_change_at = CASE WHEN ${isSubscriptionEvent}::boolean
+                THEN ${application.subscriptionFacts.scheduledChangeAt}::timestamptz
+                ELSE entitlement.provider_scheduled_change_at END,
+              -- Only a transition into past_due starts the period. A past_due
+              -- row keeps its stored start, unknown included; any other state
+              -- ends it. SET expressions read the row before this update.
+              grace_started_at = CASE
+                WHEN NOT ${isSubscriptionEvent}::boolean THEN entitlement.grace_started_at
+                WHEN ${application.sourceState}::text <> 'past_due' THEN NULL
+                WHEN entitlement.source_state = 'past_due' THEN entitlement.grace_started_at
+                ELSE ${application.revision.occurredAt}::timestamptz
+              END,
               updated_at = now()
           FROM decision
           WHERE entitlement.id = decision.entitlement_id
