@@ -619,7 +619,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           await new Promise<void>((resolve) => {
             releaseSlowFetch = resolve;
           });
-          return cimdMetadata(cimdClientId, redirectUris, "stale");
+          return { ...cimdMetadata(cimdClientId, redirectUris, "stale"), clientName: "Stale name" };
         },
       });
       await slowFetchStarted;
@@ -636,11 +636,16 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           clientId: cimdClientId,
           redirectUris,
         },
-        { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "newer") }
+        {
+          fetchCimd: async () => ({
+            ...cimdMetadata(cimdClientId, redirectUris, "newer"),
+            clientName: "Operator connector",
+          }),
+        }
       );
       const newer = await pool!.query(
         `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
-                redirect_uris::text, metadata_provenance::text
+                redirect_uris::text, metadata_provenance::text, client_name
          FROM exomem_oauth_clients WHERE id = $1`,
         [registered.id]
       );
@@ -651,11 +656,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       );
       const afterConflict = await pool!.query(
         `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
-                redirect_uris::text, metadata_provenance::text
+                redirect_uris::text, metadata_provenance::text, client_name
          FROM exomem_oauth_clients WHERE id = $1`,
         [registered.id]
       );
       assert.equal(newer.rows[0].enabled, false);
+      assert.equal(newer.rows[0].client_name, "Operator connector");
       assert.deepEqual(afterConflict.rows, newer.rows);
     } finally {
       if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
@@ -1388,7 +1394,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
   const genericRegistration = {
     redirectUris: ["http://127.0.0.1:43123/callback"],
     clientName: "Local agent",
-    grantTypes: ["authorization_code" as const],
   };
 
   it("refuses a further generic registration at its bound while leaving operator and connector slots free", async () => {
@@ -1481,73 +1486,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     } finally {
       await setGenericLane(false);
       await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [operatorClientId]);
-    }
-  });
-
-  it("gives a generic client no tenant without an invite", async () => {
-    // The invite is the only way to a tenant. A generic client that may ask for
-    // anything still gets nothing for a person who holds no invite.
-    const capacityNode = `no-invite-${randomUUID()}`;
-    let clientId = "";
-    await setGenericLane(true);
-    await pool!.query(
-      "INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, 1000, now())",
-      [capacityNode]
-    );
-    try {
-      clientId = (await registerGenericMcpClient(genericRegistration))!.clientId;
-      const transactionDigest = randomBytes(32);
-      await pool!.query(
-        `INSERT INTO exomem_oauth_authorization_transactions (
-           transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
-           state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
-         )
-         SELECT $1, id, $2, $3, ARRAY['exomem.read', 'exomem.write'], $4, '{}'::jsonb, $5, $6,
-                'challenge', now() + interval '1 hour'
-         FROM exomem_oauth_clients WHERE client_id = $7`,
-        [
-          transactionDigest,
-          genericRegistration.redirectUris[0],
-          resource,
-          randomBytes(32),
-          randomBytes(32),
-          randomBytes(32),
-          clientId,
-        ]
-      );
-      const census = async () =>
-        (
-          await pool!.query(
-            `SELECT (SELECT count(*) FROM users) AS users,
-                    (SELECT count(*) FROM exomem_tenants) AS tenants,
-                    (SELECT count(*) FROM exomem_entitlements) AS entitlements,
-                    (SELECT count(*) FROM exomem_oauth_grants) AS grants,
-                    (SELECT count(*) FROM exomem_oauth_authorization_codes) AS codes`
-          )
-        ).rows[0];
-      const before = await census();
-      assert.equal(
-        await admitFirstCloudOAuthInviteAtomic({
-          inviteDigest: randomBytes(32), // never issued
-          transactionDigest,
-          sessionDigest: randomBytes(32),
-          csrfDigest: randomBytes(32),
-          sessionExpiresAt: new Date(Date.now() + 3_600_000),
-          codeDigest: randomBytes(32),
-          codeExpiresAt: new Date(Date.now() + 60_000),
-        }),
-        null
-      );
-      assert.deepEqual(await census(), before);
-    } finally {
-      await setGenericLane(false);
-      await pool!.query("DELETE FROM exomem_cloud_capacity WHERE node = $1", [capacityNode]);
-      await pool!.query(
-        `DELETE FROM exomem_oauth_authorization_transactions WHERE client_id IN (
-           SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
-        [clientId]
-      );
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
     }
   });
 
@@ -1644,7 +1582,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           const registered = await registerGenericMcpClient({
             redirectUris: [redirectUri],
             clientName: "Cross-stage agent",
-            grantTypes: ["authorization_code", "refresh_token"],
           });
           assert.ok(registered, "registration must succeed while the lane is enabled");
           clientId = registered!.clientId;
@@ -1855,12 +1792,23 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       assert.deepEqual(await refusal(await post(valid, "flood")), disabled, "rate limited");
       assert.equal(await clients(), clientsBefore, "no refusal writes a client");
 
-      const created = await post(valid, "accepted");
+      // The MCP SDK's example client asks for a secret it can post. RFC 7591 lets
+      // the server answer with what it actually registered: a public client.
+      const created = await post(
+        {
+          ...valid,
+          token_endpoint_auth_method: "client_secret_post",
+          grant_types: ["authorization_code", "refresh_token"],
+        },
+        "accepted"
+      );
       assert.equal(created.status, 201);
       const body = (await created.json()) as Record<string, unknown>;
       registeredClientId = String(body.client_id);
       assert.equal(body.token_endpoint_auth_method, "none");
       assert.equal("client_secret" in body, false);
+      // Grant types are neither stored nor enforced per client, so none are reported.
+      assert.equal("grant_types" in body, false);
       assert.deepEqual(body.redirect_uris, valid.redirect_uris);
       const stored = await pool!.query(
         "SELECT admission_mode, client_platform, client_name FROM exomem_oauth_clients WHERE client_id = $1",

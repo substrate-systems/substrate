@@ -314,14 +314,16 @@ describe("generic MCP client registration", () => {
     assert.deepEqual(validateGenericClientRegistration(valid), {
       redirectUris: valid.redirect_uris,
       clientName: "Local agent",
-      grantTypes: ["authorization_code", "refresh_token"],
     });
-    // RFC 7591 lets the server substitute a method it supports. This server
-    // never issues a secret, so a client that names no method registers as public.
-    assert.deepEqual(
-      validateGenericClientRegistration({ redirect_uris: valid.redirect_uris })?.grantTypes,
-      ["authorization_code"]
-    );
+    // RFC 7591 lets the server substitute a method it supports, and this server
+    // holds no secrets. A client that names no method, or asks for a secret the
+    // way the MCP SDK's example client does, registers as public.
+    for (const method of [undefined, "client_secret_post", "client_secret_basic"]) {
+      assert.ok(
+        validateGenericClientRegistration({ ...valid, token_endpoint_auth_method: method }),
+        `${method ?? "no method"} must register as public`
+      );
+    }
   });
 
   it("refuses an unsafe redirect, a non-public client and a requested identifier", () => {
@@ -329,6 +331,10 @@ describe("generic MCP client registration", () => {
       ["cleartext off loopback", { redirect_uris: ["http://agent.example.test/callback"] }],
       ["credentials", { redirect_uris: ["https://user:pass@agent.example.test/callback"] }],
       ["fragment", { redirect_uris: ["https://agent.example.test/callback#code"] }],
+      // `new URL` would drop the newline and deliver to good.example.evil.example.
+      ["hidden newline", { redirect_uris: ["https://good.example\n.evil.example/cb"] }],
+      ["empty fragment", { redirect_uris: ["https://agent.example.test/callback#"] }],
+      ["non-canonical spelling", { redirect_uris: ["https://AGENT.example.test/callback"] }],
       ["over-long", { redirect_uris: [`https://agent.example.test/${"a".repeat(1024)}`] }],
       ["private-use scheme", { redirect_uris: ["agent.example://oauth/callback"] }],
       ["no redirect", { redirect_uris: [] }],
@@ -336,7 +342,7 @@ describe("generic MCP client registration", () => {
         "repeated redirect",
         { redirect_uris: ["https://a.example.test/cb", "https://a.example.test/cb"] },
       ],
-      ["confidential client", { token_endpoint_auth_method: "client_secret_basic" }],
+      ["client-held key", { token_endpoint_auth_method: "private_key_jwt" }],
       ["implicit flow", { response_types: ["token"] }],
       ["client credentials", { grant_types: ["client_credentials"] }],
       ["refresh without code", { grant_types: ["refresh_token"] }],
@@ -354,16 +360,23 @@ describe("generic MCP client registration", () => {
     assert.equal(validateGenericClientRegistration([valid]), null);
   });
 
-  it("shows a declared client name as plain text, and names a silent client by its redirect host", () => {
+  it("shows a declared client name as plain text, and stores none for a name nobody can read", () => {
     // A right-to-left override or a zero-width character makes a name render as
     // something other than the text it holds; each becomes a visible space.
     assert.equal(sanitizeOAuthClientName("Agent\u202Eedoc\u200B CLI\n\tv2"), "Agent edoc CLI v2");
     assert.equal(sanitizeOAuthClientName("x".repeat(200))?.length, 64);
-    assert.equal(sanitizeOAuthClientName("\u200B \u0007"), null);
-    assert.equal(sanitizeOAuthClientName(42), null);
+    for (const [reason, name] of [
+      ["zero-width and control", "\u200B \u0007"],
+      ["Hangul filler", "\u3164\u3164"],
+      ["Braille blank", "\u2800"],
+      ["combining marks only", "\u0301\u0302\u0303"],
+      ["not a string", 42],
+    ] as const) {
+      assert.equal(sanitizeOAuthClientName(name), null, `${reason} must store no name`);
+    }
     assert.equal(
-      validateGenericClientRegistration({ ...valid, client_name: "\u200B" })?.clientName,
-      "127.0.0.1"
+      validateGenericClientRegistration({ ...valid, client_name: "\u3164" })?.clientName,
+      null
     );
   });
 

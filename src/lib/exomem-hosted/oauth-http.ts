@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { exomemErrors } from "./errors";
 
 const MAX_OAUTH_FORM_BYTES = 16 * 1024;
@@ -114,4 +115,32 @@ export function oauthNoStoreHeaders(): HeadersInit {
     pragma: "no-cache",
     "referrer-policy": "no-referrer",
   };
+}
+
+/**
+ * The rate-limit key for a client address. One IPv6 host is usually given a
+ * whole /64, so a full-address key would hand a single caller 2^64 buckets; an
+ * IPv6 address is keyed by its /64 instead. IPv4, an IPv4-mapped IPv6 address
+ * (one IPv4 host) and anything that is not an IP address keep their own key.
+ */
+export function clientNetworkKey(address: string): string {
+  if (isIP(address) !== 6) return address;
+  let canonical: string;
+  try {
+    // The URL parser is the IPv6 parser here. It serialises the address as
+    // lowercase hex pieces with at most one "::", which the split below expands.
+    canonical = new URL(`http://[${address}]/`).hostname.slice(1, -1);
+  } catch {
+    return address;
+  }
+  const [head, tail] = canonical.split("::") as [string, string | undefined];
+  const leading = head ? head.split(":") : [];
+  const trailing = tail ? tail.split(":") : [];
+  const pieces =
+    tail === undefined
+      ? leading
+      : [...leading, ...Array(8 - leading.length - trailing.length).fill("0"), ...trailing];
+  if (pieces.length !== 8) return address;
+  if (pieces.slice(0, 5).every((piece) => piece === "0") && pieces[5] === "ffff") return address;
+  return `${pieces.slice(0, 4).join(":")}::/64`;
 }

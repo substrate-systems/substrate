@@ -178,7 +178,7 @@ export async function registerAdmittedCimdClient(
 
 type RegisteredGenericMcpClient = {
   clientId: string;
-  clientName: string;
+  clientName: string | null;
   redirectUris: string[];
   issuedAt: Date;
 };
@@ -226,7 +226,7 @@ export async function registerGenericMcpClient(
       RETURNING client_id, client_name, redirect_uris, created_at
     `;
     const row = rows[0] as
-      | { client_id: string; client_name: string; redirect_uris: string[]; created_at: Date }
+      | { client_id: string; client_name: string | null; redirect_uris: string[]; created_at: Date }
       | undefined;
     return row
       ? {
@@ -338,9 +338,9 @@ export async function createAuthorizationTransaction(input: {
 export type PendingOAuthAuthorization = {
   clientId: string;
   /**
-   * The name the client gave itself (`exomem_oauth_clients.client_name`): a
-   * generic client's sanitised RFC 7591 `client_name` or its redirect host, or a
-   * CIMD client's declared name. Null when the client declared none. It is
+   * The name the client gave itself (`exomem_oauth_clients.client_name`): the
+   * sanitised `client_name` from its RFC 7591 registration or its metadata
+   * document. Null when the client declared no readable name. It is
    * self-asserted, so the consent page must show it as the client's own claim.
    */
   clientName: string | null;

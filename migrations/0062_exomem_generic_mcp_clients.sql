@@ -19,9 +19,8 @@ ALTER TABLE exomem_oauth_clients
 -- 2. The name a client gives itself, for the consent page and Home. The
 -- registration paths sanitise and bound it before they store it. It is
 -- self-asserted, so it proves nothing about which software the client is.
--- A generic client always has one: registration stores its redirect host
--- when it declared no usable name. A CIMD client has one only when its
--- metadata document declared it.
+-- NULL when the client declared no readable name; a reader names such a
+-- client from its platform or host.
 ALTER TABLE exomem_oauth_clients
   ADD COLUMN client_name text;
 ALTER TABLE exomem_oauth_clients
@@ -40,7 +39,6 @@ ALTER TABLE exomem_oauth_clients
       AND oauth_client_config_sha256 IS NULL
       AND cimd_host IS NULL
       AND auto_registered = false
-      AND client_name IS NOT NULL
     )
   );
 

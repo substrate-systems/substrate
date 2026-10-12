@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import { validateGenericClientRegistration } from "@/lib/exomem-hosted/oauth-client-admission";
-import { oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
+import { clientNetworkKey, oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
 import { registerGenericMcpClient } from "@/lib/exomem-hosted/oauth-store";
 import {
   clientAddressKey,
@@ -33,7 +33,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const allowed = await takeExomemRateLimit(
       EXOMEM_RATE_LIMITS.oauthClientRegisterIp,
-      clientAddressKey(request) ?? "unavailable"
+      clientNetworkKey(clientAddressKey(request) ?? "unavailable")
     );
     if (!allowed) return refused("rate_limit");
     let body: unknown;
@@ -46,13 +46,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!registration) return refused("request");
     const client = await registerGenericMcpClient(registration);
     if (!client) return refused("registration");
+    // Only what this server honours for the client: no secret, the code flow,
+    // and the redirects and name it stored.
     return NextResponse.json(
       {
         client_id: client.clientId,
         client_id_issued_at: Math.floor(client.issuedAt.getTime() / 1000),
-        client_name: client.clientName,
+        ...(client.clientName === null ? {} : { client_name: client.clientName }),
         redirect_uris: client.redirectUris,
-        grant_types: registration.grantTypes,
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       },
