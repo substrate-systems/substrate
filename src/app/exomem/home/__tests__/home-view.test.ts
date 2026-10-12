@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { PaddlePricePreview } from "@/lib/paddle";
 import type { HomeAccount, HomeActivity, HomeApp, HomeExport } from "../home-api";
 import type { Lifecycle } from "../home-state";
 import {
@@ -13,8 +14,10 @@ import {
   liveLine,
   notices,
   planView,
+  showsUsualPrice,
   statusCopy,
   storageView,
+  subscribeView,
 } from "../home-view";
 
 // Every case renders in UTC at a fixed moment, so dates read the same on any machine.
@@ -140,6 +143,31 @@ describe("which Home the owner sees", () => {
     assert.deepEqual(homeMode(unpaid, account({ step: "subscribe" }), "known"), {
       kind: "subscribe",
     });
+  });
+});
+
+describe("the subscribe view", () => {
+  it("never quotes the usual price to an account that holds a friend offer", () => {
+    const usual = {
+      total: { amount: "1500", currencyCode: "EUR" },
+      billingCycle: { interval: "month", frequency: 1 },
+    } as PaddlePricePreview;
+    const owner = account();
+    const friend = account({
+      plan: { ...owner.plan, friendPrice: { applied: false, inviterName: "Alex" } },
+    });
+
+    const view = subscribeView(friend, usual);
+
+    assert.equal(showsUsualPrice(friend), false);
+    assert.doesNotMatch(view.line, /€15/);
+    assert.match(view.line, /Alex’s friend price/);
+    // The card leaves the amount to checkout, with no usual price struck beside it.
+    assert.equal(view.friendCard?.was, null);
+    assert.doesNotMatch(view.friendCard?.main ?? "", /€/);
+    // Without an offer, the usual price is the line.
+    assert.equal(showsUsualPrice(owner), true);
+    assert.match(subscribeView(owner, usual).line, /€15 a month/);
   });
 });
 

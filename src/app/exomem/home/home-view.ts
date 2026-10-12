@@ -3,6 +3,7 @@
 // (docs/exomem-design/reference/boards/Home-Page.dc.html) and the approved export
 // copy; a value the server does not know drops its clause rather than inventing one.
 
+import { subscribeLine } from "@/components/exomem/subscribe-line";
 import { formatMoney } from "@/lib/exomem/money";
 import { CLIENT_PLATFORM_NAMES, displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
 import type {
@@ -31,6 +32,9 @@ import {
   shortDateTime,
   type Clock,
 } from "./home-format";
+import type { PaddlePricePreview } from "@/lib/paddle";
+import { subscribeCopy } from "../_journey/copy";
+import { friendCheckoutPanel, type PricePanel } from "../invite/invite-view";
 import type { Lifecycle } from "./home-state";
 
 // --- Which Home ---
@@ -63,6 +67,28 @@ export type HomeMode =
   | { kind: "deleting" }
   | { kind: "deleted" }
   | { kind: "home"; variant: HomeVariant };
+
+/**
+ * Whether Home may ask Paddle for the usual price: only for an account it has read that
+ * holds no friend offer. A friend offer's checkout charges the friend price instead.
+ */
+export function showsUsualPrice(account: HomeAccount | null): boolean {
+  return account !== null && !account.plan.friendPrice.inviterName;
+}
+
+/**
+ * The subscribe view's line and price card, as the journey's subscribe step shows them. An
+ * account with a friend offer reads the friend line and the "shown at checkout" card.
+ */
+export function subscribeView(
+  account: HomeAccount | null,
+  price: PaddlePricePreview | null
+): { line: string; friendCard: PricePanel | null } {
+  const inviter = account?.plan.friendPrice.inviterName ?? null;
+  return inviter
+    ? { line: subscribeCopy.friendLede(inviter), friendCard: friendCheckoutPanel(inviter) }
+    : { line: subscribeLine(price), friendCard: null };
+}
 
 /** The lifecycle says whether the cell serves; the account step says why it does or does not. */
 export function homeMode(

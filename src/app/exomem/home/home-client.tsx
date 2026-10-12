@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import phone from "@/components/exomem/phone.module.css";
-import { subscribeLine } from "@/components/exomem/subscribe-line";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import {
   type PaddleTransactionFailure,
@@ -34,6 +33,7 @@ import {
   type StatusRead,
   writeLevel,
 } from "./home-api";
+import { PriceCard } from "../_journey/parts";
 import { ConnectedApps } from "./home-apps";
 import { PlanAndAccount, YourData } from "./home-account";
 import { HomeHeader, HomeWeb, StatusBlock } from "./home-chrome";
@@ -57,8 +57,10 @@ import {
   liveLine,
   notices,
   planView,
+  showsUsualPrice,
   statusCopy,
   storageView,
+  subscribeView,
 } from "./home-view";
 import styles from "./home.module.css";
 
@@ -112,8 +114,11 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
 
   const lifecycle = status?.lifecycle ?? LOADING;
   const mode = homeMode(lifecycle, account, accountRead);
-  // Paddle is asked for the price only while Home asks the owner to subscribe.
-  const price = usePaddlePricePreview(mode.kind === "subscribe" ? priceId : null);
+  // Paddle is asked for the usual price only while Home asks an owner without a friend
+  // offer to subscribe.
+  const price = usePaddlePricePreview(
+    mode.kind === "subscribe" && showsUsualPrice(account) ? priceId : null
+  );
   const inHome = mode.kind === "home";
   const clock: Clock = useMemo(() => ({ now }), [now]);
 
@@ -432,6 +437,7 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
 
   if (mode.kind !== "home") {
     const copy = NOT_HOME_COPY[mode.kind];
+    const subscribe = mode.kind === "subscribe" ? subscribeView(account, price) : null;
     const reference = account?.supportReference ?? lifecycle.requestId ?? null;
     return (
       <>
@@ -441,9 +447,10 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
           <StatusBlock
             live={false}
             headline={copy.headline}
-            statusLine={mode.kind === "subscribe" ? subscribeLine(price) : copy.line}
+            statusLine={subscribe ? subscribe.line : copy.line}
             liveLine={null}
           />
+          {subscribe?.friendCard ? <PriceCard {...subscribe.friendCard} /> : null}
           {message}
           {checkoutReturn}
           {mode.kind === "subscribe" && (
@@ -632,7 +639,7 @@ const NOT_HOME_COPY: Record<
   { headline: string; line: string | null }
 > = {
   loading: { headline: "One moment.", line: "Checking your Exomem…" },
-  // The line carries the price when Paddle previews it: subscribeLine writes it.
+  // The line carries the price when Paddle previews it: subscribeView writes it.
   subscribe: { headline: "Subscribe to finish setting up", line: null },
   preparing: {
     headline: "Your Exomem is taking shape.",
