@@ -26,6 +26,7 @@ import {
   dayMonth,
   dayMonthTime,
   gigabytes,
+  money,
   secondsAgo,
   shortDateTime,
   type Clock,
@@ -594,7 +595,10 @@ export function planView(
   else if (variant === "ended") meta = "ended";
   else {
     const inviter = friend && plan.friendPrice.inviterName;
-    meta = joined([inviter && `from ${inviter}’s invitation`, nextPayment(account, clock)]);
+    // The amount Paddle previews for the next payment; unknown shows no number at all.
+    const amount = account.nextPaymentAmount.value;
+    const price = amount && money(amount.amount, amount.currencyCode, clock.locale);
+    meta = joined([price, inviter && `from ${inviter}’s invitation`, nextPayment(account, clock)]);
   }
 
   let action: PlanView["action"] = null;

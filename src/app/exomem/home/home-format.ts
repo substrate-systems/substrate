@@ -10,6 +10,8 @@ export type Clock = {
   now: number;
   /** An IANA zone; undefined means the browser's own. */
   timeZone?: string;
+  /** A BCP 47 locale for amounts of money; undefined means the browser's own. */
+  locale?: string;
 };
 
 function format(iso: string, options: Intl.DateTimeFormatOptions, timeZone?: string): string {
@@ -37,6 +39,30 @@ export function shortDateTime(iso: string, timeZone?: string): string {
     { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
     timeZone
   );
+}
+
+/**
+ * "€10" or "€10.50": an amount in its currency's smallest unit, as Paddle reports it,
+ * in the reader's locale. Null when the browser cannot format that currency.
+ */
+export function money(minorUnits: string, currency: string, locale?: string): string | null {
+  const minor = Number(minorUnits);
+  if (!Number.isSafeInteger(minor)) return null;
+  try {
+    const digits =
+      new Intl.NumberFormat(locale, { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2;
+    const scale = 10 ** digits;
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: minor % scale === 0 ? 0 : digits,
+      maximumFractionDigits: digits,
+    }).format(minor / scale);
+  } catch {
+    // An unknown currency code throws: show no amount rather than a wrong one.
+    return null;
+  }
 }
 
 /** "11,402" */

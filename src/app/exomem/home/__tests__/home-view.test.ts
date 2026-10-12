@@ -334,6 +334,23 @@ describe("plan and storage", () => {
     assert.deepEqual(plan?.action, { label: "Manage billing", kind: "portal" });
   });
 
+  it("shows the next payment's amount in the reader's locale, and no number when it is unknown", () => {
+    const paying = (amount: string, currencyCode: string) =>
+      account({ nextPaymentAmount: { value: { amount, currencyCode }, reason: null } });
+    assert.equal(
+      planView("on", paying("1000", "EUR"), portal, { ...clock, locale: "en-GB" }).meta,
+      "€10 · next payment 31 October"
+    );
+    assert.equal(
+      planView("on", paying("1050", "EUR"), portal, { ...clock, locale: "de-DE" }).meta,
+      // German writes the amount first, with a no-break space before the sign.
+      "10,50\u00a0€ · next payment 31 October"
+    );
+    // Paddle did not answer: the row keeps its date and shows no amount, never zero.
+    const unavailable = account({ nextPaymentAmount: { value: null, reason: "unavailable" } });
+    assert.equal(planView("on", unavailable, portal, clock).meta, "next payment 31 October");
+  });
+
   it("names the friend price and its inviter when the discount applies", () => {
     const plan = planView(
       "on",
@@ -345,6 +362,16 @@ describe("plan and storage", () => {
     );
     assert.equal(plan?.name, "Exomem · monthly · friend price");
     assert.equal(plan?.meta, "from Alex’s invitation · next payment 31 October");
+    const withAmount = planView(
+      "on",
+      account({
+        plan: { ...account().plan, friendPrice: { applied: true, inviterName: "Alex" } },
+        nextPaymentAmount: { value: { amount: "850", currencyCode: "EUR" }, reason: null },
+      }),
+      portal,
+      { ...clock, locale: "en-GB" }
+    );
+    assert.equal(withAmount.meta, "€8.50 · from Alex’s invitation · next payment 31 October");
   });
 
   it("says a next payment was not reported rather than leaving a blank date", () => {

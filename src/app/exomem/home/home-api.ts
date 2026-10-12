@@ -55,6 +55,12 @@ function isKnown(value: unknown): boolean {
   );
 }
 
+function isMoneyOrNull(value: unknown): boolean {
+  if (value === null) return true;
+  const money = record(value);
+  return typeof money?.amount === "string" && typeof money.currencyCode === "string";
+}
+
 async function read(path: string): Promise<Record<string, unknown>> {
   try {
     return await getPrivateJson(path);
@@ -171,9 +177,10 @@ export async function readAccount(): Promise<{
     plan !== null &&
     isKnown(plan.name) &&
     record(plan.friendPrice) !== null &&
-    ["nextPaymentAt", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every((key) =>
-      isKnown(account[key])
-    );
+    ["nextPaymentAt", "nextPaymentAmount", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every(
+      (key) => isKnown(account[key])
+    ) &&
+    isMoneyOrNull(record(account.nextPaymentAmount)?.value);
   const billing = record(response.billing);
   const billingOk =
     billing !== null &&
