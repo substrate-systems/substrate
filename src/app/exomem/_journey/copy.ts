@@ -196,6 +196,14 @@ export const handbackCopy = {
 };
 
 export const breakCopy = {
+  /**
+   * Connect's answer never reached the page: the server may have connected the app.
+   * Not drawn by the board; it says no more than the page knows (owner approval pending).
+   */
+  unconfirmed: {
+    title: "We couldn’t confirm the connection",
+    lede: (app: string) => `Check ${app}. If it isn’t connected, start again from there.`,
+  },
   connectError: {
     title: "That didn’t finish",
     lede: (app: string) =>

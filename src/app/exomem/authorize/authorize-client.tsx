@@ -60,6 +60,7 @@ type Phase =
   | "confirming"
   | "connecting"
   | "connecterror"
+  | "unconfirmed"
   | "handback"
   | "declined"
   | "kept"
@@ -72,6 +73,7 @@ const KIND: Record<Phase, FieldKind> = {
   paused: "stop",
   suspended: "stop",
   connecterror: "stop",
+  unconfirmed: "hold",
   signedout: "quiet",
   switched: "quiet",
   subscribe: "quiet",
@@ -114,6 +116,18 @@ async function postJson(path: string, body: Record<string, unknown>) {
     cache: "no-store",
   });
   return { status: response.status, body: (await response.json().catch(() => null)) as unknown };
+}
+
+/**
+ * Whether the complete route itself said it changed nothing: it refused the request
+ * (400) or its storage failed before committing (500 `server_error`). Any other
+ * answer, such as a proxy's timeout, leaves the outcome unknown.
+ */
+function nothingChanged(answer: { status: number; body: unknown }): boolean {
+  if (answer.status === 400) return true;
+  return (
+    answer.status === 500 && (answer.body as { error?: unknown } | null)?.error === "server_error"
+  );
 }
 
 function consentPathOf(body: unknown): string | null {
@@ -202,7 +216,9 @@ function Consent({
     try {
       answer = await postJson("/api/exomem/oauth/authorize/complete", { confirmation, nonce });
     } catch {
-      setPhase("connecterror");
+      // The request may have reached the server and connected the app; only the
+      // answer was lost.
+      setPhase("unconfirmed");
       return;
     }
     const connected = answer.status === 200 ? outcomeOf(answer.body) : null;
@@ -213,7 +229,8 @@ function Consent({
     }
     const fresh = answer.status === 409 ? consentPathOf(answer.body) : null;
     if (fresh) window.location.replace(fresh);
-    else setPhase(answer.status === 410 ? "expired" : "connecterror");
+    else if (answer.status === 410) setPhase("expired");
+    else setPhase(nothingChanged(answer) ? "connecterror" : "unconfirmed");
   }
 
   async function decline(kind: "declined" | "kept") {
@@ -418,6 +435,11 @@ function Consent({
             }
           />
         </>
+      );
+      break;
+    case "unconfirmed":
+      body = (
+        <StepHeading title={breakCopy.unconfirmed.title} lede={breakCopy.unconfirmed.lede(name)} />
       );
       break;
     case "handback":
