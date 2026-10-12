@@ -150,13 +150,12 @@ function AddAnotherApp({
   disconnected,
   connectorUrl,
   startLevel,
-}: Pick<AppsProps, "disconnected" | "connectorUrl" | "startLevel"> & {
-  apps: readonly HomeApp[];
-}) {
+}: Pick<AppsProps, "apps" | "disconnected" | "connectorUrl" | "startLevel">) {
   // The pick here only chooses which instructions to copy; it saves nothing.
   const [level, setLevel] = useState<LevelKey>(startLevel);
   const [showFull, setShowFull] = useState(false);
-  const hint = directoryHint(apps, disconnected);
+  // A list still loading is not an empty one: no hint names an app until the list arrives.
+  const hint = apps && directoryHint(apps, disconnected);
   const chosen = involvementLevel(level);
   return (
     <div className={styles.addPanel} id="home-add-app">
@@ -275,7 +274,7 @@ export function ConnectedApps(props: AppsProps) {
           </div>
           {open && (
             <AddAnotherApp
-              apps={props.apps ?? []}
+              apps={props.apps}
               disconnected={props.disconnected}
               connectorUrl={props.connectorUrl}
               startLevel={props.startLevel}
