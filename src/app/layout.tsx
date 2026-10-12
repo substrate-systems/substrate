@@ -76,7 +76,11 @@ export default function RootLayout({
   return (
     // The Exomem theme script below sets data-exomem and data-theme on <html> before
     // React hydrates, so the server markup cannot match those two attributes.
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`dark ${inter.variable} ${plexMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/* Before first paint: on /exomem/** only, apply the stored Exomem theme. */}
         <script dangerouslySetInnerHTML={{ __html: exomemThemeScript }} />
@@ -122,7 +126,8 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} ${plexMono.variable} antialiased`}>
+      {/* The font variables sit on <html> so the Exomem font tokens resolve there too. */}
+      <body className="antialiased">
         <ExomemThemeScope />
         <PostHogProvider>{children}</PostHogProvider>
         <PrivacySafeAnalytics />
