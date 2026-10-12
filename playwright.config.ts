@@ -24,7 +24,12 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "exomem-design/**" },
+    // Home's suite needs a database and has its own config (e2e/exomem-home/playwright.config.ts).
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: ["exomem-design/**", "exomem-home/**"],
+    },
     // The Exomem design checks run at the sizes the design is drawn for: desktop, and the
     // two phones its QA list names. Only the specs under e2e/exomem-design run here; the
     // theme spec does not depend on the viewport, so it runs on desktop only.
