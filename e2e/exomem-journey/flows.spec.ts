@@ -374,7 +374,7 @@ test("a friend's invitation leads to checkout at the friend price", async ({ pag
   await page.getByRole("button", { name: inviteCopy.accept }).click();
 
   await expect(page).toHaveURL(/\/exomem\/setup$/);
-  await expect(page.getByText(subscribeCopy.friendLede("Alex", null))).toBeVisible();
+  await expect(page.getByText(subscribeCopy.friendLede("Alex"))).toBeVisible();
   await expect(page.getByText(inviteCopy.price.friend("Alex"))).toBeVisible();
   await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
 });

@@ -413,6 +413,25 @@ const STEPS: Step[] = [
     },
   },
   {
+    // The same friend offer in an app's context: the board's friend lede and price card.
+    name: "consent-subscribe-friend",
+    open: async (page, context) => {
+      await seedCapacity();
+      const { link } = await seedInvitation({
+        email: uniqueEmail("friend"),
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.accept }).click();
+      await heading(page, subscribeCopy.title);
+      await consentFor(page, context, null);
+      await heading(page, subscribeCopy.title);
+      await expect(page.getByText(subscribeCopy.friendLede("Alex"))).toBeVisible();
+      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+    },
+  },
+  {
     name: "consent-connect",
     open: async (page, context) => {
       await consentFor(page, context, "ready");

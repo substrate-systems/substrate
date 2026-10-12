@@ -136,8 +136,8 @@ export const subscribeCopy = {
    * An account that holds a friend offer. The usual price would be wrong for this person,
    * so the step shows the friend price card with the amount left to checkout.
    */
-  friendLede: (by: string, app: string | null) =>
-    `${by}’s friend price is applied at checkout. Cancel any time through Paddle. ${app === null ? "Then add it to your assistant." : `Then ${app} connects in one step.`}`,
+  friendLede: (by: string) =>
+    `${by}’s friend price is applied at checkout. Cancel any time through Paddle. Then add it to your assistant.`,
   primary: "Subscribe",
   notNow: "Not now",
   confirming: {
@@ -188,7 +188,8 @@ export const joinedCopy = {
   title: (app: string) => `${app} is connected.`,
   lede: "Try it: ask it to remember something today, then ask again tomorrow.",
   /** The board's lede, when the cell can take the level now. */
-  ledeSaving: "Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.",
+  ledeSaving:
+    "Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.",
   /** Without the save promise while the level cannot be saved (design.md deviation (l)). */
   ledeWithoutPlugin: "Without the plugin, your app needs instructions. Pick how much it joins in.",
   /** A level belongs to every app of a kind, "chat apps" or "coding agents". */

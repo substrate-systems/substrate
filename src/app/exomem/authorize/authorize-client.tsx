@@ -339,7 +339,7 @@ function Consent({
               current === "confirming"
                 ? subscribeCopy.confirming.lede(name)
                 : account.friendInviter
-                  ? subscribeCopy.friendLede(account.friendInviter, name)
+                  ? subscribeCopy.friendLede(account.friendInviter)
                   : subscribeLine(price, name)
             }
           />

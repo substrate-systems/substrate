@@ -292,7 +292,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
             title={subscribeCopy.title}
             lede={
               facts.friendInviter
-                ? subscribeCopy.friendLede(facts.friendInviter, null)
+                ? subscribeCopy.friendLede(facts.friendInviter)
                 : subscribeLine(price)
             }
           />
