@@ -7,14 +7,15 @@ import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-
 import { runBoundedCloudDeletionFinish } from "@/lib/exomem-hosted/cloud-deletion-finish";
 import {
   promoteWaitlistedPeople,
-  pruneStaleWaitlistEntries,
+  pruneStaleSelfServeRecords,
+  type SelfServePruneResult,
   type WaitlistPromotionResult,
 } from "@/lib/exomem-hosted/self-serve-admission";
 
 // Task 3.4/3.7's time-driven Cloud sweep (design D1/D4): the 7-day
 // awaiting-checkout expiry, the day-30 cancelled -> deleted transition that no
 // webhook ever fires, the retry of a cancellation notice whose send failed
-// (D4), the waitlist promotion into slots those steps freed and the waitlist
+// (D4), the waitlist promotion into slots those steps freed and the self-serve
 // retention, and the Cloud deletion finish of every confirmed account
 // deletion (D4).
 async function runCloudLane(): Promise<{
@@ -28,7 +29,7 @@ async function runCloudLane(): Promise<{
   deletionsPending: number;
   deletionsFailed: number;
   waitlistPromotion: WaitlistPromotionResult | { status: "failed"; promoted: null; settled: null };
-  waitlistPruned: number | null;
+  selfServePruned: SelfServePruneResult | null;
 }> {
   // Security review finding 8: expiry and the reconcile sweep run
   // independently — a failure in one (each already isolates its own
@@ -60,13 +61,13 @@ async function runCloudLane(): Promise<{
     waitlistPromotion = { status: "failed", promoted: null, settled: null };
   }
   // Retention runs whatever the admission setting (see
-  // pruneStaleWaitlistEntries). `null` reports a failed run, never zero.
-  let waitlistPruned: number | null;
+  // pruneStaleSelfServeRecords). `null` reports a failed run, never zero.
+  let selfServePruned: SelfServePruneResult | null;
   try {
-    waitlistPruned = await pruneStaleWaitlistEntries();
+    selfServePruned = await pruneStaleSelfServeRecords();
   } catch {
-    console.error("exomem-cloud: waitlist retention lane failed");
-    waitlistPruned = null;
+    console.error("exomem-cloud: self-serve retention lane failed");
+    selfServePruned = null;
   }
   // D4 "Cloud deletion finish": after the sweep has deleted the cell rows of
   // confirmed deletions, cancel their billing and scrub them. Each tenant is
@@ -93,7 +94,7 @@ async function runCloudLane(): Promise<{
     deletionsPending: deletions.pending,
     deletionsFailed: deletions.failed,
     waitlistPromotion,
-    waitlistPruned,
+    selfServePruned,
   };
 }
 

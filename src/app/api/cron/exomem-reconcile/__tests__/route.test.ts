@@ -62,7 +62,7 @@ before(() => {
         if (promotionShouldFail) throw new Error("private promotion failure");
         return { status: "ran", promoted: 2, settled: 1 };
       },
-      pruneStaleWaitlistEntries: async () => 3,
+      pruneStaleSelfServeRecords: async () => ({ waitlistEntries: 3, startLinks: 4 }),
     },
   });
   mock.module("@/lib/exomem-hosted/paddle-reconciliation-runtime", {
@@ -162,7 +162,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
         deletionsPending: 3,
         deletionsFailed: 1,
         waitlistPromotion: { status: "ran", promoted: 2, settled: 1 },
-        waitlistPruned: 3,
+        selfServePruned: { waitlistEntries: 3, startLinks: 4 },
       },
     });
   });

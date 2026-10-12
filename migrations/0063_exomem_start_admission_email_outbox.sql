@@ -77,3 +77,12 @@ ALTER TABLE exomem_waitlist_entries
 ALTER TABLE exomem_invites
   ADD COLUMN recipient_time_zone text
     CHECK (recipient_time_zone IS NULL OR char_length(recipient_time_zone) BETWEEN 1 AND 64);
+
+-- Retention reads only waitlist entries and unused start links older than
+-- its cutoff, so each run is one batch, however many people are waiting.
+CREATE INDEX exomem_waitlist_entries_updated_idx
+  ON exomem_waitlist_entries (updated_at);
+
+CREATE INDEX exomem_invites_unused_self_serve_expiry_idx
+  ON exomem_invites (expires_at)
+  WHERE self_serve AND consumed_at IS NULL;

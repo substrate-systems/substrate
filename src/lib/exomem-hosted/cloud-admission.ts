@@ -6,7 +6,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { cloudAdmissionHeadroom, lockCloudCapacity } from "./cloud-capacity";
+import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
@@ -60,13 +60,13 @@ function cloudAdmissionClosed(): ExomemHostedError {
  */
 async function requireCloudAdmissionCapacity(
   tx: ExomemSql,
-  invite: { id: string; email_normalized: string }
+  invite: { email_normalized: string }
 ): Promise<void> {
-  const headroom = await cloudAdmissionHeadroom(tx, {
-    excludingEmail: invite.email_normalized,
-    issuedBeforeInviteId: invite.id,
+  const allowed = await cloudAdmissionAllows(tx, {
+    email: invite.email_normalized,
+    yieldOnlyToOlderInvitations: true,
   });
-  if (headroom < 1) throw cloudAdmissionClosed();
+  if (!allowed) throw cloudAdmissionClosed();
 }
 
 /**

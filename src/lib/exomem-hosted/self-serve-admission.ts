@@ -8,7 +8,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { lockCloudCapacity, cloudAdmissionHeadroom } from "./cloud-capacity";
+import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
@@ -196,16 +196,14 @@ export async function startSelfServeAtomic(input: {
     }
 
     if (input.mode === "open") {
-      const headroom = await cloudAdmissionHeadroom(tx, {
-        excludingEmail: input.emailNormalized,
-      });
+      const fits = await cloudAdmissionAllows(tx, { email: input.emailNormalized });
       const waiting = await tx`
         /* exomem:start-anybody-waiting */
         SELECT EXISTS (
           SELECT 1 FROM exomem_waitlist_entries WHERE admitted_at IS NULL
         ) AS waiting
       `;
-      if (headroom >= 1 && !(waiting.rows[0] as { waiting: boolean }).waiting) {
+      if (fits && !(waiting.rows[0] as { waiting: boolean }).waiting) {
         const invite = await insertStartLink(tx, {
           emailNormalized: input.emailNormalized,
           timeZone: input.timeZone,
@@ -286,7 +284,9 @@ export type WaitlistPromotionResult =
  *
  * A waiting address that has since come to own an Exomem (an operator
  * invited it) needs no place. Its entry is settled, by deletion, instead of
- * being promoted into a start link that redemption would refuse.
+ * being promoted into a start link that redemption would refuse. Settling
+ * runs once per call, before the promotions and outside the capacity lock:
+ * waitlist entries hold no Cloud slot, so the lock does not cover them.
  */
 export async function promoteWaitlistedPeople(
   options: {
@@ -299,25 +299,24 @@ export async function promoteWaitlistedPeople(
     return { status: "not_open", promoted: null, settled: null };
   }
   const maxPromotions = Math.max(1, Math.min(options.maxPromotions ?? 20, 100));
+  const owners = await executeExomemSql`
+    /* exomem:promote-settle-owners */
+    DELETE FROM exomem_waitlist_entries AS entry
+    USING users
+    JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+    WHERE entry.admitted_at IS NULL
+      AND users.email = entry.email_normalized
+      AND users.deleted_at IS NULL
+      AND tenant.status IN ('provisioning', 'active', 'suspended')
+      AND tenant.deleted_at IS NULL
+    RETURNING entry.id
+  `;
+  const settled = owners.rows.length;
   let promoted = 0;
-  let settled = 0;
   while (promoted < maxPromotions) {
     const link = mintStartLink(options.randomBytes);
     const admitted = await withExomemTransaction(async (tx) => {
       await lockCloudCapacity(tx);
-      const owners = await tx`
-        /* exomem:promote-settle-owners */
-        DELETE FROM exomem_waitlist_entries AS entry
-        USING users
-        JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
-        WHERE entry.admitted_at IS NULL
-          AND users.email = entry.email_normalized
-          AND users.deleted_at IS NULL
-          AND tenant.status IN ('provisioning', 'active', 'suspended')
-          AND tenant.deleted_at IS NULL
-        RETURNING entry.id
-      `;
-      settled += owners.rows.length;
       const oldest = await tx`
         /* exomem:promote-oldest-waiting */
         SELECT id, email_normalized::text AS email_normalized, time_zone
@@ -331,10 +330,7 @@ export async function promoteWaitlistedPeople(
         | { id: string; email_normalized: string; time_zone: string | null }
         | undefined;
       if (!entry) return false;
-      const headroom = await cloudAdmissionHeadroom(tx, {
-        excludingEmail: entry.email_normalized,
-      });
-      if (headroom < 1) return false;
+      if (!(await cloudAdmissionAllows(tx, { email: entry.email_normalized }))) return false;
       const invite = await insertStartLink(tx, {
         emailNormalized: entry.email_normalized,
         timeZone: entry.time_zone,
@@ -362,42 +358,90 @@ export async function promoteWaitlistedPeople(
   return { status: "ran", promoted, settled };
 }
 
-// A waitlist entry is deleted this long after the later of its person's last
-// request and their last start link's expiry. They can ask again and join the
-// back.
-const WAITLIST_RETENTION_DAYS = 180;
+// A person's waitlist entry and unused start links are deleted this long
+// after the later of their last request and their last start link's expiry.
+// They can ask again and join the back.
+const SELF_SERVE_RETENTION_DAYS = 180;
+
+export type SelfServePruneResult = { waitlistEntries: number; startLinks: number };
 
 /**
- * Deletes stale waitlist entries in bounded batches, waiting or admitted. An
- * entry whose address owns an Exomem is kept: account deletion removes it.
+ * Deletes, in one bounded batch, the self-serve records of people who are
+ * not customers: the waitlist entry, waiting or admitted, and every start
+ * link that was never used. An address that owns an Exomem keeps them;
+ * account deletion removes them. Used start links and operator invitations
+ * stay: they record how a customer was admitted.
+ *
+ * Only an entry updated, or a link expiring, before the cutoff can make its
+ * address stale, so the scan starts from those rows through their indexes
+ * and each run touches one batch, not every entry.
  */
-export async function pruneStaleWaitlistEntries(limit = 500): Promise<number> {
+export async function pruneStaleSelfServeRecords(limit = 500): Promise<SelfServePruneResult> {
   const { rows } = await executeExomemSql`
-    /* exomem:prune-stale-waitlist */
-    WITH stale AS (
-      SELECT entry.id
+    /* exomem:prune-stale-self-serve */
+    WITH cutoff AS (
+      SELECT now() - (${SELF_SERVE_RETENTION_DAYS} * interval '1 day') AS at
+    ),
+    candidates AS (
+      SELECT entry.email_normalized
       FROM exomem_waitlist_entries AS entry
-      WHERE GREATEST(
-              entry.updated_at,
-              (SELECT max(link.expires_at) FROM exomem_invites AS link
-               WHERE link.email_normalized = entry.email_normalized AND link.self_serve)
-            ) < now() - (${WAITLIST_RETENTION_DAYS} * interval '1 day')
-        AND NOT EXISTS (
-          SELECT 1
-          FROM users
-          JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
-          WHERE users.email = entry.email_normalized
-            AND users.deleted_at IS NULL
-            AND tenant.status IN ('provisioning', 'active', 'suspended')
-            AND tenant.deleted_at IS NULL
-        )
-      ORDER BY entry.updated_at
-      LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
+      WHERE entry.updated_at < (SELECT at FROM cutoff)
+      UNION ALL
+      SELECT link.email_normalized
+      FROM exomem_invites AS link
+      WHERE link.self_serve
+        AND link.consumed_at IS NULL
+        AND link.expires_at < (SELECT at FROM cutoff)
+    ),
+    stale AS (
+      SELECT DISTINCT stale_address.email_normalized
+      FROM (
+        SELECT candidate.email_normalized
+        FROM candidates AS candidate
+        WHERE NOT EXISTS (
+            SELECT 1 FROM exomem_waitlist_entries AS entry
+            WHERE entry.email_normalized = candidate.email_normalized
+              AND entry.updated_at >= (SELECT at FROM cutoff)
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM exomem_invites AS link
+            WHERE link.email_normalized = candidate.email_normalized
+              AND link.self_serve
+              AND link.expires_at >= (SELECT at FROM cutoff)
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM users
+            JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+            WHERE users.email = candidate.email_normalized
+              AND users.deleted_at IS NULL
+              AND tenant.status IN ('provisioning', 'active', 'suspended')
+              AND tenant.deleted_at IS NULL
+          )
+        LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
+      ) AS stale_address
+    ),
+    -- The entry goes in the same statement as the link it may name, so the
+    -- link's ON DELETE SET NULL never meets the entry's admitted-pair CHECK.
+    -- The repeated cutoff test skips an entry a request updated meanwhile.
+    entries AS (
+      DELETE FROM exomem_waitlist_entries AS entry
+      USING stale
+      WHERE entry.email_normalized = stale.email_normalized
+        AND entry.updated_at < (SELECT at FROM cutoff)
+      RETURNING entry.id
+    ),
+    links AS (
+      DELETE FROM exomem_invites AS link
+      USING stale
+      WHERE link.email_normalized = stale.email_normalized
+        AND link.self_serve
+        AND link.consumed_at IS NULL
+        AND link.expires_at < (SELECT at FROM cutoff)
+      RETURNING link.id
     )
-    DELETE FROM exomem_waitlist_entries AS entry
-    USING stale
-    WHERE entry.id = stale.id
-    RETURNING entry.id
+    SELECT (SELECT count(*) FROM entries) AS entries, (SELECT count(*) FROM links) AS links
   `;
-  return rows.length;
+  const row = rows[0] as { entries: string; links: string };
+  return { waitlistEntries: Number(row.entries), startLinks: Number(row.links) };
 }

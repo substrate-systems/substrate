@@ -293,10 +293,11 @@ GROUP BY kind, state, last_error_code;
 ```
 
 Retention runs on its own. The access-delivery job clears the address of an
-outbox row 30 days after the row settles. The reconcile job deletes a waitlist
-entry 180 days after the later of its person's last request and their last
-start link's expiry, unless the address owns an Exomem. Account deletion
-removes every outbox row for the owner's address.
+outbox row 30 days after the row settles. The reconcile job deletes a
+person's waitlist entry and unused start links 180 days after the later of
+their last request and their last start link's expiry, unless the address
+owns an Exomem. It keeps used start links and operator invitations. Account
+deletion removes every outbox row for the owner's address.
 
 #### Release
 
@@ -362,7 +363,8 @@ Run the count again and require zero.
 The page shows "Cloud places free" from the same count that admission uses.
 It shows "Unknown" when no fresh Cloud capacity observation exists. Every
 invitation, paid or complimentary, needs a free place when it is issued, and
-again when it is redeemed. When Cloud capacity is full, issue returns
+again when it is redeemed. An invitation to an address that already holds a
+Cloud cell needs no place. When Cloud capacity is full, issue returns
 `CAPACITY_UNAVAILABLE`, and redemption returns `HOSTED_ADMISSION_CLOSED` and
 leaves the invite unconsumed. Keep a place free before you invite an app
 directory reviewer.

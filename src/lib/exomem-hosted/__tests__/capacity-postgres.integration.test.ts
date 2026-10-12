@@ -14,8 +14,10 @@ import {
 } from "../db";
 import { clearSettledEmailRecipients, drainExomemEmailOutbox } from "../email-outbox";
 import {
+  EXOMEM_INVITE_CAPABILITIES,
+  EXOMEM_INVITE_LIMITS,
   promoteWaitlistedPeople,
-  pruneStaleWaitlistEntries,
+  pruneStaleSelfServeRecords,
   startSelfServeAtomic,
 } from "../self-serve-admission";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -528,6 +530,42 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
   });
 
+  // Asking again hands out a younger link. If Cloud then shrinks, the person
+  // must still redeem in the turn their first link gave them.
+  it("redeems a person who asked again in their first link's turn when capacity shrinks", async () => {
+    await configureCapacity(2);
+    const early = newAddress("early");
+    const later = newAddress("later");
+    await startSelfServeAtomic({ emailNormalized: early, timeZone: null, mode: "open" });
+    await startSelfServeAtomic({ emailNormalized: later, timeZone: null, mode: "open" });
+    assert.equal(
+      await startSelfServeAtomic({ emailNormalized: early, timeZone: null, mode: "open" }),
+      "reissued"
+    );
+    await configureCapacity(1);
+    const earlyNewest = await pool!.query<{ token_digest: Buffer }>(
+      "SELECT token_digest FROM exomem_invites WHERE email_normalized = $1 ORDER BY created_at DESC LIMIT 1",
+      [early]
+    );
+    const laterLink = await pool!.query<{ token_digest: Buffer }>(
+      "SELECT token_digest FROM exomem_invites WHERE email_normalized = $1",
+      [later]
+    );
+    const redemption = (tokenDigest: Buffer) => ({
+      tokenDigest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+
+    assert.ok(await redeemCloudInviteAtomic(redemption(earlyNewest.rows[0]!.token_digest)));
+    await assert.rejects(
+      redeemCloudInviteAtomic(redemption(laterLink.rows[0]!.token_digest)),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "HOSTED_ADMISSION_CLOSED"
+    );
+  });
+
   it("keeps retrying a start link through a provider outage until the link itself expires", async () => {
     await configureCapacity(1);
     const email = newAddress("outage");
@@ -602,7 +640,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
 
     assert.equal(await clearSettledEmailRecipients(), 1);
-    assert.equal(await pruneStaleWaitlistEntries(), 1);
+    assert.deepEqual(await pruneStaleSelfServeRecords(), { waitlistEntries: 1, startLinks: 0 });
 
     const cleared = await pool!.query<{ n: number }>(
       "SELECT count(*)::int AS n FROM exomem_email_outbox WHERE recipient IS NULL"
@@ -618,6 +656,74 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     assert.deepEqual(
       kept.rows.map((row) => row.email_normalized).sort(),
       [owner, recent, recentLink].sort()
+    );
+  });
+
+  it("deletes a non-customer's unused start links 180 days after their last activity, and keeps the rest", async () => {
+    async function linkExpired200DaysAgo(
+      email: string,
+      kind: { selfServe: boolean; revoked: boolean }
+    ): Promise<string> {
+      const { rows } = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_invites (
+           token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+           entitlement_limits, created_by_principal_digest, created_at, expires_at,
+           revoked_at, self_serve
+         ) VALUES ($1, $2, 'paddle', '[]'::jsonb, '{}'::jsonb, $3,
+                   now() - interval '202 days', now() - interval '200 days',
+                   CASE WHEN $4 THEN now() - interval '201 days' END, $5)
+         RETURNING id`,
+        [randomBytes(32), email, randomBytes(32), kind.revoked, kind.selfServe]
+      );
+      return rows[0]!.id;
+    }
+    // Promoted, asked again, then let both links lapse: the admitted entry
+    // names one of the links it is deleted with.
+    const lapsed = newAddress("lapsed");
+    await linkExpired200DaysAgo(lapsed, { selfServe: true, revoked: true });
+    const promotedLink = await linkExpired200DaysAgo(lapsed, { selfServe: true, revoked: false });
+    await pool!.query(
+      `INSERT INTO exomem_waitlist_entries (email_normalized, created_at, updated_at, admitted_at, admitted_invite_id)
+       VALUES ($1, now() - interval '210 days', now() - interval '203 days', now() - interval '203 days', $2)`,
+      [lapsed, promotedLink]
+    );
+    // An old link, but the person asked again 10 days ago.
+    const askedAgain = newAddress("asked-again");
+    await linkExpired200DaysAgo(askedAgain, { selfServe: true, revoked: false });
+    await pool!.query(
+      `INSERT INTO exomem_waitlist_entries (email_normalized, created_at, updated_at)
+       VALUES ($1, now() - interval '10 days', now() - interval '10 days')`,
+      [askedAgain]
+    );
+    // A customer's spare link, and an operator invitation nobody used.
+    const customer = newAddress("customer");
+    await linkExpired200DaysAgo(customer, { selfServe: true, revoked: true });
+    const customerUser = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      [customer]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
+      [customerUser.rows[0]!.id]
+    );
+    const invited = newAddress("invited");
+    await linkExpired200DaysAgo(invited, { selfServe: false, revoked: false });
+
+    assert.deepEqual(await pruneStaleSelfServeRecords(), { waitlistEntries: 1, startLinks: 2 });
+
+    const links = await pool!.query<{ email_normalized: string }>(
+      "SELECT email_normalized FROM exomem_invites"
+    );
+    assert.deepEqual(
+      links.rows.map((row) => row.email_normalized).sort(),
+      [askedAgain, customer, invited].sort()
+    );
+    const entries = await pool!.query<{ email_normalized: string }>(
+      "SELECT email_normalized FROM exomem_waitlist_entries"
+    );
+    assert.deepEqual(
+      entries.rows.map((row) => row.email_normalized),
+      [askedAgain]
     );
   });
 
@@ -673,6 +779,39 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       Object.fromEntries(settled.rows.map((row) => [row.recipient, [row.state, row.has_payload]])),
       { [kept]: ["sent", false], [revoked]: ["cancelled", false] }
     );
+  });
+
+  // The count gives an address that already holds a cell no place; the issue
+  // gate must agree, or a full Cloud refuses an existing customer's invite.
+  it("issues an operator invite to an address that already holds a Cloud cell, even when Cloud is full", async () => {
+    await configureCapacity(1);
+    const customer = newAddress("customer");
+    const operatorInvite = (tokenDigest: Buffer) =>
+      createInviteRecord({
+        tokenDigest,
+        emailNormalized: customer,
+        entitlementSource: "complimentary",
+        capabilities: EXOMEM_INVITE_CAPABILITIES,
+        resourceLimits: EXOMEM_INVITE_LIMITS,
+        operatorPrincipalDigest: randomBytes(32),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+    const first = randomBytes(32);
+    await operatorInvite(first);
+    assert.ok(
+      await redeemCloudInviteAtomic({
+        tokenDigest: first,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+    );
+
+    await operatorInvite(randomBytes(32));
+
+    const status = await getCloudCapacityStatus(executeExomemSql);
+    assert.equal(status.freePlaces, 0);
+    assert.equal(status.outstandingInvitations, 0);
   });
 
   for (const entitlementSource of ["paddle", "complimentary"] as const) {

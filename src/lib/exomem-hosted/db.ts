@@ -1,6 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import { sql as pgSql } from "../db/pg-sql";
-import { cloudAdmissionHeadroom, lockCloudCapacity } from "./cloud-capacity";
+import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
@@ -201,10 +201,12 @@ export async function createInviteRecord(
     }
     // Every invitation, paid, complimentary or reviewer, promises a Cloud
     // slot and counts against the same headroom until it is used, revoked or
-    // expired, so an operator cannot promise more places than Cloud has.
+    // expired, so an operator cannot promise more places than Cloud has. An
+    // address that already holds a live cell needs no new slot.
     await lockCloudCapacity(tx);
-    const headroom = await cloudAdmissionHeadroom(tx, { excludingEmail: input.emailNormalized });
-    if (headroom < 1) throw exomemErrors.capacityUnavailable();
+    if (!(await cloudAdmissionAllows(tx, { email: input.emailNormalized }))) {
+      throw exomemErrors.capacityUnavailable();
+    }
     return create(tx);
   });
 }
