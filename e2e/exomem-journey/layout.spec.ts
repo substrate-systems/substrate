@@ -578,8 +578,8 @@ for (const step of STEPS) {
         if (box) expect(box.y + box.height).toBeLessThanOrEqual(foot.y);
       }
     }
-    // The short phones are there for the fit; the theme checks run at the other sizes.
-    if (size === "phone-375" || size === "phone-360") return;
+    // The narrow phones are there for the fit; the theme checks run at the drawn sizes.
+    if (width < 390) return;
 
     for (const theme of ["dark", "light"] as const) {
       // The page's own switch does the same: the step stays where it is.
