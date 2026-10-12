@@ -2,7 +2,7 @@
 // one allowance for text pairs the locked palette keeps below AA.
 
 import AxeBuilder from "@axe-core/playwright";
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { exomemTokens } from "../../src/lib/exomem/design-tokens";
 
 const THEME_KEY = "exomem-theme";
@@ -91,7 +91,11 @@ export function runningAnimations(page: Page): Promise<number> {
   );
 }
 
-/** The theme switch as the page's own does it: the attribute now, the preference kept. */
+/**
+ * The theme switch as the page's own does it: the attribute now, the preference kept.
+ * It returns once the page's ground is painted in that theme, so a contrast check never
+ * reads text in one theme against the ground of the other.
+ */
 export async function switchTheme(page: Page, theme: "light" | "dark") {
   await page.evaluate(
     ([key, next]) => {
@@ -100,4 +104,12 @@ export async function switchTheme(page: Page, theme: "light" | "dark") {
     },
     [THEME_KEY, theme] as const
   );
+  const ground = computedColour(exomemTokens()[theme]["--bg-base"]);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => getComputedStyle(document.querySelector("main") ?? document.body).backgroundColor
+      )
+    )
+    .toBe(ground);
 }

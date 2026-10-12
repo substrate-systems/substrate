@@ -74,13 +74,14 @@ test("a returning owner's emailed link signs them in once, after they continue",
   // The email's link opens in a new tab of the same browser, and waits for the person.
   const opened = await page.context().newPage();
   await opened.goto(link);
-  expect(new URL(opened.url()).hash).toBe("");
   await opened.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
   await expect(opened).toHaveURL(/\/exomem\/home$/);
 
   // The same link pasted into the first tab: spent, and the page says so and offers the form.
   await page.goto(link);
   await page.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
+  // The page took the token out of the address bar before anything else.
+  expect(new URL(page.url()).hash).toBe("");
   await expect(page.getByText(failureCopy.linkUnusable)).toBeVisible();
   await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
 });

@@ -157,6 +157,15 @@ const STEPS: Step[] = [
     },
   },
   {
+    // Paid, while the Exomem starts: the page waits for it to be ready.
+    name: "setup-preparing",
+    open: async (page, context) => {
+      await signedIn(context, "preparing");
+      await page.goto("/exomem/setup");
+      await heading(page, inviteCopy.accepting.title);
+    },
+  },
+  {
     name: "setup-choose",
     open: async (page, context) => {
       await signedIn(context, "ready");

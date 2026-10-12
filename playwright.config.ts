@@ -17,10 +17,15 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 // A production build accepts only an https public address, so locally and in CI they
 // run against `next dev` on http://localhost, which accepts a loopback address.
 const journeyBaseUrl = process.env.EXOMEM_E2E_BASE_URL;
-const journeyProjects = process.env.EXOMEM_E2E_DATABASE_URL
+const journeyEnabled = Boolean(process.env.EXOMEM_E2E_DATABASE_URL);
+// `next dev` compiles each route on its first visit, which can take most of the default
+// 30 s on a CI runner; a journey test gets twice that.
+const JOURNEY_TEST_TIMEOUT_MS = 60_000;
+const journeyProjects = journeyEnabled
   ? [
       {
         name: "exomem journey desktop 1440",
+        timeout: JOURNEY_TEST_TIMEOUT_MS,
         testMatch: "exomem-journey/**/*.spec.ts",
         use: {
           ...devices["Desktop Chrome"],
@@ -30,6 +35,7 @@ const journeyProjects = process.env.EXOMEM_E2E_DATABASE_URL
       },
       {
         name: "exomem journey phone 390",
+        timeout: JOURNEY_TEST_TIMEOUT_MS,
         testMatch: "exomem-journey/**/*.spec.ts",
         // One live reviewer credential at a time: the desktop project signs the reviewer in.
         testIgnore: "exomem-journey/reviewer.spec.ts",
@@ -42,6 +48,7 @@ const journeyProjects = process.env.EXOMEM_E2E_DATABASE_URL
       // The short phone: only the no-scroll check, the size where every step is tightest.
       {
         name: "exomem journey phone 375",
+        timeout: JOURNEY_TEST_TIMEOUT_MS,
         testMatch: "exomem-journey/layout.spec.ts",
         use: {
           ...devices["Pixel 7"],
@@ -54,6 +61,8 @@ const journeyProjects = process.env.EXOMEM_E2E_DATABASE_URL
 
 export default defineConfig({
   testDir: "./e2e",
+  // The journey server compiles routes on first visit; warm them before the tests run.
+  globalSetup: journeyEnabled ? "./e2e/exomem-journey/warm-up.ts" : undefined,
   // `npm test` globs `src/**`, so these never collide with the node runner.
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
@@ -93,10 +102,24 @@ export default defineConfig({
     },
     ...journeyProjects,
   ],
-  webServer: {
-    command: `npm run start -- --port ${PORT}`,
-    url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: `npm run start -- --port ${PORT}`,
+      url: BASE_URL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    // The journey projects' own server: `next dev` on the public address they use.
+    ...(journeyEnabled && journeyBaseUrl
+      ? [
+          {
+            command: `npx next dev --hostname ${new URL(journeyBaseUrl).hostname} --port ${new URL(journeyBaseUrl).port}`,
+            // Ready once a journey page compiles, not only the server's first route.
+            url: new URL("/exomem/sign-in", journeyBaseUrl).toString(),
+            reuseExistingServer: !process.env.CI,
+            timeout: 180_000,
+          },
+        ]
+      : []),
+  ],
 });
