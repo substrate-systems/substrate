@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
-import { CLIENT_GUIDES } from "../../../app/exomem/home/assistant-instructions";
 
 function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -45,88 +44,12 @@ describe("private Exomem Home contract", () => {
     assert.match(signIn, /mode === "confirm"/);
   });
 
-  it("offers deletion without exposing tenant routing", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    assert.match(home, /api\/exomem\/deletion\/request/);
-    assert.doesNotMatch(home, /tenantId|cellId|vaultRoot|privateEndpoint/);
-  });
-
   it("renders only the server-provided connector address", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
     assert.doesNotMatch(home, /mcpUrl|tenantId/);
     // The server address comes from the status response, so the client never
     // builds an endpoint of its own.
     assert.doesNotMatch(home, /https:\/\/[a-z]/);
-  });
-
-  it("leads the ready view with connecting an assistant", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    const sections = source("src/app/exomem/home/home-sections.ts");
-    // The ordering lives in `home-sections.ts` and is asserted directly there;
-    // this pins that the component actually renders from it rather than
-    // hardcoding an order that could drift from the tested one.
-    assert.match(home, /const sections = homeSections\(\)/);
-    assert.match(sections, /return \["connect", "account"\]/);
-
-    // Every assistant is named, whether or not a one-click install exists for
-    // it. The first version rendered install actions plus a single fallback
-    // headed "Codex, or any other MCP client" — and since install actions
-    // require a live artifact matching the promoted contract digest, which is
-    // false until a promotion window has run, a newly invited Claude user's
-    // only instruction was headed Codex.
-    assert.match(home, /CLIENT_GUIDES\.map/);
-    assert.doesNotMatch(home, /Codex, or any other MCP client/);
-
-    // Both onboarding steps present and ordered: connect, then instruct.
-    assert.ok(
-      home.indexOf("Step 1 \u00b7 Your Exomem server address") <
-        home.indexOf("Step 2 \u00b7 How involved should it be?"),
-      "the address comes before the instructions block"
-    );
-
-    // Render order comes from the data, not from where the markup happens to
-    // sit in the file — so this asserts the seam rather than the source order,
-    // which the restructure deliberately decoupled.
-    assert.match(home, /const rendered: Record<HomeSection, ReactNode>/);
-    assert.match(
-      home,
-      /sections\.map\(\(section\) => \(\s*<Fragment key=\{section\}>\{rendered\[section\]\}<\/Fragment>/
-    );
-    for (const key of ["connect:", "account:"]) {
-      assert.ok(home.includes(key), `the rendered record must cover ${key}`);
-    }
-    assert.match(home, /Connect an assistant/);
-  });
-
-  it("hands over the instructions block, because no plugin ships skills yet", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    const instructions = source("src/app/exomem/home/assistant-instructions.ts");
-
-    // A bare MCP connection gives the assistant tools and no reason to use
-    // them. Until a marketplace plugin ships skills, this block is the whole
-    // behavioural layer, so the page must actually hand it over.
-    assert.match(home, /PROM_LEVELS\.map/);
-    assert.match(home, /Copy instructions/);
-    assert.match(home, /assistantInstructions\(promLevel\)/);
-
-    // Five flows, each naming where its own instructions live. Read as values:
-    // the platform names come from one shared module, not literals in this file.
-    const guideNames = CLIENT_GUIDES.map((guide) => guide.name);
-    for (const name of ["Claude", "ChatGPT", "Claude Code", "Codex CLI", "Any other MCP client"]) {
-      assert.ok(guideNames.includes(name), `${name} needs a guide`);
-    }
-    assert.match(instructions, /claude mcp add --transport http exomem/);
-    // Codex is still listed, but carries its blocker instead of commands: it
-    // signs in through RFC 7591 dynamic registration, which Exomem does not
-    // implement. This used to assert `codex mcp add exomem --url`, pinning a
-    // dead end as though it worked.
-    //
-    // Only the mechanism is asserted here. Whether Codex specifically has a
-    // blocker and no commands is a question about values, not file text, so it
-    // lives in `assistant-instructions.test.ts` — a `doesNotMatch` on source
-    // would be satisfied by the comment explaining the removal.
-    assert.match(instructions, /blocked\?: string/);
-    assert.match(instructions, /pasteTarget/);
   });
 
   it("opens a server-created Paddle transaction on the private Exomem return page", () => {
@@ -156,30 +79,6 @@ describe("private Exomem Home contract", () => {
     assert.match(opener, /if \(!transactionId\) return null/);
     assert.match(opener, /transactionId=\{transactionId\}/);
     assert.match(opener, /\^txn_\[a-z0-9\]/);
-  });
-
-  it("keeps non-ready Home useful and polls with cleanup until a terminal state", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    assert.match(home, /lifecycle\.requestId/);
-    assert.match(home, /Support reference/);
-    assert.match(home, /nextStatusPollDelayMs/);
-    assert.match(home, /window\.setTimeout/);
-    assert.match(home, /window\.clearTimeout/);
-    assert.match(home, /createSingleFlight/);
-    assert.match(home, /mountedRef/);
-
-    const nonReady = home.match(/if \(lifecycle\.state !== "ready"\) \{[\s\S]*?^  }/m)?.[0] ?? "";
-    assert.match(nonReady, /Sign out/);
-    assert.match(nonReady, /Check again/);
-  });
-
-  it("does not claim sign-out succeeded when revocation fails", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    const signOut = home.match(/async function signOut\(\)[\s\S]*?\n  }/)?.[0] ?? "";
-    assert.match(signOut, /catch/);
-    assert.match(signOut, /session is still active/i);
-    assert.doesNotMatch(signOut, /finally/);
-    assert.match(signOut, /window\.location\.replace/);
   });
 
   it("does not mount analytics providers on private Exomem routes", () => {

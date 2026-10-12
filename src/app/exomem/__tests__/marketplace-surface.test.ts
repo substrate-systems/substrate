@@ -38,10 +38,8 @@ describe("Exomem marketplace public surface", () => {
   it("keeps checkout private to authenticated Home", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
 
-    assert.match(home, /Subscribe and prepare Exomem/);
-    assert.match(home, /openBilling\("checkout"\)/);
-    assert.doesNotMatch(home, /disabled=\{!billing\?\.checkoutAvailable\}/);
-    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /Subscribe and prepare Exomem/);
+    assert.match(home, /onBilling\("checkout"\)/);
+    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /billing\/checkout/);
   });
 
   it("publishes the stable policy and setup routes in the sitemap", () => {

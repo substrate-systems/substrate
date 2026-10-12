@@ -1,0 +1,746 @@
+/* Exomem Home (Home board, Home-Page.dc.html): a 640 px column on desktop, the page
+   width less a 16 px gutter on phones (the one Exomem breakpoint, 640 px). Colours,
+   radii and motion come from the tokens; sizes are the board's. */
+
+.page {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+}
+
+/* --- The web behind the header --- */
+
+.web {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.web svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.webPhone {
+  display: none;
+}
+
+.link {
+  stroke: var(--fg-primary);
+  stroke-opacity: 0.07;
+  stroke-width: 1;
+}
+
+.webLive .link {
+  stroke: var(--exo-amber);
+  stroke-opacity: 0.16;
+}
+
+.webNote {
+  fill: var(--fg-primary);
+  fill-opacity: 0.2;
+}
+
+.litNote {
+  fill: var(--exo-amber);
+  animation: hpBreath 3.4s ease-in-out var(--hd) infinite;
+}
+
+.fadeStart {
+  stop-color: var(--bg-base);
+  stop-opacity: 0;
+}
+
+.fadeEnd {
+  stop-color: var(--bg-base);
+  stop-opacity: 1;
+}
+
+/* Home-Page · hpBreath 3.4s ease-in-out var(--hd) infinite — the web's lit notes */
+@keyframes hpBreath {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* --- Header --- */
+
+.header {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 28px 40px 0;
+}
+
+.headerStart {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.wordmark {
+  line-height: 0;
+  color: var(--fg-primary);
+}
+
+.nav {
+  display: flex;
+  gap: 18px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+}
+
+.navCurrent {
+  color: var(--fg-primary);
+}
+
+.headerEnd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.inlineButton {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--fg-primary);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* --- The column --- */
+
+.column {
+  position: relative;
+  width: 640px;
+  max-width: calc(100% - 32px);
+  margin: 92px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tile {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--exo-border-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.statusText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.headline {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.statusLine {
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+
+.liveLine {
+  margin-top: 4px;
+}
+
+/* The first note: a card with a lit dot. */
+.firstNote {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-pop);
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-panel);
+}
+
+.firstDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--exo-amber);
+  box-shadow: 0 0 10px var(--exo-amber);
+  flex: none;
+}
+
+.firstText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14.5px;
+}
+
+.firstMeta {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Sections and their panels --- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionTitle {
+  margin: 0 0 4px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+/* The board's Home panel: radius 12 like the modal, rows divided by the card line. */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--exo-border-card);
+  border-radius: 12px;
+  padding: 4px 20px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.appRow {
+  padding: 13px 0;
+}
+
+/* The add row runs straight into its panel, without a rule. */
+.addRow {
+  border-bottom: 0;
+}
+
+.dimmed {
+  opacity: 0.5;
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowTitle {
+  font-size: 14.5px;
+}
+
+.rowMeta {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.rowBody {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
+.rowActions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.glyph {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-card);
+  background: var(--bg-elevated);
+  border: 1px solid var(--exo-border-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  flex: none;
+}
+
+.glyphAdd {
+  background: transparent;
+  border-style: dashed;
+  font-size: 15px;
+  color: var(--fg-muted);
+}
+
+.panelNote {
+  padding: 12px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+/* --- Add another app --- */
+
+.addPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 0 16px;
+}
+
+.hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--r-ctl);
+  background: var(--bg-base);
+  border: 1px solid var(--exo-border-card);
+  font-size: 13.5px;
+}
+
+.hintText {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.addLabel {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: baseline;
+}
+
+.stepNumber {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--exo-amber-text);
+}
+
+.stepTitle {
+  font-size: 13.5px;
+}
+
+.stepBody {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.copyLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 0 6px 0 12px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-base);
+}
+
+.copyText {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The same Copy as the compact address field beside it. */
+.copyButton {
+  height: 32px;
+  min-width: 76px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  cursor: pointer;
+  flex: none;
+}
+
+.textToggle {
+  align-self: flex-start;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fullText {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-base);
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+}
+
+/* --- Involvement levels --- */
+
+.levelRow {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.levelTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.levelMeta {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.levelDescription {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+  min-height: 18px;
+}
+
+.levelSwitch {
+  width: 330px;
+  flex: none;
+}
+
+/* A switch that cannot change: 40%, with the reason in text beside it. */
+.locked {
+  opacity: 0.4;
+}
+
+.locked button {
+  cursor: default;
+}
+
+.fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+/* --- Plan, storage --- */
+
+.storage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.storageLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--fg-muted);
+}
+
+.bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--exo-border-card);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  background: var(--fg-primary);
+}
+
+.barFull {
+  background: var(--exo-amber);
+}
+
+.measured {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+/* --- Your data --- */
+
+.detail {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.detailColumn {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.detailText {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.detailStrong {
+  color: var(--fg-primary);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--exo-amber);
+  flex: none;
+}
+
+.dotQuiet {
+  background: var(--fg-primary);
+  opacity: 0.3;
+}
+
+.pack {
+  position: relative;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--exo-border-card);
+  overflow: hidden;
+}
+
+.packRun {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--fg-primary);
+  opacity: 0.6;
+  animation: hpPack 1.2s ease-in-out infinite;
+}
+
+/* Home-Page · hpPack 1.2s ease-in-out infinite — export packing pulse */
+@keyframes hpPack {
+  0% {
+    left: -30%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.code {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.linkButton {
+  min-height: 44px;
+  min-width: 112px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+  flex: none;
+}
+
+.linkButton:hover {
+  color: var(--fg-primary);
+}
+
+.inlineStatus {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 0 0 12px;
+}
+
+.footer {
+  padding: 6px 0 40px;
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+/* --- Dialogs --- */
+
+.dialogText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.dialogActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialogCancel {
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dialogCancel:hover {
+  color: var(--fg-primary);
+}
+
+/* --- Phone --- */
+
+@media (max-width: 640px) {
+  .webDesktop {
+    display: none;
+  }
+
+  .webPhone {
+    display: block;
+  }
+
+  .header {
+    padding: 28px 16px 0;
+  }
+
+  .headerStart {
+    gap: 14px;
+  }
+
+  .nav {
+    gap: 12px;
+  }
+
+  .email {
+    display: none;
+  }
+
+  .column {
+    margin-top: 64px;
+  }
+
+  .headline {
+    font-size: 22px;
+  }
+
+  .panel {
+    padding: 4px 16px;
+  }
+
+  .levelRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .levelDescription {
+    min-height: 36px;
+  }
+
+  .levelSwitch {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .litNote,
+  .packRun {
+    animation: none;
+  }
+}

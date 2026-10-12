@@ -1,548 +1,582 @@
 "use client";
 
-import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/exomem/Button";
+import { Notice } from "@/components/exomem/Notice";
 import {
-  friendlyHostedError,
-  getPrivateJson,
-  HostedBrowserError,
-  postPrivateJson,
-} from "@/lib/exomem-hosted/hosted-browser";
-import { type PaddlePricePreview, usePaddlePricePreview } from "@/lib/paddle";
-import styles from "../private-shell.module.css";
+  billingDestination,
+  disconnectApp,
+  type HomeAccount,
+  type HomeActivity,
+  type HomeApp,
+  type HomeBilling,
+  type HomeLevels,
+  NOT_RELEASED,
+  readAccount,
+  readActivity,
+  readApps,
+  readLevels,
+  readStatus,
+  requestDeletion,
+  requestExportLink,
+  SignedOutError,
+  signOut,
+  startExport,
+  type LevelContext,
+  type LevelKey,
+  type StatusRead,
+  writeLevel,
+} from "./home-api";
+import { ConnectedApps } from "./home-apps";
+import { PlanAndAccount, YourData } from "./home-account";
+import { HomeHeader, HomeWeb, StatusBlock } from "./home-chrome";
+import { DeleteDialog, type DeleteStep, SignedOutDialog } from "./home-dialogs";
+import type { Clock } from "./home-format";
+import { InvolvementLevels } from "./home-levels";
+import { createSingleFlight, type Lifecycle, nextStatusPollDelayMs } from "./home-state";
 import {
-  type Lifecycle,
-  type LifecycleState,
-  createSingleFlight,
-  nextStatusPollDelayMs,
-  parseCloudConnectorUrl,
-  parseLifecycleResponse,
-} from "./home-state";
-import { type HomeSection, homeSections } from "./home-sections";
-import {
-  type PromLevel,
-  assistantInstructions,
-  CLIENT_GUIDES,
-  DEFAULT_PROM_LEVEL,
-  PROM_CONTRACTS,
-  PROM_LEVELS,
-} from "./assistant-instructions";
+  activityFacts,
+  banner,
+  exportRefusalText,
+  exportView,
+  firstNoteLine,
+  homeMode,
+  isLive,
+  levelRefusalText,
+  levelsView,
+  liveLine,
+  notices,
+  planView,
+  statusCopy,
+  storageView,
+} from "./home-view";
+import styles from "./home.module.css";
 
-function lifecycleCopy(state: LifecycleState): { eyebrow: string; title: string; body: string } {
-  switch (state) {
-    case "awaiting_payment":
-      return {
-        eyebrow: "Private alpha",
-        title: "Subscribe before we prepare your Exomem.",
-        body: "Your place is reserved. Paddle handles payment securely, and preparation starts only after your subscription is confirmed.",
-      };
-    case "preparing":
-      return {
-        eyebrow: "Preparing your private space",
-        title: "Your Exomem is taking shape.",
-        body: "This usually takes a minute or two. You can leave this page open; it will continue automatically.",
-      };
-    case "degraded":
-      return {
-        eyebrow: "Temporarily unavailable",
-        title: "Your memories are safe.",
-        body: "Exomem is having trouble waking up. We are retrying without moving your data anywhere else.",
-      };
-    case "suspended":
-      return {
-        eyebrow: "Paused",
-        title: "Your Exomem is paused.",
-        body: "Your memories remain stored, but capture and recall are unavailable until access is resumed.",
-      };
-    case "deletion_pending":
-      return {
-        eyebrow: "Deletion in progress",
-        title: "Closing your Exomem.",
-        body: "Access is now closed while the private vault and its backups are removed.",
-      };
-    case "deleted":
-      return {
-        eyebrow: "Deleted",
-        title: "This Exomem has been removed.",
-        body: "Your Exomem Cloud account is gone. Any other Substrate account or product is unaffected.",
-      };
-    default:
-      return {
-        eyebrow: "Opening your private space",
-        title: "One moment.",
-        body: "Checking your Exomem…",
-      };
-  }
+/** Home reads activity, and the status poll, this often while the tab is visible. */
+const REFRESH_MS = 30_000;
+/** A pending download link is asked for again this many times, this far apart. */
+const LINK_ATTEMPTS = 3;
+const LINK_RETRY_MS = 2_000;
+
+const LOADING: Lifecycle = { state: "loading", code: "TENANT_PREPARING", retryable: true };
+// A status read that fails is shown as trouble, never as ready.
+const UNREACHABLE: Lifecycle = { state: "degraded", code: "CELL_UNAVAILABLE", retryable: true };
+
+function visibleNow(): boolean {
+  return typeof document === "undefined" || document.visibilityState === "visible";
 }
 
-function billingCadence(cycle: PaddlePricePreview["billingCycle"]): string {
-  if (!cycle) return "";
-  return cycle.frequency === 1
-    ? ` per ${cycle.interval}`
-    : ` every ${cycle.frequency} ${cycle.interval}s`;
+function goToSignIn() {
+  window.location.replace("/exomem/sign-in");
 }
 
-// Mounted only on the subscribe card, so no other lifecycle state asks Paddle.
-function SubscriptionPrice({ priceId }: { priceId: string | null }) {
-  const preview = usePaddlePricePreview(priceId);
-  return (
-    <p className={styles.secondaryCopy}>
-      {preview
-        ? `${preview.total}${billingCadence(preview.billingCycle)}${preview.includesTax ? ", including tax" : ""}. Cancel through Paddle.`
-        : // Short enough to keep the Subscribe button on one line at desktop width.
-          "Paddle shows the price at checkout. Cancel through Paddle."}
-    </p>
-  );
-}
+export default function HomeClient() {
+  const [status, setStatus] = useState<StatusRead | null>(null);
+  const [account, setAccount] = useState<HomeAccount | null>(null);
+  const [billing, setBilling] = useState<HomeBilling | null>(null);
+  const [apps, setApps] = useState<HomeApp[] | null>(null);
+  const [appsFailed, setAppsFailed] = useState(false);
+  const [levels, setLevels] = useState<HomeLevels | typeof NOT_RELEASED | null>(null);
+  const [activity, setActivity] = useState<HomeActivity | typeof NOT_RELEASED | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-export default function HomeClient({ priceId }: { priceId: string | null }) {
-  const [lifecycle, setLifecycle] = useState<Lifecycle>({
-    state: "loading",
-    code: "TENANT_PREPARING",
-    retryable: true,
-  });
-  const [notice, setNotice] = useState("");
-  const [noticeError, setNoticeError] = useState(false);
+  const [disconnected, setDisconnected] = useState<ReadonlySet<string>>(new Set());
+  const [levelPending, setLevelPending] = useState<LevelContext | null>(null);
+  const [levelMessage, setLevelMessage] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [pageMessage, setPageMessage] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
-  const [deletionRequested, setDeletionRequested] = useState(false);
-  const [billing, setBilling] = useState<{
-    source: "complimentary" | "paddle";
-    state: string;
-    checkoutAvailable: boolean;
-    portalAvailable: boolean;
-  } | null>(null);
-  // Null until /api/exomem/status returns the tenant's Cloud connector URL.
-  // The status route omits it when the deployment has no Cloud resource
-  // configured, and Home then says the address is unavailable.
-  const [cloudConnectorUrl, setCloudConnectorUrl] = useState<string | null>(null);
-  const [urlCopied, setUrlCopied] = useState(false);
-  const [promLevel, setPromLevel] = useState<PromLevel>(DEFAULT_PROM_LEVEL);
-  const [instructionsCopied, setInstructionsCopied] = useState(false);
-  const mountedRef = useRef(true);
-  const statusSingleFlightRef = useRef(createSingleFlight<Lifecycle>());
+  const [signedOut, setSignedOut] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<DeleteStep | null>(null);
+  const [deleteMinutes, setDeleteMinutes] = useState<number | null>(null);
+  const [referenceCopied, setReferenceCopied] = useState(false);
 
-  const loadStatus = useCallback(async (): Promise<Lifecycle> => {
+  const mounted = useRef(true);
+  const statusFlight = useRef(createSingleFlight<StatusRead | null>());
+
+  const lifecycle = status?.lifecycle ?? LOADING;
+  const mode = homeMode(lifecycle, account);
+  const inHome = mode.kind === "home";
+  const clock: Clock = useMemo(() => ({ now }), [now]);
+
+  // --- Reads ---
+
+  const refreshStatus = useCallback(async (): Promise<StatusRead | null> => {
+    return statusFlight.current(async () => {
+      try {
+        const next = await readStatus();
+        if (mounted.current) setStatus(next);
+        return next;
+      } catch (error) {
+        if (error instanceof SignedOutError) {
+          goToSignIn();
+          return null;
+        }
+        if (mounted.current) {
+          setStatus((current) => ({
+            lifecycle: UNREACHABLE,
+            storage: current?.storage ?? null,
+            exportSummary: current?.exportSummary ?? null,
+            connectorUrl: current?.connectorUrl ?? null,
+          }));
+        }
+        return null;
+      }
+    });
+  }, []);
+
+  const refreshAccount = useCallback(async () => {
     try {
-      const response = await getPrivateJson("/api/exomem/status");
-      const next = parseLifecycleResponse(response);
-      if (!next) throw new Error("invalid status");
-      const connectorUrl = parseCloudConnectorUrl(response);
-      if (connectorUrl) setCloudConnectorUrl(connectorUrl);
-      return next;
+      const next = await readAccount();
+      if (!mounted.current) return;
+      setAccount(next.account);
+      setBilling(next.billing);
     } catch (error) {
-      if (error instanceof HostedBrowserError && error.status === 401) throw error;
-      return { state: "degraded", code: "CELL_UNAVAILABLE", retryable: true };
+      if (error instanceof SignedOutError) goToSignIn();
     }
   }, []);
 
-  const refreshStatus = useCallback(async (): Promise<Lifecycle | null> => {
-    let next: Lifecycle;
+  const refreshApps = useCallback(async () => {
     try {
-      next = await statusSingleFlightRef.current(loadStatus);
+      const next = await readApps();
+      if (!mounted.current) return;
+      setApps(next);
+      setAppsFailed(next === null);
     } catch (error) {
-      if (mountedRef.current && error instanceof HostedBrowserError && error.status === 401) {
-        window.location.replace("/exomem/sign-in");
-      }
-      return null;
+      if (error instanceof SignedOutError) goToSignIn();
+      else if (mounted.current) setAppsFailed(true);
     }
-    if (!mountedRef.current) return null;
-    setLifecycle((current) =>
-      next.requestId || !current.requestId ? next : { ...next, requestId: current.requestId }
-    );
-    return next;
-  }, [loadStatus]);
+  }, []);
 
+  const refreshLevels = useCallback(async () => {
+    try {
+      const next = await readLevels();
+      if (mounted.current) setLevels(next);
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+    }
+  }, []);
+
+  const refreshActivity = useCallback(async () => {
+    try {
+      const next = await readActivity();
+      if (mounted.current) setActivity(next);
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+    }
+  }, []);
+
+  // Status: on load, then quickly while the cell changes state, else every 30 s.
   useEffect(() => {
-    mountedRef.current = true;
+    mounted.current = true;
     let cancelled = false;
     let timer: number | undefined;
-
-    async function poll(attempt: number): Promise<void> {
-      const next = await refreshStatus();
-      if (cancelled || !next) return;
-      const delay = nextStatusPollDelayMs(next, attempt);
-      if (delay !== null) {
-        timer = window.setTimeout(() => void poll(attempt + 1), delay);
-      }
+    let attempt = 0;
+    async function poll() {
+      const next = visibleNow() ? await refreshStatus() : null;
+      if (cancelled) return;
+      const lifecycleNow = next?.lifecycle;
+      if (lifecycleNow?.state === "deleted") return;
+      const fast = lifecycleNow ? nextStatusPollDelayMs(lifecycleNow, attempt) : null;
+      attempt += 1;
+      timer = window.setTimeout(() => void poll(), fast ?? REFRESH_MS);
     }
-
-    void poll(0);
+    async function start() {
+      await Promise.all([poll(), refreshAccount()]);
+    }
+    void start();
     return () => {
       cancelled = true;
-      mountedRef.current = false;
+      mounted.current = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [refreshStatus]);
+  }, [refreshStatus, refreshAccount]);
 
+  // The rest of Home reads once the page knows it is Home, and again on every return.
   useEffect(() => {
-    if (lifecycle.state !== "ready" && lifecycle.state !== "awaiting_payment") return;
-    void getPrivateJson("/api/exomem/account")
-      .then((response) => {
-        const value = response.billing;
-        if (!value || typeof value !== "object" || Array.isArray(value)) return;
-        const candidate = value as Record<string, unknown>;
-        if (
-          (candidate.source === "complimentary" || candidate.source === "paddle") &&
-          typeof candidate.state === "string" &&
-          typeof candidate.checkoutAvailable === "boolean" &&
-          typeof candidate.portalAvailable === "boolean"
-        ) {
-          setBilling({
-            source: candidate.source,
-            state: candidate.state,
-            checkoutAvailable: candidate.checkoutAvailable,
-            portalAvailable: candidate.portalAvailable,
-          });
-        }
-      })
-      .catch(() => undefined);
-  }, [lifecycle.state]);
+    if (!inHome) return;
+    async function load() {
+      await Promise.all([refreshApps(), refreshLevels(), refreshActivity()]);
+    }
+    void load();
+    const activityTimer = window.setInterval(() => {
+      if (visibleNow()) void refreshActivity();
+    }, REFRESH_MS);
+    const onVisible = () => {
+      if (!visibleNow()) return;
+      void refreshStatus();
+      void refreshAccount();
+      void refreshApps();
+      void refreshLevels();
+      void refreshActivity();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(activityTimer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [inHome, refreshStatus, refreshAccount, refreshApps, refreshLevels, refreshActivity]);
 
-  async function signOut() {
+  // "12 s ago" ticks in the browser.
+  useEffect(() => {
+    const tick = window.setInterval(() => {
+      if (visibleNow()) setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, []);
+
+  // --- Actions ---
+
+  async function onSignOut() {
     if (signingOut) return;
     setSigningOut(true);
-    setNotice("Signing out…");
-    setNoticeError(false);
-    try {
-      await postPrivateJson("/api/exomem/access/logout", {});
-    } catch {
-      setNotice("We could not sign you out. Your session is still active. Try again.");
-      setNoticeError(true);
-      setSigningOut(false);
-      return;
-    }
-    window.location.replace("/exomem/sign-in");
+    setPageMessage(null);
+    const ok = await signOut().catch(() => false);
+    setSigningOut(false);
+    if (ok) setSignedOut(true);
+    else setPageMessage("We could not sign you out. Your session is still active. Try again.");
   }
 
-  async function requestDeletion() {
-    setNotice("Sending a fresh deletion confirmation…");
-    setNoticeError(false);
+  async function onBilling(kind: "portal" | "checkout") {
+    setBillingBusy(true);
+    setPageMessage(null);
     try {
-      await postPrivateJson("/api/exomem/deletion/request", {});
-      setDeletionRequested(true);
-      setNotice("Check your email to review and confirm deletion. Nothing has been deleted yet.");
+      const destination = await billingDestination(kind);
+      if (destination) {
+        window.location.assign(destination);
+        return;
+      }
+      setPageMessage("Billing didn’t open. Try again in a minute.");
     } catch (error) {
-      setNotice(friendlyHostedError(error));
-      setNoticeError(true);
+      if (error instanceof SignedOutError) goToSignIn();
+      else setPageMessage("Billing didn’t open. Try again in a minute.");
+    } finally {
+      if (mounted.current) setBillingBusy(false);
     }
   }
 
-  async function openBilling(kind: "checkout" | "portal") {
-    setNotice("Opening secure billing…");
-    setNoticeError(false);
+  async function onDisconnect(app: HomeApp): Promise<boolean> {
     try {
-      const response = await postPrivateJson(`/api/exomem/billing/${kind}`, {});
-      const destination = kind === "checkout" ? response.checkoutUrl : response.portalUrl;
-      if (typeof destination !== "string") throw new Error("missing billing destination");
-      window.location.assign(destination);
+      const result = await disconnectApp(app.id);
+      if (result === "failed") return false;
+      setDisconnected((current) => new Set(current).add(app.id));
+      return true;
     } catch (error) {
-      setNotice(friendlyHostedError(error));
-      setNoticeError(true);
+      if (error instanceof SignedOutError) goToSignIn();
+      return false;
     }
   }
 
-  if (lifecycle.state !== "ready") {
-    const copy = lifecycleCopy(lifecycle.state);
-    if (lifecycle.state === "awaiting_payment") {
-      return (
-        <section className={styles.card} aria-labelledby="lifecycle-title">
-          <div className={styles.workspaceHeader}>
-            <div>
-              <p className={styles.eyebrow}>{copy.eyebrow}</p>
-              <h1 className={styles.title} id="lifecycle-title">
-                {copy.title}
-              </h1>
-            </div>
-            <button
-              className={styles.quietButton}
-              type="button"
-              onClick={() => void signOut()}
-              disabled={signingOut}
-            >
-              {signingOut ? "Signing out…" : "Sign out"}
-            </button>
-          </div>
-          <p className={styles.lede}>{copy.body}</p>
-          <div className={styles.secondaryRow}>
-            <div>
-              <strong>Exomem Cloud private alpha</strong>
-              <SubscriptionPrice priceId={priceId} />
-            </div>
-            <button
-              className={styles.button}
-              type="button"
-              onClick={() => void openBilling("checkout")}
-            >
-              Subscribe and prepare Exomem
-            </button>
-          </div>
-          <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
-            {notice}
-          </p>
-        </section>
+  async function onLevel(context: LevelContext, level: LevelKey, revision: string) {
+    setLevelPending(context);
+    setLevelMessage(null);
+    try {
+      const result = await writeLevel(context, level, revision);
+      if (result.view) setLevels(result.view);
+      if (result.kind === "refused") setLevelMessage(levelRefusalText(result.code));
+      if (result.kind === "failed") setLevelMessage(levelRefusalText("FAILED"));
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+      else setLevelMessage(levelRefusalText("FAILED"));
+    } finally {
+      if (mounted.current) setLevelPending(null);
+    }
+  }
+
+  async function onExport() {
+    setExportBusy(true);
+    setExportMessage(null);
+    try {
+      const result = await startExport(crypto.randomUUID());
+      if (result.kind === "started") {
+        setStatus((current) => (current ? { ...current, exportSummary: result.summary } : current));
+      } else {
+        setExportMessage(exportRefusalText(result.code, result.retryAfterMs, { now: Date.now() }));
+        if (result.code === "EXPORT_IN_PROGRESS") void refreshStatus();
+      }
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+      else setExportMessage(exportRefusalText("FAILED", null, { now: Date.now() }));
+    } finally {
+      if (mounted.current) setExportBusy(false);
+    }
+  }
+
+  async function onDownload(exportId: string) {
+    setDownloadBusy(true);
+    setExportMessage(null);
+    try {
+      for (let attempt = 1; attempt <= LINK_ATTEMPTS; attempt += 1) {
+        const link = await requestExportLink(exportId);
+        if (link.kind === "link") {
+          // The link is an attachment that lasts minutes; it is used now and never kept.
+          window.location.assign(link.url);
+          return;
+        }
+        if (link.kind === "refused") {
+          // Expired or not ready: the status poll shows which.
+          void refreshStatus();
+          if (link.code !== "EXPORT_EXPIRED" && link.code !== "EXPORT_NOT_READY") {
+            setExportMessage("The download didn’t start. Try again in a minute.");
+          }
+          return;
+        }
+        if (attempt < LINK_ATTEMPTS) {
+          await new Promise((resolve) => window.setTimeout(resolve, LINK_RETRY_MS));
+        }
+      }
+      setExportMessage("The download link isn’t ready yet. Try again in a minute.");
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+      else setExportMessage("The download didn’t start. Try again in a minute.");
+    } finally {
+      if (mounted.current) setDownloadBusy(false);
+    }
+  }
+
+  async function onSendDeletion() {
+    setDeleteStep("sending");
+    try {
+      const result = await requestDeletion();
+      if (!result.ok) {
+        setDeleteStep("failed");
+        return;
+      }
+      setDeleteMinutes(
+        result.expiresAt
+          ? Math.max(1, Math.round((Date.parse(result.expiresAt) - Date.now()) / 60_000))
+          : null
       );
+      setDeleteStep("sent");
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+      else setDeleteStep("failed");
     }
-    return (
-      <section className={styles.card} aria-labelledby="lifecycle-title">
-        <div className={styles.workspaceHeader}>
-          <div>
-            <p className={styles.eyebrow}>{copy.eyebrow}</p>
-            <h1 className={styles.title} id="lifecycle-title">
-              {copy.title}
-            </h1>
-          </div>
-          <button
-            className={styles.quietButton}
-            type="button"
-            onClick={() => void signOut()}
-            disabled={signingOut}
-          >
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
-        </div>
-        <p className={styles.lede}>{copy.body}</p>
-        {(lifecycle.state === "loading" || lifecycle.state === "preparing") && (
-          <div className={styles.spinner} role="status" aria-label="Preparing Exomem" />
-        )}
-        <div className={styles.secondaryRow}>
-          <div>
-            <strong>Service status</strong>
-            <p className={styles.secondaryCopy}>
-              Support reference: {lifecycle.requestId ?? "not available yet"}
-            </p>
-          </div>
-          {lifecycle.state !== "deleted" && (
-            <button
-              className={styles.quietButton}
-              type="button"
-              onClick={() => void refreshStatus()}
-            >
-              Check again
-            </button>
-          )}
-        </div>
-        <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
-          {notice}
-        </p>
-      </section>
+  }
+
+  function copyReference(reference: string) {
+    navigator.clipboard?.writeText(reference).then(
+      () => {
+        setReferenceCopied(true);
+        window.setTimeout(() => mounted.current && setReferenceCopied(false), 1800);
+      },
+      () => undefined
     );
   }
 
-  const sections = homeSections();
+  // --- Render ---
 
-  async function copyInstructions() {
-    try {
-      await navigator.clipboard.writeText(assistantInstructions(promLevel));
-      setInstructionsCopied(true);
-      window.setTimeout(() => mountedRef.current && setInstructionsCopied(false), 2000);
-    } catch {
-      // Same reasoning as the server address: the text is on screen and
-      // selectable, so a refused clipboard costs a manual selection.
-    }
+  const reviewer = account?.kind === "reviewer";
+  const shownEmail = account ? (reviewer ? "reviewer (sample account)" : account.email) : null;
+  const header = (
+    <HomeHeader email={shownEmail} onSignOut={() => void onSignOut()} signingOut={signingOut} />
+  );
+  const dialogs = (
+    <>
+      <DeleteDialog
+        step={deleteStep}
+        linkMinutes={deleteMinutes}
+        onSend={() => void onSendDeletion()}
+        onClose={() => setDeleteStep(null)}
+      />
+      <SignedOutDialog open={signedOut} onDone={() => window.location.replace("/exomem")} />
+    </>
+  );
+  const message = pageMessage && (
+    <div role="alert">
+      <Notice layout="row">{pageMessage}</Notice>
+    </div>
+  );
+
+  if (mode.kind !== "home") {
+    const copy = NOT_HOME_COPY[mode.kind];
+    const reference = account?.supportReference ?? lifecycle.requestId ?? null;
+    return (
+      <>
+        <HomeWeb live={false} />
+        {header}
+        <div className={styles.column} aria-busy={mode.kind === "loading" || undefined}>
+          <StatusBlock
+            live={false}
+            headline={copy.headline}
+            statusLine={copy.line}
+            liveLine={null}
+          />
+          {message}
+          {mode.kind === "subscribe" && (
+            <div>
+              <Button
+                variant="primary"
+                size="page"
+                working={billingBusy}
+                onClick={() => void onBilling("checkout")}
+              >
+                Subscribe
+              </Button>
+            </div>
+          )}
+          {(mode.kind === "preparing" || mode.kind === "deleting") && reference && (
+            <span className={styles.measured}>Support reference: {reference}</span>
+          )}
+          {mode.kind === "preparing" && (
+            <div>
+              <Button onClick={() => void refreshStatus()}>Check again</Button>
+            </div>
+          )}
+        </div>
+        {dialogs}
+      </>
+    );
   }
 
-  async function copyServerUrl() {
-    if (!cloudConnectorUrl) return;
-    try {
-      await navigator.clipboard.writeText(cloudConnectorUrl);
-      setUrlCopied(true);
-      window.setTimeout(() => mountedRef.current && setUrlCopied(false), 2000);
-    } catch {
-      // Clipboard access can be refused outright (permissions, insecure
-      // context). The URL is rendered in full beside the button, so a refusal
-      // costs a manual selection rather than a dead end — say nothing.
-    }
-  }
-
-  // Every section is rendered by mapping over `sections`, not written out in
-  // source order — so the ordering asserted in `home-sections.test.ts` is the
-  // ordering that ships, and reordering them takes a deliberate edit to the
-  // data rather than an accidental one to the markup.
-  const rendered: Record<HomeSection, ReactNode> = {
-    connect: (
-      <div className={styles.connect}>
-        <p className={styles.connectTitle}>Connect an assistant</p>
-        <p className={styles.resultBody}>
-          Exomem is most useful inside the assistant you already talk to. Connect it once and
-          Claude, ChatGPT, or Codex can recall and preserve your context without you leaving the
-          conversation.
-        </p>
-
-        <p className={styles.connectLabel}>Step 1 · Your Exomem server address</p>
-        {cloudConnectorUrl ? (
-          <p className={styles.serverUrl}>
-            <span className={styles.serverUrlValue}>{cloudConnectorUrl}</span>
-            <button
-              className={styles.quietButton}
-              type="button"
-              onClick={() => void copyServerUrl()}
-            >
-              {urlCopied ? "Copied" : "Copy"}
-            </button>
-          </p>
-        ) : (
-          <p className={styles.secondaryCopy}>
-            Your server address is not available right now. Reload this page in a moment.
-          </p>
-        )}
-        <p className={styles.secondaryCopy}>
-          The same address for every client. You sign in once, in the browser, when your assistant
-          asks.
-        </p>
-
-        <p className={styles.connectLabel}>Step 2 · How involved should it be?</p>
-        <div className={styles.levelPicker} role="radiogroup" aria-label="How involved Exomem is">
-          {PROM_LEVELS.map((level) => (
-            <button
-              key={level}
-              type="button"
-              role="radio"
-              aria-checked={promLevel === level}
-              className={`${styles.tab} ${promLevel === level ? styles.activeTab : ""}`}
-              onClick={() => setPromLevel(level)}
-            >
-              {PROM_CONTRACTS[level].label}
-            </button>
-          ))}
-        </div>
-        <p className={styles.secondaryCopy}>{PROM_CONTRACTS[promLevel].summary}</p>
-
-        <p className={styles.secondaryCopy}>
-          There is no plugin yet, so this text is what tells your assistant to use Exomem at all —
-          connecting alone gives it the tools and no reason to reach for them. Paste it once.
-        </p>
-        <pre className={`${styles.connectCommands} ${styles.instructionBlock}`}>
-          <code>{assistantInstructions(promLevel)}</code>
-        </pre>
-        <p className={styles.serverUrl}>
-          <button
-            className={styles.quietButton}
-            type="button"
-            onClick={() => void copyInstructions()}
-          >
-            {instructionsCopied ? "Copied" : "Copy instructions"}
-          </button>
-        </p>
-
-        <p className={styles.connectLabel}>Where each step goes</p>
-        <div className={styles.connectRoutes}>
-          {CLIENT_GUIDES.map((guide) => (
-            <div key={guide.client}>
-              <div className={styles.secondaryRow}>
-                <div>
-                  <strong>{guide.name}</strong>
-                  <p className={styles.secondaryCopy}>Connect: {guide.connect}</p>
-                  {guide.blocked ? (
-                    <p className={styles.secondaryCopy}>{guide.blocked}</p>
-                  ) : (
-                    <p className={styles.secondaryCopy}>Instructions go in: {guide.pasteTarget}</p>
-                  )}
-                </div>
-              </div>
-              {guide.commands && cloudConnectorUrl ? (
-                <pre className={styles.connectCommands}>
-                  <code>{guide.commands(cloudConnectorUrl)}</code>
-                </pre>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </div>
-    ),
-    account: (
-      <details className={styles.secondary}>
-        {/*
-          Names deletion explicitly. "Files, status, and account" gave no hint
-          that leaving lives here, and the founder could not find it on their
-          own workspace. A destructive action being hard to trigger by
-          accident is good; being hard to find on purpose is not, and someone who
-          wants their memory gone should not have to guess which heading hides it.
-        */}
-        <summary className={styles.summary}>Status, billing, and deleting your Exomem</summary>
-        <div className={styles.secondaryBody}>
-          <div className={styles.secondaryRow}>
-            <div>
-              <strong>Service status</strong>
-              <p className={styles.secondaryCopy}>Your private memory cell is ready.</p>
-            </div>
-            <button className={styles.quietButton} type="button" onClick={refreshStatus}>
-              Refresh
-            </button>
-          </div>
-          <div className={styles.secondaryRow}>
-            <div>
-              <strong>Billing</strong>
-              <p className={styles.secondaryCopy}>
-                {billing?.source === "paddle"
-                  ? `Paddle billing · ${billing.state}`
-                  : "Complimentary alpha — no payment needed."}
-              </p>
-            </div>
-            {billing?.checkoutAvailable ? (
-              <button
-                className={styles.quietButton}
-                type="button"
-                onClick={() => void openBilling("checkout")}
-              >
-                Subscribe and prepare Exomem
-              </button>
-            ) : billing?.portalAvailable ? (
-              <button
-                className={styles.quietButton}
-                type="button"
-                onClick={() => void openBilling("portal")}
-              >
-                Manage billing
-              </button>
-            ) : null}
-          </div>
-          <div className={styles.secondaryRow}>
-            <div>
-              <strong>Delete Exomem</strong>
-              <p className={styles.secondaryCopy}>
-                Removes only Exomem after a fresh email confirmation.
-              </p>
-            </div>
-            <button
-              className={styles.dangerButton}
-              type="button"
-              onClick={requestDeletion}
-              disabled={deletionRequested}
-            >
-              {deletionRequested ? "Confirmation sent" : "Email confirmation"}
-            </button>
-          </div>
-        </div>
-      </details>
-    ),
+  const variant = mode.variant;
+  const live = isLive(variant);
+  const facts = activityFacts(activity);
+  const shownApps = apps ?? [];
+  const status_ = statusCopy(variant, reviewer, facts, clock);
+  const storage = storageView(status?.storage ?? null, clock);
+  const homeNotices = notices(variant, account, storage);
+  const first = live ? firstNoteLine(facts, clock) : null;
+  const accountBanner = banner(variant, account, billing, clock);
+  const exportSummary = status?.exportSummary;
+  const exportRow =
+    exportSummary && exportSummary !== NOT_RELEASED ? exportView(exportSummary, clock) : null;
+  const levelState = levelsView(levels);
+  const codingLevel =
+    levels && levels !== NOT_RELEASED && levels.state === "live"
+      ? levels.levels.coding.level
+      : "balanced";
+  const bannerLabel = {
+    fix_billing: "Fix billing",
+    resubscribe: "Resubscribe",
+    resume: "Resume subscription",
   };
 
   return (
-    <section className={styles.card} aria-labelledby="home-title">
-      <div className={styles.workspaceHeader}>
-        <div>
-          <p className={styles.eyebrow}>
-            <span className={styles.stateDot} aria-hidden="true" /> Ready
-          </p>
-          <h1 className={styles.title} id="home-title">
-            Your Exomem is ready.
-          </h1>
-        </div>
-        <button
-          className={styles.quietButton}
-          type="button"
-          onClick={() => void signOut()}
-          disabled={signingOut}
-        >
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
+    <>
+      <HomeWeb live={live} />
+      {header}
+      <div className={styles.column}>
+        <StatusBlock
+          live={live}
+          headline={status_.headline}
+          statusLine={status_.statusLine}
+          liveLine={variant === "ended" ? null : liveLine(facts, shownApps, clock)}
+        />
+        {message}
+        {homeNotices.map((notice) => (
+          <Notice
+            key={notice.key}
+            layout="row"
+            attention={notice.attention}
+            action={
+              notice.action === "copy_reference" && account ? (
+                <Button onClick={() => copyReference(account.supportReference)} aria-live="polite">
+                  {referenceCopied ? "Copied" : "Copy reference"}
+                </Button>
+              ) : notice.action === "support" ? (
+                <a className={styles.inlineButton} href="/exomem/support">
+                  Contact support
+                </a>
+              ) : undefined
+            }
+          >
+            {notice.text}
+          </Notice>
+        ))}
+        {first && (
+          <div className={styles.firstNote}>
+            <span className={styles.firstDot} aria-hidden="true" />
+            <div className={styles.firstText}>
+              <span>Your first note</span>
+              <span className={styles.firstMeta}>{first}</span>
+            </div>
+          </div>
+        )}
+        {accountBanner && (
+          <Notice
+            layout="row"
+            action={
+              accountBanner.action ? (
+                <Button
+                  variant="primary"
+                  working={billingBusy}
+                  onClick={() =>
+                    void onBilling(accountBanner.action === "resubscribe" ? "checkout" : "portal")
+                  }
+                >
+                  {bannerLabel[accountBanner.action]}
+                </Button>
+              ) : undefined
+            }
+          >
+            {accountBanner.text}
+          </Notice>
+        )}
+        <ConnectedApps
+          apps={shownApps}
+          failed={appsFailed}
+          ended={variant === "ended"}
+          disconnected={disconnected}
+          onDisconnect={onDisconnect}
+          connectorUrl={status?.connectorUrl ?? null}
+          startLevel={codingLevel}
+          clock={clock}
+        />
+        <InvolvementLevels
+          view={levelState}
+          pending={levelPending}
+          message={levelMessage}
+          onChange={(context, level, revision) => void onLevel(context, level, revision)}
+        />
+        <PlanAndAccount
+          plan={planView(variant, account, billing, clock)}
+          storage={storage}
+          email={shownEmail}
+          onBilling={(kind) => void onBilling(kind)}
+          billingBusy={billingBusy}
+        />
+        <YourData
+          exportRow={exportRow}
+          exportBusy={exportBusy}
+          exportMessage={exportMessage}
+          downloadBusy={downloadBusy}
+          onExport={() => void onExport()}
+          onDownload={(exportId) => void onDownload(exportId)}
+          reviewer={reviewer}
+          onDelete={() => setDeleteStep("ask")}
+        />
+        <div className={styles.footer}>Everything else happens in your assistant.</div>
       </div>
-
-      {sections.map((section) => (
-        <Fragment key={section}>{rendered[section]}</Fragment>
-      ))}
-      <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
-        {notice}
-      </p>
-    </section>
+      {dialogs}
+    </>
   );
 }
+
+// The states before and after a working Home. The board draws none of them: the
+// subscribe copy is the journey's (Appendix A), the rest is the current Home's.
+const NOT_HOME_COPY: Record<
+  "loading" | "subscribe" | "preparing" | "deleting" | "deleted",
+  { headline: string; line: string }
+> = {
+  loading: { headline: "One moment.", line: "Checking your Exomem…" },
+  subscribe: {
+    headline: "Subscribe to finish setting up",
+    line: "Paddle shows the price at checkout. Then add it to your assistant.",
+  },
+  preparing: {
+    headline: "Your Exomem is taking shape.",
+    line: "This usually takes a minute or two. You can leave this page open; it will continue automatically.",
+  },
+  deleting: {
+    headline: "Closing your Exomem.",
+    line: "Access is now closed while the private vault and its backups are removed.",
+  },
+  deleted: {
+    headline: "This Exomem has been removed.",
+    line: "Your Exomem Cloud account is gone. Any other Substrate account or product is unaffected.",
+  },
+};
