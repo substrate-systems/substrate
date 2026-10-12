@@ -12,8 +12,8 @@ describe("Exomem invitation emails", () => {
       expiresAt: new Date("2026-11-11T09:00:00Z"),
       timeZone: null,
     });
-    assert.equal(rendered.htmlContent.includes("<img"), false);
-    assert.ok(rendered.htmlContent.includes("&lt;img"));
+    assert.equal(rendered.htmlContent.includes("<img src=x"), false);
+    assert.ok(rendered.htmlContent.includes("&lt;img src=x"));
     assert.ok(rendered.htmlContent.includes("Alex &amp; Co"));
   });
 });

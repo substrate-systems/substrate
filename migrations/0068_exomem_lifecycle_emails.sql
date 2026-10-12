@@ -7,7 +7,7 @@
 -- THE KIND LIST. Each kind has one renderer in code, so the set is fixed by
 -- code. Every migration that adds kinds replaces this one constraint with the
 -- full list: this list is the union of 0063's kinds, 0065's invitation kinds
--- and this change's. A Postgres test compares it with the code's registry.
+-- and this change's. A Postgres test stores every kind in the code's registry.
 ALTER TABLE exomem_email_outbox DROP CONSTRAINT exomem_email_outbox_kind_check;
 ALTER TABLE exomem_email_outbox
   ADD CONSTRAINT exomem_email_outbox_kind_check
