@@ -311,22 +311,26 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
   it("lets the outbox store every kind it can send", async () => {
     // A migration that replaces the kind CHECK and drops an earlier migration's
     // kinds, or a kind added in code without a migration, fails here instead of
-    // at its first send. Each insert is rolled back.
-    const refused: string[] = [];
-    for (const kind of EXOMEM_EMAIL_KINDS) {
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query(
-          "INSERT INTO exomem_email_outbox (kind, dedupe_key, state) VALUES ($1, $2, 'cancelled')",
-          [kind, `kind-check:${randomUUID()}`]
-        );
-      } catch {
-        refused.push(kind);
-      } finally {
-        await client.query("ROLLBACK");
-        client.release();
+    // at its first send. Each probe row is rolled back.
+    const refused: Array<{ kind: string; code: string }> = [];
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const kind of EXOMEM_EMAIL_KINDS) {
+        await client.query("SAVEPOINT kind_probe");
+        try {
+          await client.query(
+            "INSERT INTO exomem_email_outbox (kind, dedupe_key, state, last_error_code) VALUES ($1, $2, 'cancelled', 'PROBE')",
+            [kind, `kind-probe:${randomUUID()}`]
+          );
+        } catch (error) {
+          refused.push({ kind, code: String((error as { code?: string }).code) });
+        }
+        await client.query("ROLLBACK TO SAVEPOINT kind_probe");
       }
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
     }
     assert.deepEqual(refused, []);
   });
