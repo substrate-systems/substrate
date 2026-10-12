@@ -7,7 +7,7 @@
 
 ### Requirement: Exomem access starts with an email, an invitation or a waitlist place
 
-Access SHALL start in one of three ways: a person asks at the start form, an operator issues an invitation, or a person waits on the waitlist. Only an authenticated operator SHALL create a complimentary, covered, friend or paid operator invitation. The public start form SHALL create only paid self-serve start links. Each invitation MUST be bound to one normalized email address, an entitlement source, an expiry and one high-entropy token. The system MUST store the token's digest, not the plaintext.
+Access SHALL start in one of three ways: a start request, an operator invitation, or a waitlist place. Only an authenticated operator SHALL create a complimentary, covered, friend or paid operator invitation. The public start form SHALL create only paid self-serve start links. Each invitation MUST be bound to one normalized email address, an entitlement source, an expiry and one high-entropy token. The system MUST store the token's digest, not the plaintext.
 
 #### Scenario: Operator creates a complimentary invite
 
@@ -242,6 +242,26 @@ A paid redemption that began on the web, with no live OAuth continuation, SHALL 
 
 - **WHEN** a person redeems an invitation while an OAuth continuation is live
 - **THEN** the response returns the consent path
+
+### Requirement: Paid redemption admits a stopped cell that starts after payment
+
+A complimentary redemption SHALL create a cell that runs. A paid redemption SHALL create the tenant, an entitlement that awaits its first payment, and a cell whose desired state is stopped and that holds its Cloud place. The system MUST NOT start that cell until a verified payment makes the entitlement active or trialing.
+
+#### Scenario: Complimentary redemption
+
+- **WHEN** a person redeems a complimentary invitation
+- **THEN** the system creates a cell whose desired state is running
+
+#### Scenario: Paid redemption
+
+- **WHEN** a person redeems a paid invitation
+- **THEN** the system creates the tenant, an entitlement that awaits its first payment, and a stopped cell
+- **AND** no runtime starts for that cell
+
+#### Scenario: Verified payment arrives
+
+- **WHEN** a verified subscription event makes the entitlement active or trialing
+- **THEN** the cell's desired state becomes running
 
 ### Requirement: Not now and Keep it as it is end the request without a code
 

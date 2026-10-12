@@ -24,6 +24,31 @@ Home SHALL provide service status, billing source/status, sign-out, self-serve e
 - **WHEN** the cell is sealed but external destruction is pending
 - **THEN** Home says deletion is in progress and offers no capture/recall surface
 
+### Requirement: Exomem Home reflects service state honestly
+
+The signed-in Home surface SHALL render one of preparing, awaiting-payment, ready, degraded, suspended, deletion-pending, or deleted states from authoritative control-plane data. It MUST NOT display the ready view before the tenant's cell passes readiness. Awaiting-payment SHALL come from the one shared definition of an entitlement that awaits its first payment.
+
+#### Scenario: Tenant is provisioning
+
+- **WHEN** the owner's cell is not yet ready
+- **THEN** Home shows plain-language deterministic progress, polls a content-free status route, and exposes a request reference for support
+
+#### Scenario: Tenant is awaiting payment
+
+- **WHEN** the owner redeemed a paid invitation and the first payment is outstanding
+- **THEN** Home says that the place is reserved and offers one Subscribe action
+- **AND** Home does not show the ready view
+
+#### Scenario: Tenant is ready
+
+- **WHEN** the entitlement and the cell's readiness both permit service
+- **THEN** Home presents connecting an assistant as the primary action, with the tenant's Cloud connector address
+
+#### Scenario: Tenant is suspended
+
+- **WHEN** manual or entitlement suspension is active
+- **THEN** Home explains the available recovery and account actions, and never attempts to route around suspension
+
 ## ADDED Requirements
 
 ### Requirement: Export is a plain ZIP kept for a limited time
@@ -78,7 +103,8 @@ An owner SHALL start an export from Home while the tenant is not deleting and th
 #### Scenario: Owner replaces a ready export
 
 - **WHEN** an owner starts a new export while one is ready
-- **THEN** the older export becomes expired in the same transaction and its archive is deleted
+- **THEN** Substrate marks the older export superseded in the same transaction, and Home shows it as expired at once
+- **AND** the cell controller deletes its archive
 
 #### Scenario: Owner exceeds the limit
 
@@ -87,7 +113,7 @@ An owner SHALL start an export from Home while the tenant is not deleting and th
 
 ### Requirement: Export downloads start from Home and the ready email is sent once
 
-The download link for an export SHALL come only from a Home request. The link SHALL last five minutes, name only that export's object version, and be served as an attachment. The system MUST NOT send or log the link. When an export becomes ready, the system SHALL send one email that links to Home.
+The download link for an export SHALL come only from a Home request. Each link SHALL expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
 
 #### Scenario: Owner downloads a ready export
 

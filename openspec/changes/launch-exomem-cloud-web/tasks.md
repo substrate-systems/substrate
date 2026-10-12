@@ -44,9 +44,10 @@
 - [ ] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
 - [ ] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
 - [ ] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
-- [ ] 4.8 Scrub the new personal data and outbox rows in deletion finish
-- [ ] 4.9 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
-- [ ] 4.10 Run a dedicated security review of the friend price
+- [ ] 4.8 Show free Cloud capacity on the operator page and keep its paid default and covered confirmation
+- [ ] 4.9 Scrub the new personal data and outbox rows in deletion finish
+- [ ] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
+- [ ] 4.11 Run a dedicated security review of the friend price
 
 ## 5. Cell home channel, storage and export (migration 0066)
 

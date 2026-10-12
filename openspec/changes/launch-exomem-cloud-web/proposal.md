@@ -24,14 +24,14 @@ Exomem Cloud launches with the web experience in `docs/exomem-design`: a landing
 
 ### New Capabilities
 
-None.
+- `exomem-operator-console`: the private operator page that issues invitations.
 
 ### Modified Capabilities
 
-- `exomem-hosted-access`: start form, waitlist, outbox emails, consent outcomes, apps, reviewer web sign-in, friend invitations.
+- `exomem-hosted-access`: start form, waitlist, outbox emails, paid redemption, consent outcomes, apps, reviewer web sign-in, friend invitations.
 - `exomem-tenant-control-plane`: Cloud capacity, the unpaid hold, export rows, the Home token, storage observation.
 - `exomem-hosted-entitlements`: friend price, stored subscription facts, self-serve and resubscribe checkout.
-- `exomem-home`: self-serve export, levels, activity, storage, plan and dates, support reference, connection polling.
+- `exomem-home`: the awaiting-payment state, self-serve export, levels, activity, storage, plan and dates, support reference, connection polling.
 
 ## Impact
 
@@ -39,4 +39,4 @@ None.
 - Substrate routes under `/api/exomem/{access,oauth,apps,account,invites,billing,cloud}`, the cron routes, and `src/app/exomem` pages and components.
 - The exomem repository (runtime, cell export, cellctl) for levels, activity, storage and export. Its own spec deltas travel with that repository.
 - The gateway changes only if a measurement confirms a client-name bug (see `design.md`).
-- Related changes: `enable-exomem-paid-alpha-invites` is archived without syncing its deltas, and this change restates its paid operator-invite scenarios against Cloud capacity. `route-connector-consent-by-account-state` stays open for its production walk. `admit-generic-mcp-clients` supplies stored client names.
+- Related changes: `enable-exomem-paid-alpha-invites` is archived without syncing its deltas, and this change restates what is still true in it: paid operator invitations against Cloud capacity, the paid redemption rule, the awaiting-payment Home state and the operator page. `route-connector-consent-by-account-state` stays open for its production walk. `admit-generic-mcp-clients` supplies stored client names.

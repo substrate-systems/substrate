@@ -87,7 +87,7 @@ Substrate SHALL call the owner's cell only through the public Cloud MCP address,
 
 #### Scenario: Cell is stopped or not ready
 
-- **WHEN** the cell is not running, read-only or ready
+- **WHEN** the cell's desired state is neither running nor read-only, or the cell is not ready
 - **THEN** the call returns `unavailable` with a reason and makes no network request
 
 #### Scenario: Token belongs to one tenant
