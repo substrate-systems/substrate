@@ -66,9 +66,14 @@ export type ExomemEmailSlots = {
   headline: string;
   /** Slot 6: one or two short paragraphs. */
   body: readonly string[];
-  /** Slot 7: a person's own words with their name, or label/value rows. Never both. */
+  /**
+   * Slot 7: a person's own words with their name, or label/value rows, never
+   * both. The exception is the friend and covered invitations, emails 09 and
+   * 10: R28 draws each with the inviter's note and the price rows under it, so
+   * there a note may carry rows (design.md, "Friend invitations").
+   */
   detail?:
-    | { kind: "note"; text: string; author: string }
+    | { kind: "note"; text: string; author: string; rows?: readonly ExomemEmailFact[] }
     | { kind: "facts"; rows: readonly ExomemEmailFact[] }
     | null;
   /** Slot 8: one button, and at most one text link beside it. */
@@ -200,13 +205,19 @@ function schemeImages(
   );
 }
 
+/** The label/value rows of slot 7, alone or under a note. */
+function factRowsOf(slots: ExomemEmailSlots): readonly ExomemEmailFact[] {
+  return slots.detail?.rows ?? [];
+}
+
 function textPart(slots: ExomemEmailSlots): string {
   const blocks: string[] = [slots.headline, ...slots.body];
   const detail = slots.detail;
   if (detail?.kind === "note") blocks.push(`“${detail.text}”\n${detail.author}`);
-  if (detail?.kind === "facts") {
+  const facts = factRowsOf(slots);
+  if (facts.length > 0) {
     blocks.push(
-      detail.rows
+      facts
         .map((row) =>
           row.struck
             ? `${row.label}: ${row.value}, instead of ${row.struck}`
@@ -288,13 +299,14 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
         `</td></tr></table>`
     );
   }
-  if (detail?.kind === "facts" && detail.rows.length > 0) {
+  const facts = factRowsOf(slots);
+  if (facts.length > 0) {
     const box = p("cardBorder");
     const rule = p("rowRule");
     const value = p("primary");
-    const factRows = detail.rows
+    const factRows = facts
       .map((fact, index) => {
-        const last = index === detail.rows.length - 1;
+        const last = index === facts.length - 1;
         const divider = last ? "" : `border-bottom: 1px solid; ${rule.css}`;
         const struck = fact.struck
           ? `<span class="${quiet.cls}" style="${quiet.css} text-decoration: line-through; padding-right: 10px;">${escapeHtml(fact.struck)}</span>`

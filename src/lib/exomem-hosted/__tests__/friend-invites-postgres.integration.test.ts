@@ -618,7 +618,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     const friendEmail = sent.find((message) => message.to === email)!;
     assert.equal(friendEmail.senderName, "Alex Example via Exomem");
     assert.equal(friendEmail.subject, "Alex Example invited you to Exomem");
-    assert.match(String(friendEmail.textContent), /€10 a month \(instead of €15\)/);
+    assert.match(String(friendEmail.textContent), /Your price: €10 a month, instead of €15/);
     assert.ok(String(friendEmail.textContent).includes(`/exomem/invite#${token}`));
     // The friend price came from Paddle's preview with the configured discount.
     assert.equal(

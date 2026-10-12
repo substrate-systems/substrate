@@ -39,13 +39,13 @@ import {
   renderExomemInvitationUsedEmail,
 } from "@/lib/email-templates/exomem-invites";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
-import { exomemPaddleDunningDays } from "./account-view";
+import { exomemPaddleDunningDays, loadExomemAccountView } from "./account-view";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
 import type { ExomemInviteKind } from "./invitation-contract";
-import { CURRENCY_CODE, MONEY_MINOR_UNITS } from "./paddle-billing";
+import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "./paddle-billing";
 import {
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
@@ -103,7 +103,13 @@ type EmailDefinition<P, C> = {
    * for it, and email 07 to the owner's address when the Exomem was deleted.
    */
   addressee?: (context: C) => ExomemEmailAddressee;
-  render: (input: EmailRenderInput<P, C>) => RenderedExomemAccessEmail;
+  /**
+   * Renders the email after the claim, outside its transaction, so it may
+   * wait on a fact the claim must not hold its lock for, such as Paddle's price.
+   */
+  render: (
+    input: EmailRenderInput<P, C>
+  ) => RenderedExomemAccessEmail | Promise<RenderedExomemAccessEmail>;
   afterSent?: (tx: ExomemSql, payload: P) => Promise<void>;
   afterFailed?: (tx: ExomemSql, payload: P) => Promise<void>;
 };
@@ -258,6 +264,27 @@ type OwnerRow = { owner_email: string; time_zone: string | null };
 
 function ownerOf(row: OwnerRow): ExomemEmailAddressee {
   return { email: row.owner_email, timeZone: row.time_zone };
+}
+
+/**
+ * Email 03's plan facts, as Home shows them (loadExomemAccountView): the next
+ * payment's amount as Paddle reports it, and the inviter whose friend price
+ * is on the plan. Each is `null` when unknown, and the email leaves it out.
+ */
+async function readyPlan(account: {
+  userId: string;
+  tenantId: string;
+}): Promise<{ price: ExomemMoney | null; friendInviterName: string | null }> {
+  try {
+    const view = await loadExomemAccountView({ ...account, reviewerCredentialId: null });
+    return {
+      price: view.nextPaymentAmount.value,
+      friendInviterName: view.plan.friendPrice.applied ? view.plan.friendPrice.inviterName : null,
+    };
+  } catch {
+    console.error("exomem: ready email plan facts unavailable");
+    return { price: null, friendInviterName: null };
+  }
 }
 
 type EndedContext = { owner: ExomemEmailAddressee; keptUntil: Date; checkedAt: Date };
@@ -542,6 +569,7 @@ const EXOMEM_EMAILS = {
       payload
     ): Promise<{
       owner: ExomemEmailAddressee;
+      account: { userId: string; tenantId: string };
       covered: boolean;
       nextPaymentAt: Date | null;
       connected: boolean;
@@ -549,6 +577,8 @@ const EXOMEM_EMAILS = {
       const { rows } = await tx`
         /* exomem:email-ready-still-ready */
         SELECT owner.email::text AS owner_email,
+               owner.id AS owner_user_id,
+               tenant.id AS tenant_id,
                tenant.time_zone,
                entitlement.source,
                entitlement.provider_next_billed_at,
@@ -569,6 +599,8 @@ const EXOMEM_EMAILS = {
       `;
       const row = rows[0] as
         | (OwnerRow & {
+            owner_user_id: string;
+            tenant_id: string;
             source: string;
             provider_next_billed_at: Date | string | null;
             connected: boolean;
@@ -577,21 +609,22 @@ const EXOMEM_EMAILS = {
       if (!row) return null;
       return {
         owner: ownerOf(row),
+        account: { userId: row.owner_user_id, tenantId: row.tenant_id },
         covered: row.source === "complimentary",
         nextPaymentAt: row.provider_next_billed_at ? new Date(row.provider_next_billed_at) : null,
         connected: row.connected,
       };
     },
     addressee: (context) => context.owner,
-    render: ({ context, timeZone, publicBaseUrl }) =>
+    render: async ({ context, timeZone, publicBaseUrl }) =>
       renderExomemReadyEmail({
         homeUrl: homeUrl(publicBaseUrl),
-        // No name is stored for an owner yet; the price amount is not stored either.
+        // No name is stored for an owner yet.
         recipientName: null,
         connected: context.connected,
         billing: context.covered
           ? null
-          : { price: null, nextPaymentAt: context.nextPaymentAt, friendInviterName: null },
+          : { ...(await readyPlan(context.account)), nextPaymentAt: context.nextPaymentAt },
         timeZone,
       }),
   }),
@@ -1240,7 +1273,7 @@ export async function drainExomemEmailOutbox(
     const email = claim.email;
     let rendered: RenderedExomemAccessEmail;
     try {
-      rendered = email.definition.render({
+      rendered = await email.definition.render({
         payload: email.payload,
         context: email.context,
         timeZone: email.timeZone,

@@ -90,6 +90,7 @@
 - [x] 6.4 Route friend emails 09 to 13 through the outbox, including the invitee reminder and the two inviter notices
 - [ ] 6.5 Enqueue the export-ready email once per export, linking to Home
 - [ ] 6.6 Render every time limit at send time in the recipient's time zone, UTC labelled when unknown
+- [x] 6.7 Render emails 09 to 13 through the shared ten-slot template, with the R28 copy and bands, and remove their lint exemption
 
 ## 7. Frontend journey
 

@@ -73,6 +73,8 @@ The friend price is one recurring Paddle discount per environment, with no code,
 
 Resubscribe: checkout refuses any owner with a Paddle customer, and re-admission refuses a live cell, so "Resubscribe" on an ended account cannot work today. The fix allows a new transaction for the same customer within the kept window and lets the kept data resume. Invitees get timers through the outbox: a reminder three days before expiry and two inviter notices.
 
+Emails 09 and 10 show the inviter's note with the price rows under it. R28's slot list says slot 7 holds a note or facts, never both, but R28 draws both emails with both. The template lets a note carry rows, and only these two emails use it. Reason: the drawn email is the more specific instruction, and an invitation needs both the inviter's words and the price they offer.
+
 ### The Home to cell channel
 
 Two facts live in two places, so two channels carry them.
