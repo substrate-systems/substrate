@@ -13,7 +13,7 @@
  * tenant's tokens live.
  */
 
-import { executeExomemSql, type ExomemSql } from "./db";
+import type { ExomemSql } from "./db";
 
 export async function revokeCloudResourceConsent(tx: ExomemSql, tenantId: string): Promise<void> {
   // One statement: every data-modifying CTE sees the same snapshot, so the
@@ -56,17 +56,16 @@ export async function revokeCloudResourceConsent(tx: ExomemSql, tenantId: string
  * An owner disconnects one app. The grant, every refresh-token family and
  * access token under it, and any code not yet exchanged are revoked in one
  * statement, so the app's next token use and its next refresh are refused.
+ * The caller holds the tenant lock (`disconnectOwnerApp`).
  *
- * Fenced to the owner's own user and tenant: a grant id from another account
- * matches nothing. Returns whether the grant is the owner's, whether it was
- * revoked now or earlier, so a repeated disconnect still succeeds.
+ * Fenced to the owner's own user and tenant as well, so a grant id from
+ * another account revokes nothing even if a caller skipped its own check.
  */
-export async function revokeOwnerOAuthGrant(input: {
-  userId: string;
-  tenantId: string;
-  grantId: string;
-}): Promise<boolean> {
-  const { rows } = await executeExomemSql`
+export async function revokeOwnerOAuthGrant(
+  tx: ExomemSql,
+  input: { userId: string; tenantId: string; grantId: string }
+): Promise<void> {
+  await tx`
     /* exomem:revoke-owner-oauth-grant */
     WITH owned AS (
       SELECT oauth_grant.id
@@ -108,5 +107,4 @@ export async function revokeOwnerOAuthGrant(input: {
     )
     SELECT (SELECT count(*) FROM owned)::int AS owned
   `;
-  return Number(rows[0]?.owned ?? 0) === 1;
 }

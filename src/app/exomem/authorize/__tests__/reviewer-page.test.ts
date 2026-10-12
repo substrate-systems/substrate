@@ -24,13 +24,12 @@ test("passes reviewer access only for an active authorization continuation", asy
   mock.module("@/lib/exomem-hosted/owner-apps", {
     namedExports: {
       findOAuthClientIdentity: async () => ({
-        clientId: "reviewer-client",
         clientName: null,
         platform: "claude",
-        cimdHost: "client.example.test",
         redirectUris: ["https://client.example.test/callback"],
       }),
       oauthClientDisplayName: () => ({ displayName: "Claude", displayNameSource: "platform" }),
+      redirectHost: () => "client.example.test",
     },
   });
   mock.module("@/lib/exomem-hosted/billing-account", {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
+import { CLIENT_GUIDES } from "../../../app/exomem/home/assistant-instructions";
 
 function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -108,9 +109,11 @@ describe("private Exomem Home contract", () => {
     assert.match(home, /Copy instructions/);
     assert.match(home, /assistantInstructions\(promLevel\)/);
 
-    // Five flows, each naming where its own instructions live.
+    // Five flows, each naming where its own instructions live. Read as values:
+    // the platform names come from one shared module, not literals in this file.
+    const guideNames = CLIENT_GUIDES.map((guide) => guide.name);
     for (const name of ["Claude", "ChatGPT", "Claude Code", "Codex CLI", "Any other MCP client"]) {
-      assert.ok(instructions.includes(`"${name}"`), `${name} needs a guide`);
+      assert.ok(guideNames.includes(name), `${name} needs a guide`);
     }
     assert.match(instructions, /claude mcp add --transport http exomem/);
     // Codex is still listed, but carries its blocker instead of commands: it

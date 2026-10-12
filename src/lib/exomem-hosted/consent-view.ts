@@ -21,6 +21,7 @@ import {
 import {
   findOAuthClientIdentity,
   oauthClientDisplayName,
+  redirectHost,
   type OAuthClientDisplayNameSource,
 } from "./owner-apps";
 import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
@@ -33,20 +34,23 @@ export type ConsentView =
       step: ConsentStep;
       app: {
         displayName: string;
+        /** Only `platform` is vouched for; a `client_metadata` name is the app's own claim. */
         displayNameSource: OAuthClientDisplayNameSource;
         platform: string | null;
-        /** The request's redirect is loopback: the app runs on this machine. */
+        /** The request's redirect is loopback: the code goes to this computer. */
         loopback: boolean;
+        /** The host this request's authorization code would be sent to. */
+        redirectHost: string;
       };
       scopes: string[];
       signedInEmail: string | null;
       /** A live grant already exists for this user, tenant, app and resource. */
       alreadyConnected: boolean;
       cellStarting: boolean;
-      readOnlyUntil: Known<string>;
-      keptUntil: Known<string>;
-      supportReference: Known<string>;
-      connectorSettingsUrl: Known<string>;
+      readOnlyUntil: Known<string, typeof NOT_COMPUTED>;
+      keptUntil: Known<string, typeof NOT_COMPUTED>;
+      supportReference: Known<string, typeof NOT_COMPUTED>;
+      connectorSettingsUrl: Known<string, ConnectorSettingsReason>;
       /** What the page's forms send back to complete or decline this request. */
       confirmation: string;
       nonce: string;
@@ -64,6 +68,12 @@ export type ConsentViewInput = {
 // account view (launch-exomem-cloud-web, account contract), and until then the
 // page shows them as unknown rather than inventing a value.
 const NOT_COMPUTED = "not_computed";
+
+export type ConnectorSettingsReason =
+  | "local_app"
+  | "platform_unknown"
+  | "not_configured"
+  | "invalid_configuration";
 
 type Visitor = {
   effectiveState: string;
@@ -92,7 +102,14 @@ export async function loadConsentView(
   const loopback = isSafeLoopbackOAuthRedirect(continuation.redirectUri);
   return {
     step: consentStep(visitor),
-    app: { ...oauthClientDisplayName(client), platform: client.platform, loopback },
+    // The fallback name is the host this request's code goes to, not any other
+    // redirect the client registered.
+    app: {
+      ...oauthClientDisplayName(client, continuation.redirectUri),
+      platform: client.platform,
+      loopback,
+      redirectHost: redirectHost(continuation.redirectUri),
+    },
     scopes: continuation.scopes,
     signedInEmail: visitor?.email ?? null,
     alreadyConnected: visitor?.alreadyConnected ?? false,
@@ -188,7 +205,7 @@ export function connectorSettingsUrl(
   platform: string | null,
   loopback: boolean,
   env: EnvironmentSource = process.env
-): Known<string> {
+): Known<string, ConnectorSettingsReason> {
   if (loopback) return unknown("local_app");
   if (!platform) return unknown("platform_unknown");
   const raw = env.EXOMEM_CONNECTOR_SETTINGS_URLS?.trim();
@@ -207,7 +224,7 @@ export function connectorSettingsUrl(
   return known(value);
 }
 
-function invalidConnectorSettings(): Known<string> {
+function invalidConnectorSettings(): Known<string, ConnectorSettingsReason> {
   console.warn({ event: "exomem_connector_settings_invalid" });
   return unknown("invalid_configuration");
 }

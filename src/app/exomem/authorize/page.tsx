@@ -81,8 +81,20 @@ export default async function ExomemAuthorizePage({
         <dl className="mt-6 space-y-2 text-sm text-neutral-700">
           <div>
             <dt className="font-medium">Client</dt>
-            <dd>{view.app.displayName}</dd>
+            <dd>
+              {view.app.displayName}
+              {view.app.displayNameSource === "client_metadata" &&
+                " (the name this app gives itself)"}
+            </dd>
           </div>
+          {/* Only a platform name is vouched for by Exomem. Any other name could
+              be chosen by anyone, so show where the authorization would go. */}
+          {view.app.displayNameSource !== "platform" && (
+            <div>
+              <dt className="font-medium">Sends access to</dt>
+              <dd>{view.app.loopback ? "this computer" : view.app.redirectHost}</dd>
+            </div>
+          )}
           <div>
             <dt className="font-medium">Requested access</dt>
             <dd>{view.scopes.join(", ")}</dd>

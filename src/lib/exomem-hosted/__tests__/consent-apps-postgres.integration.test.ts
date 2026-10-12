@@ -486,19 +486,38 @@ describe(
         assert.equal(repeated.status, 200, "a second disconnect of the same app still succeeds");
       });
 
-      it("answers 404 for another owner's app and leaves it connected", async () => {
+      it("answers 404 for any id the list cannot show, and revokes nothing", async () => {
         const owner = await newOwner();
         const otherOwner = await newOwner();
         const client = await newCimdClient();
         const otherConnection = await connect(otherOwner, client);
+        // The owner's own grant, but for a resource other than Cloud.
+        const elsewhere = await pool!.query<{ id: string }>(
+          `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+           SELECT $1, $2, client.id, 'https://elsewhere.example.test/mcp', '{}'
+           FROM exomem_oauth_clients AS client WHERE client.client_id = $3
+           RETURNING id`,
+          [owner.userId, owner.tenantId, client.clientId]
+        );
 
         const foreign = await disconnectRoute(...disconnectRequest(owner, otherConnection.grantId));
+        const otherResource = await disconnectRoute(
+          ...disconnectRequest(owner, elsewhere.rows[0]!.id)
+        );
         const unknownId = await disconnectRoute(...disconnectRequest(owner, randomUUID()));
         const malformed = await disconnectRoute(...disconnectRequest(owner, "not-an-app-id"));
 
-        assert.deepEqual([foreign.status, unknownId.status, malformed.status], [404, 404, 404]);
+        assert.deepEqual(
+          [foreign.status, otherResource.status, unknownId.status, malformed.status],
+          [404, 404, 404, 404]
+        );
         assert.ok(await findCloudOAuthAccessToken(otherConnection.accessDigest, CLOUD_RESOURCE));
         assert.ok(await refresh(client, otherConnection));
+        const untouched = await pool!.query(
+          "SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1",
+          [elsewhere.rows[0]!.id]
+        );
+        assert.equal(untouched.rows[0]!.revoked_at, null);
       });
 
       it("tells the waiting step an app connected: lastAuthorizedAt moves past the first poll's serverTime", async () => {
@@ -557,79 +576,136 @@ describe(
         assert.equal((await view()).alreadyConnected, false, "a revoked grant");
       });
 
-      // Runs last: it adds the columns that the generic-client and Home-client
-      // migrations will add, to prove the list reads them once they exist.
-      it("names each app by its declared name, else its platform, else its host, and hides Home's own client", async () => {
-        await pool!.query(
-          `ALTER TABLE exomem_oauth_clients
-           ADD COLUMN client_name text,
-           ADD COLUMN first_party boolean NOT NULL DEFAULT false`
-        );
-        const owner = await newOwner();
-        const named = await newCimdClient("claude");
-        await pool!.query(
-          "UPDATE exomem_oauth_clients SET client_name = 'Example Notes' WHERE client_id = $1",
-          [named.clientId]
-        );
-        const platformOnly = await newCimdClient("openai");
-        const local: Client = {
-          clientId: `local-${randomUUID()}`,
-          redirectUri: "http://127.0.0.1/callback",
-        };
-        const home: Client = {
-          clientId: `home-${randomUUID()}`,
-          redirectUri: `${ORIGIN}/home/callback`,
-        };
-        for (const [client, firstParty] of [
-          [local, false],
-          [home, true],
-        ] as const) {
+      // Last: these add the columns the generic-client and Home-client
+      // migrations will add, to prove the list and the consent page read them.
+      describe("once clients carry a declared name and a first-party mark", () => {
+        before(async () => {
+          await pool!.query(
+            `ALTER TABLE exomem_oauth_clients
+               ADD COLUMN client_name text,
+               ADD COLUMN first_party boolean NOT NULL DEFAULT false`
+          );
+        });
+
+        async function newPinnedClient(input: {
+          redirectUri: string;
+          clientName?: string;
+          firstParty?: boolean;
+        }): Promise<Client> {
+          const clientId = `pinned-${randomUUID()}`;
           await pool!.query(
             `INSERT INTO exomem_oauth_clients (
-             client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, first_party
-           ) VALUES ($1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3)`,
-            [client.clientId, JSON.stringify([client.redirectUri]), firstParty]
+               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+               client_name, first_party
+             ) VALUES (
+               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3, $4
+             )`,
+            [
+              clientId,
+              JSON.stringify([input.redirectUri]),
+              input.clientName ?? null,
+              input.firstParty ?? false,
+            ]
           );
+          return { clientId, redirectUri: input.redirectUri };
         }
-        const grants = {
-          named: (await connect(owner, named)).grantId,
-          platformOnly: (await connect(owner, platformOnly)).grantId,
-          local: (await connect(owner, local)).grantId,
-        };
-        await connect(owner, home);
 
-        const { apps } = await listOwnerApps(owner);
+        it("names each app by its declared name, else its platform, else its redirect host", async () => {
+          const owner = await newOwner();
+          const named = await newCimdClient("claude");
+          await pool!.query(
+            "UPDATE exomem_oauth_clients SET client_name = 'Example Notes' WHERE client_id = $1",
+            [named.clientId]
+          );
+          const platformOnly = await newCimdClient("openai");
+          const local = await newPinnedClient({ redirectUri: "http://127.0.0.1/callback" });
+          const grants = {
+            named: (await connect(owner, named)).grantId,
+            platformOnly: (await connect(owner, platformOnly)).grantId,
+            local: (await connect(owner, local)).grantId,
+          };
 
-        assert.deepEqual(
-          apps
-            .map(({ id, displayName, displayNameSource, kind }) => ({
-              id,
-              displayName,
-              displayNameSource,
-              kind,
-            }))
-            .sort((a, b) => a.id.localeCompare(b.id)),
-          [
-            {
-              id: grants.named,
-              displayName: "Example Notes",
-              displayNameSource: "client_metadata",
-              kind: "web",
-            },
-            {
-              id: grants.platformOnly,
-              displayName: "ChatGPT",
-              displayNameSource: "platform",
-              kind: "web",
-            },
-            {
-              id: grants.local,
-              displayName: "127.0.0.1",
-              displayNameSource: "host",
-              kind: "local",
-            },
-          ].sort((a, b) => a.id.localeCompare(b.id))
-        );
+          const { apps } = await listOwnerApps(owner);
+
+          assert.deepEqual(
+            apps
+              .map(({ id, displayName, displayNameSource, kind, redirectHosts }) => ({
+                id,
+                displayName,
+                displayNameSource,
+                kind,
+                redirectHosts,
+              }))
+              .sort((a, b) => a.id.localeCompare(b.id)),
+            [
+              {
+                id: grants.named,
+                displayName: "Example Notes",
+                displayNameSource: "client_metadata",
+                kind: "web",
+                redirectHosts: [new URL(named.redirectUri).hostname],
+              },
+              {
+                id: grants.platformOnly,
+                displayName: "ChatGPT",
+                displayNameSource: "platform",
+                kind: "web",
+                redirectHosts: [new URL(platformOnly.redirectUri).hostname],
+              },
+              {
+                id: grants.local,
+                displayName: "127.0.0.1",
+                displayNameSource: "redirect_host",
+                kind: "local",
+                redirectHosts: ["127.0.0.1"],
+              },
+            ].sort((a, b) => a.id.localeCompare(b.id))
+          );
+        });
+
+        it("keeps Home's own client out of the list and out of disconnect", async () => {
+          const owner = await newOwner();
+          const home = await newPinnedClient({
+            redirectUri: `${ORIGIN}/home/callback`,
+            firstParty: true,
+          });
+          const homeConnection = await connect(owner, home);
+
+          const { apps } = await listOwnerApps(owner);
+          const response = await disconnectRoute(
+            ...disconnectRequest(owner, homeConnection.grantId)
+          );
+
+          assert.deepEqual(apps, []);
+          assert.equal(response.status, 404);
+          assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, CLOUD_RESOURCE));
+        });
+
+        // A client can declare any name, including another product's. The page
+        // must be able to show where the code would really go.
+        it("gives the consent page the redirect host of an app that names itself", async () => {
+          const impostor = await newPinnedClient({
+            redirectUri: "https://evil.example.test/cb",
+            clientName: "Claude",
+          });
+          const request = await startAuthorization(impostor);
+
+          const view = await loadConsentView({
+            confirmation: confirmationOf(request.transaction),
+            transactionCookie: request.transaction,
+            formNonceCookie: request.formNonce,
+            sessionCookie: undefined,
+          });
+
+          assert.notEqual(view.step, "expired");
+          assert.deepEqual((view as Exclude<typeof view, { step: "expired" }>).app, {
+            displayName: "Claude",
+            displayNameSource: "client_metadata",
+            platform: null,
+            loopback: false,
+            redirectHost: "evil.example.test",
+          });
+        });
       });
     });
   }
