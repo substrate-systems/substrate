@@ -8,11 +8,7 @@
  * zone, from the caller's typed facts.
  */
 
-import {
-  renderExomemEmail,
-  type ExomemEmailFact,
-  type RenderedExomemEmail,
-} from "./exomem-email";
+import { renderExomemEmail, type ExomemEmailFact, type RenderedExomemEmail } from "./exomem-email";
 import {
   emailClock,
   emailCount,
@@ -92,7 +88,6 @@ export function renderExomemReadyEmail(input: {
         : "Receipts come from Paddle.",
   });
 }
-
 
 /**
  * Email 04: the move into past due. The read-only end is the grace start plus
@@ -240,7 +235,10 @@ export function renderExomemStorageWarningEmail(input: {
     body: [
       `Everything works. You have ${free} GB left of ${limit} GB. Add storage in one step, or let it grow automatically when it fills.`,
     ],
-    detail: { kind: "facts", rows: [{ label: "Used", value: `${gigabytes(input.usedGb)} of ${limit} GB` }] },
+    detail: {
+      kind: "facts",
+      rows: [{ label: "Used", value: `${gigabytes(input.usedGb)} of ${limit} GB` }],
+    },
     action: { label: "Add storage", url: input.homeUrl },
     smallPrint: `We send this once at ${input.thresholdPercent}%. Nothing is ever deleted to make space.`,
   });

@@ -126,7 +126,11 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       id: "04-unknown",
       number: "04",
       note: "payment failed, dunning window not configured",
-      email: renderExomemPaymentFailedEmail({ billingUrl: home, readOnlyUntil: null, timeZone: ZONE }),
+      email: renderExomemPaymentFailedEmail({
+        billingUrl: home,
+        readOnlyUntil: null,
+        timeZone: ZONE,
+      }),
     },
     {
       id: "05",

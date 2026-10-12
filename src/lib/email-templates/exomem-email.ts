@@ -146,10 +146,7 @@ const ROLES = {
   footer: { property: "color", dark: "--fg-footer", light: "--fg-footer" },
   buttonFill: { property: "background-color", dark: "--fg-primary", light: "--fg-primary" },
   buttonText: { property: "color", dark: "--bg-base", light: "--bg-base" },
-} as const satisfies Record<
-  string,
-  { property: string; dark: TokenName; light: TokenName }
->;
+} as const satisfies Record<string, { property: string; dark: TokenName; light: TokenName }>;
 
 type Role = keyof typeof ROLES;
 
@@ -350,7 +347,10 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   const cardRadius = token(palette.dark, "--r-pop");
   const band = schemeImages(
     assetBaseUrl,
-    { dark: exomemEmailBandFile(slots.band, "dark"), light: exomemEmailBandFile(slots.band, "light") },
+    {
+      dark: exomemEmailBandFile(slots.band, "dark"),
+      light: exomemEmailBandFile(slots.band, "light"),
+    },
     {
       width: 600,
       height: 120,

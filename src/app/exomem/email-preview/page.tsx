@@ -34,12 +34,21 @@ export default function EmailPreviewPage() {
               {sample.email.subject}
             </h2>
             <span className={styles.meta}>
-              {sample.note} · from {sample.email.senderName} · {sample.email.subject.length} characters
+              {sample.note} · from {sample.email.senderName} · {sample.email.subject.length}{" "}
+              characters
             </span>
           </div>
           <div className={styles.frames}>
-            <EmailFrame html={sample.email.htmlContent} scheme="dark" title={`${sample.number} dark`} />
-            <EmailFrame html={sample.email.htmlContent} scheme="light" title={`${sample.number} light`} />
+            <EmailFrame
+              html={sample.email.htmlContent}
+              scheme="dark"
+              title={`${sample.number} dark`}
+            />
+            <EmailFrame
+              html={sample.email.htmlContent}
+              scheme="light"
+              title={`${sample.number} light`}
+            />
           </div>
           <details className={styles.text}>
             <summary>Plain-text part</summary>
