@@ -15,7 +15,8 @@ import styles from "./home.module.css";
 const COPIED_MS = 1800;
 
 type AppsProps = {
-  apps: readonly HomeApp[];
+  /** Null until the list arrives: nothing about the apps is said before then. */
+  apps: readonly HomeApp[] | null;
   /** The list could not be read: say so instead of showing no apps. */
   failed: boolean;
   /** Ended: the apps are off until a new subscription, and nothing can be added. */
@@ -149,7 +150,9 @@ function AddAnotherApp({
   disconnected,
   connectorUrl,
   startLevel,
-}: Pick<AppsProps, "apps" | "disconnected" | "connectorUrl" | "startLevel">) {
+}: Pick<AppsProps, "disconnected" | "connectorUrl" | "startLevel"> & {
+  apps: readonly HomeApp[];
+}) {
   // The pick here only chooses which instructions to copy; it saves nothing.
   const [level, setLevel] = useState<LevelKey>(startLevel);
   const [showFull, setShowFull] = useState(false);
@@ -223,6 +226,9 @@ function AddAnotherApp({
 
 export function ConnectedApps(props: AppsProps) {
   const [open, setOpen] = useState(false);
+  // Ended, before the list arrives: nothing is known to show, so no panel yet.
+  if (props.ended && props.apps === null && !props.failed)
+    return <Section title="Connected apps" />;
   return (
     <Section title="Connected apps">
       {props.failed && (
@@ -230,14 +236,14 @@ export function ConnectedApps(props: AppsProps) {
           Your apps can’t be listed right now. Try again in a minute.
         </div>
       )}
-      {props.ended && !props.failed && props.apps.length === 0 && (
+      {props.ended && !props.failed && props.apps?.length === 0 && (
         // Ended with no app to list: the board's "off for now" in place of an empty panel
         // (design.md (ag)).
         <div className={`${styles.row} ${styles.panelNote}`}>
           Off for now. Connect an app when you resubscribe.
         </div>
       )}
-      {props.apps.map((app) => (
+      {props.apps?.map((app) => (
         <AppRow
           key={app.id}
           app={app}
@@ -269,7 +275,7 @@ export function ConnectedApps(props: AppsProps) {
           </div>
           {open && (
             <AddAnotherApp
-              apps={props.apps}
+              apps={props.apps ?? []}
               disconnected={props.disconnected}
               connectorUrl={props.connectorUrl}
               startLevel={props.startLevel}

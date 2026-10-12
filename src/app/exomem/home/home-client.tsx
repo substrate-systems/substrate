@@ -506,7 +506,6 @@ export default function HomeClient({
   const variant = mode.variant;
   const live = isLive(variant);
   const facts = activityFacts(activity, activityAt);
-  const shownApps = apps ?? [];
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
   const homeNotices = notices(variant, account, storage, exportOffered, statusPageUrl !== null);
@@ -535,7 +534,7 @@ export default function HomeClient({
           live={live}
           headline={status_.headline}
           statusLine={status_.statusLine}
-          liveLine={variant === "ended" ? null : liveLine(facts, shownApps, disconnected, clock)}
+          liveLine={variant === "ended" ? null : liveLine(facts, apps ?? [], disconnected, clock)}
           activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
         />
         {message}
@@ -612,7 +611,7 @@ export default function HomeClient({
           </Notice>
         )}
         <ConnectedApps
-          apps={shownApps}
+          apps={apps}
           failed={appsFailed}
           ended={variant === "ended"}
           disconnected={disconnected}

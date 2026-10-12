@@ -149,11 +149,12 @@ export function StatusBlock({
   );
 }
 
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+/** A titled section; without children it draws no panel, not an empty one. */
+export function Section({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionTitle}>{title}</h2>
-      <div className={styles.panel}>{children}</div>
+      {children !== undefined && <div className={styles.panel}>{children}</div>}
     </section>
   );
 }
