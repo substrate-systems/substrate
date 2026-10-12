@@ -17,26 +17,42 @@ async function storeTheme(page: Page, theme: "light" | "dark") {
   ] as const);
 }
 
-// The locked palette puts these text colours below WCAG AA (4.5:1) on some grounds:
-// --fg-tertiary everywhere; in light, --fg-muted on paper, --exo-amber on paper and
-// white, and paper-coloured text on an amber fill. Changing a locked value is the
-// product owner's decision (raised with this foundation). Until then a contrast failure
-// drawn in exactly one of these colours is listed on the test instead of failing it;
-// every other failure fails. Remove a token here when its value changes.
-const BELOW_AA_TEXT = {
-  dark: ["--fg-tertiary"],
-  light: ["--fg-tertiary", "--fg-muted", "--exo-amber", "--bg-base"],
-} as const;
+// The locked palette puts these text-on-ground pairs below WCAG AA (4.5:1). Changing a
+// locked value is the product owner's decision (raised with this foundation). Until then
+// a contrast failure whose exact text colour and ground form one of these pairs is listed
+// on the test instead of failing it; every other failure fails. Each pair takes both
+// values from its own theme's tokens, so it matches wherever that theme is drawn: the
+// showcase pins panels of each theme on a page of the other. Remove a pair when a value
+// changes.
+type Theme = "dark" | "light";
+const BELOW_AA: { theme: Theme; text: string; alpha?: number; ground: string }[] = [
+  { theme: "dark", text: "--fg-tertiary", ground: "--bg-base" },
+  { theme: "dark", text: "--fg-tertiary", ground: "--bg-panel" },
+  { theme: "dark", text: "--fg-tertiary", ground: "--bg-raised" },
+  { theme: "light", text: "--fg-tertiary", ground: "--bg-base" },
+  { theme: "light", text: "--fg-tertiary", ground: "--bg-panel" },
+  { theme: "light", text: "--fg-muted", ground: "--bg-base" },
+  { theme: "light", text: "--fg-muted", ground: "--bg-frame" },
+  { theme: "light", text: "--exo-amber", ground: "--bg-base" },
+  { theme: "light", text: "--exo-amber", ground: "--bg-panel" },
+  // The landing's wikilink draws amber at 80% opacity.
+  { theme: "light", text: "--exo-amber", alpha: 0.8, ground: "--bg-panel" },
+  // Paper-coloured text on an amber fill.
+  { theme: "light", text: "--bg-base", ground: "--exo-amber" },
+];
 
-/** "r, g, b" of a #rrggbb token value, as the browser reports a computed colour. */
-function channels(hex: string): string {
-  return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ");
+/** A #rrggbb token as the browser reports a computed colour: "rgb(r, g, b)" or "rgba(r, g, b, a)". */
+function computedColour(hex: string, alpha?: number): string {
+  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ");
+  return alpha === undefined ? `rgb(${rgb})` : `rgba(${rgb}, ${alpha})`;
 }
 
+/** Keys "<computed text colour> on <ground hex as axe reports it>". */
 const KNOWN_BELOW_AA = new Set(
-  (["dark", "light"] as const).flatMap((theme) =>
-    BELOW_AA_TEXT[theme].map((token) => channels(exomemTokens()[theme][token]))
-  )
+  BELOW_AA.map(({ theme, text, alpha, ground }) => {
+    const tokens = exomemTokens()[theme];
+    return `${computedColour(tokens[text], alpha)} on ${tokens[ground].toLowerCase()}`;
+  })
 );
 
 test.describe("accessibility in both themes", () => {
@@ -58,21 +74,19 @@ test.describe("accessibility in both themes", () => {
           for (const node of violation.nodes) {
             const selector = node.target.join(" ");
             if (violation.id === "color-contrast") {
-              // The computed colour, alpha dropped: "rgb(r, g, b)" or "rgba(r, g, b, a)".
               const color = await page.evaluate(
                 (target) => getComputedStyle(document.querySelector(target)!).color,
                 selector
               );
-              const rgb = color
-                .slice(color.indexOf("(") + 1, -1)
-                .split(",")
-                .slice(0, 3);
-              if (KNOWN_BELOW_AA.has(rgb.map((c) => c.trim()).join(", "))) {
+              const ground = (node.any[0]?.data as { bgColor?: string } | null)?.bgColor;
+              if (KNOWN_BELOW_AA.has(`${color} on ${ground}`)) {
                 test
                   .info()
                   .annotations.push({ type: "locked palette below AA", description: selector });
-                continue;
+              } else {
+                blocking.push(`color-contrast: ${selector} (${color} on ${ground})`);
               }
+              continue;
             }
             blocking.push(`${violation.id}: ${selector}`);
           }
