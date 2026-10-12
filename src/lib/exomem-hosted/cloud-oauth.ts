@@ -1,5 +1,6 @@
 import type { ExomemCloudResource } from "./cloud-config";
 import { ADVERTISED_SCOPES } from "./oauth";
+import type { OAuthClientIdentity } from "./oauth-client-identity";
 /**
  * Exomem Cloud OAuth client admission and exact-resource token binding
  * (design D2, `adopt-exomem-cloud-plain-cells`).
@@ -110,6 +111,8 @@ export type ActiveCloudOAuthAccessToken = {
   scopes: string[];
   cellId: string;
   cellDesiredState: "running" | "read_only" | "stopped" | "deleted";
+  /** The token's client as stored, from which the gateway names it to the cell. */
+  client: OAuthClientIdentity;
 };
 
 /**
@@ -140,7 +143,8 @@ export async function findCloudOAuthAccessToken(
     /* exomem-cloud:find-oauth-access-token */
     SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
            client.client_id, token.resource, token.scopes,
-           cell.cell_id, cell.desired_state AS cell_desired_state
+           cell.cell_id, cell.desired_state AS cell_desired_state,
+           client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
@@ -204,6 +208,10 @@ export async function findCloudOAuthAccessToken(
         scopes: string[];
         cell_id: string;
         cell_desired_state: "running" | "read_only" | "stopped" | "deleted";
+        client_name: string | null;
+        admission_mode: string;
+        client_platform: string | null;
+        redirect_uris: string[];
       }
     | undefined;
   return row
@@ -217,6 +225,12 @@ export async function findCloudOAuthAccessToken(
         scopes: row.scopes,
         cellId: row.cell_id,
         cellDesiredState: row.cell_desired_state,
+        client: {
+          clientName: row.client_name,
+          admissionMode: row.admission_mode,
+          platform: row.client_platform,
+          redirectUris: row.redirect_uris,
+        },
       }
     : null;
 }

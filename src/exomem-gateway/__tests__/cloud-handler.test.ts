@@ -44,6 +44,12 @@ const VALID_ACCESS: ActiveCloudOAuthAccessToken = {
   scopes: ["exomem.read", "exomem.write"],
   cellId: TEST_CELL_ID,
   cellDesiredState: "running",
+  client: {
+    clientName: null,
+    admissionMode: "cimd",
+    platform: "claude",
+    redirectUris: ["https://chat.example.test/oauth/callback"],
+  },
 };
 
 type StandInCellBehavior =
@@ -730,6 +736,95 @@ describe("Exomem Cloud gateway handler", () => {
         assert.equal(response.status, 502);
         assert.deepEqual(await response.json(), { error: "CELL_AUTH_MISMATCH" });
       } finally {
+        await cell.close();
+      }
+    });
+
+    // The cell picks a level for the client's context and names its activity
+    // from these headers, so the values must come from the stored client.
+    for (const { label, client, name, context } of [
+      {
+        label: "a loopback-only client as coding",
+        client: {
+          clientName: "Example CLI",
+          admissionMode: "pinned",
+          platform: null,
+          redirectUris: ["http://127.0.0.1/callback", "http://localhost/callback"],
+        },
+        name: "Example CLI",
+        context: "coding",
+      },
+      {
+        label: "a web client as conversation",
+        client: VALID_ACCESS.client,
+        name: "Claude",
+        context: "conversation",
+      },
+      {
+        label: "a client whose name a header cannot carry by its redirect host",
+        client: {
+          clientName: "Notes ✨",
+          admissionMode: "generic",
+          platform: null,
+          redirectUris: ["https://notes.example.test/callback", "http://127.0.0.1/callback"],
+        },
+        name: "notes.example.test",
+        context: "conversation",
+      },
+    ]) {
+      it(`names ${label} to the cell`, async () => {
+        const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+        try {
+          const response = await handleCloudMcpRequest(
+            postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
+            baseDeps({
+              findAccessToken: async () => ({ ...VALID_ACCESS, client }),
+              fetchCell: fetchCellAt(cell.port),
+            })
+          );
+          assert.equal(response.status, 200);
+          const received = cell.requests[0]!.headers;
+          assert.equal(received["x-exomem-oauth-client"], name);
+          assert.equal(received["x-exomem-client-context"], context);
+        } finally {
+          await cell.close();
+        }
+      });
+    }
+
+    it("never lets a caller's copy of either client header reach the cell", async () => {
+      const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+      const savedIngressHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      try {
+        for (const header of ["x-exomem-oauth-client", "x-exomem-client-context"]) {
+          const refused = await handleCloudMcpRequest(
+            postRequest({ bearer: CLIENT_BEARER, headers: { [header]: "coding" }, body: "{}" }),
+            baseDeps({ fetchCell: fetchCellAt(cell.port) })
+          );
+          assert.equal(refused.status, 400);
+          assert.deepEqual(await refused.json(), { error: "HOSTED_SELECTOR_REJECTED" });
+        }
+        assert.equal(cell.requests.length, 0);
+
+        // Even a copy that passes the selector check (here, by an ingress
+        // header configured with the same name) is replaced, not forwarded.
+        process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-exomem-client-context";
+        const passed = await handleCloudMcpRequest(
+          postRequest({
+            bearer: CLIENT_BEARER,
+            headers: { "x-exomem-client-context": "coding" },
+            body: "{}",
+          }),
+          baseDeps({ fetchCell: fetchCellAt(cell.port) })
+        );
+        assert.equal(passed.status, 200);
+        assert.equal(cell.requests[0]!.headers["x-exomem-client-context"], "conversation");
+      } finally {
+        if (savedIngressHeader === undefined) {
+          delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+        } else {
+          process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = savedIngressHeader;
+        }
         await cell.close();
       }
     });
