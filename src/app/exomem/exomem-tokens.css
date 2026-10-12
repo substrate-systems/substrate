@@ -34,7 +34,7 @@
   --fg-body: #c9c5bc;        /* long reading text, list values */
   --fg-secondary: #a39e93;   /* body, descriptions */
   --fg-muted: #858075;       /* labels, metadata */
-  --fg-tertiary: #5c574d;    /* faint labels, disabled */
+  --fg-tertiary: #5c574d;    /* disabled controls and non-text marks only: below AA as text */
   --fg-dim-struck: #6b655a;  /* struck / superseded text */
 
   /* landing and email grounds */
@@ -46,6 +46,7 @@
 
   /* the accent */
   --exo-amber: #ffb000;
+  --exo-amber-text: #ffb000;   /* amber as text (current chips, wikilinks, amber labels, links): AA on page and panel */
   --exo-glow: rgba(255, 176, 0, 0.55);   /* glow around a lit note */
   --exo-tint: rgba(255, 176, 0, 0.08);   /* lit tile background */
 
@@ -116,11 +117,12 @@
   --fg-primary: #1a1814;
   --fg-body: #3d3a34;
   --fg-secondary: #6b665c;
-  --fg-muted: #7a756b;
+  --fg-muted: #736e64;
   --fg-tertiary: #b5afa3;
   --fg-dim-struck: #8a857b;
 
-  --exo-amber: #a86e00;   /* deep amber: passes AA on paper */
+  --exo-amber: #a86e00;   /* deep amber: lines, dots, glows, fills, borders, focus ring */
+  --exo-amber-text: #9a6500;
 
   --ink-rgb: 26, 24, 20;
   --amber-rgb: 168, 110, 0;

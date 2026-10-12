@@ -16,9 +16,9 @@
   flex: none;
 }
 
-/* Off: the relation is hidden. */
+/* Off: the relation is hidden. Muted, not tertiary: the label must still read (AA). */
 .chip[aria-pressed="false"] {
-  color: var(--fg-tertiary);
+  color: var(--fg-muted);
   border-color: rgba(var(--ink-rgb), 0.06);
 }
 
@@ -26,5 +26,5 @@
 .review,
 .review[aria-pressed] {
   border-color: rgba(var(--amber-rgb), 0.55);
-  color: var(--exo-amber);
+  color: var(--exo-amber-text);
 }

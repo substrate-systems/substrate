@@ -17,41 +17,40 @@ async function storeTheme(page: Page, theme: "light" | "dark") {
   ] as const);
 }
 
-// The locked palette puts these text-on-ground pairs below WCAG AA (4.5:1). Changing a
-// locked value is the product owner's decision (raised with this foundation). Until then
-// a contrast failure whose exact text colour and ground form one of these pairs is listed
-// on the test instead of failing it; every other failure fails. Each pair takes both
-// values from its own theme's tokens, so it matches wherever that theme is drawn: the
-// showcase pins panels of each theme on a page of the other. Remove a pair when a value
-// changes.
+// The text-on-ground pairs below stay under WCAG AA (4.5:1) after the AA palette change
+// of 2026-10-12. A contrast failure whose exact text colour and ground form one of these
+// pairs is listed on the test instead of failing it; every other failure fails. Each pair
+// takes both values from its own theme's tokens, so it matches wherever that theme is
+// drawn: the showcase pins panels of each theme on a page of the other. Remove a pair when
+// its text moves to a token that passes.
+//
+// Known gap the scan does not reach: muted and amber text over the light hover and pressed
+// fill (--bg-hover, #EFEBE3) is about 4.2:1. Axe sees only the resting state.
 type Theme = "dark" | "light";
-const BELOW_AA: { theme: Theme; text: string; alpha?: number; ground: string }[] = [
+const BELOW_AA: { theme: Theme; text: string; ground: string }[] = [
+  // Page text still drawn in --fg-tertiary (landing captions and links, page footers, the
+  // showcase's panel labels). The token is for disabled controls and non-text marks only.
   { theme: "dark", text: "--fg-tertiary", ground: "--bg-base" },
   { theme: "dark", text: "--fg-tertiary", ground: "--bg-panel" },
   { theme: "dark", text: "--fg-tertiary", ground: "--bg-raised" },
   { theme: "light", text: "--fg-tertiary", ground: "--bg-base" },
   { theme: "light", text: "--fg-tertiary", ground: "--bg-panel" },
-  { theme: "light", text: "--fg-muted", ground: "--bg-base" },
+  // Muted labels on the light frame ground (#EDEAE3), which is darker than paper: 4.2:1.
   { theme: "light", text: "--fg-muted", ground: "--bg-frame" },
-  { theme: "light", text: "--exo-amber", ground: "--bg-base" },
-  { theme: "light", text: "--exo-amber", ground: "--bg-panel" },
-  // The landing's wikilink draws amber at 80% opacity.
-  { theme: "light", text: "--exo-amber", alpha: 0.8, ground: "--bg-panel" },
-  // Paper-coloured text on an amber fill.
+  // Paper-coloured text on an amber fill: fills keep --exo-amber, 4.0:1 in light.
   { theme: "light", text: "--bg-base", ground: "--exo-amber" },
 ];
 
-/** A #rrggbb token as the browser reports a computed colour: "rgb(r, g, b)" or "rgba(r, g, b, a)". */
-function computedColour(hex: string, alpha?: number): string {
-  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ");
-  return alpha === undefined ? `rgb(${rgb})` : `rgba(${rgb}, ${alpha})`;
+/** A #rrggbb token as the browser reports a computed colour: "rgb(r, g, b)". */
+function computedColour(hex: string): string {
+  return `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
 }
 
 /** Keys "<computed text colour> on <ground hex as axe reports it>". */
 const KNOWN_BELOW_AA = new Set(
-  BELOW_AA.map(({ theme, text, alpha, ground }) => {
+  BELOW_AA.map(({ theme, text, ground }) => {
     const tokens = exomemTokens()[theme];
-    return `${computedColour(tokens[text], alpha)} on ${tokens[ground].toLowerCase()}`;
+    return `${computedColour(tokens[text])} on ${tokens[ground].toLowerCase()}`;
   })
 );
 

@@ -10,6 +10,6 @@
 
 /* "current": the one state a tag lights. */
 .current {
-  color: var(--exo-amber);
+  color: var(--exo-amber-text);
   border-color: var(--exo-amber-line);
 }

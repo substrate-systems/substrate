@@ -99,7 +99,7 @@ const benchmarks = [
   {
     value: "864",
     unit: "ms",
-    color: "var(--exo-amber)", // the measured live value — amber is earned
+    color: "var(--exo-amber-text)", // the measured live value — amber is earned
     label:
       "Hybrid find() end-to-end at 50,000 notes — hot cache off, methodology public in the repo.",
   },
@@ -482,13 +482,13 @@ export default function ExomemPage() {
                     <span style={{ color: "var(--fg-tertiary)" }}>status:</span>
                     {" superseded\n"}
                     <span style={{ color: "var(--fg-tertiary)" }}>superseded_by:</span>{" "}
-                    <span style={{ color: "var(--exo-amber)" }}>
+                    <span style={{ color: "var(--exo-amber-text)" }}>
                       &quot;[[newer-constraint]]&quot;
                     </span>
                     {"\n"}
                     <span style={{ color: "var(--fg-tertiary)" }}>---</span>
                     {"\n\nBatch embeddings at 256 on 16 GB cards.\nReplaced after "}
-                    <span style={{ color: "rgba(var(--amber-rgb), 0.8)" }}>
+                    <span style={{ color: "var(--exo-amber-text)" }}>
                       [[benchmark-run-014]]
                     </span>
                     {" showed VRAM\nheadroom, not throughput, is the bound."}
@@ -794,7 +794,7 @@ export default function ExomemPage() {
                     fontWeight: 500,
                     letterSpacing: "0.16em",
                     textTransform: "uppercase",
-                    color: "var(--exo-amber)",
+                    color: "var(--exo-amber-text)",
                   }}
                 >
                   <span

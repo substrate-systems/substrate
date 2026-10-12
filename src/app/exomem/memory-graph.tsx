@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 
 const MONO = "var(--font-mono-exo)";
 const AMBER = "var(--exo-amber)";
+const AMBER_TEXT = "var(--exo-amber-text)"; // amber words: AA in both themes
 const CYCLE = 10000;
 const QUERY = 'kb find "stale decision"';
 
@@ -226,7 +227,7 @@ function Graph({ a }: { a: Anim }) {
         const labelColor = struck
           ? "var(--fg-dim-struck)"
           : isNew && lit > 0.4
-            ? AMBER
+            ? AMBER_TEXT
             : lit > 0.3
               ? "var(--fg-body)"
               : "var(--fg-muted)";
@@ -405,7 +406,7 @@ export default function MemoryGraph() {
             />
           ) : null}
         </div>
-        <div style={{ color: AMBER, fontSize: "11.5px", whiteSpace: "nowrap" }}>
+        <div style={{ color: AMBER_TEXT, fontSize: "11.5px", whiteSpace: "nowrap" }}>
           {a.status}
         </div>
       </div>
@@ -449,7 +450,7 @@ export default function MemoryGraph() {
             <span style={{ color: "var(--fg-primary)" }}>
               → notes/newer-constraint.md
             </span>
-            <span style={{ color: AMBER }}>current</span>
+            <span style={{ color: AMBER_TEXT }}>current</span>
           </div>
           <div
             style={{

@@ -30,5 +30,5 @@
 }
 
 .interactive:hover .title {
-  color: var(--exo-amber);
+  color: var(--exo-amber-text);
 }

@@ -45,7 +45,7 @@
 
 .eyebrow {
   margin: 0 0 18px;
-  color: var(--exo-amber);
+  color: var(--exo-amber-text);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -232,7 +232,7 @@
 .resultTitle {
   margin: 0 0 10px;
   font-size: 12px;
-  color: var(--exo-amber);
+  color: var(--exo-amber-text);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -298,7 +298,7 @@
 .connectTitle {
   margin: 0 0 6px;
   font-size: 12px;
-  color: var(--exo-amber);
+  color: var(--exo-amber-text);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
