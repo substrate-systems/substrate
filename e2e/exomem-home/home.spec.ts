@@ -168,7 +168,7 @@ test("an export packs, becomes ready, and Download follows a fresh link", async 
   // cellctl packs it; the page shows the time limit from the row's own times.
   await markExportReady(requested!.export_id, 24);
   await page.reload();
-  await expect(data.getByText(/exomem-\d{4}-\d{2}-\d{2}\.zip · kept 24 h, until /)).toBeVisible();
+  await expect(data.getByText(/^kept 24 h, until /)).toBeVisible();
 
   const downloadUrl = `${new URL(page.url()).origin}/__export-download/${requested!.export_id}.zip`;
   await page.route(downloadUrl, (route) =>

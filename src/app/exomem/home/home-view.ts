@@ -21,7 +21,6 @@ import {
   count,
   dayMonth,
   gigabytes,
-  isoDay,
   secondsAgo,
   shortDateTime,
   type Clock,
@@ -591,10 +590,8 @@ export function exportView(summary: HomeExport, clock: Clock): ExportView {
         detail: {
           kind: "ready",
           exportId: summary.export_id,
-          text: `exomem-${isoDay(summary.ready_at, clock.timeZone)}.zip · kept ${kept}, until ${shortDateTime(
-            summary.expires_at,
-            clock.timeZone
-          )}`,
+          // No file name: cellctl names the download, and Home does not copy its rule.
+          text: `kept ${kept}, until ${shortDateTime(summary.expires_at, clock.timeZone)}`,
         },
       };
     }

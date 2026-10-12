@@ -343,7 +343,7 @@ describe("the export row", () => {
       } as HomeExport,
       clock
     );
-    assert.equal(ready.detail?.text, "exomem-2026-10-12.zip · kept 2 days, until 14 Oct, 09:30");
+    assert.equal(ready.detail?.text, "kept 2 days, until 14 Oct, 09:30");
   });
 
   it("shows a failed export with its code and a way to try again", () => {

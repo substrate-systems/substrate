@@ -44,17 +44,6 @@ export function clockTime(iso: string, timeZone?: string): string {
   return format(iso, { hour: "2-digit", minute: "2-digit" }, timeZone);
 }
 
-/** The calendar date in the reader's zone, as YYYY-MM-DD. */
-export function isoDay(iso: string, timeZone?: string): string {
-  // en-CA writes dates as YYYY-MM-DD.
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    timeZone,
-  }).format(new Date(iso));
-}
-
 /** "11,402" */
 export function count(value: number): string {
   return new Intl.NumberFormat(LOCALE).format(value);
