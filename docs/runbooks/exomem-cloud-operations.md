@@ -273,21 +273,43 @@ If the sweep fails, the reconcile job answers `503` and logs
 `exomem-oauth: expired state and client retirement lane failed`. A malformed
 grace setting fails every run until you correct it.
 
+Migration 0067 builds five indexes on the grant, refresh token and access token
+tables. Each build blocks writes to its table, such as token issuance and
+refresh, until the migration commits. Before you deploy the release that
+contains slot reclaim:
+
+1. Run this read-only query against the production database:
+   ```sql
+   SELECT relname, reltuples::bigint AS estimated_rows
+   FROM pg_class
+   WHERE relname IN ('exomem_oauth_grants', 'exomem_oauth_refresh_tokens',
+                     'exomem_oauth_access_tokens');
+   ```
+2. If every table holds fewer than one million rows, deploy as usual.
+3. Otherwise, deploy in the quietest hour, and expect token requests to wait
+   for the builds.
+
+On a synthetic table of one million rows on local Postgres 16, one build took
+0.2 to 0.4 seconds.
+If a table lock is not free within five seconds, the migration fails and rolls
+back, and you can deploy again.
+
 To roll back a release that contains slot reclaim, roll forward if you can. The
 earlier code cannot revive a retired connector, because its registration sets
 `enabled = true` without clearing `retired_at`, which the database refuses. If
 you must roll the code back:
 
-1. Run this statement against the production database:
+1. Deploy the earlier release.
+2. Run this statement against the production database:
    ```sql
    UPDATE exomem_oauth_clients
    SET retired_at = NULL, updated_at = now()
    WHERE auto_registered AND retired_at IS NOT NULL;
    ```
-2. Deploy the earlier release.
 
-Retired connectors then revive on their next authorization, as before the
-release. The migration stays applied.
+Deploy first: until the earlier release replaces it, this release's sweep can
+retire connectors again. Retired connectors then revive on their next
+authorization, as before the release. The migration stays applied.
 
 #### Retire spent reviewer bootstrap clients
 

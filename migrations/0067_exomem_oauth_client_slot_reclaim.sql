@@ -6,22 +6,13 @@
 -- bootstrap history, stays checkable, and grants, tokens and evidence keep
 -- the client they reference.
 
-ALTER TABLE exomem_oauth_clients
-  ADD COLUMN retired_at timestamptz;
+-- The runner applies this file in one transaction, and each table lock lasts
+-- until it commits. A statement that waits for a lock blocks every request
+-- queued behind it, so the migration fails after five seconds instead.
+SET LOCAL lock_timeout = '5s';
 
--- A retired client takes no slot, so it must never be usable: enabling one
--- would admit a client the bound does not count. The first-party Home client
--- takes no slot and is never retired.
-ALTER TABLE exomem_oauth_clients
-  ADD CONSTRAINT exomem_oauth_clients_retired_disabled
-  CHECK (retired_at IS NULL OR (NOT enabled AND NOT first_party));
-
--- Every registration reads the partition count, and every sweep reads its
--- retirement candidates. Unretired rows stay at most the sum of the bounds
--- while retired rows accumulate, so both read this index instead of the table.
-CREATE INDEX exomem_oauth_clients_unretired_partition_idx
-  ON exomem_oauth_clients (admission_mode, auto_registered)
-  WHERE retired_at IS NULL AND NOT first_party;
+-- The index builds on grants and tokens come before the first statement that
+-- locks exomem_oauth_clients, so clients stay readable while they run.
 
 -- The retirement sweep looks up each candidate client's grants.
 CREATE INDEX exomem_oauth_grants_client_idx
@@ -42,6 +33,23 @@ CREATE INDEX exomem_oauth_refresh_tokens_family_idx
   ON exomem_oauth_refresh_tokens (family_id);
 CREATE INDEX exomem_oauth_access_tokens_family_idx
   ON exomem_oauth_access_tokens (family_id);
+
+ALTER TABLE exomem_oauth_clients
+  ADD COLUMN retired_at timestamptz;
+
+-- A retired client takes no slot, so it must never be usable: enabling one
+-- would admit a client the bound does not count. The first-party Home client
+-- takes no slot and is never retired.
+ALTER TABLE exomem_oauth_clients
+  ADD CONSTRAINT exomem_oauth_clients_retired_disabled
+  CHECK (retired_at IS NULL OR (NOT enabled AND NOT first_party));
+
+-- Every registration reads the partition count, and every sweep reads its
+-- retirement candidates. Unretired rows stay at most the sum of the bounds
+-- while retired rows accumulate, so both read this index instead of the table.
+CREATE INDEX exomem_oauth_clients_unretired_partition_idx
+  ON exomem_oauth_clients (admission_mode, auto_registered)
+  WHERE retired_at IS NULL AND NOT first_party;
 
 -- Each partition's bound is data, so an operator changes it with one UPDATE
 -- and no migration. The three partition names are this schema's own closed
@@ -159,8 +167,11 @@ CREATE VIEW exomem_oauth_clients_holding_live_authority AS
         AND token.consumed_at IS NULL AND token.expires_at > now()
     )
   UNION ALL
+  -- Invite admission (admitFirstCloudOAuthInviteAtomic) reads a transaction as
+  -- live at its own start time and takes no cohort lock, so this arm keeps one
+  -- minute of margin past expiry.
   SELECT client_id FROM exomem_oauth_authorization_transactions
-  WHERE consumed_at IS NULL AND expires_at > now();
+  WHERE consumed_at IS NULL AND expires_at > now() - interval '1 minute';
 
 COMMENT ON VIEW exomem_oauth_clients_holding_live_authority IS
   'Clients that hold a grant that is not revoked, an unexpired code, access '
