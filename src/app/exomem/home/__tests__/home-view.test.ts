@@ -359,6 +359,23 @@ describe("notices and the account banner", () => {
     );
   });
 
+  it("does not ask an ended owner to resubscribe when no checkout can start", () => {
+    const kept = account({
+      step: "ended",
+      keptUntil: { value: "2026-11-10T09:00:00Z", reason: null },
+    });
+    assert.equal(
+      banner("ended", kept, null, clock, false)?.text,
+      "Your memory is read-only and kept until 10 November."
+    );
+    assert.equal(
+      banner("ended", kept, null, clock, true)?.text,
+      "Your memory is read-only and kept until 10 November. Export it any time before then."
+    );
+    const undated = account({ step: "ended", keptUntil: { value: null, reason: "not_reported" } });
+    assert.equal(banner("ended", undated, null, clock, true)?.text, "Your memory is read-only.");
+  });
+
   it("dates an ended plan from the cancellation, in the reader's zone, and drops a date it does not know", () => {
     const endedOn = account({
       step: "ended",
@@ -378,8 +395,14 @@ describe("notices and the account banner", () => {
       step: "ended",
       keptUntil: { value: "2026-11-10T09:00:00Z", reason: null },
     });
+    const open = {
+      source: "paddle",
+      state: "cancelled",
+      checkoutAvailable: true,
+      portalAvailable: true,
+    } as const;
     assert.equal(
-      banner("ended", ended, null, clock, false)?.text,
+      banner("ended", ended, open, clock, false)?.text,
       "Kept until 10 November. Resubscribe to get it all back."
     );
     const [copy] = notices("ended", ended, { state: "unknown" }, false, false);

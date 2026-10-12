@@ -290,9 +290,15 @@ export const breakCopy = {
       `Your memory is read-only and kept until ${until}. Resubscribe to connect ${app}.`,
     /** Added to the lede when the account holds a friend offer, which checkout applies again. */
     friendBack: (by: string) => ` ${by}’s friend price comes back if you do.`,
-    /** The lede while no checkout can start, so the step offers no resubscribing (design.md (af)). */
-    ledeWithoutCheckout: (until: string, exportOffered: boolean) =>
-      `Your memory is read-only and kept until ${until}.${exportOffered ? " Export it any time before then." : ""}`,
+    /**
+     * The lede while no checkout can start, so nothing offers resubscribing; Home's ended
+     * banner says the same. Without a kept date it says only that the memory is read-only
+     * (design.md (af)).
+     */
+    ledeWithoutCheckout: (until: string | null, exportOffered: boolean) =>
+      until
+        ? `Your memory is read-only and kept until ${until}.${exportOffered ? " Export it any time before then." : ""}`
+        : "Your memory is read-only.",
     resubscribe: "Resubscribe",
   },
   paused: {

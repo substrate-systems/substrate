@@ -376,11 +376,16 @@ export function banner(
     }
     case "ended": {
       const kept = account?.keptUntil.value;
+      const until = kept ? dayMonth(kept, clock.timeZone) : null;
+      // Without a checkout to start, nothing asks the owner to resubscribe (design.md (af)).
+      if (!billing?.checkoutAvailable) {
+        return { text: breakCopy.ended.ledeWithoutCheckout(until, exportOffered), action: null };
+      }
       return {
-        text: `${kept ? `Kept until ${dayMonth(kept, clock.timeZone)}. ` : ""}${
+        text: `${until ? `Kept until ${until}. ` : ""}${
           exportOffered ? "Export it, or resubscribe" : "Resubscribe"
         } to get it all back.`,
-        action: billing?.checkoutAvailable ? "resubscribe" : null,
+        action: "resubscribe",
       };
     }
     // The Journey board's paused step, for a web start (design.md (ac)).
