@@ -55,7 +55,7 @@
 
 ## 5. Cell home channel, storage and export (migration 0066)
 
-- [ ] 5.1 Add migration 0066: first-party Home client with its column, usage columns, export table, `export` hold kind, and grants
+- [ ] 5.1 Add migration 0066: first-party Home client with its admission mode, usage columns, export table, `export` hold kind, and grants
 - [ ] 5.2 Add `cloud-home-mcp` with the 120-second token mint and exactly two calls
 - [ ] 5.3 Add `GET` and `PUT /api/exomem/cloud/home/levels` with revision checks and the unavailable reasons
 - [ ] 5.4 Add `GET /api/exomem/cloud/home/live` for activity and note count

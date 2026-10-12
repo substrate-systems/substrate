@@ -576,35 +576,19 @@ describe(
         assert.equal((await view()).alreadyConnected, false, "a revoked grant");
       });
 
-      // Last: this adds the first_party column the Home-client migration will
-      // add, unless the schema already has it, to prove the list reads it.
-      describe("once clients carry a stored name and a first-party mark", () => {
-        before(async () => {
-          await pool!.query(
-            `ALTER TABLE exomem_oauth_clients
-               ADD COLUMN IF NOT EXISTS first_party boolean NOT NULL DEFAULT false`
-          );
-        });
-
+      describe("once clients carry a stored name and a first-party mode", () => {
         async function newPinnedClient(input: {
           redirectUri: string;
           clientName?: string;
-          firstParty?: boolean;
         }): Promise<Client> {
           const clientId = `pinned-${randomUUID()}`;
           await pool!.query(
             `INSERT INTO exomem_oauth_clients (
-               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-               client_name, first_party
+               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
              ) VALUES (
-               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3, $4
+               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3
              )`,
-            [
-              clientId,
-              JSON.stringify([input.redirectUri]),
-              input.clientName ?? null,
-              input.firstParty ?? false,
-            ]
+            [clientId, JSON.stringify([input.redirectUri]), input.clientName ?? null]
           );
           return { clientId, redirectUri: input.redirectUri };
         }
@@ -681,11 +665,30 @@ describe(
 
         it("keeps Home's own client out of the list and out of disconnect", async () => {
           const owner = await newOwner();
-          const home = await newPinnedClient({
-            redirectUri: `${ORIGIN}/home/callback`,
-            firstParty: true,
-          });
-          const homeConnection = await connect(owner, home);
+          // Migration 0066 seeds the one first-party client. Home mints its
+          // tokens on the server and never through a browser consent, so the
+          // grant is written here the way that mint writes it.
+          const homeGrant = await pool!.query<{ id: string; client_id: string }>(
+            `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+             SELECT $1, $2, id, $3, ARRAY['exomem.read', 'exomem.write']
+             FROM exomem_oauth_clients WHERE admission_mode = 'first_party'
+             RETURNING id, client_id`,
+            [owner.userId, owner.tenantId, CLOUD_RESOURCE]
+          );
+          const { id: grantId, client_id: homeClientId } = homeGrant.rows[0]!;
+          const family = await pool!.query<{ id: string }>(
+            `INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+             VALUES ($1, $2, now() + interval '30 days') RETURNING id`,
+            [grantId, homeClientId]
+          );
+          const accessDigest = randomBytes(32);
+          await pool!.query(
+            `INSERT INTO exomem_oauth_access_tokens (
+               access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+             ) VALUES ($1, $2, $3, $4, $5, ARRAY['exomem.read', 'exomem.write'], now() + interval '2 minutes')`,
+            [accessDigest, grantId, family.rows[0]!.id, homeClientId, CLOUD_RESOURCE]
+          );
+          const homeConnection = { grantId, accessDigest };
 
           const { apps } = await listOwnerApps(owner);
           const response = await disconnectRoute(
@@ -695,6 +698,91 @@ describe(
           assert.deepEqual(apps, []);
           assert.equal(response.status, 404);
           assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, CLOUD_RESOURCE));
+        });
+
+        // The release before this one shares these store statements. They admit
+        // a client by a pinned or generic mode or by admitted CIMD metadata;
+        // the seeded Home client has neither, and no supported writer adds
+        // that metadata to it.
+        it("refuses the first-party client at authorization, code exchange and refresh", async () => {
+          const owner = await newOwner();
+          const seeded = await pool!.query<{ id: string; client_id: string; redirect_uri: string }>(
+            `SELECT id, client_id, redirect_uris ->> 0 AS redirect_uri
+             FROM exomem_oauth_clients WHERE admission_mode = 'first_party'`
+          );
+          const {
+            id: homeClientId,
+            client_id: clientId,
+            redirect_uri: redirectUri,
+          } = seeded.rows[0]!;
+
+          const started = await createOAuthContinuation({
+            clientId,
+            redirectUri,
+            resource: CLOUD_RESOURCE,
+            scopes: ["exomem.read", "exomem.write"],
+            state: `state-${randomUUID()}`,
+            codeChallenge: `challenge-${randomUUID()}`,
+            offlineAccess: true,
+          });
+          assert.equal(started, null);
+
+          // A code and a refresh token as a browser authorization would have
+          // left them for this client.
+          const codeDigest = randomBytes(32);
+          const refreshDigest = randomBytes(32);
+          const challenge = `challenge-${randomUUID()}`;
+          await pool!.query(
+            `WITH oauth_grant AS (
+               INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
+               VALUES ($1, $2, $3, $4, ARRAY['exomem.read', 'exomem.write'], true)
+               RETURNING id
+             ), code AS (
+               INSERT INTO exomem_oauth_authorization_codes (
+                 code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge,
+                 refresh_allowed, expires_at
+               )
+               SELECT $5, id, $3, $6, $4, $7, true, now() + interval '5 minutes' FROM oauth_grant
+             ), family AS (
+               INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+               SELECT id, $3, now() + interval '30 days' FROM oauth_grant
+               RETURNING id
+             )
+             INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
+             SELECT $8, id, now() + interval '1 day' FROM family`,
+            [
+              owner.userId,
+              owner.tenantId,
+              homeClientId,
+              CLOUD_RESOURCE,
+              codeDigest,
+              redirectUri,
+              challenge,
+              refreshDigest,
+            ]
+          );
+
+          const exchanged = await issueOAuthTokensFromCodeAtomic({
+            codeDigest,
+            clientId,
+            redirectUri,
+            resource: CLOUD_RESOURCE,
+            pkceChallenge: challenge,
+            refreshDigest: randomBytes(32),
+            refreshExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            accessDigest: randomBytes(32),
+            accessExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+          });
+          assert.equal(exchanged, null);
+          const refreshed = await rotateOAuthRefreshTokenAtomic({
+            refreshDigest,
+            replacementRefreshDigest: randomBytes(32),
+            accessDigest: randomBytes(32),
+            accessExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            clientId,
+            resource: CLOUD_RESOURCE,
+          });
+          assert.equal(refreshed, null);
         });
 
         // A client can declare any name, including another product's. The page

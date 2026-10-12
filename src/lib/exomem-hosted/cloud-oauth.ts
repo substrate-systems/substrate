@@ -64,6 +64,8 @@ export async function resolveApprovedCloudOAuthClient(
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
       AND redirect_uris_digest = digest(convert_to(redirect_uris::text, 'utf8'), 'sha256')
+      -- The first_party mode is absent: that client gets tokens only from
+      -- the server-side mint (cloud-home-mcp.ts), never through a consent.
       AND admission_mode IN ('pinned', 'cimd', 'generic')
       AND enabled = true
       AND (
@@ -113,6 +115,8 @@ export type ActiveCloudOAuthAccessToken = {
   cellDesiredState: "running" | "read_only" | "stopped" | "deleted";
   /** The token's client as stored, from which the gateway names it to the cell. */
   client: OAuthClientIdentity;
+  /** The token belongs to the first-party Home client, by its stored admission mode. */
+  firstParty: boolean;
 };
 
 /**
@@ -161,6 +165,9 @@ export async function findCloudOAuthAccessToken(
      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
      AND (
        client.admission_mode = 'pinned'
+       -- Only the server-side mint writes a first-party token; this lookup
+       -- is the one place that admits the mode.
+       OR client.admission_mode = 'first_party'
        OR exomem_oauth_generic_client_admitted(client.admission_mode)
        OR (
          client.metadata_document_digest IS NOT NULL
@@ -231,6 +238,7 @@ export async function findCloudOAuthAccessToken(
           platform: row.client_platform,
           redirectUris: row.redirect_uris,
         },
+        firstParty: row.admission_mode === "first_party",
       }
     : null;
 }
