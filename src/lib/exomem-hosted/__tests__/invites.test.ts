@@ -7,6 +7,7 @@ const TOKEN = Buffer.alloc(32, 0x61).toString("base64url");
 
 function friendInvitation() {
   return {
+    id: "invite-1",
     kind: "friend" as const,
     email: "invitee@example.test",
     expiresAt: new Date("2026-11-11T09:00:00Z"),

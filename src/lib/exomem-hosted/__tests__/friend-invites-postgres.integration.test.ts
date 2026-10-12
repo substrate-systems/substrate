@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
+import { friendPriceOffered, friendPriceUnchecked } from "../../../app/exomem/invite/invite-view";
 import { loadExomemAccountView } from "../account-view";
 import { resumeReturnedOwnerCheckout, startOwnerCheckout } from "../billing-account";
 import { redeemCloudInvite, redeemCloudInviteAtomic } from "../cloud-admission";
@@ -10,7 +11,7 @@ import { reconcileCloudCellDesiredState, runBoundedCloudReconcile } from "../clo
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { drainExomemEmailOutbox } from "../email-outbox";
 import { ExomemHostedError } from "../errors";
-import { decideInvitation, issueOperatorInvite } from "../invites";
+import { decideInvitation, issueOperatorInvite, type InvitationInspection } from "../invites";
 import { __clearExomemPriceCacheForTests } from "../paddle-billing";
 import { loadExomemPaddleConfig } from "../paddle-config";
 import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
@@ -957,6 +958,49 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
 
     assert.deepEqual(decision, { status: "kept" });
     assert.equal((await invitation(second.inviteId)).decision, "kept");
+    assert.equal(await friendOffer(owner.tenantId), first.inviteId);
+    assert.equal(
+      (await outboxRows(second.inviteId)).some((row) => row.kind === "invitation_used"),
+      false
+    );
+  });
+
+  it("offers nothing to a plan that already has the friend price from another invitation, and changes nothing at Paddle when the owner asks anyway", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/inspect/route");
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    const first = await issueFriendInvitation({ email: owner.email });
+    await decideInvitation({ token: first.token, choice: "use_friend_price", session });
+    // Paddle reports the subscription with the friend discount.
+    await subscriptionEvent(owner, { occurredAt: new Date(), discountId: FRIEND_DISCOUNT });
+    const second = await issueFriendInvitation({
+      email: owner.email,
+      inviterEmail: newAddress("second-inviter"),
+    });
+    paddle.calls = [];
+
+    const inspected = await POST(
+      inspectRequest(second.token, {
+        ip: "203.0.113.44",
+        cookie: `exomem_session=${owner.sessionToken}`,
+      })
+    );
+    const inspection = (await inspected.json()) as InvitationInspection;
+    assert.ok(inspection.status === "existing" && inspection.signedIn);
+    assert.deepEqual(inspection.price.value?.friend, {
+      value: null,
+      reason: "friend_price_applied",
+    });
+    // The page shows no price card and no "Use Alex's friend price", only "Keep my plan as it is".
+    assert.equal(friendPriceOffered(inspection), false);
+    assert.equal(friendPriceUnchecked(inspection), false);
+
+    await assert.rejects(
+      decideInvitation({ token: second.token, choice: "use_friend_price", session }),
+      (error) => error instanceof ExomemHostedError && error.code === "FRIEND_PRICE_NOT_OFFERED"
+    );
+    assert.equal(paddleCalls("PATCH", "/subscriptions/").length, 0);
+    assert.equal((await invitation(second.inviteId)).consumed_at, null);
     assert.equal(await friendOffer(owner.tenantId), first.inviteId);
     assert.equal(
       (await outboxRows(second.inviteId)).some((row) => row.kind === "invitation_used"),
