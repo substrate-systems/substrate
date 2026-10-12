@@ -196,6 +196,21 @@ export function safeObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * A transport whose every call also ends at `deadline`, so a batch of Paddle
+ * calls shares one time budget instead of each waiting its own timeout.
+ */
+export function paddleTransportUntil(
+  deadline: AbortSignal,
+  transport: PaddleTransport = paddleFetch
+): PaddleTransport {
+  return (path, init) =>
+    transport(path, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline,
+    });
+}
+
 async function cancelUnboundTransaction(
   transactionId: string,
   transport: PaddleTransport

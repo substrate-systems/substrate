@@ -66,6 +66,12 @@ CREATE INDEX exomem_invites_inviter_email_idx
   ON exomem_invites (inviter_email)
   WHERE inviter_email IS NOT NULL;
 
+-- The hold reminder (email 18) reads the inviter's name from the invitation
+-- that admitted the tenant, when it is sent.
+CREATE INDEX exomem_invites_redeemed_tenant_idx
+  ON exomem_invites (redeemed_tenant_id)
+  WHERE redeemed_tenant_id IS NOT NULL;
+
 -- The friend invitation the tenant accepted, through redemption or a decision.
 -- Deleting the invitation (account deletion) removes the offer with it.
 ALTER TABLE exomem_tenants

@@ -23,6 +23,7 @@ before(() => {
         return [
           { tenantId: "t-expired", outcome: "expired" },
           { tenantId: "t-skipped", outcome: "skipped" },
+          { tenantId: "t-deferred", outcome: "deferred" },
         ];
       },
     },
@@ -154,6 +155,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
       cloud: {
         expired: 1,
         activationsSkipped: 1,
+        expiriesDeferred: 1,
         reconciled: 4,
         deleted: 1,
         cellsWaitingForPaddle: 2,

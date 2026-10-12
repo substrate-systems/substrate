@@ -25,12 +25,13 @@ import {
 } from "./entitlements";
 import {
   CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS,
+  CLOUD_SWEEP_PADDLE_BUDGET_MS,
   DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS,
 } from "./cloud-config";
-import { paddleFetch } from "@/lib/hosted-backup/paddle-client";
 import {
   cancelExomemCheckoutTransaction,
   ExomemBillingError,
+  paddleTransportUntil,
   type PaddleTransport,
 } from "./paddle-billing";
 import { loadExomemPaddleTransactionConfig, type ExomemPaddleConfig } from "./paddle-config";
@@ -174,10 +175,6 @@ export type LapsedCheckoutOptions = {
   transport?: PaddleTransport;
 };
 
-// Settlement shares the reconcile cron's request timeout (the scheduler's
-// `totalTimeoutSeconds` in ops/exomem-hosted-schedules.json) with the rest
-// of the sweep and with the account deletion finish that follows it.
-const LAPSED_CHECKOUT_BUDGET_MS = 5_000;
 // A tick reaches at most this many lapsed tenants; the rest wait for the next.
 const LAPSED_CHECKOUT_MAX_TENANTS = 25;
 
@@ -237,13 +234,8 @@ export async function settleLapsedCheckouts(
   if (rows.length === 0) return result;
   // One deadline for every Paddle call of the batch, so a slow Paddle costs
   // the cron at most the budget.
-  const deadline = AbortSignal.timeout(options.budgetMs ?? LAPSED_CHECKOUT_BUDGET_MS);
-  const transport = options.transport ?? paddleFetch;
-  const bounded: PaddleTransport = (path, init) =>
-    transport(path, {
-      ...init,
-      signal: init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline,
-    });
+  const deadline = AbortSignal.timeout(options.budgetMs ?? CLOUD_SWEEP_PADDLE_BUDGET_MS);
+  const bounded = paddleTransportUntil(deadline, options.transport);
   for (const row of rows as LapsedCheckout[]) {
     const outcome = deadline.aborted
       ? "waiting"

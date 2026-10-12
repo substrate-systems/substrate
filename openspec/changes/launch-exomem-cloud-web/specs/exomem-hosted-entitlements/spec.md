@@ -128,6 +128,11 @@ Checkout SHALL accept a self-serve owner and an owner whose subscription ended i
 - **THEN** the system cancels that transaction at Paddle, or cancels at once the subscription it already paid for, before it scrubs the account
 - **AND** the deletion waits while Paddle gives no proof
 
+#### Scenario: Unpaid holds expire within a time budget
+
+- **WHEN** the reconcile cron expires unpaid holds whose checkouts Paddle must settle
+- **THEN** every Paddle call of the batch shares one time budget, and a hold that the budget does not reach stays stopped until the next run
+
 #### Scenario: Friend discount changes after a checkout opened
 
 - **WHEN** an owner with a friend offer reopens checkout and the friend discount is missing from the configuration or fails its checks at Paddle

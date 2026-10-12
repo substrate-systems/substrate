@@ -18,6 +18,7 @@ import {
 } from "../oauth-continuity";
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
 import { tokenDigest } from "../security";
+import type { PaddleTransport } from "../paddle-billing";
 import type { ExomemPaddleConfig } from "../paddle-config";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -914,6 +915,52 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     );
     // Not deleted — left stopped for the ordinary activation webhook.
     assert.equal(cell.rows[0]!.desired_state, "stopped");
+  });
+
+  it("stops asking Paddle at its time budget and keeps every unsettled hold for the next tick", async () => {
+    await resetFleet();
+    await configureCapacity(3);
+    const cells: string[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const paid = await createInvite("paddle");
+      const result = await redeemCloudInviteAtomic(redemptionInput(paid.tokenDigest));
+      assert.ok(result);
+      await pool!.query(
+        `UPDATE exomem_entitlements
+         SET provider_transaction_ref = $2, provider_environment = 'sandbox'
+         WHERE tenant_id = $1`,
+        [result!.tenantId, `txn_${randomBytes(13).toString("hex")}`]
+      );
+      await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE cell_id = $1", [
+        result!.cellId,
+      ]);
+      cells.push(result!.cellId);
+    }
+
+    // Paddle answers nothing until the caller gives up.
+    const hanging: PaddleTransport = (_path, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    const started = Date.now();
+    const outcomes = await expireCloudAwaitingCheckoutTenants({
+      config: FAKE_PADDLE_CONFIG,
+      transport: hanging,
+      budgetMs: 300,
+    });
+    const elapsedMs = Date.now() - started;
+
+    // Each hanging call would otherwise wait out its own 10-second deadline.
+    assert.ok(elapsedMs < 3_000, `the expiry took ${elapsedMs} ms`);
+    assert.deepEqual(
+      outcomes.map((o) => o.outcome),
+      ["deferred", "deferred", "deferred"]
+    );
+    const stopped = await pool!.query(
+      "SELECT count(*)::int AS n FROM exomem_cloud_cells WHERE cell_id = ANY($1::text[]) AND desired_state = 'stopped'",
+      [cells]
+    );
+    assert.equal(stopped.rows[0]!.n, 3);
   });
 
   it("admits a first Cloud OAuth invite: creates the cell, session, grant and code, and consumes both", async () => {
