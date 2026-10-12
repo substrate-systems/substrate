@@ -2,7 +2,9 @@
    colours normalised to tokens.css. Selectors are exactly as in the boards, one section per surface;
    light-theme variants are the .t-light rules. The scrollbar lives in tokens.css.
    Generated from reference/boards at design lock (12 Oct 2026). Frozen: change only with the product owner's yes. Layout set inline
-   is inventoried in components.md. */
+   is inventoried in components.md.
+   Frozen handoff snapshot: code is the source from now on (src/app/exomem/exomem-tokens.css and the
+   component modules in src/components/exomem); change those, not this file. */
 
 /* ===== Landing-Page — The landing: hero graph and its hover, pillars, living map, typing demo, scrollbar.
    Root class in the board: .lp (page) / .hp (hero panel) — port this section into that surface's CSS module. ===== */

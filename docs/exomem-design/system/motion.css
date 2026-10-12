@@ -1,6 +1,8 @@
 /* Exomem — every animation used in the design, verbatim from the boards, colours normalised to tokens.css.
    Generated from reference/boards at design lock (12 Oct 2026). Frozen: change only with the product owner's yes.
-   All of it is switched off under prefers-reduced-motion (tokens.css). */
+   All of it is switched off under prefers-reduced-motion (tokens.css).
+   Frozen handoff snapshot: code is the source from now on (src/app/exomem/exomem-tokens.css and the
+   component modules in src/components/exomem); change those, not this file. */
 
 /* Landing-Page · hpType 6.5s steps(34) infinite */
 @keyframes hpType{0%{width:0}14%,90%{width:34ch}96%,100%{width:0}}

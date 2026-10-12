@@ -70,6 +70,8 @@ Exomem is a sibling brand inside the Substrate system: it inherits Substrate's r
 
 **The system is locked in code, not just described.** `system/tokens.css` holds every colour used anywhere in the design (each one in the boards maps to a token; near-duplicates were merged), `system/components.css` and `system/motion.css` hold every component style and animation verbatim, `system/components.md` is the inventory with exact specs and states, and the raw-colour lint fails the build on any raw colour. Adding a token, a component variant or an animation needs the product owner's yes. The tables below summarise; the files are the source of truth.
 
+**From the foundation build on, code is the source:** `src/app/exomem/exomem-tokens.css` and the component modules in `src/components/exomem/`. This `system/` folder is the frozen handoff snapshot; change the code, not these files.
+
 ### 2.1 Colour
 
 | Token | Dark | Light | Use |
