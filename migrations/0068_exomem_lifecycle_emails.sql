@@ -26,6 +26,24 @@ CREATE INDEX exomem_email_outbox_tenant_idx
   ON exomem_email_outbox (tenant_id)
   WHERE tenant_id IS NOT NULL;
 
+-- THE CONTROLLER'S DELETION, defined once. cellctl has deleted a cell, with
+-- its volume, backups and keys, once it reports the cell deleted at the
+-- current generation. Capacity (cloud-capacity.ts) counts every other cell as
+-- live, and email 07 (email-outbox.ts) waits for it. A function, not a view:
+-- the schema-wide grants give the app role writes on every view, and an
+-- updatable view of exomem_cloud_cells would apply them as its owner.
+CREATE FUNCTION exomem_cloud_cell_deletion_finished(cell exomem_cloud_cells)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $function$
+  SELECT cell.desired_state = 'deleted'
+    AND cell.observed_state IS NOT DISTINCT FROM 'deleted'
+    AND cell.observed_generation IS NOT DISTINCT FROM cell.generation
+$function$;
+
+COMMENT ON FUNCTION exomem_cloud_cell_deletion_finished(exomem_cloud_cells) IS
+  'cellctl has deleted this cell, with its volume, backups and keys: it reports '
+  'the cell deleted at its current generation. cellctl then stops observing the '
+  'row, so its observed_at stays the time of that report.';
+
 -- THE EMAIL 03 CUTOFF. Email 03 ("Your Exomem is ready") is keyed by the cell
 -- ('ready:' || cell_id) and sent the first time a cell is ready. A live cell
 -- that shows it has started when this ships must not be welcomed on deploy:

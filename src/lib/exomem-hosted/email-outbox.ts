@@ -525,7 +525,8 @@ const EXOMEM_EMAILS = {
    * backups and its keys are gone, so it waits until cellctl reports every
    * cell of the tenant deleted at its current generation, after which only
    * the deletion receipt remains (design `adopt-exomem-cloud-plain-cells`,
-   * D4). cloud-capacity.ts counts a cell as live by the same three columns.
+   * D4). The one definition is `exomem_cloud_cell_deletion_finished`
+   * (migration 0068), which capacity uses too.
    */
   deleted: defineEmail({
     readPayload: (value): DeletedPayload | null =>
@@ -536,9 +537,7 @@ const EXOMEM_EMAILS = {
         SELECT EXISTS (
                  SELECT 1 FROM exomem_cloud_cells AS cell
                  WHERE cell.tenant_id = tenant.id
-                   AND (cell.desired_state <> 'deleted'
-                        OR cell.observed_state IS DISTINCT FROM 'deleted'
-                        OR cell.observed_generation IS DISTINCT FROM cell.generation)
+                   AND NOT exomem_cloud_cell_deletion_finished(cell)
                ) AS cell_live,
                now() + (${DELETED_RECHECK_MINUTES} * interval '1 minute') AS recheck_at
         FROM exomem_tenants AS tenant

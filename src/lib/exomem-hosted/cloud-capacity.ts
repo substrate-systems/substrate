@@ -83,10 +83,8 @@ async function readCloudCapacity(
       (SELECT COALESCE(SUM(cell_slots), 0) FROM fresh) AS fresh_slots,
       (SELECT max(observed_at) FROM exomem_cloud_capacity
        WHERE observed_at <= statement_timestamp()) AS newest_observation_at,
-      (SELECT COUNT(*) FROM exomem_cloud_cells
-       WHERE desired_state <> 'deleted'
-          OR observed_state IS DISTINCT FROM 'deleted'
-          OR observed_generation IS DISTINCT FROM generation) AS live_cells,
+      (SELECT COUNT(*) FROM exomem_cloud_cells AS cell
+       WHERE NOT exomem_cloud_cell_deletion_finished(cell)) AS live_cells,
       (SELECT COUNT(DISTINCT invite.email_normalized) FROM exomem_invites AS invite
        WHERE invite.consumed_at IS NULL
          AND invite.revoked_at IS NULL
