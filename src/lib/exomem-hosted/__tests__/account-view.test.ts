@@ -7,6 +7,7 @@ const FRIEND_DISCOUNT = "dsc_friend_price_example";
 function paidRow(overrides: Partial<ExomemAccountRow> = {}): ExomemAccountRow {
   return {
     email: "owner@example.test",
+    timeZone: null,
     supportReference: "7Q4M",
     source: "paddle",
     sourceState: "active",

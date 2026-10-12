@@ -209,8 +209,13 @@ async function admitCloudTenant(input: {
     sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
     codeDigest,
     codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    timeZone: "Europe/Paris",
   });
   assert.ok(admission, "sanity: the Cloud OAuth admission succeeds");
+  const recorded = await pool!.query("SELECT time_zone FROM exomem_tenants WHERE id = $1", [
+    admission!.tenantId,
+  ]);
+  assert.equal(recorded.rows[0]!.time_zone, "Europe/Paris", "sanity: the time zone is recorded");
   const issued = await issueOAuthTokensFromCodeAtomic({
     codeDigest,
     clientId,
@@ -567,13 +572,14 @@ async function assertFinishedReceipt(
   assert.deepEqual(await tenantFootprint(tenant.tenantId), d4Receipt(expected));
 
   const tenantRow = await pool!.query(
-    "SELECT status, desired_state, deleted_at, bound_cell_id FROM exomem_tenants WHERE id = $1",
+    "SELECT status, desired_state, deleted_at, bound_cell_id, time_zone FROM exomem_tenants WHERE id = $1",
     [tenant.tenantId]
   );
   assert.equal(tenantRow.rows[0]!.status, "deleted");
   assert.equal(tenantRow.rows[0]!.desired_state, "deleted");
   assert.notEqual(tenantRow.rows[0]!.deleted_at, null);
   assert.equal(tenantRow.rows[0]!.bound_cell_id, null);
+  assert.equal(tenantRow.rows[0]!.time_zone, null);
 
   const entitlement = await pool!.query(
     `SELECT source_state, effective_state, capabilities, provider_environment,

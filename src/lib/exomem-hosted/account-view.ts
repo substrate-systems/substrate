@@ -42,6 +42,7 @@ export type ExomemAccountView = {
 
 export type ExomemAccountRow = {
   email: string;
+  timeZone: string | null;
   supportReference: string;
   source: "complimentary" | "paddle";
   sourceState: string;
@@ -145,8 +146,7 @@ export function buildExomemAccountView(
   return {
     kind: options.reviewer ? "reviewer" : "owner",
     email: row.email,
-    // Tenants do not record a time zone yet.
-    timeZone: unknown("not_recorded"),
+    timeZone: row.timeZone ? known(row.timeZone) : unknown("not_recorded"),
     supportReference: `EX-${row.supportReference}`,
     step: consentStep({ effectiveState: row.effectiveState, sourceState: row.sourceState }),
     plan: {
@@ -185,6 +185,7 @@ export async function loadExomemAccountView(
   const { rows } = await executeExomemSql`
     /* exomem:account-view */
     SELECT users.email,
+           tenant.time_zone,
            tenant.support_reference,
            entitlement.source,
            entitlement.source_state,
@@ -214,6 +215,7 @@ export async function loadExomemAccountView(
   return buildExomemAccountView(
     {
       email: String(row.email),
+      timeZone: textOrNull(row.time_zone),
       supportReference: String(row.support_reference),
       source: row.source === "complimentary" ? "complimentary" : "paddle",
       sourceState: String(row.source_state),

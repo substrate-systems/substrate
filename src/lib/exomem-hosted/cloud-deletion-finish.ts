@@ -128,6 +128,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           desired_state = 'deleted',
           deleted_at = now(),
           bound_cell_id = NULL,
+          time_zone = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
     `;
