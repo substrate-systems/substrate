@@ -172,9 +172,11 @@
 .exo-hscroll { overflow-x: auto; scrollbar-width: none; }
 .exo-hscroll::-webkit-scrollbar { display: none; }
 
-/* Keyboard focus: amber ring for keyboard users only. */
+/* Keyboard focus: amber ring for keyboard users only. A control keeps its own corners while
+   focused (the :where() radius loses to any component's); bare text gets a softened ring. */
 .brand-exomem :focus { outline: none; }
-.brand-exomem :focus-visible { outline: 2px solid var(--exo-amber); outline-offset: 2px; border-radius: 2px; }
+.brand-exomem :focus-visible { outline: 2px solid var(--exo-amber); outline-offset: 2px; }
+:where(.brand-exomem :focus-visible) { border-radius: 2px; }
 
 /* Reduced motion: every ambient and transition effect is off. */
 @media (prefers-reduced-motion: reduce) {
