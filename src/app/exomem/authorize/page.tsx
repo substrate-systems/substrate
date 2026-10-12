@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { loadConsentView } from "@/lib/exomem-hosted/consent-view";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { known, unknown } from "@/lib/exomem-hosted/known";
@@ -109,6 +110,7 @@ export default async function ExomemAuthorizePage({
         connectorSettingsUrl: view.connectorSettingsUrl.value,
         account: view.signedInEmail ? await accountFacts(sessionCookie) : NOT_SIGNED_IN,
         priceId: exomemCheckoutPriceId(),
+        exportOffered: cloudExportsEnabled(),
       }}
       requestLife={requestLife()}
       statusPageUrl={statusPageUrl()}

@@ -65,6 +65,8 @@ export type SetupFacts = {
   priceId: string | null;
   /** The account's friend offer, which checkout applies. */
   friendOffer: FriendOffer;
+  /** Whether Home offers an export: the export flag. */
+  exportOffered: boolean;
 };
 
 type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
@@ -285,7 +287,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   }
 
   const goHome = () => window.location.assign("/exomem/home");
-  const exportMemory = { label: breakCopy.export, onClick: goHome };
+  const exportMemory = {
+    label: facts.exportOffered ? breakCopy.export : breakCopy.home,
+    onClick: goHome,
+  };
   const failureNotice = failure ? <StepNotice alert>{failure}</StepNotice> : null;
   const app = breakCopy.webApp;
 
@@ -429,7 +434,9 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
           <StepHeading
             title={breakCopy.ended.title}
             lede={
-              breakCopy.ended.lede(keptUntil, app) +
+              (facts.exportOffered
+                ? breakCopy.ended.lede(keptUntil, app)
+                : breakCopy.ended.ledeWithoutExport(keptUntil, app)) +
               (inviter ? breakCopy.ended.friendBack(inviter) : "")
             }
           />
@@ -455,7 +462,14 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "suspended":
       body = (
         <>
-          <StepHeading title={breakCopy.suspended.title} lede={breakCopy.suspended.lede(app)} />
+          <StepHeading
+            title={breakCopy.suspended.title}
+            lede={
+              facts.exportOffered
+                ? breakCopy.suspended.lede(app)
+                : breakCopy.suspended.ledeWithoutExport(app)
+            }
+          />
           <StepNotice>{breakCopy.suspended.notice(facts.supportReference)}</StepNotice>
           <StepActions
             primary={{

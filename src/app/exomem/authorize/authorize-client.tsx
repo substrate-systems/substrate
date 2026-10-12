@@ -60,6 +60,8 @@ type ConsentRequest = {
   account: AccountFacts;
   /** The price checkout charges, previewed in the browser; null shows no amount. */
   priceId: string | null;
+  /** Whether Home offers an export: the export flag. */
+  exportOffered: boolean;
 };
 
 type Phase =
@@ -316,7 +318,7 @@ function Consent({
     />
   ) : null;
   const exportMemory = {
-    label: breakCopy.export,
+    label: request.exportOffered ? breakCopy.export : breakCopy.home,
     onClick: () => window.location.assign("/exomem/home"),
   };
 
@@ -513,7 +515,9 @@ function Consent({
           <StepHeading
             title={breakCopy.ended.title}
             lede={
-              breakCopy.ended.lede(keptUntil, name) +
+              (request.exportOffered
+                ? breakCopy.ended.lede(keptUntil, name)
+                : breakCopy.ended.ledeWithoutExport(keptUntil, name)) +
               (inviter ? breakCopy.ended.friendBack(inviter) : "")
             }
           />
@@ -540,7 +544,14 @@ function Consent({
     case "suspended":
       body = (
         <>
-          <StepHeading title={breakCopy.suspended.title} lede={breakCopy.suspended.lede(name)} />
+          <StepHeading
+            title={breakCopy.suspended.title}
+            lede={
+              request.exportOffered
+                ? breakCopy.suspended.lede(name)
+                : breakCopy.suspended.ledeWithoutExport(name)
+            }
+          />
           {account.supportReference.value !== null ? (
             <StepNotice>{breakCopy.suspended.notice(account.supportReference.value)}</StepNotice>
           ) : null}

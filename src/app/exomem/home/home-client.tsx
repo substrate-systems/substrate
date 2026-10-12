@@ -407,6 +407,8 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
   // --- Render ---
 
   const reviewer = account?.kind === "reviewer";
+  // The status poll leaves the export out while the export flag is off.
+  const exportOffered = status?.exportSummary !== NOT_RELEASED;
   const shownEmail = account ? (reviewer ? "reviewer (sample account)" : account.email) : null;
   const header = (
     <HomeHeader email={shownEmail} onSignOut={() => void onSignOut()} signingOut={signingOut} />
@@ -416,6 +418,7 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
       <DeleteDialog
         step={deleteStep}
         linkMinutes={deleteMinutes}
+        exportOffered={exportOffered}
         onSend={() => void onSendDeletion()}
         onClose={() => setDeleteStep(null)}
       />
@@ -486,9 +489,9 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
   const shownApps = apps ?? [];
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
-  const homeNotices = notices(variant, account, storage);
+  const homeNotices = notices(variant, account, storage, exportOffered);
   const first = live ? firstNoteLine(facts, clock) : null;
-  const accountBanner = banner(variant, account, billing, clock);
+  const accountBanner = banner(variant, account, billing, clock, exportOffered);
   const exportSummary = status?.exportSummary;
   const exportRow =
     exportSummary && exportSummary !== NOT_RELEASED ? exportView(exportSummary, clock) : null;

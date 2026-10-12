@@ -117,7 +117,9 @@ export function renderExomemPaymentFailedEmail(input: {
 
 /** Email 05: the subscription ended (grace ran out, or a cancel took effect). */
 export function renderExomemSubscriptionEndedEmail(input: {
-  exportUrl: string;
+  /** Home's export; null while the export flag is off, and the email names support instead. */
+  exportUrl: string | null;
+  supportUrl: string;
   resubscribeUrl: string;
   keptUntil: Date;
   now: Date;
@@ -129,44 +131,67 @@ export function renderExomemSubscriptionEndedEmail(input: {
   const deletes = emailDate(input.keptUntil, input.timeZone);
   return renderExomemEmail({
     subject: "Your Exomem subscription has ended",
-    preheader: `Kept, read-only, for ${kept}. Export it any time.`,
+    preheader: input.exportUrl
+      ? `Kept, read-only, for ${kept}. Export it any time.`
+      : `Kept, read-only, for ${kept}.`,
     band: "kept",
     headline: `Your memory is kept for ${kept}`,
     body: [
-      `It’s read-only until ${deletes}. Export it any time, or resubscribe and everything comes back exactly as it was. After ${deletes} it’s permanently deleted.`,
+      input.exportUrl
+        ? `It’s read-only until ${deletes}. Export it any time, or resubscribe and everything comes back exactly as it was. After ${deletes} it’s permanently deleted.`
+        : `It’s read-only until ${deletes}. Resubscribe and everything comes back exactly as it was. After ${deletes} it’s permanently deleted. For a copy before then, write to support.`,
     ],
-    action: {
-      label: "Export your memory",
-      url: input.exportUrl,
-      link: { label: "Resubscribe", url: input.resubscribeUrl },
-    },
+    action: input.exportUrl
+      ? {
+          label: "Export your memory",
+          url: input.exportUrl,
+          link: { label: "Resubscribe", url: input.resubscribeUrl },
+        }
+      : {
+          label: "Resubscribe",
+          url: input.resubscribeUrl,
+          link: { label: "Contact support", url: input.supportUrl },
+        },
     smallPrint: input.reminderScheduled ? "We’ll remind you a week before." : "",
   });
 }
 
 /** Email 06: a week before an ended Exomem is deleted. */
 export function renderExomemDeletionReminderEmail(input: {
-  exportUrl: string;
+  /** Home's export; null while the export flag is off, and the email names support instead. */
+  exportUrl: string | null;
+  supportUrl: string;
   resubscribeUrl: string;
   keptUntil: Date;
   now: Date;
   timeZone: EmailTimeZone;
 }): RenderedEmail {
   const left = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
+  const deleted = `On ${emailDate(input.keptUntil, input.timeZone)} your Exomem and everything in it is permanently deleted, backups included.`;
   return renderExomemEmail({
     subject: `${left} until your Exomem is deleted`,
-    preheader: "Export it now, or resubscribe to keep it.",
+    preheader: input.exportUrl
+      ? "Export it now, or resubscribe to keep it."
+      : "Resubscribe to keep it.",
     band: "fading",
     headline: `${left} left`,
     body: [
-      `On ${emailDate(input.keptUntil, input.timeZone)} your Exomem and everything in it is permanently deleted, backups included. Export it now, or resubscribe to keep it.`,
+      input.exportUrl
+        ? `${deleted} Export it now, or resubscribe to keep it.`
+        : `${deleted} Resubscribe to keep it. For a copy before then, write to support.`,
     ],
-    action: {
-      label: "Export your memory",
-      url: input.exportUrl,
-      link: { label: "Resubscribe", url: input.resubscribeUrl },
-    },
-    smallPrint: "If you’ve already exported it, there’s nothing else to do.",
+    action: input.exportUrl
+      ? {
+          label: "Export your memory",
+          url: input.exportUrl,
+          link: { label: "Resubscribe", url: input.resubscribeUrl },
+        }
+      : {
+          label: "Resubscribe",
+          url: input.resubscribeUrl,
+          link: { label: "Contact support", url: input.supportUrl },
+        },
+    smallPrint: input.exportUrl ? "If you’ve already exported it, there’s nothing else to do." : "",
   });
 }
 

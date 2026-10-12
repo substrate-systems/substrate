@@ -45,6 +45,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
   const url = (path: string) => new URL(path, `${publicBaseUrl}/`).toString();
   const link = (path: string) => `${url(path)}#sample-token`;
   const home = url("/exomem/home");
+  const support = url("/exomem/support");
   return [
     {
       id: "01",
@@ -143,31 +144,34 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
         timeZone: ZONE,
       }),
     },
-    {
-      id: "05",
+    // 05 and 06 name support for a copy while Home offers no export (deviation (s)).
+    ...[home, null].map((exportUrl) => ({
+      id: exportUrl ? "05" : "05-no-export",
       number: "05",
-      note: "subscription ended",
+      note: exportUrl ? "subscription ended" : "subscription ended, export off",
       email: renderExomemSubscriptionEndedEmail({
-        exportUrl: home,
+        exportUrl,
+        supportUrl: support,
         resubscribeUrl: home,
         keptUntil: at(30 * DAY),
         now,
         reminderScheduled: true,
         timeZone: ZONE,
       }),
-    },
-    {
-      id: "06",
+    })),
+    ...[home, null].map((exportUrl) => ({
+      id: exportUrl ? "06" : "06-no-export",
       number: "06",
-      note: "a week before deletion",
+      note: exportUrl ? "a week before deletion" : "a week before deletion, export off",
       email: renderExomemDeletionReminderEmail({
-        exportUrl: home,
+        exportUrl,
+        supportUrl: support,
         resubscribeUrl: home,
         keptUntil: at(7 * DAY),
         now,
         timeZone: ZONE,
       }),
-    },
+    })),
     {
       id: "07",
       number: "07",

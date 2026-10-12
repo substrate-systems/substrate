@@ -10,12 +10,15 @@ export type DeleteStep = "ask" | "sending" | "sent" | "failed";
 export function DeleteDialog({
   step,
   linkMinutes,
+  exportOffered,
   onSend,
   onClose,
 }: {
   step: DeleteStep | null;
   /** How long the emailed link works, when the server says. */
   linkMinutes: number | null;
+  /** False while the export flag is off: support makes the copy (design.md deviation (s)). */
+  exportOffered: boolean;
   onSend: () => void;
   onClose: () => void;
 }) {
@@ -40,8 +43,17 @@ export function DeleteDialog({
       ) : (
         <>
           <p className={styles.dialogText}>
-            This removes your notes, files, backups and keys for good. Export first if you want a
-            copy.
+            This removes your notes, files, backups and keys for good.{" "}
+            {exportOffered ? (
+              "Export first if you want a copy."
+            ) : (
+              <>
+                <a className={styles.inlineButton} href="/exomem/support">
+                  Write to support
+                </a>{" "}
+                first if you want a copy.
+              </>
+            )}
           </p>
           {step === "failed" && (
             <p className={styles.dialogText} role="alert">

@@ -285,6 +285,9 @@ export const breakCopy = {
     title: "Your subscription has ended",
     lede: (until: string, app: string) =>
       `Your memory is read-only and kept until ${until}. Export it any time before then, or resubscribe to connect ${app}.`,
+    /** The lede while Home offers no export (design.md deviation (s)). */
+    ledeWithoutExport: (until: string, app: string) =>
+      `Your memory is read-only and kept until ${until}. Resubscribe to connect ${app}.`,
     /** Added to the lede when the account holds a friend offer, which checkout applies again. */
     friendBack: (by: string) => ` ${by}’s friend price comes back if you do.`,
     resubscribe: "Resubscribe",
@@ -298,6 +301,9 @@ export const breakCopy = {
     title: "This Exomem is suspended",
     lede: (app: string) =>
       `It can’t connect to ${app} while it’s suspended. Your memory is safe, and you can still export it.`,
+    /** The lede while Home offers no export (design.md deviation (s)). */
+    ledeWithoutExport: (app: string) =>
+      `It can’t connect to ${app} while it’s suspended. Your memory is safe.`,
     notice: (reference: string) =>
       `Write to support and quote ${reference}. We’ll tell you why it was suspended and what happens next.`,
     contact: "Contact support",
@@ -308,6 +314,8 @@ export const breakCopy = {
       `Connection requests last ${requestLife}. Start again from ${app}, and it will bring you back here.`,
   },
   export: "Export your memory",
+  /** The same button, to Home, while Home offers no export (design.md deviation (s)). */
+  home: "Go to Home",
   /** A web start names no app: the break steps say "your assistant". */
   webApp: "your assistant",
 };

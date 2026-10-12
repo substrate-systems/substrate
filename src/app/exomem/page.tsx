@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "@/lib/exomem-hosted/cloud-config";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { ButtonLink } from "@/components/exomem/Button";
 import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 import { Wordmark } from "@/components/exomem/Wordmark";
@@ -182,10 +183,16 @@ export default function ExomemPage() {
       desk: `If you cancel, we keep everything for ${kept}, read-only, then delete it.`,
       phone: `Cancel, and we keep it ${kept}, read-only.`,
     },
-    {
-      desk: "Export a verified copy of your vault any time, in any state.",
-      phone: "Export a verified copy any time.",
-    },
+    // Promised only while Home offers the export (design.md deviation (s)). This page is
+    // static, so it reads the flag at build, and a flag change takes a deploy.
+    ...(cloudExportsEnabled()
+      ? [
+          {
+            desk: "Export a verified copy of your vault any time, in any state.",
+            phone: "Export a verified copy any time.",
+          },
+        ]
+      : []),
   ];
 
   const footerLinks = [

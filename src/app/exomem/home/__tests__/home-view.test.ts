@@ -290,22 +290,22 @@ describe("notices and the account banner", () => {
 
   it("warns at 80% and marks a full disk, never offering storage that is not sold yet", () => {
     assert.deepEqual(
-      notices("on", account(), disk(7_900_000_000)).map((notice) => notice.key),
+      notices("on", account(), disk(7_900_000_000), true).map((notice) => notice.key),
       []
     );
-    const filling = notices("on", account(), disk(8_500_000_000));
+    const filling = notices("on", account(), disk(8_500_000_000), true);
     assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works.");
     assert.equal(filling[0]?.action, null);
     // A disk with room left never reads as 100% full.
-    const nearly = notices("on", account(), disk(9_996_000_000));
+    const nearly = notices("on", account(), disk(9_996_000_000), true);
     assert.equal(nearly[0]?.text, "Your Exomem is 99% full. Everything works.");
-    const full = notices("on", account(), disk(10_000_000_000));
+    const full = notices("on", account(), disk(10_000_000_000), true);
     assert.equal(full[0]?.attention, true);
     assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
   });
 
   it("shows the support reference with a way to copy it when the cell has trouble", () => {
-    const [trouble] = notices("trouble", account(), { state: "unknown" });
+    const [trouble] = notices("trouble", account(), { state: "unknown" }, true);
     assert.match(trouble?.text ?? "", /Support reference: EX-7Q4M\./);
     assert.equal(trouble?.action, "copy_reference");
   });
@@ -315,7 +315,8 @@ describe("notices and the account banner", () => {
       "readonly",
       account({ readOnlyUntil: { value: "2026-10-25T09:00:00Z", reason: null } }),
       null,
-      clock
+      clock,
+      true
     );
     assert.equal(
       known?.text,
@@ -325,7 +326,8 @@ describe("notices and the account banner", () => {
       "readonly",
       account({ readOnlyUntil: { value: null, reason: "dunning_window_unconfigured" } }),
       null,
-      clock
+      clock,
+      true
     );
     assert.equal(
       unknown?.text,
@@ -344,11 +346,26 @@ describe("notices and the account banner", () => {
       checkoutAvailable: false,
       portalAvailable: true,
     } as const;
-    assert.equal(banner("ended", ended, closed, clock)?.action, null);
+    assert.equal(banner("ended", ended, closed, clock, true)?.action, null);
     assert.equal(
-      banner("ended", ended, { ...closed, checkoutAvailable: true }, clock)?.action,
+      banner("ended", ended, { ...closed, checkoutAvailable: true }, clock, true)?.action,
       "resubscribe"
     );
+  });
+
+  it("sends an ended owner to support for a copy, not to an export, while Home offers none", () => {
+    const ended = account({
+      step: "ended",
+      keptUntil: { value: "2026-11-10T09:00:00Z", reason: null },
+    });
+    assert.equal(
+      banner("ended", ended, null, clock, false)?.text,
+      "Kept until 10 November. Resubscribe to get it all back."
+    );
+    const [copy] = notices("ended", ended, { state: "unknown" }, false);
+    assert.equal(copy?.text, "For a copy of your memory, write to support and quote EX-7Q4M.");
+    assert.equal(copy?.action, "support");
+    assert.deepEqual(notices("ended", ended, { state: "unknown" }, true), []);
   });
 
   it("gives a reviewer the access end date and no billing", () => {
@@ -357,7 +374,7 @@ describe("notices and the account banner", () => {
       plan: { ...account().plan, source: "complimentary" },
       reviewerEndsAt: { value: "2026-11-11T09:00:00Z", reason: null },
     });
-    assert.match(banner("on", reviewer, null, clock)?.text ?? "", /ends on 11 November\./);
+    assert.match(banner("on", reviewer, null, clock, true)?.text ?? "", /ends on 11 November\./);
     const plan = planView("on", reviewer, null, clock);
     assert.equal(plan?.meta, "complimentary · ends 11 November");
     assert.equal(plan?.action, null);

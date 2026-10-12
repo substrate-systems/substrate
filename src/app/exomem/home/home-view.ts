@@ -344,11 +344,16 @@ export function statusCopy(
 
 export type BannerAction = "fix_billing" | "resubscribe" | "resume";
 
+/**
+ * The account's banner. `exportOffered` is false while the export flag is off: Home then
+ * shows no export row, so no sentence offers one (design.md deviation (s)).
+ */
 export function banner(
   variant: HomeVariant,
   account: HomeAccount | null,
   billing: HomeBilling | null,
-  clock: Clock
+  clock: Clock,
+  exportOffered: boolean
 ): { text: string; action: BannerAction | null } | null {
   if (account?.kind === "reviewer") {
     const ends = account.reviewerEndsAt.value;
@@ -372,7 +377,9 @@ export function banner(
     case "ended": {
       const kept = account?.keptUntil.value;
       return {
-        text: `${kept ? `Kept until ${dayMonth(kept, clock.timeZone)}. ` : ""}Export it, or resubscribe to get it all back.`,
+        text: `${kept ? `Kept until ${dayMonth(kept, clock.timeZone)}. ` : ""}${
+          exportOffered ? "Export it, or resubscribe" : "Resubscribe"
+        } to get it all back.`,
         action: billing?.checkoutAvailable ? "resubscribe" : null,
       };
     }
@@ -383,7 +390,9 @@ export function banner(
       };
     case "suspended":
       return {
-        text: "It can’t connect to your assistant while it’s suspended. Your memory is safe, and you can still export it.",
+        text: exportOffered
+          ? "It can’t connect to your assistant while it’s suspended. Your memory is safe, and you can still export it."
+          : "It can’t connect to your assistant while it’s suspended. Your memory is safe.",
         action: null,
       };
     default:
@@ -404,7 +413,9 @@ export type HomeNotice = {
 export function notices(
   variant: HomeVariant,
   account: HomeAccount | null,
-  storage: StorageView
+  storage: StorageView,
+  /** False while the export flag is off; see `banner`. */
+  exportOffered: boolean
 ): HomeNotice[] {
   const list: HomeNotice[] = [];
   const reference = account?.supportReference ?? null;
@@ -416,6 +427,16 @@ export function notices(
       }`,
       attention: false,
       action: reference ? "copy_reference" : null,
+    });
+  }
+  // An ended memory is deleted when its kept window closes. Without an export, support
+  // makes the copy, the way the suspended notice below sends the owner there.
+  if (variant === "ended" && !exportOffered) {
+    list.push({
+      key: "copy",
+      text: `For a copy of your memory, write to support${reference ? ` and quote ${reference}` : ""}.`,
+      attention: false,
+      action: "support",
     });
   }
   if (variant === "suspended" && reference) {

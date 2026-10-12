@@ -86,6 +86,7 @@ describe("Exomem emails", () => {
     const ended = (reminderScheduled: boolean) =>
       renderExomemSubscriptionEndedEmail({
         exportUrl: "https://substratesystems.io/exomem/home",
+        supportUrl: "https://substratesystems.io/exomem/support",
         resubscribeUrl: "https://substratesystems.io/exomem/home",
         keptUntil: new Date(NOW.getTime() + 30 * DAY),
         now: NOW,
@@ -96,10 +97,26 @@ describe("Exomem emails", () => {
     assert.doesNotMatch(ended(false), /remind you/);
   });
 
+  it("sends an ended owner to support for a copy, and promises no export, while Home offers none", () => {
+    const ended = renderExomemSubscriptionEndedEmail({
+      exportUrl: null,
+      supportUrl: "https://substratesystems.io/exomem/support",
+      resubscribeUrl: "https://substratesystems.io/exomem/home",
+      keptUntil: new Date(NOW.getTime() + 30 * DAY),
+      now: NOW,
+      reminderScheduled: true,
+      timeZone: null,
+    });
+    assert.doesNotMatch(ended.textContent, /export/i);
+    assert.match(ended.textContent, /For a copy before then, write to support\./);
+    assert.ok(ended.htmlContent.includes('href="https://substratesystems.io/exomem/support"'));
+  });
+
   it("counts the days left at send, not the days the board drew", () => {
     const reminder = (daysLeft: number) =>
       renderExomemDeletionReminderEmail({
         exportUrl: "https://substratesystems.io/exomem/home",
+        supportUrl: "https://substratesystems.io/exomem/support",
         resubscribeUrl: "https://substratesystems.io/exomem/home",
         keptUntil: new Date(NOW.getTime() + daysLeft * DAY),
         now: NOW,

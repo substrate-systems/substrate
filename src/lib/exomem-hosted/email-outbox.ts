@@ -41,6 +41,7 @@ import {
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { exomemPaddleDunningDays, loadExomemAccountView } from "./account-view";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
+import { cloudExportsEnabled } from "./cloud-exports";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
@@ -258,6 +259,15 @@ export type DeletedPayload = { version: 1; tenantId: string; deletedAt: string }
 
 function homeUrl(publicBaseUrl: string): string {
   return new URL("/exomem/home", `${publicBaseUrl}/`).toString();
+}
+
+function supportUrl(publicBaseUrl: string): string {
+  return new URL("/exomem/support", `${publicBaseUrl}/`).toString();
+}
+
+/** Home's export, which an ended owner opens for a copy; null while Home offers no export. */
+function exportUrl(publicBaseUrl: string): string | null {
+  return cloudExportsEnabled() ? homeUrl(publicBaseUrl) : null;
 }
 
 type OwnerRow = { owner_email: string; time_zone: string | null };
@@ -672,7 +682,8 @@ const EXOMEM_EMAILS = {
     addressee: (context) => context.owner,
     render: ({ payload, context, timeZone, now, publicBaseUrl }) =>
       renderExomemSubscriptionEndedEmail({
-        exportUrl: homeUrl(publicBaseUrl),
+        exportUrl: exportUrl(publicBaseUrl),
+        supportUrl: supportUrl(publicBaseUrl),
         resubscribeUrl: homeUrl(publicBaseUrl),
         keptUntil: context.keptUntil,
         now,
@@ -697,7 +708,8 @@ const EXOMEM_EMAILS = {
     addressee: (context) => context.owner,
     render: ({ context, timeZone, now, publicBaseUrl }) =>
       renderExomemDeletionReminderEmail({
-        exportUrl: homeUrl(publicBaseUrl),
+        exportUrl: exportUrl(publicBaseUrl),
+        supportUrl: supportUrl(publicBaseUrl),
         resubscribeUrl: homeUrl(publicBaseUrl),
         keptUntil: context.keptUntil,
         now,

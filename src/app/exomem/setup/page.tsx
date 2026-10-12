@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
 import { connectorSettingsUrl } from "@/lib/exomem-hosted/consent-view";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
@@ -57,6 +58,7 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
     reviewerEnabled: marketplaceReviewerAccessEnabled(),
     priceId: exomemCheckoutPriceId(),
     friendOffer: account.plan.friendPrice,
+    exportOffered: cloudExportsEnabled(),
   };
 }
 
