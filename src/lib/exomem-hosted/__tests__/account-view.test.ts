@@ -72,15 +72,28 @@ describe("Exomem account view", () => {
     assert.deepEqual(view.reviewerEndsAt, { value: null, reason: "not_reviewer" });
   });
 
-  it("shows no friend price for another discount or when no friend discount is configured", () => {
-    const other = buildExomemAccountView(paidRow({ discountId: "dsc_other_example" }), {
+  it("shows no friend price for another discount, an unconfigured friend discount or an ended subscription", () => {
+    const friendEnvironment = {
       reviewer: false,
       environment: { EXOMEM_PADDLE_FRIEND_DISCOUNT_ID: FRIEND_DISCOUNT },
-    });
+    };
+    const other = buildExomemAccountView(
+      paidRow({ discountId: "dsc_other_example" }),
+      friendEnvironment
+    );
     const unconfigured = buildExomemAccountView(paidRow({ discountId: FRIEND_DISCOUNT }), owner);
+    const ended = buildExomemAccountView(
+      paidRow({
+        discountId: FRIEND_DISCOUNT,
+        sourceState: "cancelled",
+        effectiveState: "cancelled",
+      }),
+      friendEnvironment
+    );
 
     assert.equal(other.plan.friendPrice.applied, false);
     assert.equal(unconfigured.plan.friendPrice.applied, false);
+    assert.equal(ended.plan.friendPrice.applied, false);
   });
 
   it("says Paddle has not reported the next payment or price instead of inventing them", () => {
@@ -94,6 +107,7 @@ describe("Exomem account view", () => {
     ["14", { value: "2026-10-16T10:00:00.000Z", reason: null }],
     [undefined, { value: null, reason: "dunning_window_unconfigured" }],
     ["two weeks", { value: null, reason: "dunning_window_invalid" }],
+    ["366", { value: null, reason: "dunning_window_invalid" }],
   ] as const) {
     it(`ends the read-only period of a past_due subscription by the dunning window (${dunningDays ?? "unset"})`, () => {
       const view = buildExomemAccountView(

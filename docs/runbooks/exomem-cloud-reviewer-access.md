@@ -34,7 +34,9 @@ reviewer validation. No cell image change is needed. Leave
 processes are verified and the sample vault is ready.
 
 Create a separate sample account through normal operator invitation/admission
-with `marketplaceReviewerPurpose: true` and a complimentary entitlement.
+with `marketplaceReviewerPurpose: true` and a complimentary entitlement. Give it
+a dedicated mailbox that belongs to no person: Home shows the account email to
+every reviewer who signs in.
 The purpose is immutable: never convert an existing ordinary account or reuse
 its private content. Both Cloud invitation paths preserve this purpose and
 refuse re-admission with a different purpose. Load only governed sample content.

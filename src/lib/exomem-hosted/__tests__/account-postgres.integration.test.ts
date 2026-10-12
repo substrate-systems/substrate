@@ -31,11 +31,10 @@ const WEBHOOK_ENVIRONMENT = {
 let pool: Pool;
 let schema: string;
 let migrationsBefore: string;
-const legacy: Record<"complimentary" | "pastDueWithReceipt" | "pastDueWithoutReceipt", string> = {
-  complimentary: "",
-  pastDueWithReceipt: "",
-  pastDueWithoutReceipt: "",
-};
+type PaddleTenant = { userId: string; tenantId: string; subscriptionId: string };
+let legacyComplimentary: string;
+let legacyPastDueWithReceipts: PaddleTenant;
+let legacyPastDueWithoutReceipt: PaddleTenant;
 
 function taggedSql(client: Pool): ExomemSql {
   return async (strings, ...values) => {
@@ -82,7 +81,7 @@ async function entitlementFacts(tenantId: string) {
 }
 
 function subscriptionEvent(
-  tenant: { userId: string; tenantId: string; subscriptionId: string },
+  tenant: PaddleTenant,
   input: {
     eventId?: string;
     eventType?: string;
@@ -129,6 +128,24 @@ async function dispatch(event: Record<string, unknown>) {
   });
 }
 
+// Reconciliation reads the same subscription entity a webhook carries, with
+// the event time as Paddle's updated_at.
+async function reconcile(tenant: PaddleTenant, event: Record<string, unknown>) {
+  const data = { ...(event.data as object), updated_at: event.occurred_at };
+  return reconcileExomemPaddleSubscription(
+    { ...tenant, environment: "sandbox" },
+    {
+      config: loadExomemPaddleConfig({
+        PADDLE_ENVIRONMENT: "sandbox",
+        PADDLE_API_KEY: "pdl_sdbx_apikey_example",
+        EXOMEM_PADDLE_PRODUCT_ID: "pro_exomem_example",
+      }),
+      store: createSqlExomemPaddleEventStore(taggedSql(pool)),
+      transport: async () => Response.json({ data }),
+    }
+  );
+}
+
 function account(tenant: { userId: string; tenantId: string }) {
   return loadExomemAccountView(
     { ...tenant, reviewerCredentialId: null },
@@ -154,23 +171,34 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir: migrationsBefore });
     pool = new Pool({ connectionString: scoped.toString() });
 
-    legacy.complimentary = (await insertTenant()).tenantId;
+    legacyComplimentary = (await insertTenant()).tenantId;
     await pool.query(
       "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'complimentary_active', 'active')",
-      [legacy.complimentary]
+      [legacyComplimentary]
     );
-    legacy.pastDueWithReceipt = (await insertPaddleTenant("past_due")).tenantId;
-    for (const [eventId, occurredAt] of [
-      ["evt_earlier_period", "2026-08-01T00:00:00Z"],
-      ["evt_current_period", "2026-09-20T08:00:00Z"],
+    // An earlier past_due period that ended, then the current one. Its
+    // subscription.past_due receipt is stale: a later subscription.updated
+    // reached the store first.
+    legacyPastDueWithReceipts = await insertPaddleTenant("past_due");
+    for (const [eventType, occurredAt, disposition] of [
+      ["subscription.past_due", "2026-08-01T00:00:00Z", "applied"],
+      ["subscription.updated", "2026-08-03T00:00:00Z", "applied"],
+      ["subscription.updated", "2026-09-20T08:00:01Z", "applied"],
+      ["subscription.past_due", "2026-09-20T08:00:00Z", "stale"],
     ]) {
       await pool.query(
         `INSERT INTO exomem_paddle_events (paddle_event_id, environment, event_type, tenant_id, occurred_at, disposition)
-         VALUES ($1, 'sandbox', 'subscription.past_due', $2, $3, 'applied')`,
-        [eventId, legacy.pastDueWithReceipt, occurredAt]
+         VALUES ($1, 'sandbox', $2, $3, $4, $5)`,
+        [
+          `evt_${randomUUID().replaceAll("-", "")}`,
+          eventType,
+          legacyPastDueWithReceipts.tenantId,
+          occurredAt,
+          disposition,
+        ]
       );
     }
-    legacy.pastDueWithoutReceipt = (await insertPaddleTenant("past_due")).tenantId;
+    legacyPastDueWithoutReceipt = await insertPaddleTenant("past_due");
 
     await applyMigrations({ databaseUrl: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));
@@ -190,7 +218,13 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
   it("gives every tenant that existed before the upgrade its own support reference", async () => {
     const { rows } = await pool.query(
       "SELECT support_reference FROM exomem_tenants WHERE id = ANY($1::uuid[])",
-      [Object.values(legacy)]
+      [
+        [
+          legacyComplimentary,
+          legacyPastDueWithReceipts.tenantId,
+          legacyPastDueWithoutReceipt.tenantId,
+        ],
+      ]
     );
     const references = rows.map((row) => String(row.support_reference));
     assert.equal(references.length, 3);
@@ -198,12 +232,15 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     assert.equal(new Set(references).size, references.length);
   });
 
-  it("starts an existing past_due period at its latest past_due receipt, and leaves it unknown without one", async () => {
+  it("starts an existing past_due period at its latest past_due receipt, stale included, and leaves it unknown without one", async () => {
     assert.equal(
-      (await entitlementFacts(legacy.pastDueWithReceipt)).grace_started_at.toISOString(),
+      (await entitlementFacts(legacyPastDueWithReceipts.tenantId)).grace_started_at.toISOString(),
       "2026-09-20T08:00:00.000Z"
     );
-    assert.equal((await entitlementFacts(legacy.pastDueWithoutReceipt)).grace_started_at, null);
+    assert.equal(
+      (await entitlementFacts(legacyPastDueWithoutReceipt.tenantId)).grace_started_at,
+      null
+    );
   });
 
   it("draws a distinct support reference for each new tenant that stays the same across reads", async () => {
@@ -289,34 +326,28 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     });
   });
 
-  it("stores the same facts from reconciliation as from the webhook", async () => {
+  it("refreshes in one reconciliation pass the facts of a subscription reconciled before they were stored", async () => {
     const tenant = await insertPaddleTenant("active");
-    const event = subscriptionEvent(tenant, {
-      occurredAt: "2026-10-03T12:00:00Z",
-      status: "active",
-      nextBilledAt: "2026-11-03T12:00:00Z",
-      discountId: FRIEND_DISCOUNT,
-    });
+    // What an earlier reconciliation pass left: its receipt and its revision.
+    const earlierPass = `reconcile:${tenant.tenantId}:2026-10-03T12:00:00.000Z`;
+    await pool.query(
+      "UPDATE exomem_entitlements SET source_revision = $2, source_occurred_at = '2026-10-03T12:00:00Z' WHERE tenant_id = $1",
+      [tenant.tenantId, earlierPass]
+    );
+    await pool.query(
+      `INSERT INTO exomem_paddle_events (paddle_event_id, environment, event_type, tenant_id, occurred_at, disposition)
+       VALUES ($1, 'sandbox', 'subscription.reconciled', $2, '2026-10-03T12:00:00Z', 'applied')`,
+      [earlierPass, tenant.tenantId]
+    );
 
-    const result = await reconcileExomemPaddleSubscription(
-      {
-        userId: tenant.userId,
-        tenantId: tenant.tenantId,
-        subscriptionId: tenant.subscriptionId,
-        environment: "sandbox",
-      },
-      {
-        config: loadExomemPaddleConfig({
-          PADDLE_ENVIRONMENT: "sandbox",
-          PADDLE_API_KEY: "pdl_sdbx_apikey_example",
-          EXOMEM_PADDLE_PRODUCT_ID: "pro_exomem_example",
-        }),
-        store: createSqlExomemPaddleEventStore(taggedSql(pool)),
-        transport: async () =>
-          Response.json({
-            data: { ...(event.data as object), updated_at: "2026-10-03T12:00:00Z" },
-          }),
-      }
+    const result = await reconcile(
+      tenant,
+      subscriptionEvent(tenant, {
+        occurredAt: "2026-10-03T12:00:00Z",
+        status: "active",
+        nextBilledAt: "2026-11-03T12:00:00Z",
+        discountId: FRIEND_DISCOUNT,
+      })
     );
 
     assert.deepEqual(result, { outcome: "applied" });
@@ -325,5 +356,25 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     assert.equal(stored.provider_price_name, "Monthly");
     assert.equal(stored.provider_next_billed_at.toISOString(), "2026-11-03T12:00:00.000Z");
     assert.equal(stored.provider_discount_id, FRIEND_DISCOUNT);
+  });
+
+  it("keeps an unknown past_due start unknown when reconciliation reports past_due again", async () => {
+    const result = await reconcile(
+      legacyPastDueWithoutReceipt,
+      subscriptionEvent(legacyPastDueWithoutReceipt, {
+        occurredAt: "2026-10-04T12:00:00Z",
+        status: "past_due",
+      })
+    );
+
+    assert.deepEqual(result, { outcome: "applied" });
+    assert.equal(
+      (await entitlementFacts(legacyPastDueWithoutReceipt.tenantId)).grace_started_at,
+      null
+    );
+    assert.deepEqual((await account(legacyPastDueWithoutReceipt)).readOnlyUntil, {
+      value: null,
+      reason: "grace_start_unknown",
+    });
   });
 });

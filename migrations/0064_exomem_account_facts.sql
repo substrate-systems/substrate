@@ -61,15 +61,18 @@ ALTER TABLE exomem_entitlements
   ADD COLUMN provider_scheduled_change_at timestamptz,
   ADD COLUMN grace_started_at timestamptz;
 
--- A subscription that is past_due now started its current period with the
--- latest applied subscription.past_due event. A row with no such receipt
--- keeps NULL: its grace start is unknown, never guessed.
+-- A subscription that is past_due now started its current period with its
+-- latest subscription.past_due receipt. A stale receipt counts: it arrives
+-- after a later subscription.updated, yet still dates the transition. A row
+-- with no such receipt keeps NULL: its grace start is unknown, never guessed.
 UPDATE exomem_entitlements AS entitlement
 SET grace_started_at = receipt.started_at
 FROM (
   SELECT tenant_id, max(occurred_at) AS started_at
   FROM exomem_paddle_events
-  WHERE event_type = 'subscription.past_due' AND disposition = 'applied' AND tenant_id IS NOT NULL
+  WHERE event_type = 'subscription.past_due'
+    AND disposition IN ('applied', 'stale')
+    AND tenant_id IS NOT NULL
   GROUP BY tenant_id
 ) AS receipt
 WHERE entitlement.tenant_id = receipt.tenant_id

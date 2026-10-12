@@ -99,14 +99,17 @@ export async function reconcileExomemPaddleSubscription(
   const sourceTime = stringValue(data.updated_at) ?? observedAt.toISOString();
   if (!Number.isFinite(Date.parse(sourceTime))) throw invalid();
   const occurredAt = new Date(sourceTime).toISOString();
+  // v2 also stores the subscription facts. A new id, which sorts after the
+  // unversioned one, lets one pass refresh rows reconciled before v2 existed.
+  const eventId = `reconcile:v2:${target.tenantId}:${occurredAt}`;
   const application: ExomemPaddleEventApplication = {
-    eventId: `reconcile:${target.tenantId}:${occurredAt}`,
+    eventId,
     eventType: "subscription.reconciled",
     environment: target.environment,
     origin: "reconciliation",
     revision: {
       occurredAt,
-      eventId: `reconcile:${target.tenantId}:${occurredAt}`,
+      eventId,
     },
     correlation: {
       productKey: EXOMEM_PADDLE_PRODUCT_KEY,

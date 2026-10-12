@@ -213,15 +213,14 @@ export function createSqlExomemPaddleEventStore(
               provider_scheduled_change_at = CASE WHEN ${isSubscriptionEvent}::boolean
                 THEN ${application.subscriptionFacts.scheduledChangeAt}::timestamptz
                 ELSE entitlement.provider_scheduled_change_at END,
-              -- The first applied past_due revision starts the period; any
-              -- other state ends it.
+              -- Only a transition into past_due starts the period. A past_due
+              -- row keeps its stored start, unknown included; any other state
+              -- ends it. SET expressions read the row before this update.
               grace_started_at = CASE
                 WHEN NOT ${isSubscriptionEvent}::boolean THEN entitlement.grace_started_at
-                WHEN ${application.sourceState}::text = 'past_due' THEN COALESCE(
-                  entitlement.grace_started_at,
-                  ${application.revision.occurredAt}::timestamptz
-                )
-                ELSE NULL
+                WHEN ${application.sourceState}::text <> 'past_due' THEN NULL
+                WHEN entitlement.source_state = 'past_due' THEN entitlement.grace_started_at
+                ELSE ${application.revision.occurredAt}::timestamptz
               END,
               updated_at = now()
           FROM decision

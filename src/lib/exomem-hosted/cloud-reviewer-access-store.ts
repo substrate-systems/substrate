@@ -211,6 +211,8 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
           AND client.enabled = true
           AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
           AND transaction.redirect_uri IN (SELECT jsonb_array_elements_text(client.redirect_uris))
+          -- No arm for generic clients: their platform is NULL, which the reviewer
+          -- check reads as any provider, so any generic client could redeem a credential.
           AND (client.admission_mode = 'pinned' OR (
             client.admission_mode = 'cimd' AND client.metadata_document_digest IS NOT NULL
             AND client.metadata_fetched_at IS NOT NULL AND client.metadata_ttl_seconds BETWEEN 300 AND 604800

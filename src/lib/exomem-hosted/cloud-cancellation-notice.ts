@@ -18,6 +18,7 @@ import { sendTransactionalEmail, type SendTransactionalEmailResult } from "@/lib
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { renderExomemCloudCancellationEmail } from "@/lib/email-templates/exomem-access";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "./cloud-config";
+import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { executeExomemSql } from "./db";
 
 export type CloudCancellationNoticeDependencies = {
@@ -110,7 +111,7 @@ export async function sendCloudCancellationNoticeOnce(
   if (!claimed) return false;
 
   const retentionDays = dependencies.retentionDays ?? DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS;
-  const deletionDate = new Date(sourceOccurredAt.getTime() + retentionDays * 24 * 60 * 60 * 1000);
+  const deletionDate = cloudCancelledKeptUntil(sourceOccurredAt, retentionDays);
   const rendered = renderExomemCloudCancellationEmail({ deletionDate, retentionDays });
   const sendEmail = dependencies.sendEmail ?? sendTransactionalEmail;
   let delivered = false;

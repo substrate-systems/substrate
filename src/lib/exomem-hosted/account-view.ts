@@ -10,6 +10,7 @@ import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { executeExomemSql, type ExomemSessionRow } from "./db";
 import { exomemErrors } from "./errors";
 
+// Removed for the shared Known, known and unknown in known.ts once the consent change merges.
 export type Known<T, Reason extends string = string> =
   | { value: T; reason: null }
   | { value: null; reason: Reason };
@@ -74,7 +75,8 @@ type Environment = Record<string, string | undefined>;
 /**
  * Days that Paddle keeps retrying a failed payment before it cancels, as set
  * in Paddle's payment recovery settings. There is no default: an unset value
- * makes the read-only end date unknown rather than a guess.
+ * makes the read-only end date unknown rather than a guess. A value outside
+ * 1 to 365 days is a typo, not a dunning window, so it is unknown too.
  */
 export function exomemPaddleDunningDays(
   environment: Environment = process.env
@@ -82,12 +84,15 @@ export function exomemPaddleDunningDays(
   const value = environment.EXOMEM_PADDLE_DUNNING_DAYS?.trim();
   if (!value) return unknown("dunning_window_unconfigured");
   const days = Number(value);
-  return /^\d+$/.test(value) && Number.isSafeInteger(days) && days > 0
+  return /^\d+$/.test(value) && days >= 1 && days <= 365
     ? known(days)
     : unknown("dunning_window_invalid");
 }
 
-/** The one recurring Paddle discount that carries the friend price, if configured. */
+/**
+ * The one recurring Paddle discount that carries the friend price, if configured.
+ * Temporary home: this reader moves to paddle-config.ts with friend-price checkout.
+ */
 export function exomemPaddleFriendDiscountId(
   environment: Environment = process.env
 ): string | null {
@@ -101,6 +106,16 @@ function planFact(
   if (row.source === "complimentary") return unknown("complimentary");
   if (!row.subscriptionRef) return unknown("no_subscription");
   return value ? known(value) : unknown("not_reported");
+}
+
+// The friend price shows on the same subscription the plan facts describe,
+// and only while that subscription has not ended.
+function friendPriceApplied(row: ExomemAccountRow, friendDiscountId: string | null): boolean {
+  return (
+    planFact(row, row.discountId).value !== null &&
+    row.sourceState !== "cancelled" &&
+    row.discountId === friendDiscountId
+  );
 }
 
 function nextPaymentAt(row: ExomemAccountRow): ExomemAccountView["nextPaymentAt"] {
@@ -152,10 +167,7 @@ export function buildExomemAccountView(
       name: planFact(row, row.priceName),
       priceId: planFact(row, row.priceId),
       friendPrice: {
-        applied:
-          row.source === "paddle" &&
-          friendDiscountId !== null &&
-          row.discountId === friendDiscountId,
+        applied: friendPriceApplied(row, friendDiscountId),
         // Friend invitations do not store an inviter name yet.
         inviterName: null,
       },
