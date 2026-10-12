@@ -247,12 +247,13 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           )
       `;
       // The owner as an inviter: invitations they asked for keep no trace
-      // of them. Their outstanding friend invitations stop sending, since
-      // those emails name the inviter.
+      // of them, their note included. Every email that names an inviter
+      // reads the name from the invitation when it is sent, so their
+      // outstanding friend invitations and hold reminders stop naming them.
       await tx`
         /* exomem-cloud:deletion-finish-inviter */
         UPDATE exomem_invites
-        SET inviter_email = NULL, inviter_name = NULL
+        SET inviter_email = NULL, inviter_name = NULL, note = NULL
         WHERE inviter_email = ${ownerEmail}
       `;
       // Every email row for the address goes too: settled rows hold the

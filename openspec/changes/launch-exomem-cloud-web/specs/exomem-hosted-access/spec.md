@@ -245,6 +245,12 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 - **WHEN** a person who has not paid redeems an invitation and the system stops the cell
 - **THEN** the system queues the hold reminder for five days after that cell's creation
 - **AND** it cancels the reminder if the cell no longer stops or the tenant has paid
+- **AND** it names the inviter from the invitation when it sends the reminder, so a name that the inviter's account deletion removed is never sent
+
+#### Scenario: Recipient's account has a time zone
+
+- **WHEN** the system sends an invitation email or an inviter notice to an address whose Exomem account has a stored time zone
+- **THEN** the email shows its dates in that time zone, read when the email is sent
 
 #### Scenario: Recipient time zone is unknown
 
@@ -253,7 +259,7 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 ### Requirement: Email and waitlist data are kept for a limited time
 
-The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the later of the person's last request and the expiry of the entry's last start link, unless the address owns an account. Deleting an account SHALL scrub its outbox rows. The privacy page SHALL state these periods.
+The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the later of the person's last request and the expiry of the entry's last start link, unless the address owns an account. Deleting an account SHALL scrub its outbox rows, and the inviter name, inviter email and note of each invitation that the account asked for. The privacy page SHALL state these periods.
 
 #### Scenario: Settled email ages
 

@@ -172,7 +172,6 @@ type LockedCloudInvite = {
   entitlement_limits: Record<string, number>;
   marketplace_reviewer_purpose: boolean;
   recipient_time_zone: string | null;
-  inviter_name: string | null;
 };
 
 /**
@@ -192,7 +191,7 @@ export async function redeemCloudInviteAtomic(
     const inviteResult = await tx`
       /* exomem-cloud:lock-invite */
       SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
-             recipient_time_zone, inviter_name
+             recipient_time_zone
       FROM exomem_invites
       WHERE token_digest = ${input.tokenDigest}
         AND consumed_at IS NULL
@@ -307,7 +306,9 @@ export async function redeemCloudInviteAtomic(
       desiredState: desiredCellState,
       recipient: invite.email_normalized,
       recipientTimeZone: timeZone,
-      inviterName: invite.inviter_name,
+      // The hold reminder reads the inviter's name from this invitation when
+      // it is sent, so deleting the inviter's account also removes it there.
+      inviterName: null,
     });
     if (!cellId) throw exomemErrors.accessTokenInvalid();
 
@@ -496,7 +497,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
 
       const inviteResult = await tx`
         SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
-               recipient_time_zone, inviter_name
+               recipient_time_zone
         FROM exomem_invites
         WHERE token_digest = ${input.inviteDigest}
           AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
@@ -633,7 +634,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         desiredState: desiredCellState,
         recipient: invite.email_normalized,
         recipientTimeZone: timeZone,
-        inviterName: invite.inviter_name,
+        // See redeemCloudInviteAtomic's matching call.
+        inviterName: null,
       });
       if (!cellId) throw new CloudOAuthAdmissionRejected();
 

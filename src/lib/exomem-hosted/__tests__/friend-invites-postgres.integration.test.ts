@@ -30,6 +30,7 @@ const BASE_PRICE = `pri_${"b".repeat(26)}`;
 const STORAGE_PRICE = `pri_${"s".repeat(26)}`;
 const FRIEND_DISCOUNT = `dsc_${"f".repeat(26)}`;
 const PUBLIC_BASE_URL = "https://substratesystems.io";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const ENV: Record<string, string> = {
   EXOMEM_CONTROL_PLANE_KEY: randomBytes(32).toString("base64url"),
@@ -352,6 +353,30 @@ async function lapsedOwnerWithCheckout() {
     [owner.tenantId]
   );
   return { ...owner, transactionId };
+}
+
+/** Every email the outbox sends now, draining until it sends no more. */
+async function drainedEmails(): Promise<Array<{ to: string; subject: string; text: string }>> {
+  const sent: Array<{ to: string; subject: string; text: string }> = [];
+  for (let tick = 0; tick < 10; tick += 1) {
+    const before = sent.length;
+    await drainExomemEmailOutbox(
+      {},
+      {
+        publicBaseUrl: PUBLIC_BASE_URL,
+        sendEmail: async (message) => {
+          sent.push({ to: message.to, subject: message.subject, text: message.textContent });
+          return { success: true };
+        },
+      }
+    );
+    if (sent.length === before) break;
+  }
+  return sent;
+}
+
+function dayMonth(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone, day: "numeric", month: "long" }).format(at);
 }
 
 async function lapsedCell(tenantId: string) {
@@ -730,6 +755,67 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       ["Sam Example accepted your invitation", "Your invitation to Sam Example ended"]
     );
     assert.equal(await friendOffer(joined.tenantId), used.inviteId);
+  });
+
+  it("names the inviter in a hold reminder from the invitation when it is sent, so a scrubbed name is never sent", async () => {
+    const named = newAddress("named");
+    const scrubbed = newAddress("scrubbed");
+    await redeemCloudInvite((await issueFriendInvitation({ email: named })).token);
+    const invitation = await issueFriendInvitation({ email: scrubbed });
+    await redeemCloudInvite(invitation.token);
+    // The inviter's account deletion clears the invitation's inviter fields.
+    await pool!.query(
+      "UPDATE exomem_invites SET inviter_name = NULL, inviter_email = NULL, note = NULL WHERE id = $1",
+      [invitation.inviteId]
+    );
+    await pool!.query(
+      `UPDATE exomem_email_outbox SET not_before = now() - interval '1 minute'
+       WHERE kind = 'hold_reminder' AND recipient = ANY($1::text[])`,
+      [[named, scrubbed]]
+    );
+
+    const sent = await drainedEmails();
+    const namedReminder = sent.find((message) => message.to === named);
+    const scrubbedReminder = sent.find((message) => message.to === scrubbed);
+    assert.ok(namedReminder?.text.includes("Alex Example"));
+    assert.ok(scrubbedReminder, "sanity: the hold reminder was sent");
+    assert.equal(scrubbedReminder.text.includes("Alex Example"), false);
+  });
+
+  it("dates invitation emails in the time zone that the invitee's and the inviter's accounts last reported", async () => {
+    const invitee = await paidOwner({ sourceState: "active", cell: "running" });
+    const inviter = await paidOwner({ sourceState: "active", cell: "running" });
+    await pool!.query("UPDATE exomem_tenants SET time_zone = $2 WHERE id = $1", [
+      invitee.tenantId,
+      "America/Los_Angeles",
+    ]);
+    await pool!.query("UPDATE exomem_tenants SET time_zone = $2 WHERE id = $1", [
+      inviter.tenantId,
+      "Asia/Tokyo",
+    ]);
+    // 01:00 UTC is still the evening before in Los Angeles.
+    const expiresAt = new Date(Date.now() + 10 * DAY_MS);
+    expiresAt.setUTCHours(1, 0, 0, 0);
+    const { token } = await issueFriendInvitation({
+      email: invitee.email,
+      inviterEmail: inviter.email,
+      expiresAt,
+    });
+
+    const invitationEmail = (await drainedEmails()).find((message) => message.to === invitee.email);
+    assert.ok(invitationEmail, "sanity: the invitation was sent");
+    assert.ok(invitationEmail.text.includes(dayMonth(expiresAt, "America/Los_Angeles")));
+    assert.equal(invitationEmail.text.includes("(UTC)"), false);
+
+    await decideInvitation({
+      token,
+      choice: "use_friend_price",
+      session: { id: invitee.sessionId, userId: invitee.userId, tenantId: invitee.tenantId },
+    });
+    const usedNotice = (await drainedEmails()).find((message) => message.to === inviter.email);
+    assert.ok(usedNotice, "sanity: the used notice was sent");
+    assert.ok(usedNotice.text.includes(dayMonth(new Date(), "Asia/Tokyo")));
+    assert.equal(usedNotice.text.includes("(UTC)"), false);
   });
 
   it("resubscribes an ended owner inside the kept window with a new transaction for the same customer and the friend discount, and resumes the kept cell", async () => {

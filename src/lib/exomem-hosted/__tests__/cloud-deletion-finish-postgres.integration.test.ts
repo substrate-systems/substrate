@@ -782,7 +782,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
   });
 
-  it("removes a deleted owner's name and address from the friend invitations they asked for", async () => {
+  it("removes a deleted owner's name, address and note from the friend invitations they asked for", async () => {
     await resetFleet();
     const tenant = await admitCloudTenant({ source: "complimentary" });
     // The owner asked for a friend invitation to somebody else, which is
@@ -804,12 +804,13 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     assert.equal(await tenantStatus(tenant.tenantId), "deleted");
 
     const invitation = await pool!.query(
-      "SELECT inviter_name, inviter_email, invitee_name FROM exomem_invites WHERE id = $1",
+      "SELECT inviter_name, inviter_email, note, invitee_name FROM exomem_invites WHERE id = $1",
       [rows[0]!.id]
     );
     assert.deepEqual(invitation.rows[0], {
       inviter_name: null,
       inviter_email: null,
+      note: null,
       invitee_name: "Sam Example",
     });
   });
