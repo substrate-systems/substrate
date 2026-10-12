@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
+import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
 import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
@@ -38,9 +39,10 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
   if (!digest) return null;
   const session = await findExomemSessionByDigest(digest);
   if (!session) return null;
-  const [account, status] = await Promise.all([
+  const [account, status, billing] = await Promise.all([
     loadExomemAccountView(session),
     getOwnerCloudStatus(session.tenantId),
+    ownerBillingSummary(session.userId, session.tenantId),
   ]);
   const screen = setupScreen(account.step, status.state);
   if (!screen) return null;
@@ -59,6 +61,7 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
     priceId: exomemCheckoutPriceId(),
     friendOffer: account.plan.friendPrice,
     exportOffered: cloudExportsEnabled(),
+    checkoutAvailable: billing.checkoutAvailable,
   };
 }
 

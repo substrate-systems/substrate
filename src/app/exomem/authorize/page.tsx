@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
+import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
 import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { loadConsentView } from "@/lib/exomem-hosted/consent-view";
@@ -32,6 +33,7 @@ const NOT_SIGNED_IN: AccountFacts = {
   keptUntil: unknown("not_signed_in"),
   supportReference: unknown("not_signed_in"),
   friendOffer: null,
+  checkoutAvailable: false,
 };
 
 // The consent view does not carry these yet (its fields say `not_computed`); the
@@ -42,12 +44,16 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
   try {
     const session = await findExomemSessionByDigest(digest);
     if (!session) return NOT_SIGNED_IN;
-    const account = await loadExomemAccountView(session);
+    const [account, billing] = await Promise.all([
+      loadExomemAccountView(session),
+      ownerBillingSummary(session.userId, session.tenantId),
+    ]);
     return {
       readOnlyUntil: account.readOnlyUntil,
       keptUntil: account.keptUntil,
       supportReference: known(account.supportReference),
       friendOffer: account.plan.friendPrice,
+      checkoutAvailable: billing.checkoutAvailable,
     };
   } catch {
     // A storage failure is a visible unknown, never a guessed date.
@@ -56,6 +62,7 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
       keptUntil: unknown("unavailable"),
       supportReference: unknown("unavailable"),
       friendOffer: null,
+      checkoutAvailable: false,
     };
   }
 }

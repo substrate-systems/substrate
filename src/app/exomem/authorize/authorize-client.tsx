@@ -19,6 +19,7 @@ import { returnToWebApp, tellLoopbackApp } from "../_journey/handback";
 import { appTile, JourneyPage } from "../_journey/JourneyPage";
 import {
   DoneLine,
+  EndedActions,
   openElsewhere,
   PriceCard,
   ScopesCard,
@@ -39,6 +40,8 @@ export type AccountFacts = {
   supportReference: Known<string>;
   /** The account's friend offer, which checkout applies; null when the account is unknown. */
   friendOffer: FriendOffer | null;
+  /** Whether checkout can start now, as Home's billing summary says; false when unknown. */
+  checkoutAvailable: boolean;
 };
 
 type ConsentRequest = {
@@ -521,7 +524,11 @@ function Consent({
               (inviter ? breakCopy.ended.friendBack(inviter) : "")
             }
           />
-          <StepActions secondary={exportMemory} />
+          {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
+          <EndedActions
+            resubscribe={account.checkoutAvailable ? checkout : null}
+            exportMemory={exportMemory}
+          />
         </>
       );
       break;

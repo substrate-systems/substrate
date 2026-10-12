@@ -9,7 +9,7 @@ import {
   involvementLevel,
   type InvolvementLevelKey,
 } from "@/components/exomem/involvement-levels";
-import { consentCopy, joinedCopy, sentCopy, signedInCopy } from "./copy";
+import { breakCopy, consentCopy, joinedCopy, sentCopy, signedInCopy } from "./copy";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
@@ -86,6 +86,33 @@ export function StepActions({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The ended step's actions (Journey board): "Resubscribe", the checkout Home's ended banner
+ * starts, and the export action under it. Without a checkout to start, the export action
+ * is the step's only action (design.md (af)).
+ */
+export function EndedActions({
+  resubscribe,
+  exportMemory,
+}: {
+  /** The page's checkout, or null when the account cannot start one now. */
+  resubscribe: { subscribe: () => Promise<void>; opening: boolean } | null;
+  exportMemory: Action;
+}) {
+  return resubscribe ? (
+    <StepActions
+      primary={{
+        label: breakCopy.ended.resubscribe,
+        working: resubscribe.opening,
+        onClick: () => void resubscribe.subscribe(),
+      }}
+      secondary={exportMemory}
+    />
+  ) : (
+    <StepActions primary={exportMemory} />
   );
 }
 

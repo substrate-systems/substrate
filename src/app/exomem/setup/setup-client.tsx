@@ -31,6 +31,7 @@ import {
   SignedInLine,
   StepActions,
   StepHeading,
+  EndedActions,
   StepNotice,
   WaitNote,
   WorkingBar,
@@ -67,6 +68,8 @@ export type SetupFacts = {
   friendOffer: FriendOffer;
   /** Whether Home offers an export: the export flag. */
   exportOffered: boolean;
+  /** Whether checkout can start now, as Home's billing summary says (a resubscription here). */
+  checkoutAvailable: boolean;
 };
 
 type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
@@ -440,7 +443,11 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
               (inviter ? breakCopy.ended.friendBack(inviter) : "")
             }
           />
-          <StepActions secondary={exportMemory} />
+          {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
+          <EndedActions
+            resubscribe={facts.checkoutAvailable ? checkout : null}
+            exportMemory={exportMemory}
+          />
         </>
       );
       break;
