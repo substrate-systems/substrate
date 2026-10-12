@@ -437,10 +437,11 @@
   text-overflow: ellipsis;
 }
 
-/* The domain keeps its full width while the address has room for it. */
+/* The domain keeps its full width while the address has room for it, but leaves the
+   local part its first characters (up to six), so the line still tells accounts apart. */
 .signedInDomain {
   flex: none;
-  max-width: 100%;
+  max-width: calc(100% - min(6ch, var(--local-chars)));
 }
 
 .signedIn .inlineButton {

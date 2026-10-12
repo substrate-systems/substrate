@@ -459,7 +459,7 @@ const STEPS: Step[] = [
   },
   {
     // The tallest step with the longest address an email can have (254 characters): the
-    // signed-in line stays on one line, so the step still fits.
+    // signed-in line takes at most two lines, so the step still fits.
     name: "consent-read-only-longest-email",
     open: async (page, context) => {
       const local = uniqueEmail("readonly").split("@")[0]!.padEnd(64, "x");
