@@ -234,6 +234,15 @@ export const breakCopy = {
 };
 
 /**
+ * The authorization endpoint's answer to an app it does not know or no longer admits.
+ * Not drawn by the board (owner approval pending).
+ */
+export const unknownAppCopy = {
+  title: "Exomem doesn’t recognise this app",
+  lede: "Remove Exomem from the app, then add it again. The app then opens a page here to confirm.",
+};
+
+/**
  * Failures the boards do not draw. Each follows the board's own wording ("That
  * didn’t work.", "Try again in a minute.") and is listed for the owner's approval.
  */
