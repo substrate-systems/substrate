@@ -114,10 +114,11 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
 
   const lifecycle = status?.lifecycle ?? LOADING;
   const mode = homeMode(lifecycle, account, accountRead);
+  const friendOffer = account?.plan.friendPrice ?? null;
   // Paddle is asked for the usual price only while Home asks an owner without a friend
   // offer to subscribe.
   const price = usePaddlePricePreview(
-    mode.kind === "subscribe" && showsUsualPrice(account) ? priceId : null
+    mode.kind === "subscribe" && showsUsualPrice(friendOffer) ? priceId : null
   );
   const inHome = mode.kind === "home";
   const clock: Clock = useMemo(() => ({ now }), [now]);
@@ -437,7 +438,7 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
 
   if (mode.kind !== "home") {
     const copy = NOT_HOME_COPY[mode.kind];
-    const subscribe = mode.kind === "subscribe" ? subscribeView(account, price) : null;
+    const subscribe = mode.kind === "subscribe" ? subscribeView(friendOffer, price) : null;
     const reference = account?.supportReference ?? lifecycle.requestId ?? null;
     return (
       <>

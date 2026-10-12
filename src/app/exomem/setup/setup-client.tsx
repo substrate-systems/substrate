@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
-import { subscribeLine } from "@/components/exomem/subscribe-line";
 import type { FieldKind } from "@/components/exomem/FlowField";
 import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import { getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
@@ -39,8 +38,13 @@ import {
 } from "../_journey/parts";
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
-import { levelContextTitle } from "../home/home-view";
-import { friendCheckoutPanel } from "../invite/invite-view";
+import {
+  levelContextTitle,
+  offerInviter,
+  showsUsualPrice,
+  subscribeView,
+  type FriendOffer,
+} from "../home/home-view";
 import { joinedSince, pollDelay, type ListedApp } from "./join-rule";
 import { useLevelSave } from "./level-save";
 import type { SetupScreen } from "./setup-screen";
@@ -59,8 +63,8 @@ export type SetupFacts = {
   reviewerEnabled: boolean;
   /** The price checkout charges, previewed in the browser; null shows no amount. */
   priceId: string | null;
-  /** Who gave this account its friend offer, which checkout applies; null without one. */
-  friendInviter: string | null;
+  /** The account's friend offer, which checkout applies. */
+  friendOffer: FriendOffer;
 };
 
 type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
@@ -164,8 +168,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   const current: Phase = checkout.confirming ? "confirming" : phase;
   // A friend offer's price is not the previewed one, so it is not previewed.
   const price = usePaddlePricePreview(
-    current === "subscribe" && !facts.friendInviter ? facts.priceId : null
+    current === "subscribe" && showsUsualPrice(facts.friendOffer) ? facts.priceId : null
   );
+  const subscribe = subscribeView(facts.friendOffer, price);
+  const inviter = offerInviter(facts.friendOffer);
 
   // Preparing: ask for the cell's state until it is ready.
   useEffect(() => {
@@ -288,15 +294,8 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "subscribe":
       body = (
         <>
-          <StepHeading
-            title={subscribeCopy.title}
-            lede={
-              facts.friendInviter
-                ? subscribeCopy.friendLede(facts.friendInviter)
-                : subscribeLine(price)
-            }
-          />
-          {facts.friendInviter ? <PriceCard {...friendCheckoutPanel(facts.friendInviter)} /> : null}
+          <StepHeading title={subscribeCopy.title} lede={subscribe.line} />
+          {subscribe.friendCard ? <PriceCard {...subscribe.friendCard} /> : null}
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <StepActions
             primary={{
@@ -431,7 +430,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
             title={breakCopy.ended.title}
             lede={
               breakCopy.ended.lede(keptUntil, app) +
-              (facts.friendInviter ? breakCopy.ended.friendBack(facts.friendInviter) : "")
+              (inviter ? breakCopy.ended.friendBack(inviter) : "")
             }
           />
           <StepActions secondary={exportMemory} />

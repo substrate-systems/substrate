@@ -56,7 +56,7 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
     },
     reviewerEnabled: marketplaceReviewerAccessEnabled(),
     priceId: exomemCheckoutPriceId(),
-    friendInviter: account.plan.friendPrice.inviterName,
+    friendOffer: account.plan.friendPrice,
   };
 }
 

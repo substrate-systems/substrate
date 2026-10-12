@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { FieldKind } from "@/components/exomem/FlowField";
-import { subscribeLine } from "@/components/exomem/subscribe-line";
 import type { Known } from "@/lib/exomem-hosted/known";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
@@ -31,15 +30,15 @@ import {
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
 import styles from "../_journey/journey.module.css";
-import { friendCheckoutPanel } from "../invite/invite-view";
+import { offerInviter, showsUsualPrice, subscribeView, type FriendOffer } from "../home/home-view";
 import { offersConnect, type ConsentScreen } from "./consent-screen";
 
 export type AccountFacts = {
   readOnlyUntil: Known<string>;
   keptUntil: Known<string>;
   supportReference: Known<string>;
-  /** Who gave the account its friend offer, which checkout applies; null without one. */
-  friendInviter: string | null;
+  /** The account's friend offer, which checkout applies; null when the account is unknown. */
+  friendOffer: FriendOffer | null;
 };
 
 type ConsentRequest = {
@@ -214,9 +213,11 @@ function Consent({
   const checkout = useCheckout(onSettled);
   // A friend offer's price is not the previewed one, so it is not previewed.
   const price = usePaddlePricePreview(
-    phase === "subscribe" && !account.friendInviter ? request.priceId : null
+    phase === "subscribe" && showsUsualPrice(account.friendOffer) ? request.priceId : null
   );
   const current: Phase = checkout.confirming ? "confirming" : phase;
+  const subscribe = subscribeView(account.friendOffer, price, name);
+  const inviter = offerInviter(account.friendOffer);
 
   async function connect(event?: FormEvent<HTMLFormElement>) {
     // Without JavaScript the form posts itself and the server answers with a redirect.
@@ -335,16 +336,10 @@ function Consent({
         <>
           <StepHeading
             title={current === "confirming" ? subscribeCopy.confirming.title : subscribeCopy.title}
-            lede={
-              current === "confirming"
-                ? subscribeCopy.confirming.lede(name)
-                : account.friendInviter
-                  ? subscribeCopy.friendLede(account.friendInviter)
-                  : subscribeLine(price, name)
-            }
+            lede={current === "confirming" ? subscribeCopy.confirming.lede(name) : subscribe.line}
           />
-          {current === "subscribe" && account.friendInviter ? (
-            <PriceCard {...friendCheckoutPanel(account.friendInviter)} />
+          {current === "subscribe" && subscribe.friendCard ? (
+            <PriceCard {...subscribe.friendCard} />
           ) : null}
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           {current === "subscribe" ? (
@@ -519,7 +514,7 @@ function Consent({
             title={breakCopy.ended.title}
             lede={
               breakCopy.ended.lede(keptUntil, name) +
-              (account.friendInviter ? breakCopy.ended.friendBack(account.friendInviter) : "")
+              (inviter ? breakCopy.ended.friendBack(inviter) : "")
             }
           />
           <StepActions secondary={exportMemory} />

@@ -171,7 +171,8 @@ export async function readAccount(): Promise<{
     typeof account.step === "string" &&
     plan !== null &&
     isKnown(plan.name) &&
-    record(plan.friendPrice) !== null &&
+    // Whether checkout applies a friend price decides which price Home may show.
+    typeof record(plan.friendPrice)?.offered === "boolean" &&
     ["nextPaymentAt", "nextPaymentAmount", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every(
       (key) => isKnown(account[key])
     ) &&

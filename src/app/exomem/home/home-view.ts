@@ -68,26 +68,36 @@ export type HomeMode =
   | { kind: "deleted" }
   | { kind: "home"; variant: HomeVariant };
 
+/** The account's friend offer, as the account view reports it. */
+export type FriendOffer = Pick<HomeAccount["plan"]["friendPrice"], "offered" | "inviterName">;
+
 /**
- * Whether Home may ask Paddle for the usual price: only for an account it has read that
- * holds no friend offer. A friend offer's checkout charges the friend price instead.
+ * Whether the subscribe step may ask Paddle for the usual price: only for an account it has
+ * read (a non-null offer) that holds no friend offer. Checkout charges the friend price instead.
  */
-export function showsUsualPrice(account: HomeAccount | null): boolean {
-  return account !== null && !account.plan.friendPrice.inviterName;
+export function showsUsualPrice(offer: FriendOffer | null): boolean {
+  return offer !== null && !offer.offered;
+}
+
+/** Who gave the friend offer that checkout applies; null without one, or once the name is gone. */
+export function offerInviter(offer: FriendOffer | null): string | null {
+  return offer?.offered ? offer.inviterName : null;
 }
 
 /**
- * The subscribe view's line and price card, as the journey's subscribe step shows them. An
- * account with a friend offer reads the friend line and the "shown at checkout" card.
+ * The subscribe step's line and price card, on Home, setup and consent. An account with a
+ * friend offer reads the friend line and the "shown at checkout" card. An offer whose
+ * inviter's name went with their account reads that Paddle shows the price at checkout.
  */
 export function subscribeView(
-  account: HomeAccount | null,
-  price: PaddlePricePreview | null
+  offer: FriendOffer | null,
+  price: PaddlePricePreview | null,
+  app?: string
 ): { line: string; friendCard: PricePanel | null } {
-  const inviter = account?.plan.friendPrice.inviterName ?? null;
+  const inviter = offerInviter(offer);
   return inviter
     ? { line: subscribeCopy.friendLede(inviter), friendCard: friendCheckoutPanel(inviter) }
-    : { line: subscribeLine(price), friendCard: null };
+    : { line: subscribeLine(showsUsualPrice(offer) ? price : null, app), friendCard: null };
 }
 
 /** The lifecycle says whether the cell serves; the account step says why it does or does not. */

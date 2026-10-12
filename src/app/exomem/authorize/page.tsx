@@ -30,7 +30,7 @@ const NOT_SIGNED_IN: AccountFacts = {
   readOnlyUntil: unknown("not_signed_in"),
   keptUntil: unknown("not_signed_in"),
   supportReference: unknown("not_signed_in"),
-  friendInviter: null,
+  friendOffer: null,
 };
 
 // The consent view does not carry these yet (its fields say `not_computed`); the
@@ -46,7 +46,7 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
       readOnlyUntil: account.readOnlyUntil,
       keptUntil: account.keptUntil,
       supportReference: known(account.supportReference),
-      friendInviter: account.plan.friendPrice.inviterName,
+      friendOffer: account.plan.friendPrice,
     };
   } catch {
     // A storage failure is a visible unknown, never a guessed date.
@@ -54,7 +54,7 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
       readOnlyUntil: unknown("unavailable"),
       keptUntil: unknown("unavailable"),
       supportReference: unknown("unavailable"),
-      friendInviter: null,
+      friendOffer: null,
     };
   }
 }

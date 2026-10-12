@@ -37,7 +37,7 @@ function account(overrides: Partial<HomeAccount> = {}): HomeAccount {
       source: "paddle",
       name: { value: "Exomem · monthly", reason: null },
       priceId: { value: "pri_example", reason: null },
-      friendPrice: { applied: false, inviterName: null },
+      friendPrice: { offered: false, applied: false, inviterName: null },
     },
     nextPaymentAt: { value: "2026-10-31T09:00:00Z", reason: null },
     nextPaymentAmount: { value: null, reason: "not_reported" },
@@ -147,27 +147,44 @@ describe("which Home the owner sees", () => {
 });
 
 describe("the subscribe view", () => {
+  const usual = {
+    total: { amount: "1500", currencyCode: "EUR" },
+    billingCycle: { interval: "month", frequency: 1 },
+  } as PaddlePricePreview;
+
   it("never quotes the usual price to an account that holds a friend offer", () => {
-    const usual = {
-      total: { amount: "1500", currencyCode: "EUR" },
-      billingCycle: { interval: "month", frequency: 1 },
-    } as PaddlePricePreview;
     const owner = account();
     const friend = account({
-      plan: { ...owner.plan, friendPrice: { applied: false, inviterName: "Alex" } },
+      plan: { ...owner.plan, friendPrice: { offered: true, applied: false, inviterName: "Alex" } },
     });
 
-    const view = subscribeView(friend, usual);
+    const view = subscribeView(friend.plan.friendPrice, usual);
 
-    assert.equal(showsUsualPrice(friend), false);
+    assert.equal(showsUsualPrice(friend.plan.friendPrice), false);
     assert.doesNotMatch(view.line, /€15/);
     assert.match(view.line, /Alex’s friend price/);
     // The card leaves the amount to checkout, with no usual price struck beside it.
     assert.equal(view.friendCard?.was, null);
     assert.doesNotMatch(view.friendCard?.main ?? "", /€/);
     // Without an offer, the usual price is the line.
-    assert.equal(showsUsualPrice(owner), true);
-    assert.match(subscribeView(owner, usual).line, /€15 a month/);
+    assert.equal(showsUsualPrice(owner.plan.friendPrice), true);
+    assert.match(subscribeView(owner.plan.friendPrice, usual).line, /€15 a month/);
+  });
+
+  it("leaves the price to checkout when the inviter's deleted account took their name", () => {
+    // Deleting the inviter's account clears their name; checkout still applies the offer.
+    const friend = account({
+      plan: {
+        ...account().plan,
+        friendPrice: { offered: true, applied: false, inviterName: null },
+      },
+    });
+
+    const view = subscribeView(friend.plan.friendPrice, usual);
+
+    assert.equal(showsUsualPrice(friend.plan.friendPrice), false);
+    assert.match(view.line, /^Paddle shows the price at checkout\./);
+    assert.equal(view.friendCard, null);
   });
 });
 
@@ -391,7 +408,10 @@ describe("plan and storage", () => {
     const plan = planView(
       "on",
       account({
-        plan: { ...account().plan, friendPrice: { applied: true, inviterName: "Alex" } },
+        plan: {
+          ...account().plan,
+          friendPrice: { offered: true, applied: true, inviterName: "Alex" },
+        },
       }),
       portal,
       clock
@@ -401,7 +421,10 @@ describe("plan and storage", () => {
     const withAmount = planView(
       "on",
       account({
-        plan: { ...account().plan, friendPrice: { applied: true, inviterName: "Alex" } },
+        plan: {
+          ...account().plan,
+          friendPrice: { offered: true, applied: true, inviterName: "Alex" },
+        },
         nextPaymentAmount: { value: { amount: "850", currencyCode: "EUR" }, reason: null },
       }),
       portal,

@@ -4,6 +4,7 @@
  * explicitly unknown with a reason the page can name. No value is invented.
  */
 
+import { loadOwnerBillingAccount } from "./billing-account";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, type ExomemSessionRow } from "./db";
@@ -24,7 +25,13 @@ export type ExomemAccountView = {
     source: "complimentary" | "paddle";
     name: Known<string, "complimentary" | "no_subscription" | "not_reported">;
     priceId: Known<string, "complimentary" | "no_subscription" | "not_reported">;
-    friendPrice: { applied: boolean; inviterName: string | null };
+    friendPrice: {
+      /** The tenant holds a friend offer, so its checkout charges the friend price. */
+      offered: boolean;
+      applied: boolean;
+      /** Who gave the offer; null without one, or once the inviter's account is deleted. */
+      inviterName: string | null;
+    };
   };
   nextPaymentAt: Known<string, NoNextPayment | "not_reported">;
   /**
@@ -68,6 +75,8 @@ export type ExomemAccountRow = {
   discountId: string | null;
   graceStartedAt: Date | null;
   reviewerExpiresAt: Date | null;
+  /** The tenant holds a friend offer, read as checkout reads it (`loadOwnerBillingAccount`). */
+  friendOffered: boolean;
   /** Who invited the tenant with the friend price, from its friend offer. */
   friendInviterName: string | null;
 };
@@ -191,6 +200,7 @@ export function buildExomemAccountView(
       name: planFact(row, row.priceName),
       priceId: planFact(row, row.priceId),
       friendPrice: {
+        offered: row.friendOffered,
         applied: friendPriceApplied(row, friendDiscountId),
         inviterName: row.friendInviterName,
       },
@@ -253,6 +263,9 @@ export async function loadExomemAccountView(
   `;
   const row = rows[0];
   if (!row) throw exomemErrors.sessionInvalid();
+  // The friend offer is checkout's own read, so no page shows a price that checkout
+  // does not charge.
+  const billing = await loadOwnerBillingAccount(session.userId, session.tenantId);
   const environment = options.environment ?? process.env;
   const account: ExomemAccountRow = {
     email: String(row.email),
@@ -275,6 +288,7 @@ export async function loadExomemAccountView(
     discountId: textOrNull(row.provider_discount_id),
     graceStartedAt: dateOrNull(row.grace_started_at),
     reviewerExpiresAt: dateOrNull(row.reviewer_expires_at),
+    friendOffered: billing?.friendOffer === true,
     friendInviterName: textOrNull(row.friend_inviter_name),
   };
   return buildExomemAccountView(account, {
