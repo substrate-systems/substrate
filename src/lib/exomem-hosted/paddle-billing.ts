@@ -13,6 +13,7 @@ import {
   paddleSubscriptionFacts,
   type PaddleSourceState,
 } from "./paddle-webhook";
+import { CURRENCY_CODE, isExomemMoney, MONEY_MINOR_UNITS, type ExomemMoney } from "./exomem-money";
 
 export type PaddleTransport = (path: string, init?: RequestInit) => Promise<Response>;
 
@@ -416,12 +417,6 @@ export async function readExomemSubscription(
   return { state, discountId: facts.discountId, nextBilledAt: facts.nextBilledAt };
 }
 
-/**
- * A price as Paddle reports a total: `amount` in the currency's smallest
- * unit (cents for EUR), tax included as Paddle computed it.
- */
-export type ExomemMoney = { amount: string; currencyCode: string };
-
 export type ExomemPrices = { usual: ExomemMoney; friend: ExomemMoney | null };
 
 const PRICE_CACHE_MS = 10 * 60 * 1000;
@@ -444,11 +439,6 @@ export function __clearExomemPriceCacheForTests(): void {
   nextPaymentCache.clear();
   shownDiscountChecks.clear();
 }
-
-/** The shape of an `ExomemMoney` amount: at most 12 digits, so it stays exact as a number. */
-export const MONEY_MINOR_UNITS = /^\d{1,12}$/;
-// ISO 4217 code format; Paddle reports the currency it priced in.
-export const CURRENCY_CODE = /^[A-Z]{3}$/;
 
 async function previewOnePrice(
   input: { priceId: string; discountId: string | null; customerIp: string | null },
@@ -588,16 +578,14 @@ export async function readExomemNextPaymentAmount(
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
   const totals = safeObject(safeObject(safeObject(data.next_transaction)?.details)?.totals);
-  const amount = totals?.grand_total;
-  // Paddle bills a subscription's transactions in the subscription's currency.
-  const currencyCode = totals?.currency_code ?? data.currency_code;
-  const value: Known<ExomemMoney, "not_reported"> =
-    typeof amount === "string" &&
-    MONEY_MINOR_UNITS.test(amount) &&
-    typeof currencyCode === "string" &&
-    CURRENCY_CODE.test(currencyCode)
-      ? known({ amount, currencyCode })
-      : unknown("not_reported");
+  const money = {
+    amount: totals?.grand_total,
+    // Paddle bills a subscription's transactions in the subscription's currency.
+    currencyCode: totals?.currency_code ?? data.currency_code,
+  };
+  const value: Known<ExomemMoney, "not_reported"> = isExomemMoney(money)
+    ? known({ amount: money.amount, currencyCode: money.currencyCode })
+    : unknown("not_reported");
   if (nextPaymentCache.size >= PRICE_CACHE_MAX_ENTRIES) nextPaymentCache.clear();
   nextPaymentCache.set(key, { expiresAt: now + PRICE_CACHE_MS, value });
   return value;

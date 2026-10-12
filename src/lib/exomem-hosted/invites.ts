@@ -35,9 +35,9 @@ import {
   ExomemBillingError,
   previewExomemPrices,
   readExomemSubscription,
-  type ExomemMoney,
   type ExomemPrices,
 } from "./paddle-billing";
+import type { ExomemMoney } from "./exomem-money";
 import { exomemPaddleBasePriceId, exomemPaddleFriendDiscountId } from "./paddle-config";
 import { EXOMEM_INVITE_CAPABILITIES, EXOMEM_INVITE_LIMITS } from "./self-serve-admission";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";

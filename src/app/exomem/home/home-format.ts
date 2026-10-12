@@ -3,9 +3,6 @@
 // The formats are the Home board's: en-GB dates ("31 October", "13 Oct, 14:20") and
 // its "2 minutes ago" wording.
 
-import { emailMoney } from "@/lib/email-templates/exomem-email-money";
-import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
-
 const LOCALE = "en-GB";
 
 export type Clock = {
@@ -13,8 +10,6 @@ export type Clock = {
   now: number;
   /** An IANA zone; undefined means the browser's own. */
   timeZone?: string;
-  /** A BCP 47 locale for amounts of money; undefined means the browser's own. */
-  locale?: string;
 };
 
 function format(iso: string, options: Intl.DateTimeFormatOptions, timeZone?: string): string {
@@ -42,19 +37,6 @@ export function shortDateTime(iso: string, timeZone?: string): string {
     { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" },
     timeZone
   );
-}
-
-/**
- * A Paddle amount as the emails write it ("€10", "€10.50"), in the reader's locale.
- * Null when the browser cannot format the currency, so Home shows no amount.
- */
-export function money(price: ExomemMoney, locale?: string): string | null {
-  try {
-    return emailMoney(price, locale ?? new Intl.NumberFormat().resolvedOptions().locale);
-  } catch {
-    // A currency code that is not well formed throws; a wrong amount is worse than none.
-    return null;
-  }
 }
 
 /** "11,402" */

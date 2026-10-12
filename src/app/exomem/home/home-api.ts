@@ -14,6 +14,7 @@ import type {
   CloudHomeLevelsView,
 } from "@/lib/exomem-hosted/cloud-home-mcp";
 import type { CloudExportSummary } from "@/lib/exomem-hosted/cloud-exports";
+import { isExomemMoney } from "@/lib/exomem-hosted/exomem-money";
 import type { CloudStorageObservation } from "@/lib/exomem-hosted/cloud-status";
 import { csrfCookie, getPrivateJson, HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
 import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";
@@ -53,12 +54,6 @@ function isKnown(value: unknown): boolean {
     ((known.reason === null && known.value !== null && known.value !== undefined) ||
       (known.value === null && typeof known.reason === "string"))
   );
-}
-
-function isMoneyOrNull(value: unknown): boolean {
-  if (value === null) return true;
-  const money = record(value);
-  return typeof money?.amount === "string" && typeof money.currencyCode === "string";
 }
 
 async function read(path: string): Promise<Record<string, unknown>> {
@@ -180,7 +175,9 @@ export async function readAccount(): Promise<{
     ["nextPaymentAt", "nextPaymentAmount", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every(
       (key) => isKnown(account[key])
     ) &&
-    isMoneyOrNull(record(account.nextPaymentAmount)?.value);
+    // An amount must have the server's shape: an empty or non-numeric one is unreadable.
+    (record(account.nextPaymentAmount)?.value === null ||
+      isExomemMoney(record(account.nextPaymentAmount)?.value));
   const billing = record(response.billing);
   const billingOk =
     billing !== null &&

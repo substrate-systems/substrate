@@ -8,7 +8,7 @@
  * zone, from the caller's typed facts.
  */
 
-import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
+import type { ExomemMoney } from "@/lib/exomem-hosted/exomem-money";
 import { renderExomemEmail, type ExomemEmailFact, type RenderedExomemEmail } from "./exomem-email";
 import { emailMoney } from "./exomem-email-money";
 import {

@@ -3,7 +3,7 @@
  * (R28), each rendered through renderExomemEmail (exomem-email.ts).
  */
 
-import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
+import type { ExomemMoney } from "@/lib/exomem-hosted/exomem-money";
 import {
   renderExomemEmail,
   type ExomemEmailFact,
