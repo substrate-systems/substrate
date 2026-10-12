@@ -1,59 +1,66 @@
-import { buildMetadata } from "@/lib/seo";
-import { ExomemPublicPage } from "../public-page";
+import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
+import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
+import { connectorSettingsUrl } from "@/lib/exomem-hosted/consent-view";
+import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
+import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
+import { tokenDigest } from "@/lib/exomem-hosted/security";
+import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
+import SetupClient, { type SetupFacts } from "./setup-client";
+import { setupScreen } from "./setup-screen";
 
-export const metadata = buildMetadata({
-  title: "Set Up Exomem Cloud",
-  description:
-    "Install Exomem Cloud for Claude, ChatGPT, or Codex, sign in once through OAuth, and start retrieving and preserving context from a governed Markdown vault you own.",
-  path: "/exomem/setup",
-});
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export default function ExomemSetupPage() {
-  return (
-    <ExomemPublicPage title="Set up Exomem Cloud" eyebrow="Exomem Cloud setup">
-      <p>
-        Exomem Cloud is designed to disappear into normal work: install or connect an approved
-        Claude, ChatGPT, or Codex entry, sign in once through OAuth, then use your usual
-        conversation. The client uses Exomem&apos;s governed tools and bundled skills to retrieve
-        and preserve useful context. Once your cell is ready, the exact live install actions appear
-        in your Exomem account; this page never guesses an unapproved marketplace URL.
-      </p>
-      <h2>Normal path</h2>
-      <ol>
-        <li>Open your setup link and finish account setup.</li>
-        <li>Choose the approved client install action supplied to your account.</li>
-        <li>Complete the OAuth sign-in once, then return to the client.</li>
-        <li>Work normally; Exomem can retrieve and capture governed knowledge when relevant.</li>
-      </ol>
-      <p>
-        There is no local vault path, manual MCP JSON editing, or API-token copy in the Cloud setup.
-      </p>
-      <h2>Chat fallback</h2>
-      <p>
-        If a chat surface connects the remote MCP server but does not activate bundled skills, add
-        this once to that client&apos;s global custom instructions:
-      </p>
-      <blockquote>
-        Use Exomem quietly as my long-term governed knowledge store. Retrieve relevant Exomem
-        context when it can improve the answer, and preserve durable decisions or reusable
-        conclusions when appropriate. Do not capture transient chat, secrets, or anything I
-        explicitly say not to save. Treat the assistant&apos;s native memory as short-term
-        behavioral context and Exomem as the durable store.
-      </blockquote>
-      <p>
-        Custom instructions are a fallback for client behavior, not part of the Cloud security or
-        storage boundary. Claude&apos;s connector reaches the remote tools across Claude surfaces;
-        the bundled Claude plugin skills apply where the plugin surface supports them, such as Code
-        and Cowork. OpenAI&apos;s universal plugin serves ChatGPT and Codex from the same Cloud
-        endpoint.
-      </p>
+export const metadata: Metadata = {
+  title: "Set up Exomem",
+  robots: { index: false, follow: false, nocache: true },
+  referrer: "no-referrer",
+};
 
-      <h2>Disconnect or revoke access</h2>
-      <p>
-        Disconnect Exomem in the client to stop that client using it. Use your Exomem account to
-        revoke sessions, export data, or begin verified deletion. You never need to paste a token
-        into support or manually edit a tenant URL.
-      </p>
-    </ExomemPublicPage>
-  );
+// The MCP address an app without the plugin pastes: the Cloud URL from configuration
+// (deviation (h)). Unconfigured is a visible gap on the page, not a guessed address.
+function mcpAddress(): string | null {
+  try {
+    return loadExomemCloudResource().mcpUrl;
+  } catch {
+    return null;
+  }
+}
+
+async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts | null> {
+  const digest = sessionCookie ? tokenDigest(sessionCookie) : null;
+  if (!digest) return null;
+  const session = await findExomemSessionByDigest(digest);
+  if (!session) return null;
+  const [account, status] = await Promise.all([
+    loadExomemAccountView(session),
+    getOwnerCloudStatus(session.tenantId),
+  ]);
+  const screen = setupScreen(account.step, status.state);
+  if (!screen) return null;
+  return {
+    screen,
+    email: account.email,
+    keptUntil: account.keptUntil,
+    supportReference: account.supportReference,
+    mcpAddress: mcpAddress(),
+    // Where "Open Claude ↗" and "Open ChatGPT ↗" go: configuration, as on the consent page.
+    settings: {
+      claude: connectorSettingsUrl("claude", false).value,
+      openai: connectorSettingsUrl("openai", false).value,
+    },
+    reviewerEnabled: marketplaceReviewerAccessEnabled(),
+  };
+}
+
+/** The web journey after sign-in: subscribe, then add Exomem to an assistant. */
+export default async function SetupPage() {
+  const cookieStore = await cookies();
+  const facts = await setupFacts(cookieStore.get(EXOMEM_SESSION_COOKIE)?.value);
+  if (!facts) redirect("/exomem/sign-in");
+  return <SetupClient facts={facts} />;
 }

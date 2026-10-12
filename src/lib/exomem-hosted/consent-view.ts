@@ -24,8 +24,9 @@ import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
 import { tokenDigest } from "./security";
 
 export type ConsentView =
-  // No live request to show: start again from the app.
-  | { step: "expired" }
+  // No live request to show: start again from the app. The app is named when this
+  // browser's request still identifies it, and is null otherwise.
+  | { step: "expired"; app: AppName | null }
   | {
       step: ConsentStep;
       app: {
@@ -43,9 +44,6 @@ export type ConsentView =
       /** A live grant already exists for this user, tenant, app and resource. */
       alreadyConnected: boolean;
       cellStarting: boolean;
-      readOnlyUntil: Known<string, typeof NOT_COMPUTED>;
-      keptUntil: Known<string, typeof NOT_COMPUTED>;
-      supportReference: Known<string, typeof NOT_COMPUTED>;
       connectorSettingsUrl: Known<string, ConnectorSettingsReason>;
       /** What the page's forms send back to complete or decline this request. */
       confirmation: string;
@@ -60,10 +58,7 @@ export type ConsentViewInput = {
   sessionCookie: string | undefined;
 };
 
-// Neither date nor the support reference is stored yet. They come from the
-// account view (launch-exomem-cloud-web, account contract), and until then the
-// page shows them as unknown rather than inventing a value.
-const NOT_COMPUTED = "not_computed";
+type AppName = ReturnType<typeof oauthClientDisplayName>;
 
 export type ConnectorSettingsReason =
   | "local_app"
@@ -87,21 +82,25 @@ export async function loadConsentView(
   const continuation = matchesOAuthConfirmationHandle(input.transactionCookie, input.confirmation)
     ? await resolveOAuthContinuationToken(input.transactionCookie)
     : null;
-  if (!continuation || !nonce || !input.confirmation) return { step: "expired" };
+  if (!continuation) return { step: "expired", app: null };
   const [client, visitor] = await Promise.all([
     findOAuthClientIdentity(continuation.clientId),
     visitorFor(input.sessionCookie, continuation),
   ]);
   // The request was resolved against this client a moment ago; a client row
   // gone since then leaves nothing to name, so the request is over.
-  if (!client) return { step: "expired" };
+  if (!client) return { step: "expired", app: null };
+  // The fallback name is the host this request's code goes to, not any other
+  // redirect the client registered.
+  const name = oauthClientDisplayName(client, continuation.redirectUri);
+  // Without its form nonce this page cannot answer the request, but it still knows
+  // which app to start again from.
+  if (!nonce || !input.confirmation) return { step: "expired", app: name };
   const loopback = isLoopbackRedirectDestination(continuation.redirectUri);
   return {
     step: consentStep(visitor),
-    // The fallback name is the host this request's code goes to, not any other
-    // redirect the client registered.
     app: {
-      ...oauthClientDisplayName(client, continuation.redirectUri),
+      ...name,
       platform: client.platform,
       loopback,
       redirectHost: redirectHost(continuation.redirectUri),
@@ -110,16 +109,19 @@ export async function loadConsentView(
     signedInEmail: visitor?.email ?? null,
     alreadyConnected: visitor?.alreadyConnected ?? false,
     cellStarting: visitor?.cellStarting ?? false,
-    readOnlyUntil: unknown(NOT_COMPUTED),
-    keptUntil: unknown(NOT_COMPUTED),
-    supportReference: unknown(NOT_COMPUTED),
     connectorSettingsUrl: connectorSettingsUrl(client.platform, loopback, env),
     confirmation: input.confirmation,
     nonce,
-    reviewerEnabled:
-      marketplaceReviewerAccessEnabled() &&
-      continuation.resource === loadExomemCloudResource(env).mcpUrl,
+    reviewerEnabled: reviewerSignInOffered(continuation.resource, env),
   };
+}
+
+/**
+ * Whether the consent page offers the app reviewer's sign-in: only while reviewer
+ * access is switched on, and only for a request to Exomem Cloud's own resource.
+ */
+export function reviewerSignInOffered(resource: string, env: EnvironmentSource): boolean {
+  return marketplaceReviewerAccessEnabled(env) && resource === loadExomemCloudResource(env).mcpUrl;
 }
 
 // Whether the visitor has an Exomem, and in what state, decides what this page

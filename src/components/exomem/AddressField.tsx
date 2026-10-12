@@ -22,10 +22,17 @@ type AddressFieldProps = {
   address: string;
   /** page: the flow's field · row: Home's compact field inside a panel row (44 px, a 32 px Copy). */
   size?: "page" | "row";
+  /** The page already says what the address is for: the label only names the field for screen readers. */
+  labelHidden?: boolean;
 };
 
 /** An address to paste elsewhere (the MCP address), with Copy inside on the right. */
-export function AddressField({ label, address, size = "page" }: AddressFieldProps) {
+export function AddressField({
+  label,
+  address,
+  size = "page",
+  labelHidden = false,
+}: AddressFieldProps) {
   const id = useId();
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,7 +61,7 @@ export function AddressField({ label, address, size = "page" }: AddressFieldProp
   const parts = splitAfterHost(address);
   return (
     <div className={size === "row" ? `${styles.field} ${styles.row}` : styles.field}>
-      <span className={styles.label} id={id}>
+      <span className={labelHidden ? styles.labelHidden : styles.label} id={id}>
         {label}
       </span>
       <div className={styles.box} role="group" aria-labelledby={id}>

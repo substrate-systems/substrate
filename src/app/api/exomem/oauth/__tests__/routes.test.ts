@@ -528,9 +528,12 @@ describe("Exomem OAuth routes", () => {
         new Request(missingRedirectUrl, { headers: { "x-forwarded-for": "203.0.113.10" } })
       );
 
-      assert.equal(invalidClient.status, 400);
-      assert.deepEqual(await invalidClient.json(), { error: "invalid_request" });
-      assert.equal(invalidClient.headers.get("location"), null);
+      // An unknown client goes to Exomem's own page, never to the redirect it asked for.
+      assert.equal(invalidClient.status, 303);
+      assert.equal(
+        new URL(invalidClient.headers.get("location")!).pathname,
+        "/exomem/authorize/unknown-app"
+      );
       assert.equal(invalidClient.headers.get("cache-control"), "no-store");
       assert.equal(invalidClient.headers.get("referrer-policy"), "no-referrer");
       assert.equal(invalidRedirect.status, 400);
