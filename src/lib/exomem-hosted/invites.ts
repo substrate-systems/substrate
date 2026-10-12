@@ -328,12 +328,18 @@ type InvitationFacts = {
   kind: ExomemInviteKind;
   inviter: { name: string } | null;
   note: string | null;
-  price: InvitationPrice;
 };
 
 export type InvitationInspection =
-  | ({ status: "invite"; email: string; expiresAt: string } & InvitationFacts)
-  | ({ status: "existing"; signedIn: boolean } & InvitationFacts);
+  | ({
+      status: "invite";
+      email: string;
+      expiresAt: string;
+      price: InvitationPrice;
+    } & InvitationFacts)
+  | ({ status: "existing"; signedIn: true; price: InvitationPrice } & InvitationFacts)
+  // An owner's plan is theirs: whether the friend price fits it is no one else's to read.
+  | ({ status: "existing"; signedIn: false } & InvitationFacts);
 
 export type InspectInvitationDependencies = {
   previewPrices: typeof previewExomemPrices;
@@ -425,8 +431,9 @@ async function findUsableInvitation(digest: Buffer): Promise<{
  * What the holder of an invitation token sees. `null` for every unusable
  * token alike. A token never signs anybody in here; for an address that
  * already owns an Exomem it says so, and whether the caller is signed in
- * as that owner. Prices come from Paddle's preview for the caller, or are
- * unknown with a reason; the discount id never leaves the server.
+ * as that owner, and only that owner learns the prices. Prices come from
+ * Paddle's preview for the caller, or are unknown with a reason; the discount
+ * id never leaves the server.
  */
 export async function inspectInvitation(
   input: {
@@ -447,8 +454,16 @@ export async function inspectInvitation(
   if (!digest) return null;
   const invitation = await deps.findUsable(digest);
   if (!invitation) return null;
+  const facts: InvitationFacts = {
+    kind: invitation.kind,
+    inviter: invitation.inviterName ? { name: invitation.inviterName } : null,
+    note: invitation.note,
+  };
+  if (invitation.owner && input.sessionUserId !== invitation.owner.userId) {
+    return { status: "existing", ...facts, signedIn: false };
+  }
   // A new person's covered invitation has no checkout, so no price. An
-  // existing owner always sees the usual price and whether the friend price
+  // owner signed in here always sees the usual price and whether the friend price
   // is theirs to take.
   const offer = invitation.owner
     ? friendPriceOffer(invitation.kind, invitation.owner.plan, deps.basePriceId())
@@ -477,24 +492,13 @@ export async function inspectInvitation(
       price = unknown("price_unavailable");
     }
   }
-  const facts: InvitationFacts = {
-    kind: invitation.kind,
-    inviter: invitation.inviterName ? { name: invitation.inviterName } : null,
-    note: invitation.note,
-    price,
-  };
-  if (invitation.owner) {
-    return {
-      status: "existing",
-      ...facts,
-      signedIn: input.sessionUserId === invitation.owner.userId,
-    };
-  }
+  if (invitation.owner) return { status: "existing", ...facts, signedIn: true, price };
   return {
     status: "invite",
     email: invitation.email,
     expiresAt: invitation.expiresAt.toISOString(),
     ...facts,
+    price,
   };
 }
 

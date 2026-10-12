@@ -329,7 +329,7 @@ async function paidOwner(state: {
   endedDaysAgo?: number;
   /** The price Paddle reported for the subscription; the base price unless a test says otherwise. */
   priceId?: string | null;
-}): Promise<Owner & { customerRef: string; subscriptionRef: string }> {
+}): Promise<Owner & { customerRef: string; subscriptionRef: string; sessionToken: string }> {
   const email = newAddress("owner");
   const session = mintSessionMaterial();
   const admitted = await redeemCloudInviteAtomic({
@@ -391,7 +391,13 @@ async function paidOwner(state: {
   await pool!.query("UPDATE exomem_tenants SET status = 'active' WHERE id = $1", [
     admitted.tenantId,
   ]);
-  return { ...admitted, email, customerRef, subscriptionRef };
+  return {
+    ...admitted,
+    email,
+    customerRef,
+    subscriptionRef,
+    sessionToken: session.sessionToken,
+  };
 }
 
 async function invitation(inviteId: string) {
@@ -704,6 +710,8 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(anonymousBody.status, "existing");
     assert.equal(anonymousBody.signedIn, false);
     assert.equal("email" in anonymousBody, false);
+    // Whether the friend price fits the owner's plan is for the owner alone.
+    assert.equal("price" in anonymousBody, false);
     assert.equal(anonymous.headers.get("set-cookie"), null);
 
     const signedIn = await POST(
@@ -712,7 +720,9 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
         cookie: `exomem_session=${ownerSession.sessionToken}`,
       })
     );
-    assert.equal(((await signedIn.json()) as Record<string, unknown>).signedIn, true);
+    const signedInBody = (await signedIn.json()) as Record<string, unknown>;
+    assert.equal(signedInBody.signedIn, true);
+    assert.equal("price" in signedInBody, true);
 
     // The token cannot be redeemed into a session for the existing owner either.
     await assert.rejects(redeemCloudInvite(token));
@@ -1059,7 +1069,12 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
       paddle.calls = [];
 
-      const inspected = await POST(inspectRequest(token, { ip: "203.0.113.43" }));
+      const inspected = await POST(
+        inspectRequest(token, {
+          ip: "203.0.113.43",
+          cookie: `exomem_session=${owner.sessionToken}`,
+        })
+      );
       const body = (await inspected.json()) as {
         status: string;
         price: { value: { friend: { value: unknown; reason: string } } | null };

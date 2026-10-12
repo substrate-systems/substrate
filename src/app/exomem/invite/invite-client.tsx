@@ -67,10 +67,13 @@ function refused(error: unknown): boolean {
 function inspectionOf(body: Record<string, unknown>): InvitationInspection | null {
   const price = body.price as { value?: unknown; reason?: unknown } | undefined;
   const kindOk = body.kind === "standard" || body.kind === "friend" || body.kind === "covered";
+  // Only the owner signed in here learns the prices of an existing owner's invitation.
+  const withheld = body.status === "existing" && body.signedIn === false;
   const priceOk =
-    price !== undefined &&
-    ((price.value !== null && typeof price.value === "object") ||
-      (price.value === null && typeof price.reason === "string"));
+    withheld ||
+    (price !== undefined &&
+      ((price.value !== null && typeof price.value === "object") ||
+        (price.value === null && typeof price.reason === "string")));
   const statusOk =
     body.status === "invite" || (body.status === "existing" && typeof body.signedIn === "boolean");
   return kindOk && priceOk && statusOk ? (body as unknown as InvitationInspection) : null;
@@ -266,10 +269,7 @@ export default function InviteClient() {
       if (!signedIn) {
         body = (
           <>
-            <StepHeading
-              title={inviteCopy.existing.title}
-              lede={inviteCopy.existing.signIn(by)}
-            />
+            <StepHeading title={inviteCopy.existing.title} lede={inviteCopy.existing.signIn(by)} />
             <StepActions
               primary={{
                 label: inviteCopy.existing.signInPrimary,
