@@ -31,6 +31,7 @@ export type LifecycleStatus = {
     | "CELL_READY"
     | "CELL_NOT_READY"
     | "CELL_PAUSED_FOR_EXPORT"
+    | "CELL_PAUSED_FOR_HOLD"
     | "EXOMEM_SUSPENDED"
     | "EXOMEM_DELETED";
   requestId?: string;
@@ -98,11 +99,17 @@ export function mapCloudCellToLifecycleStatus(
   if (row.observed_state === "failed" || row.last_error_code) {
     return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
   }
-  // An export holds the cell: cellctl stops the runtime (observed `stopping`,
-  // then `stopped`) until the archive is packed. The owner asked for this
-  // pause, so it is not reported as a fault.
+  // A hold stops the runtime: cellctl stops the cell (observed `stopping`,
+  // then `stopped`) until the held work ends, and it reports `stopping` again
+  // once it releases the hold, before the cell starts. None of this is a
+  // fault. The owner asked for an export, so its pause has its own code; a
+  // backup, upgrade, restore or import hold, and the `stopping` after any
+  // hold, is maintenance that ends by itself.
   if (row.hold_kind === "export" && !row.ready) {
     return { state: "degraded", code: "CELL_PAUSED_FOR_EXPORT", retryable: true };
+  }
+  if ((row.hold_kind && !row.ready) || row.observed_state === "stopping") {
+    return { state: "degraded", code: "CELL_PAUSED_FOR_HOLD", retryable: true };
   }
   if (row.observed_state === row.desired_state && row.ready) {
     return { state: "ready", code: "CELL_READY", retryable: false };
@@ -114,8 +121,8 @@ export function mapCloudCellToLifecycleStatus(
   ) {
     return { state: "preparing", code: "CELL_PREPARING", retryable: true };
   }
-  // Any other observed/desired mismatch (e.g. stopping or deleting while
-  // desired_state calls for the cell to be live) is a transitional or
+  // Any other observed/desired mismatch (e.g. stopped without a hold, or
+  // deleting, while desired_state calls for the cell to be live) is a
   // controller-side anomaly.
   return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
 }

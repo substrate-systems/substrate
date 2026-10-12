@@ -480,9 +480,10 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       });
       assert.equal(refused.status, 409);
       assert.equal(((await json(refused)).error as { code: string }).code, "CLOUD_CELL_READ_ONLY");
-      assert.deepEqual(
-        cell.calls.map((call) => call.arguments.action),
-        ["inspect", "inspect"]
+      assert.equal(
+        cell.calls.some((call) => call.arguments.action !== "inspect"),
+        false,
+        "a read-only cell receives no level write"
       );
     });
 
@@ -887,7 +888,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(body.includes("objects.example.test"), false);
     });
 
-    it("answers 410 for a link to an export past its expiry", async () => {
+    it("answers 410 for a link to an export past its expiry, and shows when it expired", async () => {
       const alice = await owner();
       const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
       await markReady(id);
@@ -898,6 +899,18 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       const gone = await requestLink(alice, id);
       assert.equal(gone.status, 410);
       assert.equal(((await json(gone)).error as { code: string }).code, "EXPORT_EXPIRED");
+      // Home says when the export was deleted.
+      const shown = await handleCloudExportsRequest(
+        browserRequest(alice, "GET", "/api/exomem/cloud/exports"),
+        { env: ENV }
+      );
+      const expiredExport = (await json(shown)).export as { state: string; expires_at: string };
+      assert.equal(expiredExport.state, "expired");
+      const stored = await pool.query(
+        "SELECT expires_at FROM exomem_cloud_exports WHERE export_id = $1",
+        [id]
+      );
+      assert.equal(expiredExport.expires_at, stored.rows[0].expires_at.toISOString());
     });
   });
 

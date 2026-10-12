@@ -73,7 +73,7 @@ An export SHALL be a plain ZIP of Markdown files and attachments. The system SHA
 
 ### Requirement: Owners start exports from Home
 
-An owner SHALL start an export from Home while the tenant is not deleting and the cell is running, read-only or stopped and has run before. Home SHALL show one display state: none, packing, ready until a computed time, expired, or failed with a code. A new export SHALL replace a ready one. The system SHALL allow three export requests in 24 hours.
+An owner SHALL start an export from Home while the tenant is not deleting and the cell is running, read-only or stopped and has run before. Home SHALL show one display state: none, packing, ready until a computed time, expired with the time it expired (none when a newer export replaced it), or failed with a code. A new export SHALL replace a ready one. The system SHALL allow three export requests in 24 hours.
 
 #### Scenario: Owner exports a running account
 

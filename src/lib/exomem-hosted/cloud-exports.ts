@@ -54,7 +54,8 @@ export type CloudExportDisplay =
       expires_at: string;
       archive_bytes: number | null;
     }
-  | { state: "expired"; export_id: string; requested_at: string }
+  // `expires_at` is when the export expired; null when a newer export replaced it.
+  | { state: "expired"; export_id: string; requested_at: string; expires_at: string | null }
   | { state: "failed"; export_id: string; requested_at: string; error_code: string };
 
 /**
@@ -81,8 +82,9 @@ export function cloudExportsEnabled(env: EnvironmentSource = process.env): boole
 export function cloudExportDisplay(row: CloudExportRow | null, now: Date): CloudExportDisplay {
   if (!row) return { state: "none" };
   const base = { export_id: row.export_id, requested_at: row.created_at.toISOString() };
-  if (row.requested_state === "superseded" || row.observed_state === "expired") {
-    return { state: "expired", ...base };
+  if (row.requested_state === "superseded") return { state: "expired", ...base, expires_at: null };
+  if (row.observed_state === "expired") {
+    return { state: "expired", ...base, expires_at: row.expires_at?.toISOString() ?? null };
   }
   if (row.observed_state === "failed") {
     // C6 requires an error code on a failed row.
@@ -91,7 +93,7 @@ export function cloudExportDisplay(row: CloudExportRow | null, now: Date): Cloud
   if (row.observed_state === "ready") {
     // C6 requires ready_at and expires_at on a ready row.
     if (!row.expires_at || !row.ready_at || now >= row.expires_at) {
-      return { state: "expired", ...base };
+      return { state: "expired", ...base, expires_at: row.expires_at?.toISOString() ?? null };
     }
     const bytes = row.archive_bytes === null ? null : Number(row.archive_bytes);
     return {

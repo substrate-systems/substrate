@@ -144,6 +144,20 @@ The client's stored admission mode SHALL mark the first-party Home client. The m
 - **WHEN** migration 0066 finds an ordinary client with the Home client's id
 - **THEN** the migration stops and changes nothing
 
+### Requirement: A hold is a pause, not a fault
+
+The status poll SHALL report a live cell that a hold stops, or that reports `stopping` after a hold ends, as paused: `CELL_PAUSED_FOR_EXPORT` for an export hold and `CELL_PAUSED_FOR_HOLD` for any other hold. It MUST NOT report either as a cell that fails to start.
+
+#### Scenario: Backup holds a running cell
+
+- **WHEN** a backup hold stops a cell whose desired state is running
+- **THEN** the status poll reports `CELL_PAUSED_FOR_HOLD`
+
+#### Scenario: Cell restarts after an export
+
+- **WHEN** cellctl releases an export hold and reports the cell `stopping`
+- **THEN** the status poll reports `CELL_PAUSED_FOR_HOLD`, not `CELL_NOT_READY`
+
 ### Requirement: Storage use is an observation, not a plan limit
 
 The cell controller SHALL record used bytes, filesystem bytes and the observation time from every backup and export job report. The status poll SHALL read only these stored values. It SHALL report storage as known with the values and the observation time, or as unknown.
