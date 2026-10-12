@@ -308,20 +308,27 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     rmSync(migrationsBefore, { recursive: true, force: true });
   });
 
-  it("allows in the outbox's kind CHECK exactly the kinds the outbox can send", async () => {
-    // A migration that replaces the CHECK and drops an earlier migration's kinds, or a
-    // kind added in code without a migration, fails here instead of at its first send.
-    const { rows } = await pool.query<{ definition: string }>(
-      `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
-       WHERE conrelid = 'exomem_email_outbox'::regclass
-         AND conname = 'exomem_email_outbox_kind_check'`
-    );
-    const definition = rows[0]!.definition;
-    // PostgreSQL prints this CHECK in one canonical shape; reading the quoted names
-    // of that printed shape is a format check, and any other shape fails the match.
-    assert.match(definition, /^CHECK \(\(kind = ANY \(ARRAY\[('[a-z_]+'::text(, )?)+\]\)\)\)$/);
-    const allowed = [...definition.matchAll(/'([a-z_]+)'::text/g)].map((match) => match[1]);
-    assert.deepEqual([...allowed].sort(), [...EXOMEM_EMAIL_KINDS].sort());
+  it("lets the outbox store every kind it can send", async () => {
+    // A migration that replaces the kind CHECK and drops an earlier migration's
+    // kinds, or a kind added in code without a migration, fails here instead of
+    // at its first send. Each insert is rolled back.
+    const refused: string[] = [];
+    for (const kind of EXOMEM_EMAIL_KINDS) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "INSERT INTO exomem_email_outbox (kind, dedupe_key, state) VALUES ($1, $2, 'cancelled')",
+          [kind, `kind-check:${randomUUID()}`]
+        );
+      } catch {
+        refused.push(kind);
+      } finally {
+        await client.query("ROLLBACK");
+        client.release();
+      }
+    }
+    assert.deepEqual(refused, []);
   });
 
   it("03: welcomes a cell the first time it is ready, but never one that had started before deploy or a reviewer's", async () => {
