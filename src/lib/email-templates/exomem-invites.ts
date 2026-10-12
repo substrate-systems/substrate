@@ -4,13 +4,13 @@
  */
 
 import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
+import { formatMoney } from "@/lib/exomem/money";
 import {
   renderExomemEmail,
   type ExomemEmailFact,
   type ExomemEmailSlots,
   type RenderedExomemEmail,
 } from "./exomem-email";
-import { emailMoney } from "./exomem-email-money";
 import { emailDate, type EmailTimeZone } from "./exomem-email-time";
 
 // Small counts in words, as the catalogue writes "three days".
@@ -40,8 +40,8 @@ export function renderExomemFriendInvitationEmail(input: {
   usualPrice: ExomemMoney;
   friendPrice: ExomemMoney;
 }): RenderedExomemEmail {
-  const usual = emailMoney(input.usualPrice);
-  const friend = emailMoney(input.friendPrice);
+  const usual = formatMoney(input.usualPrice);
+  const friend = formatMoney(input.friendPrice);
   return renderExomemEmail({
     sentBy: { personName: input.inviterName },
     subject: `${input.inviterName} invited you to Exomem`,
@@ -126,7 +126,7 @@ export function renderExomemInvitationUsedEmail(input: {
     { label: "Invitation", value: `used ${emailDate(input.usedAt, input.timeZone)}` },
   ];
   if (input.friendPrice) {
-    rows.push({ label: "Their price", value: `${emailMoney(input.friendPrice)} a month` });
+    rows.push({ label: "Their price", value: `${formatMoney(input.friendPrice)} a month` });
   }
   return renderExomemEmail({
     subject: `${input.inviteeName} accepted your invitation`,
