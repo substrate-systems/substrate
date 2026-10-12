@@ -783,6 +783,40 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(await friendOffer(other.tenantId), null);
   });
 
+  it("records the friend offer from Paddle's subscription event when the decision's answer was lost", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    paddle.subscriptionUpdateAnswerLost = true;
+    await assert.rejects(
+      decideInvitation({ token, choice: "use_friend_price", session }),
+      (error) => error instanceof ExomemHostedError && error.status === 503
+    );
+    paddle.subscriptionUpdateAnswerLost = false;
+    assert.equal(await friendOffer(owner.tenantId), null);
+
+    // Paddle reports the update it applied, with the friend discount.
+    const dispatched = await dispatchVerifiedExomemPaddleEvent(
+      {
+        event_id: `evt_${randomUUID().replaceAll("-", "")}`,
+        event_type: "subscription.updated",
+        occurred_at: new Date().toISOString(),
+        environment: "sandbox",
+        data: paddle.subscriptions.get(owner.subscriptionRef),
+      },
+      { env: ENV, store: createSqlExomemPaddleEventStore(taggedSql(pool!)) }
+    );
+    assert.deepEqual(dispatched, { kind: "handled", outcome: "applied" });
+    assert.equal(await friendOffer(owner.tenantId), inviteId);
+
+    // The owner's later answer records the price in force without asking Paddle.
+    paddle.calls = [];
+    const decision = await decideInvitation({ token, choice: "keep_plan", session });
+    assert.equal(decision.status, "applied");
+    assert.equal(paddle.calls.length, 0);
+    assert.equal((await invitation(inviteId)).decision, "applied");
+  });
+
   it("keeps an owner whose live subscription is on another price, or an unreported one, to their plan without asking Paddle", async () => {
     const { POST } = await import("../../../app/api/exomem/access/inspect/route");
     const olderPrice = `pri_${"o".repeat(26)}`;
@@ -855,17 +889,8 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       ]
     );
 
-    const sent: Array<{ to: string; subject: string }> = [];
-    await drainExomemEmailOutbox(
-      {},
-      {
-        publicBaseUrl: PUBLIC_BASE_URL,
-        sendEmail: async (message) => {
-          sent.push({ to: message.to, subject: message.subject });
-          return { success: true };
-        },
-      }
-    );
+    // Every due email is sent, however many earlier cases left queued.
+    const sent = await drainedEmails();
 
     const usedRows = await outboxRows(used.inviteId);
     assert.equal(usedRows.find((row) => row.kind === "invitation_reminder")?.state, "cancelled");

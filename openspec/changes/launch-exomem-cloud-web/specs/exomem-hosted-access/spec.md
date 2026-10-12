@@ -512,6 +512,12 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 - **WHEN** an owner chooses `keep_plan`
 - **THEN** the system consumes the invitation, changes no billing, and answers 200 `kept`
 
+#### Scenario: Paddle reports the friend discount first
+
+- **WHEN** a subscription event shows the configured friend discount and the tenant holds no friend offer
+- **THEN** the system records the offer from a friend invitation addressed to the owner, so a later resubscribe keeps the friend price
+- **AND** the owner's later answer to that invitation records `applied` without calling Paddle
+
 #### Scenario: An earlier answer reached Paddle
 
 - **WHEN** an owner's `use_friend_price` reached Paddle but its answer was lost, and the owner then chooses `keep_plan`

@@ -272,6 +272,45 @@ export async function recordInvitationUse(
 }
 
 /**
+ * Paddle is the source of truth for the friend price. When a subscription
+ * event shows the friend discount and the tenant holds no friend offer, the
+ * tenant gets one from a friend invitation addressed to its owner, so a
+ * decision whose answer was lost heals on the next event and a later
+ * resubscribe keeps the friend price. Without such an invitation nothing is
+ * recorded. Idempotent; returns whether an offer was recorded.
+ */
+export async function recordFriendOfferFromSubscription(tenantId: string): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:friend-offer-from-subscription */
+    WITH offer AS (
+      SELECT tenant.id AS tenant_id, invite.id AS invite_id
+      FROM exomem_tenants AS tenant
+      JOIN users AS owner ON owner.id = tenant.owner_user_id
+      JOIN exomem_invites AS invite ON invite.email_normalized = owner.email
+      WHERE tenant.id = ${tenantId}::uuid
+        AND tenant.friend_offer_invite_id IS NULL
+        AND tenant.status NOT IN ('deletion_pending', 'deleted')
+        AND invite.kind = 'friend'
+        AND invite.revoked_at IS NULL
+        AND (
+          invite.consumed_by_user_id = owner.id
+          OR (invite.consumed_at IS NULL AND invite.expires_at > now())
+        )
+      -- Any friend invitation to this owner carries the same discount; the
+      -- newest names the inviter the owner heard from last.
+      ORDER BY invite.created_at DESC
+      LIMIT 1
+    )
+    UPDATE exomem_tenants AS tenant
+    SET friend_offer_invite_id = offer.invite_id, updated_at = now()
+    FROM offer
+    WHERE tenant.id = offer.tenant_id AND tenant.friend_offer_invite_id IS NULL
+    RETURNING tenant.id
+  `;
+  return rows.length === 1;
+}
+
+/**
  * Why an invitation offers no friend price: it is not a friend invitation
  * (or the owner is not on Paddle), or the owner's live subscription is on
  * a price other than the base price the discount is restricted to, or its
@@ -651,7 +690,14 @@ export async function decideInvitation(
           }
         : null;
       let decision: InvitationDecision;
-      if (input.choice === "keep_plan") {
+      if (billing.friend_offer_invite_id === invite.id) {
+        // A subscription event already gave the tenant this invitation's
+        // offer (`recordFriendOfferFromSubscription`): the friend price is
+        // in force at Paddle, whatever the owner answers now.
+        decision = subscription
+          ? { status: "applied", nextPaymentAt: nextPayment(billing.provider_next_billed_at) }
+          : { status: "applied_on_resubscribe" };
+      } else if (input.choice === "keep_plan") {
         decision = { status: "kept" };
         // An earlier `use_friend_price` for this invitation may have reached
         // Paddle although its answer was lost. Paddle's subscription decides.

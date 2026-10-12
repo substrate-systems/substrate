@@ -1,6 +1,7 @@
 import {
   EXOMEM_PADDLE_PRODUCT_KEY,
   ExomemPaddleConfigurationError,
+  exomemPaddleFriendDiscountId,
   loadExomemPaddleConfig,
 } from "./paddle-config";
 import {
@@ -142,6 +143,13 @@ async function defaultCloudPaddleHook(application: ExomemPaddleEventApplication)
       application.correlation.tenantId,
       new Date(application.revision.occurredAt)
     );
+  }
+  // A subscription that carries the friend discount gives the tenant its
+  // friend offer, so a decision whose Paddle answer was lost heals here.
+  const friendDiscountId = exomemPaddleFriendDiscountId();
+  if (friendDiscountId !== null && application.subscriptionFacts.discountId === friendDiscountId) {
+    const { recordFriendOfferFromSubscription } = await import("./invites");
+    await recordFriendOfferFromSubscription(application.correlation.tenantId);
   }
 }
 
