@@ -374,7 +374,8 @@ export function notices(
   } else if (storage.state === "known" && storage.fraction >= 0.8) {
     list.push({
       key: "filling",
-      text: `Your Exomem is ${Math.round(storage.fraction * 100)}% full. Everything works.`,
+      // Floor: a disk that is not full never reads as 100%.
+      text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.`,
       attention: false,
       action: null,
     });

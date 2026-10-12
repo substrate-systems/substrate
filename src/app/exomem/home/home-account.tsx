@@ -41,7 +41,7 @@ export function PlanAndAccount({
             <div
               className={styles.bar}
               role="img"
-              aria-label={`${Math.round(Math.min(1, storage.fraction) * 100)}% used`}
+              aria-label={`${Math.floor(Math.min(1, storage.fraction) * 100)}% used`}
             >
               <div
                 className={`${styles.barFill} ${storage.fraction >= 0.8 ? styles.barFull : ""}`}

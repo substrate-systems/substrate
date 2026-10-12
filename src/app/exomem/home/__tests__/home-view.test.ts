@@ -249,6 +249,9 @@ describe("notices and the account banner", () => {
     const filling = notices("on", account(), disk(8_500_000_000));
     assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works.");
     assert.equal(filling[0]?.action, null);
+    // A disk with room left never reads as 100% full.
+    const nearly = notices("on", account(), disk(9_996_000_000));
+    assert.equal(nearly[0]?.text, "Your Exomem is 99% full. Everything works.");
     const full = notices("on", account(), disk(10_000_000_000));
     assert.equal(full[0]?.attention, true);
     assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
