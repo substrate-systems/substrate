@@ -9,7 +9,7 @@ import {
   involvementLevel,
   type InvolvementLevelKey,
 } from "@/components/exomem/involvement-levels";
-import { breakCopy, consentCopy, joinedCopy, sentCopy, signedInCopy } from "./copy";
+import { breakCopy, claimCopy, consentCopy, joinedCopy, sentCopy, signedInCopy } from "./copy";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
@@ -303,7 +303,15 @@ export function SentCard({ email }: { email: string }) {
  * exomem.write, the OAuth server's documented scope set). Read-only accounts keep
  * the save line, struck, with "paused".
  */
-export function ScopesCard({ scopes, readOnly }: { scopes: string[]; readOnly: boolean }) {
+export function ScopesCard({
+  scopes,
+  readOnly,
+  claimedName,
+}: {
+  scopes: string[];
+  readOnly: boolean;
+  claimedName?: string | null;
+}) {
   const read = scopes.includes("exomem.read");
   const write = scopes.includes("exomem.write");
   const { scopes: copy } = consentCopy;
@@ -312,7 +320,15 @@ export function ScopesCard({ scopes, readOnly }: { scopes: string[]; readOnly: b
       {read ? <ScopeLine text={copy.recall} /> : null}
       {write ? <ScopeLine text={copy.save} paused={readOnly} /> : null}
       {read ? <ScopeLine text={copy.why} /> : null}
-      <li className={styles.scopeFootnote}>{copy.footnote}</li>
+      <li className={styles.scopeFootnote}>
+        {copy.footnote}
+        {claimedName ? (
+          <>
+            <br />
+            <span>{claimCopy(claimedName)}</span>
+          </>
+        ) : null}
+      </li>
     </ul>
   );
 }

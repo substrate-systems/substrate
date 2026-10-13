@@ -113,7 +113,6 @@
 
 .notice {
   width: 100%;
-  overflow-wrap: anywhere;
 }
 
 /* Transient failures reserve a text row; the factual notices keep their cards. */
@@ -323,6 +322,7 @@
 }
 
 .scopeFootnote {
+  overflow-wrap: anywhere;
   font-size: 12.5px;
   color: var(--fg-secondary);
   padding-top: 8px;

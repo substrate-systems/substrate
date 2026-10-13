@@ -7,7 +7,6 @@ import { usePaddlePricePreview } from "@/lib/paddle";
 import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
 import {
   breakCopy,
-  claimCopy,
   consentCopy,
   failureCopy,
   handbackCopy,
@@ -314,6 +313,7 @@ function Consent({
 
   const tile = appTile(app);
   const footer = requestFooter(app);
+  const claimedName = !app.vouched && !app.loopback ? app.displayName : null;
 
   if (current === "signedout" || current === "switched") {
     return (
@@ -418,10 +418,7 @@ function Consent({
               )}
             </StepNotice>
           ) : null}
-          <ScopesCard scopes={request.scopes} readOnly={readOnly} />
-          {!app.vouched && !app.loopback ? (
-            <StepNotice>{claimCopy(app.displayName)}</StepNotice>
-          ) : null}
+          <ScopesCard scopes={request.scopes} readOnly={readOnly} claimedName={claimedName} />
           <StepNotice alert visible={!!failure}>
             {failure ?? failureCopy.generic}
           </StepNotice>
@@ -475,10 +472,7 @@ function Consent({
             lede={breakCopy.connectError.lede(name)}
           />
           {statusPageUrl ? <StepNotice>{breakCopy.connectError.notice}</StepNotice> : null}
-          <ScopesCard scopes={request.scopes} readOnly={false} />
-          {!app.vouched && !app.loopback ? (
-            <StepNotice>{claimCopy(app.displayName)}</StepNotice>
-          ) : null}
+          <ScopesCard scopes={request.scopes} readOnly={false} claimedName={claimedName} />
           <StepActions
             primary={{ label: breakCopy.connectError.retry, onClick: () => void connect() }}
             secondary={
