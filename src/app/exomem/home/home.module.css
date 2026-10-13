@@ -383,6 +383,13 @@
   color: var(--fg-secondary);
 }
 
+.pluginActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .addLabel {
   font-family: var(--font-mono-exo);
   font-size: 11.5px;

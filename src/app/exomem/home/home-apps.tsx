@@ -2,19 +2,40 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
-import { Button } from "@/components/exomem/Button";
+import { Button, ButtonLink } from "@/components/exomem/Button";
 import { SegmentedSwitch } from "@/components/exomem/SegmentedSwitch";
 import phone from "@/components/exomem/phone.module.css";
 import { INVOLVEMENT_LEVELS, involvementLevel } from "@/components/exomem/involvement-levels";
+import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import type { HomeApp, LevelKey } from "./home-api";
 import { count, type Clock } from "./home-format";
-import { appGlyph, appMeta, directoryHint } from "./home-view";
+import { appGlyph, appMeta } from "./home-view";
 import { Section } from "./home-chrome";
 import styles from "./home.module.css";
 
 const COPIED_MS = 1800;
 const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
 const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
+
+// The Cloud distribution contract fixes these two ZIP targets; latest selects the current release.
+const CLOUD_PLUGINS = [
+  {
+    name: CLIENT_PLATFORM_NAMES.claude,
+    download:
+      "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-claude.zip",
+    guide: "https://support.claude.com/en/articles/13837440-use-plugins-in-claude",
+    instructions:
+      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your Exomem account.",
+  },
+  {
+    name: CLIENT_PLATFORM_NAMES.openai,
+    download:
+      "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip",
+    guide: "https://help.openai.com/en/articles/20001256-plugins-in-chatgpt",
+    instructions:
+      "A workspace administrator with upload access can use “Admin console” → “Plugins” → “Add” → “Upload plugin”. Account connection follows installation.",
+  },
+];
 
 type AppsProps = {
   /** Null until the list arrives: nothing about the apps is said before then. */
@@ -192,26 +213,34 @@ function CopyLine({ text, value, label }: { text: string; value: string; label: 
 }
 
 function AddAnotherApp({
-  apps,
-  disconnected,
   connectorUrl,
   startLevel,
-}: Pick<AppsProps, "apps" | "disconnected" | "connectorUrl" | "startLevel">) {
+}: Pick<AppsProps, "connectorUrl" | "startLevel">) {
   // The pick here only chooses which instructions to copy; it saves nothing.
   const [level, setLevel] = useState<LevelKey>(startLevel);
   const [showFull, setShowFull] = useState(false);
-  // A list still loading is not an empty one: no hint names an app until the list arrives.
-  const hint = apps && directoryHint(apps, disconnected);
   const chosen = involvementLevel(level);
   return (
     <div className={styles.addPanel} id="home-add-app">
-      {hint && (
-        <div className={styles.hint}>
-          <span>{hint.title}</span>
-          <span className={styles.hintText}>{hint.text}</span>
+      {CLOUD_PLUGINS.map((plugin) => (
+        <div className={styles.hint} key={plugin.name}>
+          <span>{plugin.name}</span>
+          <span className={styles.hintText}>{plugin.instructions}</span>
+          <div className={styles.pluginActions}>
+            <ButtonLink href={plugin.download} size="row">
+              Download {plugin.name} ZIP
+            </ButtonLink>
+            <a href={plugin.guide} className={`${styles.textToggle} ${phone.hitArea}`}>
+              {plugin.name} installation guide
+            </a>
+          </div>
         </div>
-      )}
-      <span className={styles.addLabel}>Any other app that supports MCP</span>
+      ))}
+      <span className={styles.addLabel}>Manual connection · any app that supports MCP</span>
+      <span className={styles.hintText}>
+        If plugin uploads are unavailable, the app’s custom connector or MCP settings can use the
+        address below. Availability depends on your plan and workspace.
+      </span>
       <div className={styles.step}>
         <span className={styles.stepNumber}>1</span>
         <span className={styles.stepTitle}>Add this address</span>
@@ -322,12 +351,7 @@ export function ConnectedApps(props: AppsProps) {
             </Button>
           </div>
           {open && (
-            <AddAnotherApp
-              apps={props.apps}
-              disconnected={props.disconnected}
-              connectorUrl={props.connectorUrl}
-              startLevel={props.startLevel}
-            />
+            <AddAnotherApp connectorUrl={props.connectorUrl} startLevel={props.startLevel} />
           )}
         </>
       )}

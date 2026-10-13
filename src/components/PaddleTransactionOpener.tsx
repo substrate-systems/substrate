@@ -37,10 +37,12 @@ function clearPendingTransaction(): void {
 
 function OpenPaddleTransaction({
   transactionId,
+  customerEmail,
   onOpened,
   onFailure,
 }: {
   transactionId: string;
+  customerEmail?: string | null;
   onOpened: () => void;
   onFailure?: () => void;
 }) {
@@ -55,10 +57,10 @@ function OpenPaddleTransaction({
     if (!ready || openedRef.current) return;
     openedRef.current = true;
     void (async () => {
-      const opened = await openTransactionCheckout(transactionId);
+      const opened = await openTransactionCheckout(transactionId, customerEmail);
       opened ? onOpened() : onFailure?.();
     })();
-  }, [ready, openTransactionCheckout, onFailure, onOpened, transactionId]);
+  }, [ready, openTransactionCheckout, onFailure, onOpened, transactionId, customerEmail]);
 
   return null;
 }
@@ -94,9 +96,11 @@ export type PaddleTransactionFailure = {
 
 export function PaddleTransactionOpener({
   validationEndpoint,
+  customerEmail,
   FailureView,
 }: {
   validationEndpoint?: string;
+  customerEmail?: string | null;
   /** Draws the failure in the page's design system; without it the opener draws its own. */
   FailureView?: ComponentType<PaddleTransactionFailure>;
 } = {}) {
@@ -253,6 +257,7 @@ export function PaddleTransactionOpener({
   return (
     <OpenPaddleTransaction
       transactionId={transactionId}
+      customerEmail={customerEmail}
       onOpened={handleCheckoutOpened}
       onFailure={handleCheckoutFailure}
     />

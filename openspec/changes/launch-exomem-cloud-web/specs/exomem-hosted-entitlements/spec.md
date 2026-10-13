@@ -22,6 +22,20 @@ Capture, recall, browse, upload, download, readiness, export polling, and Home r
 
 ## ADDED Requirements
 
+### Requirement: Checkout prefills the authenticated owner's email
+
+The setup, consent and Home checkout paths SHALL pass the known account email to Paddle's transaction checkout. The server-selected transaction, price, discount and custom data MUST remain authoritative. A caller without an email SHALL omit the customer prefill and keep checkout available.
+
+#### Scenario: Owner starts or resumes checkout
+
+- **WHEN** an authenticated owner opens a server-created transaction from setup, consent or Home
+- **THEN** Paddle receives the known account email for prefill without replacing the transaction's billing data
+
+#### Scenario: Account email is unknown
+
+- **WHEN** a checkout caller has no account email
+- **THEN** checkout opens without a customer prefill
+
 ### Requirement: Friend price is one server-applied recurring Paddle discount
 
 The friend price SHALL be one recurring Paddle discount for each environment, configured by its identifier. The server SHALL attach it to a checkout only for a tenant that accepted a friend offer. The server MUST ignore a discount that a client sends. The discount identifier MUST NOT reach a browser.

@@ -457,12 +457,15 @@ export default function HomeClient({
   );
   // Paddle returns a checkout here with a transaction to open; the opener checks it
   // first. It sits at the same place in every mode, so a mode change keeps its state.
-  const checkoutReturn = (
-    <PaddleTransactionOpener
-      validationEndpoint="/api/exomem/billing/checkout"
-      FailureView={CheckoutReturnFailure}
-    />
-  );
+  // Read account facts before the first checkout open, so it can include the owner's email.
+  const checkoutReturn =
+    accountRead === "loading" ? null : (
+      <PaddleTransactionOpener
+        validationEndpoint="/api/exomem/billing/checkout"
+        customerEmail={account?.email}
+        FailureView={CheckoutReturnFailure}
+      />
+    );
 
   if (mode.kind !== "home") {
     const copy = NOT_HOME_COPY[mode.kind];

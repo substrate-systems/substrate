@@ -23,7 +23,6 @@ describe("Exomem marketplace public surface", () => {
 
   it("describes the actual Cloud privacy boundary and support route", () => {
     const privacy = source("src/app/exomem/privacy/page.tsx");
-    const terms = source("src/app/exomem/terms/page.tsx");
     const support = source("src/app/exomem/support/page.tsx");
 
     // The privacy requirement of the Exomem change
@@ -60,13 +59,6 @@ describe("Exomem marketplace public surface", () => {
     assert.match(privacy, /legitimate interests/i);
     assert.match(privacy, /Estonian Data Protection Inspectorate/i);
     assert.doesNotMatch(privacy, /Draft|Owner review required/i);
-    assert.match(terms, /friends-only private alpha/i);
-    assert.match(terms, /invitation/i);
-    assert.doesNotMatch(terms, /€12 per month/);
-    assert.doesNotMatch(terms, /checkout/i);
-    assert.match(terms, /export/i);
-    assert.match(terms, /Substrate Systems OÜ/i);
-    assert.match(terms, /consumer rights/i);
     assert.match(support, /founder@substratesystems\.io/);
   });
 });

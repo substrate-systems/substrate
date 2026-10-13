@@ -97,6 +97,15 @@ After valid redemption, the system SHALL show deterministic provisioning progres
 
 ## ADDED Requirements
 
+### Requirement: Public policies describe paid admission and bot protection
+
+The Terms SHALL describe monthly subscriptions, paid and covered invitations, waitlist admission and eligibility at age 18 or older. They SHALL preserve export, deletion and mandatory consumer rights. Eligibility MUST NOT add a date-of-birth or identity check. The privacy policy SHALL name Brevo transactional email and Cloudflare Turnstile, including its technical signals and processor/controller roles.
+
+#### Scenario: Visitor reads the policies before admission opens
+
+- **WHEN** a visitor reads the Terms and privacy policy
+- **THEN** they describe the paid service and waitlist without claiming invitation-only alpha access
+
 ### Requirement: The start form is protected by a Turnstile challenge
 
 The start form SHALL check every request with a Cloudflare Turnstile challenge. The form MUST fail closed only when the service reports a token error (`missing-input-response`, `invalid-input-response` or `timeout-or-duplicate`), or when the verified hostname or action differs from the expected one. For every other failure, the form SHALL fall back to the rate limits and the server SHALL log an error. The former sign-in link route SHALL use the same handler.

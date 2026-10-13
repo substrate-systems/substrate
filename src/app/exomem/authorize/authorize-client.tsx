@@ -239,7 +239,7 @@ function Consent({
     if (destination) window.location.replace(destination);
     else window.location.reload();
   }, []);
-  const checkout = useCheckout(onSettled);
+  const checkout = useCheckout(onSettled, request.email);
   // A friend offer's price is not the previewed one, so it is not previewed.
   const price = usePaddlePricePreview(
     phase === "subscribe" && showsUsualPrice(account.friendOffer) ? request.priceId : null

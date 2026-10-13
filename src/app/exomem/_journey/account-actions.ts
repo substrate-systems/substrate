@@ -40,7 +40,10 @@ async function settleCheckout(transactionId: string): Promise<string | null> {
  * Subscribe through Paddle's overlay, on this page: the same request Home's
  * Subscribe makes. `onSettled` gets the server's next page, or null to reload.
  */
-export function useCheckout(onSettled: (destination: string | null) => void) {
+export function useCheckout(
+  onSettled: (destination: string | null) => void,
+  customerEmail?: string | null
+) {
   const { completed, openTransactionCheckout } = usePaddle("transaction");
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
@@ -58,7 +61,7 @@ export function useCheckout(onSettled: (destination: string | null) => void) {
       const transaction = checkoutUrl ? new URL(checkoutUrl).searchParams.get("_ptxn") : null;
       if (!transaction) throw new Error("missing checkout transaction");
       setTransactionId(transaction);
-      if (!(await openTransactionCheckout(transaction))) setFailed(true);
+      if (!(await openTransactionCheckout(transaction, customerEmail))) setFailed(true);
     } catch {
       setFailed(true);
     } finally {
