@@ -741,10 +741,9 @@ const EXPORT_DESCRIPTION = "All your notes and files, as Markdown. Works in ever
 
 export function exportView(summary: HomeExport, clock: Clock): ExportView {
   const pauses = summary.pauses_assistants;
-  const description =
-    pauses && summary.state !== "packing"
-      ? `${EXPORT_DESCRIPTION} Your assistants pause for a few minutes while we pack it.`
-      : EXPORT_DESCRIPTION;
+  const description = pauses
+    ? `${EXPORT_DESCRIPTION} Your assistants pause for a few minutes while we pack it.`
+    : EXPORT_DESCRIPTION;
   switch (summary.state) {
     case "none":
       return { description, detail: null, busy: false };

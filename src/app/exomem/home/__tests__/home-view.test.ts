@@ -541,6 +541,8 @@ describe("the export row", () => {
       "All your notes and files, as Markdown. Works in every state."
     );
     const packing = exportView({ state: "packing", ...base, pauses_assistants: true }, clock);
+    // Packing must keep the warning the owner read before starting the export.
+    assert.equal(packing.description, running.description);
     assert.equal(
       packing.detail?.text,
       "Packing your notes and files… Your assistants are back in a few minutes. We’ll email you when it’s ready."

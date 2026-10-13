@@ -7,6 +7,7 @@ import {
   type AccessDependencies,
 } from "../access";
 import { tokenDigest } from "../security";
+import { selfServeAdmissionMode } from "../self-serve-admission";
 
 const SENTINEL = "access-email-token-sentinel@example.com";
 const TOKEN = Buffer.alloc(32, 0x61).toString("base64url");
@@ -24,7 +25,7 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
             sessionId: "session-1",
           }
         : null,
-    admissionMode: () => "closed",
+    admissionMode: () => "waitlist",
     startSelfServe: async () => "admitted",
     createMagicAccessToken: async () => ({ tokenId: "access-1" }),
     encryptDeliverySecret: () => ({
@@ -41,6 +42,13 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
 }
 
 describe("Exomem hosted access", () => {
+  it("waitlists new people when admission is absent, retired or misspelled", () => {
+    assert.equal(selfServeAdmissionMode(""), "waitlist");
+    assert.equal(selfServeAdmissionMode("closed"), "waitlist");
+    assert.equal(selfServeAdmissionMode("opne"), "waitlist");
+    assert.equal(selfServeAdmissionMode("waitlist"), "waitlist");
+    assert.equal(selfServeAdmissionMode("open"), "open");
+  });
   it("normalizes and validates bound email addresses", () => {
     assert.equal(normalizeAccessEmail("  PERSON@Example.COM "), "person@example.com");
     assert.throws(() => normalizeAccessEmail("bad\n@example.com"));
@@ -109,7 +117,7 @@ describe("Exomem hosted access", () => {
     assert.equal(JSON.stringify(createInput).includes("YWFh"), false);
   });
 
-  it("sends nothing to an address without an Exomem while self-serve is closed", async () => {
+  it("queues an address without an Exomem in the default waitlist mode", async () => {
     let admissions = 0;
     const result = await requestStart(
       {
@@ -120,7 +128,7 @@ describe("Exomem hosted access", () => {
       },
       dependencies({
         createMagicAccessToken: async () => null,
-        admissionMode: () => "closed",
+        admissionMode: () => "waitlist",
         startSelfServe: async () => {
           admissions += 1;
           return "admitted";
@@ -128,7 +136,7 @@ describe("Exomem hosted access", () => {
       })
     );
     assert.deepEqual(result, { accepted: true });
-    assert.equal(admissions, 0);
+    assert.equal(admissions, 1);
   });
 
   for (const refused of ["exomem:start:ip", "exomem:start:email"]) {

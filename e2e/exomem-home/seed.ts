@@ -6,6 +6,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { BrowserContext } from "@playwright/test";
 import { Pool } from "pg";
+import {
+  generateMarketplaceReviewerCredential,
+  hashMarketplaceReviewerPassword,
+} from "../../src/lib/exomem-hosted/reviewer-access";
 import { randomCloudCellId } from "../../src/lib/exomem-hosted/cloud-admission";
 import { digestSecret, generateExternalToken } from "../../src/lib/exomem-hosted/security";
 import { homeE2eEnvironment } from "./environment";
@@ -119,8 +123,11 @@ export async function createOwner(
  * with a reviewer credential. Only one credential per provider may be active, so
  * this retires any earlier test reviewer for the same provider first.
  */
-export async function createReviewer(provider: "anthropic" | "openai"): Promise<Owner> {
+export async function createReviewer(
+  provider: "anthropic" | "openai"
+): Promise<Owner & { username: string; password: string }> {
   const owner = await createOwner({ reviewerPurpose: true });
+  const material = generateMarketplaceReviewerCredential();
   await pool.query(
     `UPDATE exomem_marketplace_reviewer_credentials SET revoked_at = now()
       WHERE provider = $1 AND credential_kind = 'cloud_provider_review' AND revoked_at IS NULL`,
@@ -130,15 +137,23 @@ export async function createReviewer(provider: "anthropic" | "openai"): Promise<
     `INSERT INTO exomem_marketplace_reviewer_credentials (
        provider, username_digest, password_hash, owner_user_id, tenant_id, fixture_version,
        fixture_payload_digest, created_by_principal_digest, expires_at, credential_kind
-     ) VALUES ($1, $2, '$argon2id$test', $3, $4, 'sample-v1', $5, $6,
+     ) VALUES ($1, $2, $3, $4, $5, 'sample-v1', $6, $7,
                now() + interval '20 days', 'cloud_provider_review') RETURNING id`,
-    [provider, randomBytes(32), owner.userId, owner.tenantId, "a".repeat(64), randomBytes(32)]
+    [
+      provider,
+      material.usernameDigest,
+      await hashMarketplaceReviewerPassword(material.password),
+      owner.userId,
+      owner.tenantId,
+      "a".repeat(64),
+      randomBytes(32),
+    ]
   );
   await pool.query("UPDATE exomem_sessions SET reviewer_credential_id = $2 WHERE user_id = $1", [
     owner.userId,
     credential.rows[0].id,
   ]);
-  return owner;
+  return { ...owner, username: material.username, password: material.password };
 }
 
 /** Signs the browser in as the owner: the session and CSRF cookies the redeem route sets. */

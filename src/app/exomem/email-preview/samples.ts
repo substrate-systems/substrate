@@ -205,6 +205,21 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       }),
     },
     {
+      id: "09-long",
+      number: "09",
+      note: "friend invitation, long name, address and unbroken note",
+      email: renderExomemFriendInvitationEmail({
+        acceptUrl: link("/exomem/invite"),
+        inviterName: "Alexandria".repeat(6),
+        note: `A note with a long reference: ${"reference".repeat(16)}.`,
+        inviteeEmail: `${"m".repeat(63)}@${"example".repeat(8)}.test`,
+        expiresAt: at(14 * DAY),
+        timeZone: ZONE,
+        usualPrice: { amount: "1500", currencyCode: "EUR" },
+        friendPrice: { amount: "1000", currencyCode: "EUR" },
+      }),
+    },
+    {
       id: "10",
       number: "10",
       note: "covered invitation, no note",

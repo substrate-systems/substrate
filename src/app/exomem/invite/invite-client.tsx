@@ -21,7 +21,6 @@ import {
   StepActions,
   StepHeading,
   StepNotice,
-  WorkingBar,
 } from "../_journey/parts";
 import { friendPriceOffered, friendPriceUnchecked, inviterOf, pricePanel } from "./invite-view";
 
@@ -30,7 +29,7 @@ type Choice = "use_friend_price" | "keep_plan";
 type Mode =
   | { kind: "checking" }
   | { kind: "invite"; inspection: InvitationInspection; failure: string | null }
-  | { kind: "accepting" }
+  | { kind: "accepting"; inspection: InvitationInspection; failure: string | null }
   | {
       kind: "existing";
       inspection: InvitationInspection;
@@ -111,10 +110,13 @@ export default function InviteClient() {
   const started = useRef(false);
   const [mode, setMode] = useState<Mode>({ kind: "checking" });
   const [email, setEmail] = useState<string | null>(null);
+  const [focusHeading, setFocusHeading] = useState(false);
+  const [inspecting, setInspecting] = useState(false);
 
-  const inspect = useCallback(async () => {
+  const inspect = useCallback(async (userAction = false) => {
+    if (userAction) setFocusHeading(true);
     if (!token.current) return;
-    setMode({ kind: "checking" });
+    setInspecting(true);
     try {
       const inspection = inspectionOf(
         await postPublicJson("/api/exomem/access/inspect", { token: token.current })
@@ -131,6 +133,8 @@ export default function InviteClient() {
       setEmail(inspection.signedIn ? await ownerEmail() : null);
     } catch (error) {
       setMode({ kind: refused(error) ? "unusable" : "failed" });
+    } finally {
+      setInspecting(false);
     }
   }, []);
 
@@ -144,7 +148,12 @@ export default function InviteClient() {
 
   async function accept(inspection: InvitationInspection) {
     if (!token.current) return;
-    setMode({ kind: "accepting" });
+    setFocusHeading(true);
+    setMode({
+      kind: "accepting",
+      inspection,
+      failure: mode.kind === "invite" ? mode.failure : null,
+    });
     try {
       const result = await postPublicJson("/api/exomem/access/redeem", {
         token: token.current,
@@ -162,6 +171,7 @@ export default function InviteClient() {
 
   async function decide(inspection: InvitationInspection, choice: Choice) {
     if (!token.current) return;
+    setFocusHeading(true);
     setMode({ kind: "deciding", inspection, choice });
     const back = (failure: string, refusedFriendPrice = false) =>
       setMode({ kind: "existing", inspection, failure, refusedFriendPrice });
@@ -174,6 +184,7 @@ export default function InviteClient() {
         return;
       }
       token.current = null;
+      setFocusHeading(true);
       setMode({ kind: "decided", decision, by: inviterOf(inspection) });
     } catch (error) {
       if (!(error instanceof HostedBrowserError)) {
@@ -198,7 +209,7 @@ export default function InviteClient() {
   async function switchAccount() {
     if (await signOut()) {
       setEmail(null);
-      void inspect();
+      void inspect(true);
     }
   }
 
@@ -229,18 +240,13 @@ export default function InviteClient() {
       body = (
         <>
           <StepNotice alert>{failureCopy.generic}</StepNotice>
-          <StepActions primary={{ label: TRY_AGAIN, onClick: () => void inspect() }} />
+          <StepActions
+            primary={{ label: TRY_AGAIN, working: inspecting, onClick: () => void inspect(true) }}
+          />
         </>
       );
       break;
     case "accepting":
-      body = (
-        <>
-          <StepHeading title={inviteCopy.accepting.title} lede={inviteCopy.accepting.lede} />
-          <WorkingBar label={inviteCopy.accepting.title} />
-        </>
-      );
-      break;
     case "invite": {
       const { inspection } = mode;
       const by = inviterOf(inspection);
@@ -251,11 +257,17 @@ export default function InviteClient() {
             title={by ? inviteCopy.friendTitle(by) : inviteCopy.standardTitle}
             lede={inviteCopy.lede}
           />
-          {mode.failure ? <StepNotice alert>{mode.failure}</StepNotice> : null}
+          <StepNotice alert visible={!!mode.failure}>
+            {mode.failure ?? failureCopy.invitationNotReady}
+          </StepNotice>
           {by && inspection.note ? <InviteNote note={inspection.note} by={by} /> : null}
           {panel ? <PriceCard {...panel} /> : null}
           <StepActions
-            primary={{ label: inviteCopy.accept, onClick: () => void accept(inspection) }}
+            primary={{
+              label: mode.kind === "accepting" ? inviteCopy.accepting.title : inviteCopy.accept,
+              working: mode.kind === "accepting",
+              onClick: () => void accept(inspection),
+            }}
           />
         </>
       );
@@ -290,7 +302,7 @@ export default function InviteClient() {
       const failure = mode.kind === "existing" ? mode.failure : null;
       const keep = {
         label: inviteCopy.existing.keep,
-        disabled: deciding !== null,
+        disabled: deciding !== null && deciding !== "keep_plan",
         working: deciding === "keep_plan",
         onClick: () => void decide(inspection, "keep_plan"),
       };
@@ -308,19 +320,26 @@ export default function InviteClient() {
                     : inviteCopy.existing.noOffer(by)
             }
           />
-          {failure ? <StepNotice alert>{failure}</StepNotice> : null}
+          <StepNotice alert visible={!!failure}>
+            {failure ?? inviteCopy.existing.notFinished}
+          </StepNotice>
           {panel ? <PriceCard {...panel} /> : null}
           <StepActions
             primary={
               offered && by
                 ? {
                     label: inviteCopy.existing.useFriendPrice(by),
-                    disabled: deciding !== null,
+                    disabled: deciding !== null && deciding !== "use_friend_price",
                     working: deciding === "use_friend_price",
                     onClick: () => void decide(inspection, "use_friend_price"),
                   }
                 : unchecked
-                  ? { label: TRY_AGAIN, disabled: deciding !== null, onClick: () => void inspect() }
+                  ? {
+                      label: TRY_AGAIN,
+                      disabled: deciding !== null,
+                      working: inspecting,
+                      onClick: () => void inspect(true),
+                    }
                   : keep
             }
             secondary={(offered && by) || unchecked ? keep : null}
@@ -359,7 +378,23 @@ export default function InviteClient() {
   const kind: FieldKind =
     mode.kind === "decided" && mode.decision !== "kept" ? "done" : KIND[mode.kind];
   return (
-    <JourneyPage kind={kind} headerEmail={email} tilesIdle stepKey={mode.kind}>
+    <JourneyPage
+      kind={kind}
+      headerEmail={email}
+      tilesIdle
+      stepKey={
+        mode.kind === "accepting"
+          ? "invite"
+          : mode.kind === "deciding"
+            ? "existing"
+            : mode.kind === "existing" &&
+                mode.inspection.status === "existing" &&
+                !mode.inspection.signedIn
+              ? "existing-signedout"
+              : mode.kind
+      }
+      focusHeading={focusHeading}
+    >
       {body}
     </JourneyPage>
   );

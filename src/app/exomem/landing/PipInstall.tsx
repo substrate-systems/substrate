@@ -46,7 +46,12 @@ export function PipInstall({ look }: { look: "hero" | "door" }) {
         <span className={styles.prompt}>$</span> {COMMAND}
       </span>
       <span className={styles.copy} aria-live="polite">
-        {copied ? "Copied" : "Copy"}
+        <span className={styles.copyState} aria-hidden={copied}>
+          Copy
+        </span>
+        <span className={styles.copyState} aria-hidden={!copied}>
+          Copied
+        </span>
       </span>
     </button>
   );

@@ -82,7 +82,12 @@ export function AddressField({
           onClick={copy}
           aria-live="polite"
         >
-          {copied ? "Copied ✓" : "Copy"}
+          <span className={styles.copyState} aria-hidden={copied}>
+            Copy
+          </span>
+          <span className={styles.copyState} aria-hidden={!copied}>
+            Copied ✓
+          </span>
         </button>
       </div>
     </div>

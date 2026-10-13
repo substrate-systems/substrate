@@ -2,6 +2,7 @@
 // makes its own owner, so the tests share nothing but the server. The cell and Brevo
 // answer through the stand-ins in fake-cell.ts and fake-brevo.ts.
 
+import { reviewerCopy, startCopy } from "../../src/app/exomem/_journey/copy";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test as base, type Page } from "@playwright/test";
 import {
@@ -113,7 +114,7 @@ test("disconnecting an app revokes its grant, and the app stays gone after a rel
   const apps = panel(page, "Connected apps");
 
   await apps.getByRole("button", { name: "Disconnect Claude", exact: true }).click();
-  await expect(apps.getByText("It loses access until you connect it again.")).toBeVisible();
+  await expect(apps.getByText("It loses access until you connect it again.").filter({ visible: true })).toBeVisible();
   await apps.getByRole("button", { name: "Disconnect Claude now" }).click();
 
   await expect(apps.getByText("disconnected · to use it again, connect from Claude")).toBeVisible();
@@ -273,7 +274,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
   expect(["deletion_pending", "deleted"]).toContain(await tenantStatus(owner));
 });
 
-test("a reviewer sees the sample account and its end date, with no billing or delete", async ({
+test("a seeded reviewer signs in on the web and sees the sample account without billing or delete", async ({
   page,
 }) => {
   // The two projects run at once, and each provider allows one active reviewer.
@@ -283,7 +284,13 @@ test("a reviewer sees the sample account and its end date, with no billing or de
   await connectApp(reviewer, { platform: "claude" });
   await setCell(reviewer, { noteCount: 40 });
 
-  await openHome(page, reviewer);
+  await page.goto("/exomem/sign-in");
+  await page.getByRole("button", { name: startCopy.reviewerLink }).click();
+  await page.getByLabel(reviewerCopy.username).fill(reviewer.username);
+  await page.getByLabel(reviewerCopy.password).fill(reviewer.password);
+  await page.getByRole("button", { name: reviewerCopy.primary }).click();
+  await expect(page).toHaveURL(/\/exomem\/home$/);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
   const ends = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(
     new Date(Date.now() + 20 * DAY)

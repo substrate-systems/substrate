@@ -10,17 +10,16 @@
   pointer-events: none;
 }
 
-/* The web is laid out at the design width and scaled to the parent's width. */
+/* Coordinates scale to the parent; the browser paints each primitive at its final size. */
 .canvas {
   position: absolute;
   left: 0;
   top: 0;
-  transform-origin: 0 0;
 }
 
 .ge {
   position: absolute;
-  height: 1px;
+  height: calc(1px * var(--field-scale));
   transform-origin: 0 50%;
 }
 
@@ -60,7 +59,7 @@
   background: var(--exo-amber);
   opacity: 1;
   transform: scale(1.7);
-  box-shadow: 0 0 9px var(--exo-amber);
+  box-shadow: 0 0 calc(9px * var(--field-scale)) var(--exo-amber);
 }
 
 .m-web .ge.nw .gi {
@@ -95,14 +94,14 @@
 
 .gp {
   position: absolute;
-  top: -1.5px;
+  top: calc(-1.5px * var(--field-scale));
   left: 0;
-  width: 4px;
-  height: 4px;
-  margin-left: -2px;
+  width: calc(4px * var(--field-scale));
+  height: calc(4px * var(--field-scale));
+  margin-left: calc(-2px * var(--field-scale));
   border-radius: 50%;
   background: var(--exo-amber);
-  box-shadow: 0 0 6px var(--exo-amber);
+  box-shadow: 0 0 calc(6px * var(--field-scale)) var(--exo-amber);
   opacity: 0;
 }
 
@@ -147,7 +146,7 @@
   background: var(--exo-amber);
   opacity: 1;
   transform: scale(1.55);
-  box-shadow: 0 0 10px var(--exo-glow);
+  box-shadow: 0 0 calc(10px * var(--field-scale)) var(--exo-glow);
   transition-duration: 0.3s;
 }
 
@@ -254,7 +253,7 @@
     background: var(--exo-amber);
     opacity: 1;
     transform: scale(1.9);
-    box-shadow: 0 0 11px var(--exo-amber);
+    box-shadow: 0 0 calc(11px * var(--field-scale)) var(--exo-amber);
   }
   100% {
     background: var(--exo-amber);
@@ -300,6 +299,6 @@
   100% {
     background: var(--exo-amber);
     opacity: 1;
-    box-shadow: 0 0 11px var(--exo-amber);
+    box-shadow: 0 0 calc(11px * var(--field-scale)) var(--exo-amber);
   }
 }

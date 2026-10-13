@@ -41,9 +41,14 @@ export function renderExomemFriendInvitationEmail(input: {
 }): RenderedExomemEmail {
   const usual = formatMoney(input.usualPrice);
   const friend = formatMoney(input.friendPrice);
+  // The email contract keeps the name only through 40 Unicode characters.
+  const subject =
+    [...input.inviterName].length <= 40
+      ? `${input.inviterName} invited you to Exomem`
+      : "You’re invited to Exomem";
   return renderExomemEmail({
     sentBy: { personName: input.inviterName },
-    subject: `${input.inviterName} invited you to Exomem`,
+    subject,
     preheader: `Your friend price: ${friend} a month instead of ${usual}.`,
     band: "arrive",
     headline: `${input.inviterName} invited you`,

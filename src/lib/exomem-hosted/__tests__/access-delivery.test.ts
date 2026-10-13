@@ -8,7 +8,7 @@ const TOKEN = Buffer.alloc(32, 0x61).toString("base64url");
 const EMAIL = "owner@example.com";
 const EXPIRES = "2026-07-12T12:15:00.000Z";
 
-function record() {
+function record(browserTimeZone?: string) {
   return {
     deliveryId: "delivery-1",
     tokenId: "token-1",
@@ -23,6 +23,7 @@ function record() {
         emailNormalized: EMAIL,
         token: TOKEN,
         expiresAt: EXPIRES,
+        ...(browserTimeZone === undefined ? {} : { timeZone: browserTimeZone }),
       }),
       { key: KEY, randomBytes: () => Buffer.alloc(12, 0x22) }
     ),
@@ -88,6 +89,31 @@ describe("durable Exomem magic-link delivery", () => {
       leaseOwner: "11111111-1111-4111-8111-111111111111",
     });
   });
+
+  for (const storedZone of [null, "Europe/Paris"]) {
+    it(`renders the browser zone only without a stored account zone (${storedZone ?? "unknown"})`, async () => {
+      const pending = { ...record("Asia/Tokyo"), recipientTimeZone: storedZone };
+      let text = "";
+      await drainMagicLinkDeliveries(
+        { maxMessages: 1 },
+        dependencies({
+          claim: async () => pending,
+          sendEmail: async (input) => {
+            text = input.textContent;
+            return { success: true };
+          },
+        })
+      );
+      const expected = new Intl.DateTimeFormat("en-GB", {
+        timeZone: storedZone ?? "Asia/Tokyo",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date(EXPIRES));
+      assert.ok(text.includes(expected), text);
+      assert.ok(!text.includes("(UTC)"), text);
+    });
+  }
 
   it("prunes stale limiter buckets before claiming access delivery", async () => {
     const calls: string[] = [];

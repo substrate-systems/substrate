@@ -32,6 +32,7 @@ type StartFlowProps = {
   frame: { app?: AppTile; footer?: string | null };
   /** A notice to show over the form when it first appears (signed out, a spent link). */
   notice?: { text: string; attention: boolean } | null;
+  focusHeading?: boolean;
 };
 
 type StartOutcome = "sent" | "challenge_failed" | "failed";
@@ -71,8 +72,15 @@ function clock(ms: number): string {
 }
 
 /** Start with your email, check your email, and the reviewer sign-in beside them. */
-export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlowProps) {
+export function StartFlow({
+  context,
+  reviewerEnabled,
+  frame,
+  notice,
+  focusHeading = false,
+}: StartFlowProps) {
   const [step, setStep] = useState<"form" | "sent" | "reviewer">("form");
+  const [focusStep, setFocusStep] = useState(focusHeading);
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -83,6 +91,7 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
     mount: challengeHost,
     token: challengeToken,
     reset: resetChallenge,
+    start: startChallenge,
     asking,
   } = useTurnstile(SITE_KEY);
   // Under the field, and taking room only while Cloudflare shows its check.
@@ -100,7 +109,6 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
   async function send() {
     if (sending) return;
     setSending(true);
-    setFailure(null);
     let outcome: StartOutcome;
     try {
       outcome = await requestStart(email, await challengeToken());
@@ -110,15 +118,16 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
     resetChallenge();
     setSending(false);
     if (outcome === "sent") {
+      setFailure(null);
       const at = Date.now();
       setSentAt(at);
       setNow(at);
       setShownNotice(null);
+      setFocusStep(true);
       setStep("sent");
       return;
     }
-    // A failed or refused challenge goes back to the form, which holds the widget.
-    setStep("form");
+    // Both steps hold the widget, so retry failures can keep the control focused.
     setFailure(outcome === "challenge_failed" ? failureCopy.challenge : failureCopy.generic);
   }
 
@@ -136,6 +145,7 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
         frame={frame}
         onBack={() => {
           setFailure(null);
+          setFocusStep(true);
           setStep("form");
         }}
       />
@@ -143,7 +153,13 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
   }
 
   return (
-    <JourneyPage kind="quiet" app={frame.app} footer={frame.footer} stepKey={step}>
+    <JourneyPage
+      kind="quiet"
+      app={frame.app}
+      footer={frame.footer}
+      stepKey={step}
+      focusHeading={focusStep}
+    >
       {step === "sent" ? (
         <>
           <StepHeading title={sentCopy.title} lede={sentCopy.lede} />
@@ -151,15 +167,27 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
             <SentCard email={email} />
             {challenge}
           </div>
-          {failure ? <StepNotice alert>{failure}</StepNotice> : null}
+          <StepNotice alert visible={!!failure}>
+            {failure ?? failureCopy.generic}
+          </StepNotice>
           <StepActions
             primary={{
-              label: waitLeft > 0 ? sentCopy.resendIn(clock(waitLeft)) : sentCopy.resend,
+              label: sending
+                ? "Sending…"
+                : waitLeft > 0
+                  ? sentCopy.resendIn(clock(waitLeft))
+                  : sentCopy.resend,
               disabled: waitLeft > 0,
               working: sending,
               onClick: () => void send(),
             }}
-            secondary={{ label: sentCopy.differentEmail, onClick: () => setStep("form") }}
+            secondary={{
+              label: sentCopy.differentEmail,
+              onClick: () => {
+                setFocusStep(true);
+                setStep("form");
+              },
+            }}
           />
         </>
       ) : (
@@ -178,14 +206,22 @@ export function StartFlow({ context, reviewerEnabled, frame, notice }: StartFlow
                 inputMode="email"
                 required
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  void startChallenge();
+                }}
                 error={failure ?? undefined}
+                errorSpace={failureCopy.generic}
               />
               {challenge}
             </div>
             <StepActions
               primaryType="submit"
-              primary={{ label: heading.primary, working: sending, onClick: () => {} }}
+              primary={{
+                label: sending ? "Sending…" : heading.primary,
+                working: sending,
+                onClick: () => {},
+              }}
             />
           </form>
           {reviewerEnabled ? (
@@ -260,12 +296,7 @@ function ReviewerSignIn({
       ? reviewerCopy.failedInApp(context.app, context.requestLife)
       : reviewerCopy.failedOnWeb;
   return (
-    <JourneyPage
-      kind="quiet"
-      app={frame.app}
-      footer={frame.footer}
-      stepKey={failed ? "reviewerfail" : "reviewer"}
-    >
+    <JourneyPage kind="quiet" app={frame.app} footer={frame.footer} stepKey="reviewer" focusHeading>
       <StepHeading
         title={reviewerCopy.title}
         lede={
@@ -275,11 +306,9 @@ function ReviewerSignIn({
           </>
         }
       />
-      {failed ? (
-        <StepNotice alert id="reviewer-failure">
-          {failure}
-        </StepNotice>
-      ) : null}
+      <StepNotice alert id="reviewer-failure" visible={failed}>
+        {failure}
+      </StepNotice>
       <form className={styles.form} onSubmit={signIn}>
         <div className={styles.fields}>
           <TextField

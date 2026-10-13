@@ -55,8 +55,10 @@
 }
 
 .copy {
+  display: grid;
+  align-items: center;
   height: 40px;
-  min-width: 84px;
+  width: calc(8ch + 28px);
   padding: 0 14px;
   border: 0;
   border-radius: var(--r-ctl);
@@ -67,6 +69,14 @@
   font-weight: 500;
   cursor: pointer;
   flex: none;
+}
+
+.copyState {
+  grid-area: 1 / 1;
+}
+
+.copyState[aria-hidden="true"] {
+  visibility: hidden;
 }
 
 /* Home's compact field (Home board, "Add another app"): 44 px on the page ground with a
@@ -98,7 +108,7 @@
 
 .row .copy {
   height: 32px;
-  min-width: 76px;
+  width: calc(8ch + 24px);
   padding: 0 12px;
   border-radius: var(--r-ctl);
   background: var(--bg-hover);

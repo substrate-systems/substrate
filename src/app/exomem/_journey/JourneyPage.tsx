@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { FlowField, type FieldKind } from "@/components/exomem/FlowField";
 import { PairedTiles } from "@/components/exomem/PairedTiles";
 import { Wordmark } from "@/components/exomem/Wordmark";
@@ -39,8 +41,10 @@ type JourneyPageProps = {
    * price added, settles the field but keeps the tiles idle: the mark stays grey.
    */
   tilesIdle?: boolean;
-  /** Changes with the step, so each step's content fades in. */
+  /** Changes when the flow shows a new step. */
   stepKey: string;
+  /** A person started this transition; initial loading leaves focus alone. */
+  focusHeading?: boolean;
   /** None while the page waits for its first answer. */
   children?: ReactNode;
 };
@@ -52,8 +56,17 @@ export function JourneyPage({
   footer,
   tilesIdle = false,
   stepKey,
+  focusHeading = false,
   children,
 }: JourneyPageProps) {
+  const content = useRef<HTMLDivElement>(null);
+  const previousStep = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (focusHeading && previousStep.current !== stepKey) {
+      content.current?.querySelector("h1")?.focus({ preventScroll: true });
+    }
+    previousStep.current = stepKey;
+  }, [stepKey, focusHeading]);
   return (
     <main className={`${styles.page} brand-exomem`}>
       <FlowField kind={kind} footer={!!footer} />
@@ -66,7 +79,7 @@ export function JourneyPage({
           <div className={styles.tiles}>
             <PairedTiles state={tilesIdle ? "idle" : tilesState(kind)} app={app} />
           </div>
-          <div className={styles.content} key={stepKey}>
+          <div className={styles.content} ref={content}>
             {children}
           </div>
         </div>

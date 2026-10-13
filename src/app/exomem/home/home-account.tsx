@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect, useRef } from "react";
 import { Button } from "@/components/exomem/Button";
 import type { ExportView, PlanView, StorageView } from "./home-view";
 import { Section } from "./home-chrome";
@@ -11,12 +12,14 @@ export function PlanAndAccount({
   email,
   onBilling,
   billingBusy,
+  billingMessage,
 }: {
   plan: PlanView;
   storage: StorageView;
   email: string | null;
   onBilling: (kind: "portal" | "checkout") => void;
   billingBusy: boolean;
+  billingMessage: string | null;
 }) {
   return (
     <Section title="Plan and account">
@@ -31,6 +34,11 @@ export function PlanAndAccount({
           </Button>
         )}
       </div>
+      {plan.action && (
+        <div className={styles.billingStatus} role="alert">
+          {billingMessage}
+        </div>
+      )}
       <div className={styles.storage}>
         <div className={styles.storageLine}>
           <span className={styles.muted}>Storage</span>
@@ -85,6 +93,14 @@ export function YourData({
   onDelete: () => void;
 }) {
   const detail = exportRow?.detail ?? null;
+  const exportButton = useRef<HTMLButtonElement>(null);
+  const retryButton = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    if (retryButton.current && !retryButton.current.isConnected) {
+      exportButton.current?.focus({ preventScroll: true });
+      retryButton.current = null;
+    }
+  }, [detail?.kind]);
   return (
     <Section title="Your data">
       {exportRow && (
@@ -95,62 +111,71 @@ export function YourData({
               <span className={styles.rowBody}>{exportRow.description}</span>
             </div>
             <Button
+              ref={exportButton}
               variant="primary"
               size="account"
               working={exportBusy || exportRow.busy}
-              disabled={exportRow.busy}
               onClick={onExport}
             >
               {exportBusy || exportRow.busy ? "Preparing…" : "Export"}
             </Button>
           </div>
-          {exportMessage && (
-            <div className={styles.inlineStatus} role="status">
-              {exportMessage}
-            </div>
-          )}
-          {detail?.kind === "packing" && (
-            <div className={`${styles.detail} ${styles.detailColumn}`} role="status">
-              <span className={styles.detailText}>{detail.text}</span>
-              <div className={styles.pack} aria-hidden="true">
-                <div className={styles.packRun} />
+          <div className={`${styles.inlineStatus} ${styles.exportMessage}`} role="alert">
+            {exportMessage}
+          </div>
+          <div className={styles.exportDetail}>
+            {detail?.kind === "packing" && (
+              <div className={`${styles.detail} ${styles.detailColumn}`} role="status">
+                <span className={styles.detailText}>{detail.text}</span>
+                <div className={styles.pack} aria-hidden="true">
+                  <div className={styles.packRun} />
+                </div>
               </div>
-            </div>
-          )}
-          {detail?.kind === "ready" && (
-            <div className={styles.detail}>
-              <span className={styles.detailLead}>
-                <span className={styles.dot} aria-hidden="true" />
-                <span className={styles.detailText}>{detail.text}</span>
-              </span>
-              <Button
-                size="detail"
-                working={downloadBusy}
-                onClick={() => onDownload(detail.exportId)}
-              >
-                {downloadBusy ? "Preparing…" : "Download"}
-              </Button>
-            </div>
-          )}
-          {detail?.kind === "failed" && (
-            <div className={styles.detail}>
-              <span className={styles.detailLead}>
-                <span className={styles.dot} aria-hidden="true" />
-                <span className={`${styles.detailText} ${styles.detailStrong}`}>{detail.text}</span>
-              </span>
-              <Button size="detail" working={exportBusy} onClick={onExport}>
-                Try again
-              </Button>
-            </div>
-          )}
-          {detail?.kind === "expired" && (
-            <div className={styles.detail}>
-              <span className={styles.detailLead}>
-                <span className={`${styles.dot} ${styles.dotQuiet}`} aria-hidden="true" />
-                <span className={styles.detailText}>{detail.text}</span>
-              </span>
-            </div>
-          )}
+            )}
+            {detail?.kind === "ready" && (
+              <div className={styles.detail}>
+                <span className={styles.detailLead}>
+                  <span className={styles.dot} aria-hidden="true" />
+                  <span className={styles.detailText}>{detail.text}</span>
+                </span>
+                <Button
+                  size="detail"
+                  working={downloadBusy}
+                  onClick={() => onDownload(detail.exportId)}
+                >
+                  {downloadBusy ? "Preparing…" : "Download"}
+                </Button>
+              </div>
+            )}
+            {detail?.kind === "failed" && (
+              <div className={styles.detail}>
+                <span className={styles.detailLead}>
+                  <span className={styles.dot} aria-hidden="true" />
+                  <span className={`${styles.detailText} ${styles.detailStrong}`}>
+                    {detail.text}
+                  </span>
+                </span>
+                <Button
+                  size="detail"
+                  working={exportBusy}
+                  onClick={(event) => {
+                    retryButton.current = event.currentTarget;
+                    onExport();
+                  }}
+                >
+                  Try again
+                </Button>
+              </div>
+            )}
+            {detail?.kind === "expired" && (
+              <div className={styles.detail}>
+                <span className={styles.detailLead}>
+                  <span className={`${styles.dot} ${styles.dotQuiet}`} aria-hidden="true" />
+                  <span className={styles.detailText}>{detail.text}</span>
+                </span>
+              </div>
+            )}
+          </div>
         </>
       )}
       {deletion && (

@@ -1,3 +1,4 @@
+import { normalizeTimeZone } from "./time-zone";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
@@ -60,12 +61,16 @@ function parseDeliveryPayload(
   record: ClaimedMagicLinkDelivery,
   decrypt: MagicLinkDeliveryDependencies["decrypt"],
   now: Date
-): { token: string; expiresAt: Date } | null {
+): { token: string; expiresAt: Date; timeZone: string | null } | null {
   try {
     const raw = decrypt(record.secretCiphertext).reveal();
     const value = JSON.parse(raw) as Record<string, unknown>;
     if (
-      Object.keys(value).sort().join(",") !== "emailNormalized,expiresAt,purpose,token,version" ||
+      // These keys are the encrypted delivery schema, including the optional fallback zone.
+      Object.keys(value).some(
+        (key) =>
+          !["emailNormalized", "expiresAt", "purpose", "token", "version", "timeZone"].includes(key)
+      ) ||
       value.version !== 1 ||
       value.purpose !== "magic_link" ||
       value.emailNormalized !== record.emailNormalized ||
@@ -79,7 +84,7 @@ function parseDeliveryPayload(
     if (!timingSafeEqual(digest, record.tokenDigest)) return null;
     const expiresAt = new Date(record.expiresAt);
     if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now) return null;
-    return { token: value.token, expiresAt };
+    return { token: value.token, expiresAt, timeZone: normalizeTimeZone(value.timeZone) };
   } catch {
     return null;
   }
@@ -134,7 +139,7 @@ export async function drainMagicLinkDeliveries(
     const rendered = renderExomemMagicLinkEmail({
       accessUrl: exomemPublicFragmentUrl(publicBaseUrl, "/exomem/sign-in", payload.token),
       expiresAt: payload.expiresAt,
-      timeZone: record.recipientTimeZone,
+      timeZone: record.recipientTimeZone ?? payload.timeZone,
     });
     let delivered = false;
     try {

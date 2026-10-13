@@ -301,6 +301,22 @@
   overflow-wrap: anywhere;
 }
 
+.appMeta {
+  display: grid;
+}
+
+.appMeta > span {
+  grid-area: 1 / 1;
+}
+
+.metaReserve {
+  visibility: hidden;
+}
+
+.focusAnchor:focus {
+  outline: none;
+}
+
 .rowBody {
   font-size: 12.5px;
   line-height: 1.45;
@@ -437,6 +453,18 @@
   flex: none;
 }
 
+.copyLabel {
+  display: grid;
+}
+
+.copyLabel > span {
+  grid-area: 1 / 1;
+}
+
+.copyReserve {
+  visibility: hidden;
+}
+
 .textToggle {
   align-self: flex-start;
   min-height: 28px;
@@ -516,6 +544,20 @@
   min-width: 0;
 }
 
+/* The longest level refusal and the standing help text keep their space together. */
+.levelNote {
+  min-height: 2lh;
+  box-sizing: content-box;
+}
+
+.billingStatus {
+  min-height: 2lh;
+  padding-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
 /* --- Plan, storage --- */
 
 .storage {
@@ -569,6 +611,18 @@
   gap: 14px;
   padding: 12px 0;
   border-bottom: 1px solid var(--exo-border-card);
+}
+
+/* Packing, Download and retry share one slot, including their wrapped phone copy. */
+.exportDetail {
+  min-height: calc(2lh + 34px);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.exportMessage {
+  min-height: 1lh;
+  line-height: 1.5;
 }
 
 .detailColumn {
@@ -690,6 +744,10 @@
   color: var(--fg-secondary);
 }
 
+.dialogError {
+  min-height: 2lh;
+}
+
 .dialogActions {
   display: flex;
   flex-direction: column;
@@ -777,6 +835,18 @@
 
   .levelSwitch {
     width: auto;
+  }
+
+  .levelNote {
+    min-height: 5lh;
+  }
+
+  .exportDetail {
+    min-height: calc(4lh + 24px);
+  }
+
+  .exportMessage {
+    min-height: 2lh;
   }
 }
 

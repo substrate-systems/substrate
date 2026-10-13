@@ -15,22 +15,20 @@ import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./se
 
 /**
  * `EXOMEM_SELF_SERVE_ADMISSION`:
- * - `closed` (the default): people without an Exomem get no email.
- * - `waitlist`: everybody new is queued.
+ * - `waitlist` (the default): everybody new is queued.
  * - `open`: a free slot admits, otherwise the person is queued, and a freed
  *   slot promotes the oldest waiting person.
  */
-export type SelfServeAdmissionMode = "closed" | "waitlist" | "open";
+export type SelfServeAdmissionMode = "waitlist" | "open";
 
 /**
- * An unknown value reads as `closed`, the behaviour before self-serve
- * existed: a typo must never open admission. Its cost is that nobody new is
- * admitted until the value is fixed.
+ * An unknown value reads as `waitlist`: the person gets feedback without
+ * a typo opening admission.
  */
 export function selfServeAdmissionMode(
   value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSION
 ): SelfServeAdmissionMode {
-  return value === "waitlist" || value === "open" ? value : "closed";
+  return value === "open" ? "open" : "waitlist";
 }
 
 /**
@@ -73,7 +71,6 @@ async function insertStartLink(
   tx: ExomemSql,
   input: {
     emailNormalized: string;
-    timeZone: string | null;
     link: StartLinkMaterial;
     /** An ISO timestamp, or the database's own text form of one. */
     expiresAt: string;
@@ -95,7 +92,8 @@ async function insertStartLink(
       ${SELF_SERVE_PRINCIPAL_DIGEST},
       ${input.expiresAt}::timestamptz,
       true,
-      ${input.timeZone}
+      -- A start request uses its browser zone for delivery, never as a stored preference.
+      NULL
     )
     RETURNING id, expires_at
   `;
@@ -180,7 +178,6 @@ export async function startSelfServeAtomic(input: {
       const timeZone = held.recipient_time_zone ?? input.timeZone;
       const invite = await insertStartLink(tx, {
         emailNormalized: input.emailNormalized,
-        timeZone,
         link,
         // The database's own text: a JavaScript Date would drop microseconds.
         expiresAt: held.expires_at,
@@ -206,7 +203,6 @@ export async function startSelfServeAtomic(input: {
       if (fits && !(waiting.rows[0] as { waiting: boolean }).waiting) {
         const invite = await insertStartLink(tx, {
           emailNormalized: input.emailNormalized,
-          timeZone: input.timeZone,
           link,
           expiresAt: new Date(Date.now() + START_LINK_TTL_MS).toISOString(),
         });
@@ -239,7 +235,7 @@ export async function startSelfServeAtomic(input: {
       await tx`
         /* exomem:start-waitlist-keep-place */
         UPDATE exomem_waitlist_entries
-        SET time_zone = ${timeZone}, updated_at = now()
+        SET updated_at = now()
         WHERE id = ${entry.id}::uuid
       `;
       entryId = entry.id;
@@ -252,7 +248,7 @@ export async function startSelfServeAtomic(input: {
       const inserted = await tx`
         /* exomem:start-waitlist-join */
         INSERT INTO exomem_waitlist_entries (email_normalized, time_zone)
-        VALUES (${input.emailNormalized}, ${timeZone})
+        VALUES (${input.emailNormalized}, NULL)
         RETURNING id
       `;
       entryId = (inserted.rows[0] as { id: string }).id;
@@ -333,7 +329,6 @@ export async function promoteWaitlistedPeople(
       if (!(await cloudAdmissionAllows(tx, { email: entry.email_normalized }))) return false;
       const invite = await insertStartLink(tx, {
         emailNormalized: entry.email_normalized,
-        timeZone: entry.time_zone,
         link,
         expiresAt: new Date(Date.now() + START_LINK_TTL_MS).toISOString(),
       });
