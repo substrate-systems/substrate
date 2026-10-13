@@ -16,6 +16,7 @@
 
 .wordmark {
   position: absolute;
+  z-index: 1;
   left: var(--gutter);
   top: 29px;
   line-height: 0;
@@ -112,6 +113,7 @@
 
 .notice {
   width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* Transient failures reserve a text row; the factual notices keep their cards. */

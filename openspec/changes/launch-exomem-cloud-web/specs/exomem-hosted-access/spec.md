@@ -434,7 +434,7 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 ### Requirement: The consent page shows where the code goes
 
-The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. The footer SHALL show only that origin. Before requesting consent, the page SHALL label an unverified client name as app-supplied beside the requested permissions. The system MUST store a client name only when the client declares one.
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label an unverified web client name as app-supplied beside the requested permissions. The system MUST store a client name only when the client declares one.
 
 #### Scenario: Web client declares a name
 
