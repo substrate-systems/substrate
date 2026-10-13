@@ -158,7 +158,11 @@ export async function issueOperatorInvite(
   if (input.kind === "friend") {
     try {
       prices = await deps.previewPrices({ country: null, customerIp: null, friend: true });
-    } catch {
+    } catch (error) {
+      console.error("exomem.friend_price_unavailable", {
+        code: error instanceof ExomemBillingError ? (error.providerCode ?? error.code) : null,
+        status: error instanceof ExomemBillingError ? (error.providerStatus ?? error.status) : null,
+      });
       throw friendPriceUnavailable();
     }
     if (!prices.friend) throw friendPriceUnavailable();

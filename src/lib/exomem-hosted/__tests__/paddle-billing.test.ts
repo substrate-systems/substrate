@@ -781,12 +781,15 @@ describe("Exomem Paddle billing adapters", () => {
           { userId: "user-internal", tenantId: "tenant-internal" },
           {
             config: loadExomemPaddleConfig(configEnv()),
-            transport: async () => new Response(sentinel, { status: 500 }),
+            transport: async () =>
+              Response.json({ error: { code: "forbidden", detail: sentinel } }, { status: 403 }),
           }
         ),
         (error: unknown) => {
           assert.equal(error instanceof ExomemBillingError, true);
           assert.equal(String(error).includes(sentinel), false);
+          assert.equal((error as ExomemBillingError).providerCode, "forbidden");
+          assert.equal((error as ExomemBillingError).providerStatus, 403);
           return true;
         }
       );

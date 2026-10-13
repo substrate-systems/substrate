@@ -200,7 +200,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
       [ownerUser.rows[0]!.id]
     );
-    const closedDoor = newAddress("closed");
+    const defaultWaitlisted = newAddress("default");
     const admitted = newAddress("admitted");
     const waitlisted = newAddress("waitlisted");
     const queuedWithFreePlace = newAddress("queued");
@@ -224,8 +224,12 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     // still across the requests. Timers and the database run for real.
     mock.timers.enable({ apis: ["Date"], now: Date.now() });
     try {
-      await ask(closedDoor);
+      await ask(defaultWaitlisted);
       await ask(owner);
+      // The default request queued a person; retire that fixture before testing a free place.
+      await pool!.query("DELETE FROM exomem_waitlist_entries WHERE email_normalized = $1", [
+        defaultWaitlisted,
+      ]);
       process.env.EXOMEM_SELF_SERVE_ADMISSION = "open";
       await ask(admitted);
       await ask(waitlisted);
@@ -269,9 +273,9 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     }
     assert.equal(
       await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [
-        closedDoor,
+        defaultWaitlisted,
       ]),
-      0
+      1
     );
 
     for (const answer of answers.slice(1)) {
@@ -444,8 +448,8 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       [early]
     );
     assert.equal(after.rows[0]!.id, before.rows[0]!.id);
-    // An unauthenticated request never replaces the zone already stored.
-    assert.equal(after.rows[0]!.time_zone, "Europe/Paris");
+    // A start request carries the zone only for delivery, never for a stored preference.
+    assert.equal(after.rows[0]!.time_zone, null);
     // One waitlist email per entry, however often they ask.
     assert.equal(
       await count(

@@ -34,12 +34,20 @@ export class ExomemBillingError extends Error {
     | "EXOMEM_PADDLE_RESPONSE_INVALID"
     | "EXOMEM_FRIEND_DISCOUNT_INVALID";
   readonly status: number;
+  readonly providerCode: string | null;
+  readonly providerStatus: number | null;
 
-  constructor(code: ExomemBillingError["code"], status: number) {
+  constructor(
+    code: ExomemBillingError["code"],
+    status: number,
+    provider?: { code: string | null; status: number }
+  ) {
     super(code);
     this.name = "ExomemBillingError";
     this.code = code;
     this.status = status;
+    this.providerCode = provider?.code ?? null;
+    this.providerStatus = provider?.status ?? null;
   }
 }
 
@@ -136,9 +144,15 @@ async function safePaddleJson(
     throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 503);
   }
   if (!response.ok) {
-    // Consume and discard. Provider bodies may contain identifiers or user data.
-    await response.arrayBuffer().catch(() => undefined);
-    throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 502);
+    const body = await response.json().catch(() => null);
+    const code = safeObject(safeObject(body)?.error)?.code;
+    // Check the code field format only; never retain a provider body or message.
+    const providerCode =
+      typeof code === "string" && code.length <= 80 && /^[a-z0-9_]+$/.test(code) ? code : null;
+    throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 502, {
+      code: providerCode,
+      status: response.status,
+    });
   }
   try {
     return await response.json();

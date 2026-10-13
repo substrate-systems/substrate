@@ -5,7 +5,7 @@
 - [ ] 1.3 Add Turnstile verification (action, hostname, 3 s timeout), failing closed only on Cloudflare's documented token errors and on a hostname or action mismatch, and falling back to the rate limits with a logged error for every other failure
 - [ ] 1.4 Add `POST /api/exomem/access/start` with `requestStart`, identical 202 answers and cookies, and a 600 ms floor
 - [ ] 1.5 Make the former sign-in link route an alias of the start handler
-- [ ] 1.6 Implement the `closed`, `waitlist` and `open` admission switch under the capacity advisory lock; the public form creates only paid self-serve start links
+- [ ] 1.6 Implement the `waitlist` (default) and `open` admission switch under the capacity advisory lock; the public form creates only paid self-serve start links
 - [ ] 1.7 Set start links to 48 hours and validate `timeZone` against the IANA set in start and both redeem routes
 - [ ] 1.8 Send a paid web redemption to the setup journey route
 - [ ] 1.9 Add the waitlist promotion arm to the reconcile job, oldest first, skipping addresses that own an active account, one transaction per admission

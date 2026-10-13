@@ -40,7 +40,7 @@ Access SHALL start in one of three ways: a start request, an operator invitation
 
 ### Requirement: Existing users can request a non-enumerating sign-in link
 
-An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The start form SHALL answer every request that passes the challenge with the same 202 acknowledgement, cookie and minimum response time. That includes six outcomes: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full, and closed admission. A start request MUST NOT create an account or tenant.
+An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The start form SHALL answer every request that passes the challenge with the same 202 acknowledgement, cookie and minimum response time. That includes five outcomes: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full. A start request MUST NOT create an account or tenant.
 
 #### Scenario: Existing Exomem owner requests a link
 
@@ -129,12 +129,7 @@ The start form SHALL check every request with a Cloudflare Turnstile challenge. 
 
 ### Requirement: The admission setting decides what a new address receives
 
-The setting `EXOMEM_SELF_SERVE_ADMISSION` (`closed`, `waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default is `closed`.
-
-#### Scenario: Admission is closed
-
-- **WHEN** the setting is `closed` and an address with no tenant submits the start form
-- **THEN** the system sends no email and creates no start link and no waitlist entry
+The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default and any unknown value are `waitlist`.
 
 #### Scenario: Admission is open and a place is free
 
@@ -345,7 +340,7 @@ The row of email 07 SHALL keep the owner's address and time zone only until 30 d
 
 ### Requirement: Start and redemption record the person's time zone
 
-The start form and the redemption routes SHALL accept an optional IANA time zone name. The system SHALL check it against the closed IANA set and SHALL store the time zone as unknown when the name is not in the set.
+The start form and the redemption routes SHALL accept an optional IANA time zone name. The system SHALL validate it with `Intl.DateTimeFormat`. A start request SHALL use a valid browser zone only as an email fallback when no stored account zone exists. It MUST NOT change the account, invitation or waitlist zone. Redemption SHALL store a valid zone or unknown.
 
 #### Scenario: Valid time zone
 

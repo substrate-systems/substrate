@@ -2,7 +2,7 @@
 
 Exomem Cloud launches with the web experience in `docs/exomem-design`: a landing page, a start-with-your-email journey, consent, and a Home that controls the account. Checked against the code, the boards ask for behaviour the system lacks or gets wrong:
 
-- A new person cannot start. Self-serve admission is closed, the old request path leaked account existence through inline mail and one error branch, and capacity still counts the retired Hosted pool.
+- A new person cannot start or receive an email. The old request path leaked account existence through inline mail and one error branch. Capacity still counts the retired Hosted pool.
 - "Not now" on the consent page has no route. An app that opened consent never learns the answer.
 - Owners cannot list or disconnect their apps. Reviewers cannot sign in on the web.
 - Home hard-codes the plan name, has no next-payment date, no read-only end date and no support reference.

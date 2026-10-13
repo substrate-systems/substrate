@@ -115,7 +115,8 @@ export function normalizeAccessEmail(value: string): string {
 async function queueOwnerSignInLink(
   deps: AccessDependencies,
   emailNormalized: string,
-  browserChallengeDigest: Buffer
+  browserChallengeDigest: Buffer,
+  timeZone: string | null
 ): Promise<boolean> {
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
@@ -128,6 +129,8 @@ async function queueOwnerSignInLink(
       emailNormalized,
       token,
       expiresAt: expiresAt.toISOString(),
+      // Delivery-only fallback; this never changes the account time zone.
+      timeZone,
     })
   );
   const created = await deps.createMagicAccessToken({
@@ -146,8 +149,8 @@ async function queueOwnerSignInLink(
  * email carries the outcome:
  *
  * - an owner of an Exomem gets a sign-in link (email 01);
- * - anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`: nothing while it is
- *   `closed`, otherwise a start link or a waitlist place (see
+ * - anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`: a start link or a
+ *   waitlist place (see
  *   `startSelfServeAtomic`).
  *
  * The two rate limits run before any branch, so a limited request does the
@@ -188,11 +191,17 @@ export async function requestStart(
     }
 
     try {
-      if (await queueOwnerSignInLink(deps, emailNormalized, input.browserChallengeDigest)) {
+      if (
+        await queueOwnerSignInLink(
+          deps,
+          emailNormalized,
+          input.browserChallengeDigest,
+          input.timeZone
+        )
+      ) {
         return { accepted: true };
       }
       const mode = deps.admissionMode();
-      if (mode === "closed") return { accepted: true };
       await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
     } catch {
       emitOperationalEvent(
