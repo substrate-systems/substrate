@@ -357,7 +357,7 @@ export const failureCopy = {
  * Beside where a request's answer goes, for an app whose name Exomem does not vouch
  * for (deviation (i) in the change's design: the label is not yet approved copy).
  */
-export const claimCopy = (name: string) => `“${name}” is the name it gives itself`;
+export const claimCopy = (name: string) => `App-supplied name: “${name}”`;
 
 /** A date the account does not know yet (Known with a reason), in a sentence that needs one. */
 export const unknownDate = "a date not known yet";

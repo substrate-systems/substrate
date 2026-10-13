@@ -72,6 +72,7 @@ test("Home shows the account's own values and calls only routes a Cloud account 
     },
   });
   await connectApp(owner, { platform: "claude" });
+  await connectApp(owner, { platform: "openai" });
   await setCell(owner, {
     noteCount: 11402,
     events: [{ client: "claude-code", action: "recalled", items: 4, at: new Date().toISOString() }],
@@ -102,6 +103,17 @@ test("Home shows the account's own values and calls only routes a Cloud account 
     "/api/exomem/cloud/home/live",
     "/api/exomem/status",
   ]);
+
+  // Connecting both providers must not hide the packages needed on another device.
+  await panel(page, "Connected apps").getByRole("button", { name: "Set up" }).click();
+  await expect(page.getByRole("link", { name: "Download Claude ZIP" })).toHaveAttribute(
+    "href",
+    "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-claude.zip"
+  );
+  await expect(page.getByRole("link", { name: "Download ChatGPT ZIP" })).toHaveAttribute(
+    "href",
+    "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip"
+  );
 });
 
 test("disconnecting an app revokes its grant, and the app stays gone after a reload", async ({
@@ -114,7 +126,9 @@ test("disconnecting an app revokes its grant, and the app stays gone after a rel
   const apps = panel(page, "Connected apps");
 
   await apps.getByRole("button", { name: "Disconnect Claude", exact: true }).click();
-  await expect(apps.getByText("It loses access until you connect it again.").filter({ visible: true })).toBeVisible();
+  await expect(
+    apps.getByText("It loses access until you connect it again.").filter({ visible: true })
+  ).toBeVisible();
   await apps.getByRole("button", { name: "Disconnect Claude now" }).click();
 
   await expect(apps.getByText("disconnected · to use it again, connect from Claude")).toBeVisible();

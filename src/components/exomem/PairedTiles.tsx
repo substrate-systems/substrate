@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { DOT_E_INK, DOT_E_LIT, DOT_E_RADIUS } from "./dot-e";
 import phone from "./phone.module.css";
 import styles from "./PairedTiles.module.css";
@@ -11,7 +11,7 @@ type PairedTilesProps = {
   /** idle: asking · connecting: the dot travels · connected: the Exomem tile blooms · stopped: the light is out. */
   state: "idle" | "connecting" | "connected" | "stopped";
   /** The app asking to connect. Omit when the person started on our site: only the Exomem tile shows. */
-  app?: { name: string; glyph: string; glyphSize: number };
+  app?: { name: string; glyph: ReactNode; glyphSize: number };
 };
 
 /** The consent page's pairing: the app's tile, a line, and the Exomem tile. */

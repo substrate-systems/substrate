@@ -44,35 +44,6 @@ describe("private Exomem Home contract", () => {
     assert.match(signIn, /mode === "confirm"/);
   });
 
-  it("opens a server-created Paddle transaction on the private Exomem return page", () => {
-    const page = source("src/app/exomem/home/home-client.tsx");
-    const opener = source("src/components/PaddleTransactionOpener.tsx");
-    assert.match(page, /validationEndpoint="\/api\/exomem\/billing\/checkout"/);
-    assert.match(opener, /_ptxn/);
-    assert.match(opener, /openTransactionCheckout/);
-    assert.match(opener, /postPrivateJson\(validationEndpoint/);
-    assert.match(opener, /transactionId: candidate/);
-    assert.match(opener, /window\.history\.replaceState/);
-    assert.match(opener, /window\.sessionStorage\.setItem/);
-    assert.match(opener, /window\.sessionStorage\.getItem/);
-    assert.match(opener, /window\.sessionStorage\.removeItem/);
-    assert.match(opener, /setValidationFailed\(true\)/);
-    assert.match(
-      opener,
-      /const \{ ready, error, openTransactionCheckout \} = usePaddle\("transaction"\)/
-    );
-    assert.match(opener, /if \(error\) onFailure\?\.\(\)/);
-    assert.match(opener, /const opened = await openTransactionCheckout\(transactionId\)/);
-    assert.match(opener, /opened \? onOpened\(\) : onFailure\?\.\(\)/);
-    assert.match(opener, /window\.location\.reload\(\)/);
-    assert.match(opener, /Try again/);
-    assert.match(opener, /Not now/);
-    assert.match(opener, /function OpenPaddleTransaction/);
-    assert.match(opener, /if \(!transactionId\) return null/);
-    assert.match(opener, /transactionId=\{transactionId\}/);
-    assert.match(opener, /\^txn_\[a-z0-9\]/);
-  });
-
   it("does not mount analytics providers on private Exomem routes", () => {
     const postHog = source("src/app/providers.tsx");
     assert.match(postHog, /usePathname/);

@@ -97,6 +97,15 @@ After valid redemption, the system SHALL show deterministic provisioning progres
 
 ## ADDED Requirements
 
+### Requirement: Public policies describe paid admission and bot protection
+
+The Terms SHALL describe monthly subscriptions, paid and covered invitations, waitlist admission and eligibility at age 18 or older. They SHALL preserve export, deletion and mandatory consumer rights. Eligibility MUST NOT add a date-of-birth or identity check. The privacy policy SHALL name Brevo transactional email and Cloudflare Turnstile, including its technical signals and processor/controller roles.
+
+#### Scenario: Visitor reads the policies before admission opens
+
+- **WHEN** a visitor reads the Terms and privacy policy
+- **THEN** they describe the paid service and waitlist without claiming invitation-only alpha access
+
 ### Requirement: The start form is protected by a Turnstile challenge
 
 The start form SHALL check every request with a Cloudflare Turnstile challenge. The form MUST fail closed only when the service reports a token error (`missing-input-response`, `invalid-input-response` or `timeout-or-duplicate`), or when the verified hostname or action differs from the expected one. For every other failure, the form SHALL fall back to the rate limits and the server SHALL log an error. The former sign-in link route SHALL use the same handler.
@@ -425,17 +434,28 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 ### Requirement: The consent page shows where the code goes
 
-The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. When the client declared a name, the page SHALL show it next to that destination and label it as the client's own claim. The system MUST store a client name only when the client declares one.
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label an unverified web client name as app-supplied beside the requested permissions. The system MUST store a client name only when the client declares one.
 
 #### Scenario: Web client declares a name
 
 - **WHEN** a web client with a declared name opens the consent page
-- **THEN** the page shows the redirect host and the declared name, labelled as the client's own claim
+- **THEN** the footer shows the redirect host and the permissions show the declared name labelled as app-supplied
 
 #### Scenario: Loopback client declares a name
 
 - **WHEN** a client with a loopback redirect and a declared name opens the consent page
-- **THEN** the page shows "this computer" and the declared name, labelled as the client's own claim
+- **THEN** the footer shows the declared app name and "this computer"
+
+#### Scenario: Expired request navigation
+
+- **WHEN** a connection request expires
+- **THEN** the short expiry message is vertically centered and the wordmark links to the landing page when no signed-in account is known
+- **AND** live signed-in journey steps link the wordmark to Home
+
+#### Scenario: Recognizable platform tile
+
+- **WHEN** a known web platform opens a journey
+- **THEN** its tile shows a generic icon with the platform name instead of an unexplained initial
 
 #### Scenario: Client declares no name
 

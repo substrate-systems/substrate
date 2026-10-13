@@ -171,7 +171,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
 
   // The server knows what comes next after a payment or a sign-out: ask it again.
   const onSettled = useCallback(() => window.location.reload(), []);
-  const checkout = useCheckout(onSettled);
+  const checkout = useCheckout(onSettled, facts.email);
   const current: Phase = checkout.confirming ? "confirming" : phase;
   // A friend offer's price is not the previewed one, so it is not previewed.
   const price = usePaddlePricePreview(

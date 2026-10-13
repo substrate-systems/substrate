@@ -7,7 +7,6 @@ import {
   activityFacts,
   banner,
   deletionLinkMinutes,
-  directoryHint,
   exportView,
   homeMode,
   levelsView,
@@ -619,21 +618,6 @@ describe("involvement levels", () => {
 
   it("leaves the section out while the Home channel is not released", () => {
     assert.deepEqual(levelsView("not_released"), { state: "hidden" });
-  });
-});
-
-describe("the directory hint", () => {
-  it("names only the directory apps the owner has not connected", () => {
-    assert.equal(directoryHint([app()], new Set())?.title, "ChatGPT");
-    assert.equal(directoryHint([], new Set())?.title, "Claude or ChatGPT");
-    assert.equal(directoryHint([app()], new Set([app().id]))?.title, "Claude or ChatGPT");
-    assert.equal(
-      directoryHint(
-        [app(), app({ id: "x", platform: "openai", displayName: "ChatGPT" })],
-        new Set()
-      ),
-      null
-    );
   });
 });
 

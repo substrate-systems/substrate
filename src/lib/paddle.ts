@@ -168,7 +168,10 @@ export type UsePaddleResult = {
   error: string | null;
   completed: boolean;
   openHostedBackupCheckout: (cadence: HostedBackupCadence) => Promise<void>;
-  openTransactionCheckout: (transactionId: string) => Promise<boolean>;
+  openTransactionCheckout: (
+    transactionId: string,
+    customerEmail?: string | null
+  ) => Promise<boolean>;
 };
 
 const UNAVAILABLE_MESSAGE = "Checkout is unavailable right now. Please try again later.";
@@ -262,12 +265,19 @@ export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult 
     });
   }
 
-  async function openTransactionCheckout(transactionId: string): Promise<boolean> {
+  async function openTransactionCheckout(
+    transactionId: string,
+    customerEmail?: string | null
+  ): Promise<boolean> {
     capture(AnalyticsEvent.CheckoutStarted, { product: "transaction" });
     return openCheckoutWith("transaction", (paddle) => {
       // A transaction checkout resumes an existing Paddle transaction, which
       // already carries its own customData from when it was created.
-      paddle.Checkout.open({ transactionId, settings: exomemCheckoutSettings() });
+      paddle.Checkout.open({
+        transactionId,
+        ...(customerEmail ? { customer: { email: customerEmail } } : {}),
+        settings: exomemCheckoutSettings(),
+      });
     });
   }
 

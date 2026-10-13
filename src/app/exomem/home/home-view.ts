@@ -505,31 +505,6 @@ export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
   return parts.join(" · ");
 }
 
-/** Claude and ChatGPT list Exomem in their directories; the hint names the ones not yet connected. */
-export function directoryHint(
-  apps: readonly HomeApp[],
-  disconnected: ReadonlySet<string>
-): { title: string; text: string } | null {
-  const live = apps.filter((app) => app.kind === "web" && !disconnected.has(app.id));
-  const hints = [
-    {
-      name: CLIENT_PLATFORM_NAMES.claude,
-      platform: "claude",
-      text: `In ${CLIENT_PLATFORM_NAMES.claude}, find Exomem under Settings, then Connectors.`,
-    },
-    {
-      name: CLIENT_PLATFORM_NAMES.openai,
-      platform: "openai",
-      text: `In ${CLIENT_PLATFORM_NAMES.openai}, find Exomem in the plugin directory.`,
-    },
-  ].filter((hint) => !live.some((app) => app.platform === hint.platform));
-  if (!hints.length) return null;
-  return {
-    title: hints.map((hint) => hint.name).join(" or "),
-    text: hints.map((hint) => hint.text).join(" "),
-  };
-}
-
 // --- Delete ---
 
 /**

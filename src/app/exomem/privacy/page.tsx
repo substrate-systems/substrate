@@ -17,7 +17,7 @@ export default function ExomemPrivacyPage() {
   // page is static, so it reads the flag at build, and a flag change takes a deploy.
   const exportOffered = cloudExportsEnabled();
   return (
-    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 12 October 2026">
+    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 13 October 2026">
       <p>
         This policy covers the Exomem Cloud service and its public product, account, OAuth, and
         support pages. The data controller is Substrate Systems OÜ (Estonian registry code
@@ -47,9 +47,8 @@ export default function ExomemPrivacyPage() {
           content, queries, filenames, email addresses, tokens, and private endpoints.
         </li>
         <li>
-          <strong>Billing data, when a paid plan is enabled:</strong> Paddle customer, transaction,
-          subscription, product, and status identifiers. Paddle handles payment-card details; Exomem
-          does not receive them.
+          <strong>Billing data:</strong> Paddle customer, transaction, subscription, product, and
+          status identifiers. Paddle handles payment-card details; Exomem does not receive them.
         </li>
         <li>
           <strong>Support data:</strong> messages and content-free diagnostics you choose to send
@@ -104,13 +103,24 @@ export default function ExomemPrivacyPage() {
         We use service providers only as needed to operate Exomem: Vercel for the public web,
         sign-in and account service; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
-        region, and for exports until they expire; Cloudflare for DNS; Brevo for transactional
-        email; and Paddle as merchant of record when billing is enabled. Until 10 October 2026, Neon
+        region, and for exports until they expire; Cloudflare for DNS and Turnstile bot protection;
+        Brevo for transactional email; and Paddle as merchant of record. Until 10 October 2026, Neon
         also held a frozen copy of the account database from before it moved to our own servers;
         that copy is now deleted. The public site may use privacy-filtered Vercel/PostHog analytics;
         Exomem account identifiers, email, knowledge content, tokens, and private routes are
         filtered from those events. Providers may process data outside the EEA under the safeguards
         required by applicable data-protection law.
+      </p>
+      <p>
+        Turnstile checks technical signals such as your IP address, browser information and
+        connection characteristics to protect the start form from automated abuse. Our server sends
+        Cloudflare the challenge token and your IP address to verify the check. Cloudflare acts as
+        our processor for that protection and as an independent controller when it uses these
+        signals to improve Turnstile. We do not send your knowledge content to Turnstile. See{" "}
+        <a href="https://www.cloudflare.com/turnstile-privacy-policy/">
+          Cloudflare&apos;s Turnstile privacy policy
+        </a>{" "}
+        for its data practices.
       </p>
 
       <h2>Retention, export, and deletion</h2>

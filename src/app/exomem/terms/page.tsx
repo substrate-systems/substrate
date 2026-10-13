@@ -5,13 +5,13 @@ import { ExomemPublicPage } from "../public-page";
 export const metadata = buildMetadata({
   title: "Exomem Cloud Terms of Service",
   description:
-    "The agreement between you and Substrate Systems OÜ for the invitation-only Exomem Cloud alpha. The open-source Exomem software remains governed by the licence in its own repository.",
+    "The agreement between you and Substrate Systems OÜ for an Exomem Cloud subscription. The open-source Exomem software remains governed by the licence in its own repository.",
   path: "/exomem/terms",
 });
 
 export default function ExomemTermsPage() {
   return (
-    <ExomemPublicPage title="Exomem Cloud terms" eyebrow="Revised 28 September 2026">
+    <ExomemPublicPage title="Exomem Cloud terms" eyebrow="Revised 13 October 2026">
       <p>
         These terms are an agreement between you and Substrate Systems OÜ (Estonian registry code
         17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Exomem Cloud. They apply when
@@ -21,11 +21,15 @@ export default function ExomemTermsPage() {
 
       <h2>Eligibility and availability</h2>
       <p>
-        Exomem Cloud is a friends-only private alpha. Access is by invitation; registering interest
-        does not create an account or promise access. You must be legally able to enter this
-        agreement, provide accurate account information, keep access to your email and connected
-        clients secure, and promptly tell us about suspected unauthorized use. An account is
-        personal and may not be sold or transferred.
+        You can start Exomem Cloud with your email address. If admission is paused or Cloud is full,
+        we add you to a waitlist. We email you when a place opens. Joining the waitlist does not
+        create an account or promise a date.
+      </p>
+      <p>
+        You must be at least 18 years old and legally able to enter this agreement. Provide accurate
+        account information, keep access to your email and connected clients secure, and promptly
+        tell us about suspected unauthorized use. An account is personal and may not be sold or
+        transferred.
       </p>
 
       <h2>The service</h2>
@@ -58,11 +62,14 @@ export default function ExomemTermsPage() {
         third parties, and will give notice where lawful and practicable.
       </p>
 
-      <h2>Alpha access, export, and deletion</h2>
+      <h2>Subscription, export, and deletion</h2>
       <p>
-        This friends-only private alpha has no public purchase flow. Invitations may provide
-        complimentary access; any separately agreed paid arrangement remains governed by the terms
-        provided for that arrangement and does not open public admission.
+        Exomem Cloud is a monthly subscription. Paddle sells it as our reseller and merchant of
+        record, and handles payment, tax and invoices under its own{" "}
+        <a href="https://www.paddle.com/legal/buyer-terms">buyer terms</a>. A friend&apos;s
+        invitation can include a lower price that lasts while you stay subscribed, and some
+        invitations cover the subscription. If a payment fails, your Cloud stays available read-only
+        while Paddle retries it.
       </p>
       <p>
         You can stop using the service, disconnect clients, export your canonical data, and request

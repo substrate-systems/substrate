@@ -460,6 +460,8 @@ export default function HomeClient({
   const checkoutReturn = (
     <PaddleTransactionOpener
       validationEndpoint="/api/exomem/billing/checkout"
+      customerEmail={account?.email}
+      customerEmailPending={accountRead === "loading"}
       FailureView={CheckoutReturnFailure}
     />
   );

@@ -51,6 +51,15 @@ The signed-in Home surface SHALL render one of preparing, awaiting-payment, read
 
 ## ADDED Requirements
 
+### Requirement: Home offers Cloud plugin downloads and manual connection
+
+Home SHALL link to the current released Claude and OpenAI Cloud plugin ZIPs and their official installation guides. These links SHALL remain available after either provider is connected. Home SHALL retain the configured MCP address and involvement instructions for manual connection. Guidance MUST qualify provider plan and workspace limits and MUST NOT imply unverified directory publication.
+
+#### Scenario: Both providers are already connected
+
+- **WHEN** the owner opens "Add another app" after connecting both providers
+- **THEN** Home still offers both Cloud plugin downloads and the manual connection instructions
+
 ### Requirement: Export is a plain ZIP kept for a limited time
 
 An export SHALL be a plain ZIP of Markdown files and attachments. The system SHALL keep it at the Cloud object store, with provider encryption, for `EXOMEM_EXPORT_TTL_HOURS` hours (default 24), then delete it. The privacy page SHALL describe the export in these terms.
