@@ -38,7 +38,7 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The recurring Paddle discount that carries the friend price. Home shows the friend price only on a subscription that carries this discount.                                                                                           |
 | `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level. |
 | `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                                          |
-| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `closed` (default), `waitlist` or `open`. See "Start admission" below. Any other value reads as `closed`.                                                                                                                             |
+| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                        |
 | `EXOMEM_CLOUD_EXPORTS_ENABLED`                                      | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                     |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
@@ -520,8 +520,8 @@ serves new and returning people. Every request that passes Turnstile gets the
 same `202`, and the email carries the outcome. An owner gets a sign-in link.
 Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 
-- `closed`: no email.
-- `waitlist`: a waitlist place.
+- `waitlist`: a waitlist place. This is the default, including an unset or
+  unrecognized value. The retired `closed` value also reads as `waitlist`.
 - `open`: a start link while Cloud has a free place and nobody is waiting,
   else a waitlist place. Each reconcile tick promotes the oldest waiting
   people into free places.
@@ -572,46 +572,22 @@ token, so the sign-in form of an older web app stops working.
    hostname is the public host. The `turnstile-secret` and
    `turnstile-site-key` bindings in `contracts/bws-exomem-production-v1.json`
    select that widget's values.
-4. Deploy with `EXOMEM_SELF_SERVE_ADMISSION` unset.
+4. Deploy with `EXOMEM_SELF_SERVE_ADMISSION=waitlist`; new addresses receive a waitlist place.
 5. Request a sign-in link for an owner account from the start form. The
    owner receives one sign-in email.
-6. Set `EXOMEM_SELF_SERVE_ADMISSION=waitlist`, then `open` when you want to
-   admit people.
+6. Verify that an invited subscriber reaches production Home with working memory and the correct offer; keep admission on `waitlist`.
+7. Before opening, publish the subscription Terms and announce the admission change; users can read the purchase conditions.
+8. Set `EXOMEM_SELF_SERVE_ADMISSION=open` and redeploy; Cloud admits people when capacity and queue order permit.
 
-### Revoke historical self-serve invitations
+To pause admission, set `EXOMEM_SELF_SERVE_ADMISSION=waitlist` and redeploy.
+Existing owners can still request sign-in links. Waiting people keep their places.
 
-The retired self-serve route returns `410`. It does not revoke an old bearer
-that email already delivered. Run this procedure only before the first change
-of `EXOMEM_SELF_SERVE_ADMISSION` away from `closed`. After that change, the
-same rows are live start links, and this procedure revokes them. Count the
-redeemable historical self-serve invites:
+### Historical invitation cutover
 
-```sql
-SELECT count(*) AS outstanding_historical_self_serve_invites
-FROM exomem_invites
-WHERE self_serve
-  AND consumed_at IS NULL
-  AND revoked_at IS NULL
-  AND expires_at > now();
-```
-
-If the count is not zero, stop and revoke only that exact set in one
-transaction. Keep the rows for audit:
-
-```sql
-BEGIN;
-SELECT id FROM exomem_invites
-WHERE self_serve AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-FOR UPDATE;
-
-UPDATE exomem_invites
-SET revoked_at = now()
-WHERE self_serve AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
-RETURNING id;
-COMMIT;
-```
-
-Run the count again and require zero.
+The retired self-serve route returns `410`. The one-time revocation of its
+historical invitations applied only before the first admission deployment.
+It is not a release prerequisite now: those rows also contain live start links.
+Do not repeat the historical bulk revocation after admission has shipped.
 
 ### Issue an invite
 
