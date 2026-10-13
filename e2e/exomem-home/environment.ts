@@ -16,7 +16,7 @@ export function homeE2eEnvironment() {
     databaseUrl,
     port,
     cellPort,
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://localhost:${port}`,
     controlPort: cellPort + 1,
     controlUrl: `http://127.0.0.1:${cellPort + 1}`,
     mcpUrl,

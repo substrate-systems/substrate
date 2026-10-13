@@ -46,10 +46,11 @@ export function InvolvementLevels({
                 </span>
               </div>
               <div className={`${styles.levelSwitch} ${locked ? styles.locked : ""}`}>
-                {/* A disabled fieldset disables every segment inside it. */}
+                {/* Pending writes keep focus on the clicked segment; locked levels stay disabled. */}
                 <fieldset
                   className={styles.fieldset}
-                  disabled={locked || pending !== null}
+                  disabled={locked}
+                  aria-disabled={pending !== null || undefined}
                   aria-busy={pending === row.context || undefined}
                 >
                   <SegmentedSwitch
@@ -58,7 +59,8 @@ export function InvolvementLevels({
                     options={OPTIONS}
                     value={row.level}
                     onChange={(level) => {
-                      if (level !== row.level) onChange(row.context, level, view.revision);
+                      if (pending === null && level !== row.level)
+                        onChange(row.context, level, view.revision);
                     }}
                   />
                 </fieldset>
@@ -66,7 +68,7 @@ export function InvolvementLevels({
             </div>
           );
         })}
-      <div className={styles.panelNote} aria-live="polite">
+      <div className={`${styles.panelNote} ${styles.levelNote}`} aria-live="polite">
         {view.state === "live" && (message ?? view.lockedText)
           ? `${message ?? view.lockedText} `
           : ""}

@@ -56,11 +56,9 @@ export function DeleteDialog({
               </>
             )}
           </p>
-          {step === "failed" && (
-            <p className={styles.dialogText} role="alert">
-              That didn’t finish. Try again in a minute.
-            </p>
-          )}
+          <p className={`${styles.dialogText} ${styles.dialogError}`} role="alert">
+            {step === "failed" ? "That didn’t finish. Try again in a minute." : ""}
+          </p>
           <div className={styles.dialogActions}>
             <Button variant="primary" size="page" working={step === "sending"} onClick={onSend}>
               {step === "sending" ? "Sending…" : "Email me a confirmation link"}

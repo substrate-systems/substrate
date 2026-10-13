@@ -69,6 +69,8 @@ const REFRESH_MS = 30_000;
 /** A pending download link is asked for again this many times, this far apart. */
 const LINK_ATTEMPTS = 3;
 const LINK_RETRY_MS = 2_000;
+const BILLING_FAILED = "Billing didn’t open. Try again in a minute.";
+type BillingControl = "subscribe" | "banner" | "plan";
 
 const LOADING: Lifecycle = { state: "loading", code: "TENANT_PREPARING", retryable: true };
 // A status read that fails is shown as trouble, never as ready.
@@ -122,6 +124,10 @@ export default function HomeClient({
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [billingBusy, setBillingBusy] = useState(false);
+  const [billingError, setBillingError] = useState<{
+    control: BillingControl;
+    text: string;
+  } | null>(null);
   const [pageMessage, setPageMessage] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
@@ -300,19 +306,18 @@ export default function HomeClient({
     else setPageMessage("We could not sign you out. Your session is still active. Try again.");
   }
 
-  async function onBilling(kind: "portal" | "checkout") {
+  async function onBilling(kind: "portal" | "checkout", control: BillingControl) {
     setBillingBusy(true);
-    setPageMessage(null);
     try {
       const destination = await billingDestination(kind);
       if (destination) {
         window.location.assign(destination);
         return;
       }
-      setPageMessage("Billing didn’t open. Try again in a minute.");
+      setBillingError({ control, text: BILLING_FAILED });
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
-      else setPageMessage("Billing didn’t open. Try again in a minute.");
+      else setBillingError({ control, text: BILLING_FAILED });
     } finally {
       if (mounted.current) setBillingBusy(false);
     }
@@ -483,10 +488,13 @@ export default function HomeClient({
                 variant="primary"
                 size="page"
                 working={billingBusy}
-                onClick={() => void onBilling("checkout")}
+                onClick={() => void onBilling("checkout", "subscribe")}
               >
                 Subscribe
               </Button>
+              <div className={styles.billingStatus} role="alert">
+                {billingError?.control === "subscribe" ? billingError.text : null}
+              </div>
             </div>
           )}
           {(mode.kind === "preparing" || mode.kind === "deleting") && reference && (
@@ -555,7 +563,12 @@ export default function HomeClient({
                         onClick={() => copyReference(account.supportReference)}
                         aria-live="polite"
                       >
-                        {referenceCopied ? "Copied" : "Copy reference"}
+                        <span className={styles.copyLabel}>
+                          <span className={styles.copyReserve} aria-hidden="true">
+                            Copy reference
+                          </span>
+                          <span>{referenceCopied ? "Copied" : "Copy reference"}</span>
+                        </span>
                       </Button>
                     ) : action === "status_page" && statusPageUrl ? (
                       <ButtonLink
@@ -590,25 +603,35 @@ export default function HomeClient({
           </div>
         )}
         {accountBanner && (
-          <Notice
-            layout="row"
-            action={
-              accountBanner.action ? (
-                <Button
-                  variant="primary"
-                  size="account"
-                  working={billingBusy}
-                  onClick={() =>
-                    void onBilling(accountBanner.action === "resubscribe" ? "checkout" : "portal")
-                  }
-                >
-                  {bannerLabel[accountBanner.action]}
-                </Button>
-              ) : undefined
-            }
-          >
-            {accountBanner.text}
-          </Notice>
+          <div>
+            <Notice
+              layout="row"
+              action={
+                accountBanner.action ? (
+                  <Button
+                    variant="primary"
+                    size="account"
+                    working={billingBusy}
+                    onClick={() =>
+                      void onBilling(
+                        accountBanner.action === "resubscribe" ? "checkout" : "portal",
+                        "banner"
+                      )
+                    }
+                  >
+                    {bannerLabel[accountBanner.action]}
+                  </Button>
+                ) : undefined
+              }
+            >
+              {accountBanner.text}
+            </Notice>
+            {accountBanner.action && (
+              <div className={styles.billingStatus} role="alert">
+                {billingError?.control === "banner" ? billingError.text : null}
+              </div>
+            )}
+          </div>
         )}
         <ConnectedApps
           apps={apps}
@@ -632,8 +655,9 @@ export default function HomeClient({
           plan={planView(variant, account, billing, clock)}
           storage={storage}
           email={shownEmail}
-          onBilling={(kind) => void onBilling(kind)}
+          onBilling={(kind) => void onBilling(kind, "plan")}
           billingBusy={billingBusy}
+          billingMessage={billingError?.control === "plan" ? billingError.text : null}
         />
         <YourData
           exportRow={exportRow}

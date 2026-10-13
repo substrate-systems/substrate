@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
 import { Button } from "@/components/exomem/Button";
 import { SegmentedSwitch } from "@/components/exomem/SegmentedSwitch";
@@ -13,6 +13,8 @@ import { Section } from "./home-chrome";
 import styles from "./home.module.css";
 
 const COPIED_MS = 1800;
+const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
+const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
 
 type AppsProps = {
   /** Null until the list arrives: nothing about the apps is said before then. */
@@ -56,20 +58,33 @@ function AppRow({
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
+  const action = useRef<HTMLButtonElement | null>(null);
+  const title = useRef<HTMLSpanElement>(null);
+  const focusTitle = useRef(false);
+
+  useLayoutEffect(() => {
+    if (off && focusTitle.current) {
+      title.current?.focus({ preventScroll: true });
+      focusTitle.current = false;
+    }
+  }, [off, confirming]);
 
   let meta = appMeta(app, clock, reviewer);
   if (ended)
     meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
-  else if (failed) meta = "That didn’t finish. Try again in a minute.";
-  else if (confirming) meta = "It loses access until you connect it again.";
+  else if (failed) meta = DISCONNECT_FAILED;
+  else if (confirming) meta = DISCONNECT_CONFIRM;
 
   async function disconnect() {
     setWorking(true);
     const ok = await onDisconnect(app);
     setWorking(false);
-    setConfirming(false);
     setFailed(!ok);
+    if (ok) {
+      focusTitle.current = true;
+      setConfirming(false);
+    }
   }
 
   return (
@@ -81,36 +96,54 @@ function AppRow({
         {appGlyph(app)}
       </div>
       <div className={styles.rowText}>
-        <span className={styles.rowTitle}>{app.displayName}</span>
-        <span className={styles.rowMeta}>{meta}</span>
+        <span ref={title} tabIndex={-1} className={`${styles.rowTitle} ${styles.focusAnchor}`}>
+          {app.displayName}
+        </span>
+        <span className={`${styles.rowMeta} ${styles.appMeta}`}>
+          {confirming && (
+            <>
+              <span className={styles.metaReserve} aria-hidden="true">
+                {DISCONNECT_CONFIRM}
+              </span>
+              <span className={styles.metaReserve} aria-hidden="true">
+                {DISCONNECT_FAILED}
+              </span>
+            </>
+          )}
+          <span role={failed ? "alert" : undefined}>{meta}</span>
+        </span>
       </div>
-      {!ended && !off && !confirming && (
-        <Button
-          variant="quiet"
-          size="row"
-          onClick={() => {
-            setFailed(false);
-            setConfirming(true);
-          }}
-          aria-label={`Disconnect ${app.displayName}`}
-        >
-          Disconnect
-        </Button>
-      )}
-      {!ended && !off && confirming && (
+      {!ended && !off && (
         <span className={styles.rowActions}>
           <Button
-            variant="primary"
+            variant={confirming ? "primary" : "quiet"}
             size="row"
             working={working}
-            onClick={() => void disconnect()}
-            aria-label={`Disconnect ${app.displayName} now`}
+            onClick={(event) => {
+              action.current = event.currentTarget;
+              if (confirming) void disconnect();
+              else {
+                setFailed(false);
+                setConfirming(true);
+              }
+            }}
+            aria-label={`Disconnect ${app.displayName}${confirming ? " now" : ""}`}
           >
             Disconnect
           </Button>
-          <button type="button" className={styles.rowCancel} onClick={() => setConfirming(false)}>
-            Cancel
-          </button>
+          {confirming && (
+            <button
+              type="button"
+              className={styles.rowCancel}
+              onClick={() => {
+                setFailed(false);
+                setConfirming(false);
+                action.current?.focus({ preventScroll: true });
+              }}
+            >
+              Cancel
+            </button>
+          )}
         </span>
       )}
     </div>
@@ -147,7 +180,12 @@ function CopyLine({ text, value, label }: { text: string; value: string; label: 
         aria-label={copied ? `Copied: ${label}` : `Copy ${label}`}
         aria-live="polite"
       >
-        {copied ? "Copied" : "Copy"}
+        <span className={styles.copyLabel}>
+          <span aria-hidden="true" className={styles.copyReserve}>
+            Copied
+          </span>
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </span>
       </button>
     </div>
   );

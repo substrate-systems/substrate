@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ComponentProps } from "react";
+import type { ButtonHTMLAttributes, ComponentProps, Ref } from "react";
 import Link from "next/link";
 import phone from "./phone.module.css";
 import styles from "./Button.module.css";
@@ -15,6 +15,7 @@ type Variant = "primary" | "secondary" | "quiet" | "amber" | "ghost";
 type Size = "panel" | "page" | "landing" | "row" | "account" | "detail";
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
+  ref?: Ref<HTMLButtonElement>;
   /**
    * primary: the one main action · secondary: bordered · quiet: bordered, in the secondary
    * ink, an action that takes something away (Home's Disconnect) · amber: epistemic actions
