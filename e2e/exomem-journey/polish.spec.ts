@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 import {
   chooseCopy,
   failureCopy,
@@ -7,6 +8,14 @@ import {
   startCopy,
 } from "../../src/app/exomem/_journey/copy";
 import { seedOwner, uniqueEmail } from "./seed";
+
+async function expectJourneyCentered(page: Page) {
+  const offset = await page.getByRole("main").locator('[class*="column"]').evaluate((column) => {
+    const bounds = column.getBoundingClientRect();
+    return bounds.top + bounds.height / 2 - window.innerHeight / 2;
+  });
+  expect(Math.abs(offset)).toBeLessThanOrEqual(1);
+}
 
 test("a failed email send keeps the form still and focused, then focuses the sent heading", async ({
   page,
@@ -19,6 +28,7 @@ test("a failed email send keeps the form still and focused, then focuses the sen
   await page.getByLabel(startCopy.emailLabel).fill(uniqueEmail("send-retry"));
   const send = page.getByRole("button", { name: startCopy.web.primary });
   await page.evaluate(() => document.fonts.ready);
+  await expectJourneyCentered(page);
   const beforeHeading = (await heading.boundingBox())!;
   const beforeButton = (await send.boundingBox())!;
   await page.evaluate(() => {
@@ -65,9 +75,10 @@ test("a failed email send keeps the form still and focused, then focuses the sen
   const sent = page.getByRole("heading", { name: sentCopy.title });
   await expect(sent).toBeFocused();
   await expect(page.getByRole("main").getByRole("alert")).not.toBeVisible();
-  expect((await sent.boundingBox())!.y).toBe(beforeHeading.y);
+  await expectJourneyCentered(page);
   await page.getByRole("button", { name: sentCopy.differentEmail }).click();
   await expect(heading).toBeFocused();
+  await expectJourneyCentered(page);
   expect((await heading.boundingBox())!.y).toBe(beforeHeading.y);
 });
 
@@ -82,11 +93,11 @@ test("copying the setup address keeps the control width and surrounding content 
   await page.goto("/exomem/setup");
   const choose = page.getByRole("heading", { name: chooseCopy.title });
   await expect(choose).toBeVisible();
-  const titleY = (await choose.boundingBox())!.y;
+  await expectJourneyCentered(page);
   await page.getByRole("button", { name: chooseCopy.other.name }).click();
   const other = page.getByRole("heading", { name: otherAppCopy.title });
   await expect(other).toBeFocused();
-  expect((await other.boundingBox())!.y).toBe(titleY);
+  await expectJourneyCentered(page);
   const copy = page.getByRole("button", { name: "Copy", exact: true });
   await page.evaluate(() => document.fonts.ready);
   const before = await copy.boundingBox();

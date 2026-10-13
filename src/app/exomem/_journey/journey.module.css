@@ -12,6 +12,29 @@
   flex-direction: column;
   overflow: hidden;
   --gutter: 40px;
+  --edge-gap: 24px;
+}
+
+/* Equal flexible space centres the step. Header and origin clearance take priority
+   only when a tall step leaves too little room for equal space. */
+.page::before,
+.page::after {
+  content: "";
+  flex: 1 1 0px;
+  min-height: calc(56px - var(--edge-gap));
+}
+
+.page::before {
+  margin-top: var(--edge-gap);
+}
+
+.page::after {
+  margin-bottom: var(--edge-gap);
+  min-height: 0;
+}
+
+.page:has(> .footer)::after {
+  display: none;
 }
 
 .wordmark {
@@ -41,20 +64,21 @@
   color: var(--fg-secondary);
 }
 
-/* The top anchor leaves room for the tallest step; changing steps never centres it again. */
 .center {
   position: relative;
-  flex: 1;
+  flex: none;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: max(96px, calc(50dvh - 300px)) var(--gutter) 0;
+  padding: 0 var(--gutter);
   box-sizing: border-box;
 }
 
 .column {
   width: 460px;
   max-width: 100%;
+  /* The field's fixed clear area cannot cover every tall step on a short phone. */
+  background: var(--bg-base);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -613,16 +637,23 @@
 /* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
    the light ground, where 80% would not. */
 .footer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 24px;
+  flex: 1 1 0px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: var(--edge-gap);
   padding: 0 var(--gutter);
   text-align: center;
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
   overflow-wrap: anywhere;
+}
+
+.footerText {
+  /* Clear the origin text without hiding the flexible lower field. */
+  position: relative;
+  background: var(--bg-base);
 }
 
 .status {
@@ -662,18 +693,6 @@
     gap: 8px;
   }
 
-  /* The request's origin sits in the page's flow under the step, and the step centres in
-     the space between the wordmark and it, so a tall step can never run under either:
-     it scrolls instead, which the layout spec catches. */
-  .center {
-    padding-top: max(64px, calc(50dvh - 360px));
-  }
-
-  .footer {
-    position: static;
-    padding-top: 8px;
-    padding-bottom: 24px;
-  }
 }
 
 /* On a desktop only some steps repeat the signed-in email under the actions. */
@@ -687,12 +706,6 @@
   }
 }
 
-/* An expired request has no form transitions; centre its short message in the viewport. */
-.center.centered {
-  align-items: center;
-  padding: 80px var(--gutter);
-}
-
 /* A phone too short for the tiles drops them and tightens the column and the step, so every
    step still fits without scrolling, down to 360 x 640. With the tiles, the tallest step
    needs 780 px below 390 px wide and 735 px from 390 px wide, so the cut-offs are 800 and
@@ -704,15 +717,11 @@
 }
 
 @media (max-width: 389px) and (max-height: 799px), (max-width: 640px) and (max-height: 739px) {
-  .center {
-    padding-top: 56px;
+  .page {
+    --edge-gap: 16px;
   }
   .tiles {
     display: none;
-  }
-
-  .footer {
-    padding-bottom: 16px;
   }
 
   /* The handoff's phone title range is 21–24 px. */
