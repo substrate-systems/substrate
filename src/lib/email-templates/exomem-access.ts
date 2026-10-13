@@ -131,7 +131,7 @@ export function renderExomemHoldReminderEmail(input: {
 /** The waitlist email, in the product owner's approved copy (2026-10-12). */
 export function renderExomemWaitlistEmail(): RenderedExomemAccessEmail {
   return renderExomemEmail({
-    subject: "You're on the Exomem waitlist",
+    subject: "You’re on the Exomem waitlist",
     preheader: "We'll email you when a place opens.",
     band: "arrive",
     headline: "You're on the list",

@@ -57,7 +57,7 @@ export type ExomemEmailFact = {
 export type ExomemEmailSlots = {
   /** Slot 1: "Exomem", or "<name> via Exomem" when a person sent it. */
   sentBy?: { personName: string } | null;
-  /** Slot 1: 45 characters or fewer. */
+  /** Slot 1: 45 characters or fewer, except named friend invitations (design.md). */
   subject: string;
   /** Slot 2: the one fact that matters next. Empty leaves the client's own preview. */
   preheader: string;
@@ -96,6 +96,7 @@ export type RenderedExomemEmail = {
 
 const FOOTER = "Exomem by Substrate Systems";
 const SENDER = "Exomem";
+const WORDMARK_URL = "https://substratesystems.io/exomem";
 
 // The board's delivery note: web fonts often don't load in mail, so IBM Plex
 // Mono falls back to Menlo or Consolas, and Inter to Helvetica or Arial.
@@ -195,10 +196,11 @@ function lightRules(palette: Palette): string {
 function schemeImages(
   assetBaseUrl: string,
   files: Record<ExomemEmailScheme, string>,
-  attributes: { width: number; height: number; alt: string; style: string }
+  attributes: { width: number; height: number; alt: string; style: string },
+  linkUrl: string
 ): string {
   const img = (scheme: ExomemEmailScheme) =>
-    `<img src="${escapeHtml(`${assetBaseUrl}${EXOMEM_EMAIL_ASSET_PATH}/${files[scheme]}`)}" width="${attributes.width}" height="${attributes.height}" alt="${escapeHtml(attributes.alt)}" style="${attributes.style}">`;
+    `<a href="${escapeHtml(linkUrl)}" style="display: block; text-decoration: none;"><img src="${escapeHtml(`${assetBaseUrl}${EXOMEM_EMAIL_ASSET_PATH}/${files[scheme]}`)}" width="${attributes.width}" height="${attributes.height}" alt="${escapeHtml(attributes.alt)}" style="${attributes.style}"></a>`;
   return (
     `<div class="x-img-dark">${img("dark")}</div>` +
     `<!--[if !mso]><!--><div class="x-img-light" style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${img("light")}</div><!--<![endif]-->`
@@ -260,7 +262,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   const rows: string[] = [];
   const row = (content: string, style = "", cls = "") =>
     rows.push(
-      `<tr><td${cls ? ` class="${cls}"` : ""} style="padding: 0 0 16px 0; ${style}">${content}</td></tr>`
+      `<tr><td${cls ? ` class="${cls}"` : ""} style="padding: 0 0 16px 0; overflow-wrap: anywhere; word-break: break-word; ${style}">${content}</td></tr>`
     );
 
   row(
@@ -271,7 +273,8 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
         ...EXOMEM_EMAIL_WORDMARK,
         alt: "Exomem",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
-      }
+      },
+      WORDMARK_URL
     ),
     "line-height: 0; font-size: 0;"
   );
@@ -293,9 +296,9 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
     const rule = p("noteRule");
     const text = p("primary");
     row(
-      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="${rule.cls}" style="border-left: 2px solid; ${rule.css} padding: 2px 0 2px 16px;">` +
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout: fixed;"><tr><td class="${rule.cls}" style="border-left: 2px solid; ${rule.css} padding: 2px 0 2px 16px; overflow-wrap: anywhere; word-break: break-word;">` +
         `<div class="${text.cls}" style="font-family: ${SANS}; font-size: 15px; line-height: 1.6; ${text.css}">“${escapeHtml(detail.text)}”</div>` +
-        `<div class="${quiet.cls}" style="padding-top: 6px; font-family: ${MONO}; font-size: 12px; ${quiet.css}">${escapeHtml(detail.author)}</div>` +
+        `<div class="${quiet.cls}" style="padding-top: 6px; font-family: ${MONO}; font-size: 13px; ${quiet.css}">${escapeHtml(detail.author)}</div>` +
         `</td></tr></table>`
     );
   }
@@ -313,15 +316,15 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
           : "";
         return (
           `<tr>` +
-          `<td class="${quiet.cls}${last ? "" : ` ${rule.cls}`}" style="padding: 10px 16px 10px 0; font-family: ${MONO}; font-size: 13px; ${quiet.css} ${divider}" valign="top">${escapeHtml(fact.label)}</td>` +
-          `<td class="${value.cls}${last ? "" : ` ${rule.cls}`}" style="padding: 10px 0; font-family: ${MONO}; font-size: 13px; text-align: right; ${value.css} ${divider}" align="right" valign="top">${struck}${escapeHtml(fact.value)}</td>` +
+          `<td class="x-fact-label ${quiet.cls}${last ? "" : ` ${rule.cls}`}" style="padding: 10px 16px 10px 0; font-family: ${MONO}; font-size: 13px; overflow-wrap: anywhere; word-break: break-word; ${quiet.css} ${divider}" valign="top">${escapeHtml(fact.label)}</td>` +
+          `<td class="x-fact-value ${value.cls}${last ? "" : ` ${rule.cls}`}" style="padding: 10px 0; font-family: ${MONO}; font-size: 13px; text-align: right; overflow-wrap: anywhere; word-break: break-word; ${value.css} ${divider}" align="right" valign="top">${struck}${escapeHtml(fact.value)}</td>` +
           `</tr>`
         );
       })
       .join("");
     row(
-      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="${box.cls}" style="border: 1px solid; ${box.css} border-collapse: separate; border-radius: ${token(palette.dark, "--r-card")};">` +
-        `<tr><td style="padding: 4px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${factRows}</table></td></tr></table>`
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="${box.cls}" style="table-layout: fixed; border: 1px solid; ${box.css} border-collapse: separate; border-radius: ${token(palette.dark, "--r-card")};">` +
+        `<tr><td style="padding: 4px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout: fixed;">${factRows}</table></td></tr></table>`
     );
   }
 
@@ -331,12 +334,12 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
     const link = p("primary");
     const radius = token(palette.dark, "--r-ctl");
     const textLink = slots.action.link
-      ? `<td class="x-aside" style="padding-left: 18px;"><a class="${link.cls}" href="${escapeHtml(slots.action.link.url)}" style="font-family: ${MONO}; font-size: 13px; text-decoration: underline; ${link.css}">${escapeHtml(slots.action.link.label)}</a></td>`
+      ? `<td class="x-aside" style="padding-left: 18px;"><a class="x-text-link ${link.cls}" href="${escapeHtml(slots.action.link.url)}" style="font-family: ${MONO}; font-size: 13px; line-height: 18px; text-decoration: underline; ${link.css}">${escapeHtml(slots.action.link.label)}</a></td>`
       : "";
     row(
       `<table role="presentation" class="x-action" cellpadding="0" cellspacing="0" border="0"><tr>` +
         `<td class="${fill.cls}" style="${fill.css} border-radius: ${radius}; mso-padding-alt: 13px 20px;">` +
-        `<a class="${label.cls}" href="${escapeHtml(slots.action.url)}" style="display: inline-block; padding: 13px 20px; font-family: ${MONO}; font-size: 14px; font-weight: 500; text-decoration: none; white-space: nowrap; border-radius: ${radius}; ${label.css}">${escapeHtml(slots.action.label)}</a>` +
+        `<a class="${label.cls}" href="${escapeHtml(slots.action.url)}" style="display: block; box-sizing: border-box; max-width: 100%; padding: 13px 20px; font-family: ${MONO}; font-size: 14px; line-height: 18px; font-weight: 500; text-decoration: none; overflow-wrap: anywhere; word-break: break-word; border-radius: ${radius}; ${label.css}">${escapeHtml(slots.action.label)}</a>` +
         `</td>${textLink}</tr></table>`,
       "padding-top: 6px;"
     );
@@ -352,7 +355,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
 
   const footer = p("footer", "footerRule");
   rows.push(
-    `<tr><td class="${footer.cls}" style="border-top: 1px solid; ${footer.css} padding-top: 14px; font-family: ${MONO}; font-size: 11.5px;">${FOOTER}</td></tr>`
+    `<tr><td class="${footer.cls}" style="border-top: 1px solid; ${footer.css} padding-top: 14px; font-family: ${MONO}; font-size: 13px; overflow-wrap: anywhere; word-break: break-word;">${FOOTER}</td></tr>`
   );
 
   const cardRadius = token(palette.dark, "--r-pop");
@@ -367,7 +370,8 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       height: 120,
       alt: "",
       style: "display: block; border: 0; width: 100%; max-width: 600px; height: auto;",
-    }
+    },
+    slots.action?.url ?? WORDMARK_URL
   );
 
   const htmlContent = `<!doctype html>
@@ -384,8 +388,12 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   ${schemeBlock}
   @media (max-width: 480px) {
     .x-pad { padding: 24px 24px 32px 24px !important; }
+    .x-action { width: 100% !important; }
     .x-action td { display: block !important; }
     .x-aside { padding: 12px 0 0 0 !important; }
+    .x-text-link { display: block !important; padding: 13px 0 !important; }
+    .x-fact-label { display: block !important; padding: 10px 0 4px !important; border-bottom: 0 !important; }
+    .x-fact-value { display: block !important; padding: 0 0 10px !important; text-align: left !important; }
   }
   </style>
 </head>
@@ -394,11 +402,11 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="${frame.cls}" style="${frame.css}">
     <tr>
       <td align="center" style="padding: 32px 16px;">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="${card.cls}" style="width: 100%; max-width: 600px; border: 1px solid; border-collapse: separate; border-radius: ${cardRadius}; ${card.css}">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="${card.cls}" style="width: 100%; max-width: 600px; table-layout: fixed; border: 1px solid; border-collapse: separate; border-radius: ${cardRadius}; ${card.css}">
           <tr><td style="padding: 0; line-height: 0; font-size: 0; border-radius: ${cardRadius} ${cardRadius} 0 0; overflow: hidden;">${band}</td></tr>
           <tr>
             <td class="x-pad" style="padding: 26px 40px 34px 40px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout: fixed;">
                 ${rows.join("\n                ")}
               </table>
             </td>
