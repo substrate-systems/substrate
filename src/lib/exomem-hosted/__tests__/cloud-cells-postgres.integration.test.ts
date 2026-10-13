@@ -206,11 +206,15 @@ describe("Exomem Cloud cells schema PostgreSQL integration", { skip: !databaseUr
     const listener = await pool!.connect();
     const notifications: string[] = [];
     listener.on("notification", (message) => {
-      if (message.channel === "exomem_cloud_cells" && message.payload) {
+      // LISTEN is database-wide; a parallel test's cell must not count as this insert.
+      if (message.channel === "exomem_cloud_cells" && message.payload === id) {
         notifications.push(message.payload);
       }
     });
     await listener.query("LISTEN exomem_cloud_cells");
+
+    // Another schema's trigger can notify on this same channel during the insert.
+    await listener.query("SELECT pg_notify('exomem_cloud_cells', $1)", [cellId("z")]);
 
     await pool!.query(
       "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'stopped')",
