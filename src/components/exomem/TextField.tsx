@@ -10,8 +10,6 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | 
    * whether an account exists.
    */
   error?: ReactNode;
-  /** The message that sets the space before an error appears. */
-  errorSpace?: ReactNode;
   /**
    * A failed attempt whose message the page shows elsewhere, such as a notice above
    * the form: the field draws the error border without a message of its own.
@@ -20,7 +18,7 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | 
 };
 
 /** A labelled text input. */
-export function TextField({ label, error, errorSpace, invalid = false, ...input }: TextFieldProps) {
+export function TextField({ label, error, invalid = false, ...input }: TextFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hasError = error !== undefined && error !== null && error !== false;
@@ -36,20 +34,9 @@ export function TextField({ label, error, errorSpace, invalid = false, ...input 
         aria-invalid={hasError || invalid || undefined}
         aria-describedby={hasError ? errorId : input["aria-describedby"]}
       />
-      {(hasError || errorSpace) && (
-        <div
-          id={errorId}
-          className={styles.error}
-          role={hasError ? "alert" : undefined}
-          style={hasError ? undefined : { visibility: "hidden" }}
-          aria-hidden={!hasError || undefined}
-        >
-          {errorSpace ? (
-            <span className={styles.errorSpace} aria-hidden="true">
-              {errorSpace}
-            </span>
-          ) : null}
-          <span className={styles.errorText}>{hasError ? error : errorSpace}</span>
+      {hasError && (
+        <div id={errorId} className={styles.error} role="alert">
+          {error}
         </div>
       )}
     </div>
