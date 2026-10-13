@@ -76,6 +76,8 @@
 .column {
   width: 460px;
   max-width: 100%;
+  /* The field's fixed clear area cannot cover every tall step on a short phone. */
+  background: var(--bg-base);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -645,6 +647,12 @@
   font-size: 12px;
   color: var(--fg-secondary);
   overflow-wrap: anywhere;
+}
+
+.footerText {
+  /* Clear the origin text without hiding the flexible lower field. */
+  position: relative;
+  background: var(--bg-base);
 }
 
 .status {

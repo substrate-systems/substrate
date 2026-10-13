@@ -101,7 +101,11 @@ export function JourneyPage({
           </div>
         </div>
       </div>
-      {footer ? <div className={styles.footer}>{footer}</div> : null}
+      {footer ? (
+        <div className={styles.footer}>
+          <span className={styles.footerText}>{footer}</span>
+        </div>
+      ) : null}
     </main>
   );
 }
