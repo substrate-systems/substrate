@@ -211,7 +211,6 @@ export function StartFlow({
                   void startChallenge();
                 }}
                 error={failure ?? undefined}
-                errorSpace={failureCopy.generic}
               />
               {challenge}
             </div>

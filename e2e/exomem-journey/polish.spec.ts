@@ -17,7 +17,7 @@ async function expectJourneyCentered(page: Page) {
   expect(Math.abs(offset)).toBeLessThanOrEqual(1);
 }
 
-test("a failed email send keeps the form still and focused, then focuses the sent heading", async ({
+test("email sign-in has no empty error gap, keeps retries focused, then focuses the sent heading", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -31,14 +31,9 @@ test("a failed email send keeps the form still and focused, then focuses the sen
   await expectJourneyCentered(page);
   const beforeHeading = (await heading.boundingBox())!;
   const beforeButton = (await send.boundingBox())!;
-  await page.evaluate(() => {
-    const shifts: number[] = [];
-    Object.assign(window, { journeyShifts: shifts });
-    new PerformanceObserver((entries) => {
-      for (const entry of entries.getEntries())
-        shifts.push((entry as PerformanceEntry & { value: number }).value);
-    }).observe({ type: "layout-shift" });
-  });
+  const inputBounds = (await page.getByLabel(startCopy.emailLabel).boundingBox())!;
+  const formGap = await page.locator("form").evaluate((form) => parseFloat(getComputedStyle(form).rowGap));
+  expect(beforeButton.y - inputBounds.y - inputBounds.height).toBe(formGap);
   // A lost network connection is the failure this case exercises.
   await page.route("**/api/exomem/access/start", (route) => route.abort("failed"));
   await send.click();
@@ -50,8 +45,8 @@ test("a failed email send keeps the form still and focused, then focuses the sen
       .filter({ visible: true })
   ).toBeVisible();
   await expect(send).toBeFocused();
-  expect((await heading.boundingBox())!.y).toBe(beforeHeading.y);
-  expect(await send.boundingBox()).toEqual(beforeButton);
+  await expectJourneyCentered(page);
+  const failedButton = await send.boundingBox();
   await send.click();
   await expect(
     page
@@ -61,14 +56,8 @@ test("a failed email send keeps the form still and focused, then focuses the sen
       .filter({ visible: true })
   ).toBeVisible();
   await expect(send).toBeFocused();
-  expect(await send.boundingBox()).toEqual(beforeButton);
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-      )
-  );
-  expect(await page.evaluate(() => Reflect.get(window, "journeyShifts"))).toEqual([]);
+  expect(await send.boundingBox()).toEqual(failedButton);
+  await expectJourneyCentered(page);
 
   await page.unroute("**/api/exomem/access/start");
   await send.click();
