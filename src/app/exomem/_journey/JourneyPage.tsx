@@ -49,7 +49,6 @@ type JourneyPageProps = {
   headerEmail?: string | null;
   /** The signed-in navigation destination can differ from the visible email. */
   homeHref?: string;
-  centered?: boolean;
   /** A page an app opened: where the request came from. */
   footer?: string | null;
   /**
@@ -71,7 +70,6 @@ export function JourneyPage({
   app,
   headerEmail,
   homeHref = headerEmail ? "/exomem/home" : "/exomem",
-  centered = false,
   footer,
   tilesIdle = false,
   stepKey,
@@ -93,7 +91,7 @@ export function JourneyPage({
         <Wordmark />
       </a>
       {headerEmail ? <div className={styles.headerEmail}>{headerEmail}</div> : null}
-      <div className={`${styles.center} ${centered ? styles.centered : ""}`}>
+      <div className={styles.center}>
         <div className={styles.column}>
           <div className={styles.tiles}>
             <PairedTiles state={tilesIdle ? "idle" : tilesState(kind)} app={app} />

@@ -178,7 +178,6 @@ export default function AuthorizeClient({
         app={expiredApp ? appTile(expiredApp) : undefined}
         footer={expiredApp ? requestFooter(expiredApp) : null}
         stepKey="expired"
-        centered
       >
         <StepHeading
           title={breakCopy.expired.title}
@@ -630,7 +629,6 @@ function Consent({
       app={tile}
       headerEmail={signedIn}
       homeHref={request.email ? "/exomem/home" : "/exomem"}
-      centered={current === "expired"}
       footer={footer}
       // Connect, its variants and Connecting… are one step whose button changes.
       stepKey={
