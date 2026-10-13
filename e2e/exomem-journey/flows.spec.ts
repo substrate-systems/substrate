@@ -217,8 +217,9 @@ test("an app that names itself is shown with where its answer goes", async ({ pa
 
   await expect(page.getByRole("heading", { name: consentCopy.title("Claude") })).toBeVisible();
   await expect(
-    page.getByText(`${consentCopy.footer("lookalike.example.test")} · ${claimCopy("Claude")}`)
+    page.getByText(consentCopy.footer("lookalike.example.test"), { exact: true })
   ).toBeVisible();
+  await expect(page.getByText(claimCopy("Claude"), { exact: true })).toBeVisible();
 });
 
 test("Not now tells an app on this computer in the background, and the page stays", async ({
@@ -290,9 +291,9 @@ async function joinWithoutPlugin(page: Page, context: BrowserContext) {
   await consent.getByRole("button", { name: consentCopy.connect, exact: true }).click();
   await consent.close();
 
-  await expect(
-    page.getByRole("heading", { name: joinedCopy.title("Claude Code") })
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: joinedCopy.title("Claude Code") })).toBeVisible({
+    timeout: 10_000,
+  });
 }
 
 // Production keeps the Home channel off until a later cell release, and so does this
@@ -317,10 +318,7 @@ test("a level the cell cannot take yet stays picked and is not called saved", as
 // The channel is off on this server, so the test answers its two calls in the browser.
 // Every write loses its answer, as when the connection drops after the cell applied the
 // level or before it did. The page reads the levels again and says what the cell holds.
-test("a level save whose answer is lost reports what the cell holds", async ({
-  page,
-  context,
-}) => {
+test("a level save whose answer is lost reports what the cell holds", async ({ page, context }) => {
   const held: CloudHomeLiveLevels["levels"] = {
     coding: { level: "balanced", source: "default" },
     conversation: { level: "balanced", source: "default" },

@@ -148,3 +148,42 @@ it("keeps transaction checkout available when the caller has no account email", 
     await close();
   }
 });
+
+it("validates and opens a returned checkout when the optional account email never arrives", async () => {
+  const { PaddleTransactionOpener } = await import("@/components/PaddleTransactionOpener");
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify({
+          success: true,
+          checkoutUrl: `https://checkout.example.invalid/?_ptxn=${transactionId}`,
+        })
+      )
+  );
+  function ReturnedCheckout() {
+    return (
+      <PaddleTransactionOpener
+        validationEndpoint="/api/exomem/billing/checkout"
+        customerEmailPending
+      />
+    );
+  }
+  const close = await render(
+    ReturnedCheckout,
+    `http://localhost/exomem/home?_ptxn=${transactionId}`
+  );
+  try {
+    assert.equal(new URL(window.location.href).searchParams.has("_ptxn"), false);
+    assert.equal(fetchMock.mock.callCount(), 1);
+    assert.equal(opened.length, 0);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 2_100)));
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].transactionId, transactionId);
+    assert.equal(opened[0].customer, undefined);
+  } finally {
+    fetchMock.mock.restore();
+    await close();
+  }
+});

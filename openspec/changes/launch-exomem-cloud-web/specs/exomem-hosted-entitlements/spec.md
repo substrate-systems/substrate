@@ -24,7 +24,7 @@ Capture, recall, browse, upload, download, readiness, export polling, and Home r
 
 ### Requirement: Checkout prefills the authenticated owner's email
 
-The setup, consent and Home checkout paths SHALL pass the known account email to Paddle's transaction checkout. The server-selected transaction, price, discount and custom data MUST remain authoritative. A caller without an email SHALL omit the customer prefill and keep checkout available.
+The setup, consent and Home checkout paths SHALL pass the known account email to Paddle's transaction checkout. The server-selected transaction, price, discount and custom data MUST remain authoritative. A caller without an email SHALL omit the customer prefill and keep checkout available. Home SHALL validate a returned transaction immediately and remove its URL credential. If the account read remains pending after two seconds, checkout SHALL open without prefill.
 
 #### Scenario: Owner starts or resumes checkout
 
@@ -35,6 +35,12 @@ The setup, consent and Home checkout paths SHALL pass the known account email to
 
 - **WHEN** a checkout caller has no account email
 - **THEN** checkout opens without a customer prefill
+
+#### Scenario: Home account read hangs
+
+- **WHEN** a returned transaction is valid but the optional account email read remains pending
+- **THEN** Home validates the transaction and removes the URL credential immediately
+- **AND** checkout opens without prefill after the bounded wait
 
 ### Requirement: Friend price is one server-applied recurring Paddle discount
 

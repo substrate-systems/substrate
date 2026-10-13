@@ -54,16 +54,10 @@ export type RequestApp = {
   redirectHost: string;
 };
 
-/**
- * Where the request came from, at the page's foot. A name the app chose for itself could
- * be anyone's, so the footer says so beside where the answer goes.
- */
+/** The footer names the code destination; app-name claims appear beside consent. */
 function requestFooter(app: RequestApp): string {
   const from = app.loopback ? consentCopy.onThisComputer(app.displayName) : app.redirectHost;
-  return (
-    consentCopy.footer(from) +
-    (app.vouched || app.loopback ? "" : ` · ${claimCopy(app.displayName)}`)
-  );
+  return consentCopy.footer(from);
 }
 
 type ConsentRequest = {
@@ -185,6 +179,7 @@ export default function AuthorizeClient({
         app={expiredApp ? appTile(expiredApp) : undefined}
         footer={expiredApp ? requestFooter(expiredApp) : null}
         stepKey="expired"
+        centered
       >
         <StepHeading
           title={breakCopy.expired.title}
@@ -424,6 +419,9 @@ function Consent({
             </StepNotice>
           ) : null}
           <ScopesCard scopes={request.scopes} readOnly={readOnly} />
+          {!app.vouched && !app.loopback ? (
+            <StepNotice>{claimCopy(app.displayName)}</StepNotice>
+          ) : null}
           <StepNotice alert visible={!!failure}>
             {failure ?? failureCopy.generic}
           </StepNotice>
@@ -478,6 +476,9 @@ function Consent({
           />
           {statusPageUrl ? <StepNotice>{breakCopy.connectError.notice}</StepNotice> : null}
           <ScopesCard scopes={request.scopes} readOnly={false} />
+          {!app.vouched && !app.loopback ? (
+            <StepNotice>{claimCopy(app.displayName)}</StepNotice>
+          ) : null}
           <StepActions
             primary={{ label: breakCopy.connectError.retry, onClick: () => void connect() }}
             secondary={
@@ -634,6 +635,8 @@ function Consent({
       kind={KIND[current]}
       app={tile}
       headerEmail={signedIn}
+      homeHref={request.email ? "/exomem/home" : "/exomem"}
+      centered={current === "expired"}
       footer={footer}
       // Connect, its variants and Connecting… are one step whose button changes.
       stepKey={

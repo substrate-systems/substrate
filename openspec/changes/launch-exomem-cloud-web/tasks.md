@@ -129,6 +129,7 @@
 - [x] 10.12 Prefill the authenticated owner email in setup, consent and Home transaction checkout without changing server-selected billing data
 - [x] 10.13 Update public-subscription Terms with 18+ eligibility and accurate Turnstile/Brevo privacy disclosure
 - [x] 10.14 Offer released Cloud plugin ZIPs and qualified installation guidance from Home, including when both providers are connected
+- [x] 10.15 Clarify journey app tiles and origins, center expired requests, link the wordmark and bound optional checkout email acquisition
 
 These corrections follow the launch polish merge because both batches change subscribe. Their production release follows independent review and acceptance.
 

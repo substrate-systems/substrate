@@ -7,6 +7,8 @@ import { AnalyticsEvent, capture } from "@/lib/analytics";
 
 const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
 const PENDING_TRANSACTION_KEY = "exomem:paddle-return-transaction";
+// Optional email prefill must not block a validated checkout during an account-read outage.
+const EMAIL_PREFILL_WAIT_MS = 2_000;
 
 function retainPendingTransaction(transactionId: string): void {
   try {
@@ -97,10 +99,12 @@ export type PaddleTransactionFailure = {
 export function PaddleTransactionOpener({
   validationEndpoint,
   customerEmail,
+  customerEmailPending = false,
   FailureView,
 }: {
   validationEndpoint?: string;
   customerEmail?: string | null;
+  customerEmailPending?: boolean;
   /** Draws the failure in the page's design system; without it the opener draws its own. */
   FailureView?: ComponentType<PaddleTransactionFailure>;
 } = {}) {
@@ -108,8 +112,15 @@ export function PaddleTransactionOpener({
   const [validationFailed, setValidationFailed] = useState(false);
   const [paddleFailed, setPaddleFailed] = useState(false);
   const [validationAttempt, setValidationAttempt] = useState(0);
+  const [emailWaitExpired, setEmailWaitExpired] = useState(false);
   const candidateRef = useRef<string | null | undefined>(undefined);
   const validationRef = useRef<Promise<Record<string, unknown>> | null>(null);
+
+  useEffect(() => {
+    if (!customerEmailPending) return;
+    const timer = window.setTimeout(() => setEmailWaitExpired(true), EMAIL_PREFILL_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [customerEmailPending]);
 
   useEffect(() => {
     if (candidateRef.current === undefined) {
@@ -253,7 +264,7 @@ export function PaddleTransactionOpener({
     );
   }
 
-  if (!transactionId) return null;
+  if (!transactionId || (customerEmailPending && !emailWaitExpired)) return null;
   return (
     <OpenPaddleTransaction
       transactionId={transactionId}

@@ -20,6 +20,15 @@
   top: 29px;
   line-height: 0;
   color: var(--fg-primary);
+  text-decoration: none;
+}
+
+.platformGlyph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  line-height: 1;
 }
 
 .headerEmail {
@@ -674,6 +683,12 @@
   .reviewerNoteInLede {
     display: none;
   }
+}
+
+/* An expired request has no form transitions; centre its short message in the viewport. */
+.center.centered {
+  align-items: center;
+  padding: 80px var(--gutter);
 }
 
 /* A phone too short for the tiles drops them and tightens the column and the step, so every

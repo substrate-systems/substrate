@@ -434,17 +434,28 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 ### Requirement: The consent page shows where the code goes
 
-The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. When the client declared a name, the page SHALL show it next to that destination and label it as the client's own claim. The system MUST store a client name only when the client declares one.
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. The footer SHALL show only that origin. Before requesting consent, the page SHALL label an unverified client name as app-supplied beside the requested permissions. The system MUST store a client name only when the client declares one.
 
 #### Scenario: Web client declares a name
 
 - **WHEN** a web client with a declared name opens the consent page
-- **THEN** the page shows the redirect host and the declared name, labelled as the client's own claim
+- **THEN** the footer shows the redirect host and the permissions show the declared name labelled as app-supplied
 
 #### Scenario: Loopback client declares a name
 
 - **WHEN** a client with a loopback redirect and a declared name opens the consent page
-- **THEN** the page shows "this computer" and the declared name, labelled as the client's own claim
+- **THEN** the footer shows the declared app name and "this computer"
+
+#### Scenario: Expired request navigation
+
+- **WHEN** a connection request expires
+- **THEN** the short expiry message is vertically centered and the wordmark links to the landing page when no signed-in account is known
+- **AND** live signed-in journey steps link the wordmark to Home
+
+#### Scenario: Recognizable platform tile
+
+- **WHEN** a known web platform opens a journey
+- **THEN** its tile shows a generic icon with the platform name instead of an unexplained initial
 
 #### Scenario: Client declares no name
 
