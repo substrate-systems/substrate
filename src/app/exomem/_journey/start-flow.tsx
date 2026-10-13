@@ -118,6 +118,7 @@ export function StartFlow({
     resetChallenge();
     setSending(false);
     if (outcome === "sent") {
+      setFailure(null);
       const at = Date.now();
       setSentAt(at);
       setNow(at);

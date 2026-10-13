@@ -64,6 +64,7 @@ test("a failed email send keeps the form still and focused, then focuses the sen
   await send.click();
   const sent = page.getByRole("heading", { name: sentCopy.title });
   await expect(sent).toBeFocused();
+  await expect(page.getByRole("main").getByRole("alert")).not.toBeVisible();
   expect((await sent.boundingBox())!.y).toBe(beforeHeading.y);
   await page.getByRole("button", { name: sentCopy.differentEmail }).click();
   await expect(heading).toBeFocused();
