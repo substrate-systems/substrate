@@ -30,6 +30,7 @@
 
 .page::after {
   margin-bottom: var(--edge-gap);
+  min-height: 0;
 }
 
 .page:has(> .footer)::after {
