@@ -76,6 +76,9 @@ export function useTurnstile(siteKey: string | null) {
   // Only the latest element gets the widget: React may attach, detach and attach again.
   const attached = useRef(0);
   const ready = useRef<Promise<void> | null>(null);
+  const cached = useRef<string | null>(null);
+  const started = useRef(false);
+  const running = useRef(false);
   const waiting = useRef<{ resolve: (token: string) => void; reject: (e: Error) => void } | null>(
     null
   );
@@ -84,10 +87,26 @@ export function useTurnstile(siteKey: string | null) {
     if (!siteKey) console.error("[exomem] NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY is not set");
   }, [siteKey]);
 
+  const execute = useCallback(() => {
+    const current = widget.current;
+    if (!current) return;
+    running.current = true;
+    try {
+      current.api.execute(current.id);
+    } catch {
+      running.current = false;
+      const pending = waiting.current;
+      waiting.current = null;
+      pending?.reject(new ChallengeError("challenge unavailable"));
+    }
+  }, []);
+
   const mount = useCallback(
     (element: HTMLDivElement | null) => {
       attached.current += 1;
       const attachment = attached.current;
+      cached.current = null;
+      running.current = false;
       if (widget.current) {
         widget.current.api.remove(widget.current.id);
         widget.current = null;
@@ -111,20 +130,51 @@ export function useTurnstile(siteKey: string | null) {
           execution: "execute",
           theme,
           size: "flexible",
-          callback: (token) => settle(token),
-          "error-callback": () => settle(new ChallengeError("challenge error")),
-          "expired-callback": () => settle(new ChallengeError("challenge expired")),
-          "timeout-callback": () => settle(new ChallengeError("challenge timed out")),
+          callback: (token) => {
+            cached.current = token;
+            running.current = false;
+            settle(token);
+          },
+          "error-callback": () => {
+            running.current = false;
+            settle(new ChallengeError("challenge error"));
+          },
+          "expired-callback": () => {
+            cached.current = null;
+            running.current = false;
+            api.reset(id);
+            if (started.current) execute();
+          },
+          "timeout-callback": () => {
+            running.current = false;
+            settle(new ChallengeError("challenge timed out"));
+          },
           "before-interactive-callback": () => setAsking(true),
           "after-interactive-callback": () => setAsking(false),
         });
         widget.current = { api, id };
       });
+      // A failed background load is surfaced by token() when the person submits.
+      void ready.current.catch(() => {});
     },
-    [siteKey]
+    [siteKey, execute]
   );
 
-  /** Runs the check and resolves with a fresh, single-use token. */
+  /** Start on the first edit, before the person needs the token. */
+  const start = useCallback(async () => {
+    if (!siteKey) return;
+    started.current = true;
+    try {
+      await ready.current;
+    } catch {
+      return;
+    }
+    const current = widget.current;
+    if (!current || cached.current || running.current) return;
+    execute();
+  }, [siteKey, execute]);
+
+  /** Takes the prepared token, or waits for the check already running. */
   const token = useCallback(async (): Promise<string> => {
     if (!siteKey) return "";
     try {
@@ -134,17 +184,20 @@ export function useTurnstile(siteKey: string | null) {
     }
     const current = widget.current;
     if (!current) throw new ChallengeError("challenge unavailable");
+    if (cached.current) return cached.current;
     return new Promise<string>((resolve, reject) => {
       waiting.current = { resolve, reject };
-      current.api.execute(current.id);
+      void start();
     });
-  }, [siteKey]);
+  }, [siteKey, start]);
 
   /** Tokens work once: reset after every request, so the next one gets its own. */
   const reset = useCallback(() => {
     waiting.current = null;
+    cached.current = null;
+    running.current = false;
     if (widget.current) widget.current.api.reset(widget.current.id);
   }, []);
 
-  return { mount, token, reset, asking };
+  return { mount, start, token, reset, asking };
 }

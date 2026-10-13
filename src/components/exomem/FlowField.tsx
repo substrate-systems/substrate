@@ -190,6 +190,8 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
     };
   }, [hovering, layout]);
 
+  const scale = size && layout ? size.width / layout.vw : 1;
+
   const phase = kind === "go" ? "s-connecting" : kind === "done" ? "s-connected" : "s-consent";
   const live = walking && kind !== "done";
   const focus = live ? walk.focus : -1;
@@ -207,11 +209,14 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
       {layout && size && (
         <div
           className={cls("canvas", "m-web", phase, kind === "stop" && "k-stop")}
-          style={{
-            width: layout.vw,
-            height: layout.vh,
-            transform: `scale(${size.width / layout.vw})`,
-          }}
+          style={
+            {
+              // Paint at the final CSS size so zoom and DPR do not resample a raster layer.
+              width: size.width,
+              height: layout.vh * scale,
+              "--field-scale": scale,
+            } as CSSProperties
+          }
         >
           {layout.edges.map((e, k) => (
             <div
@@ -226,9 +231,9 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
               )}
               style={
                 {
-                  left: e.x,
-                  top: e.y,
-                  width: e.w,
+                  left: e.x * scale,
+                  top: e.y * scale,
+                  width: e.w * scale,
                   transform: `rotate(${e.a}deg)`,
                   "--dd": `${e.dd}s`,
                 } as CSSProperties
@@ -250,10 +255,10 @@ export function FlowField({ kind, footer = false }: { kind: FieldKind; footer?: 
               )}
               style={
                 {
-                  left: n.x,
-                  top: n.y,
-                  width: n.s,
-                  height: n.s,
+                  left: n.x * scale,
+                  top: n.y * scale,
+                  width: n.s * scale,
+                  height: n.s * scale,
                   "--nd": `${n.nd}s`,
                 } as CSSProperties
               }

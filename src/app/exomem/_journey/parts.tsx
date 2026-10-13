@@ -16,7 +16,9 @@ import styles from "./journey.module.css";
 export function StepHeading({ title, lede }: { title: string; lede: ReactNode }) {
   return (
     <div className={styles.heading}>
-      <h1 className={styles.title}>{title}</h1>
+      <h1 className={styles.title} tabIndex={-1}>
+        {title}
+      </h1>
       <p className={styles.lede}>{lede}</p>
     </div>
   );
@@ -31,17 +33,30 @@ export function StepNotice({
   attention = false,
   alert = false,
   id,
+  visible = true,
 }: {
   children: ReactNode;
+  /** Keep the message's space before an attempt, and while it retries. */
+  visible?: boolean;
   attention?: boolean;
   alert?: boolean;
   id?: string;
 }) {
   return (
-    <div className={styles.notice} id={id} role={alert ? "alert" : undefined}>
-      <Notice attention={attention || alert} size="flow">
-        {children}
-      </Notice>
+    <div
+      className={alert ? `${styles.notice} ${styles.errorNotice}` : styles.notice}
+      id={id}
+      role={alert && visible ? "alert" : undefined}
+      style={visible ? undefined : { visibility: "hidden" }}
+      aria-hidden={!visible || undefined}
+    >
+      {alert ? (
+        children
+      ) : (
+        <Notice attention={attention} size="flow">
+          {children}
+        </Notice>
+      )}
     </div>
   );
 }
@@ -81,6 +96,7 @@ export function StepActions({
           size="page"
           onClick={secondary.onClick}
           disabled={secondary.disabled}
+          working={secondary.working}
         >
           {secondary.label}
         </Button>
@@ -394,11 +410,9 @@ export function LevelTune({
         }}
         description={current.description}
       />
-      {saveNote ? (
-        <p className={styles.saveNote} role="status">
-          {saveNote}
-        </p>
-      ) : null}
+      <p className={styles.saveNote} role="status">
+        {saveNote ?? "\u00a0"}
+      </p>
       <div className={styles.blockHead}>
         <span>{joinedCopy.instructions(current.label)}</span>
         <span className={styles.blockCount}>

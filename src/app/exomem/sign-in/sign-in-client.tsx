@@ -8,7 +8,7 @@ import {
 } from "@/lib/exomem-hosted/hosted-browser";
 import { failureCopy } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
-import { StepActions, StepHeading, WorkingBar } from "../_journey/parts";
+import { StepActions, StepHeading } from "../_journey/parts";
 import { StartFlow } from "../_journey/start-flow";
 
 /** Shown to a screen reader while the link from the email signs the browser in. */
@@ -78,23 +78,26 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
       );
   }
 
-  if (mode === "checking" || mode === "redeeming") {
-    return (
-      <JourneyPage kind="hold" stepKey="redeeming">
-        {mode === "redeeming" ? <WorkingBar label={SIGNING_IN} /> : null}
-      </JourneyPage>
-    );
+  if (mode === "checking") {
+    return <JourneyPage kind="hold" stepKey="checking" />;
   }
-  if (mode === "confirm") {
+  if (mode === "confirm" || mode === "redeeming") {
     return (
-      <JourneyPage kind="quiet" stepKey="confirm">
+      <JourneyPage kind={mode === "redeeming" ? "hold" : "quiet"} stepKey="confirm">
         <StepHeading title={CONFIRM.title} lede={CONFIRM.lede} />
-        <StepActions primary={{ label: CONFIRM.primary, onClick: redeem }} />
+        <StepActions
+          primary={{
+            label: mode === "redeeming" ? SIGNING_IN : CONFIRM.primary,
+            working: mode === "redeeming",
+            onClick: redeem,
+          }}
+        />
       </JourneyPage>
     );
   }
   return (
     <StartFlow
+      focusHeading={mode !== "form"}
       context={{ kind: "web" }}
       reviewerEnabled={reviewerEnabled}
       frame={{}}

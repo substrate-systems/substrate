@@ -29,8 +29,7 @@ export const sentCopy = {
   title: "Check your email",
   /**
    * The board says "We sent you a link." Every request gets this page, including one
-   * that queues no email (closed admission, a rate limit, an address that does not
-   * normalize) and a repeat waitlist request. So the page claims neither a link nor an
+   * that queues no email (a rate limit or an address that does not normalize) and a repeat waitlist request. So the page claims neither a link nor an
    * email, and the button names what the person does: ask again (deviation (j)).
    */
   lede: "If this address can get an email from us, it’s on its way. You can close this tab.",
@@ -232,8 +231,10 @@ export const consentCopy = {
     "Your Exomem is still starting. Connect now: its tools start working within a few minutes, and we’ll email you when it’s ready.",
   readOnly: {
     lede: "You can still connect. It recalls but doesn’t save until billing is fixed.",
-    notice: (until: string) =>
-      `Your last payment failed. Exomem is read-only while Paddle retries, until ${until}; after that the subscription ends.`,
+    notice: (until: string | null) =>
+      until && until !== unknownDate
+        ? `Your last payment failed. Exomem is read-only while Paddle retries, until ${until}; after that the subscription ends.`
+        : "Your last payment failed. Exomem is read-only while Paddle retries. We don’t know when retries will end; the subscription ends after that.",
     fixBilling: "Fix billing",
   },
   footer: (from: string) => `exomem · request from ${from}`,

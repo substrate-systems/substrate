@@ -160,6 +160,7 @@ function JoinedLevels({ app }: { app: ListedApp }) {
 }
 
 export default function SetupClient({ facts }: { facts: SetupFacts }) {
+  const [focusHeading, setFocusHeading] = useState(false);
   const [phase, setPhase] = useState<Phase>(facts.screen);
   const [waitingFor, setWaitingFor] = useState<PluginApp>("claude");
   const [joined, setJoined] = useState<ListedApp | null>(null);
@@ -270,6 +271,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   }
 
   async function switchAccount() {
+    setFocusHeading(true);
     if (!(await signOut())) {
       setFailure(failureCopy.generic);
       return;
@@ -282,6 +284,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   if (current === "switched") {
     return (
       <StartFlow
+        focusHeading
         context={{ kind: "web" }}
         reviewerEnabled={facts.reviewerEnabled}
         frame={{}}
@@ -295,7 +298,11 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     label: facts.exportOffered ? breakCopy.export : breakCopy.home,
     onClick: goHome,
   };
-  const failureNotice = failure ? <StepNotice alert>{failure}</StepNotice> : null;
+  const failureNotice = (
+    <StepNotice alert visible={!!failure || checkout.failed}>
+      {failure ?? failureCopy.generic}
+    </StepNotice>
+  );
   const app = breakCopy.webApp;
 
   let body;
@@ -305,12 +312,14 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
         <>
           <StepHeading title={subscribeCopy.title} lede={subscribe.line} />
           {subscribe.friendCard ? <PriceCard {...subscribe.friendCard} /> : null}
-          {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <StepActions
             primary={{
               label: subscribeCopy.primary,
               working: checkout.opening,
-              onClick: () => void checkout.subscribe(),
+              onClick: () => {
+                setFocusHeading(true);
+                void checkout.subscribe();
+              },
             }}
             // The board leaves "Not now" without a target; Home keeps the unpaid account.
             secondary={{ label: subscribeCopy.notNow, onClick: goHome }}
@@ -349,6 +358,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
           cta: isConnected ? chooseCopy.connected : chooseCopy.open(name),
           current: isConnected,
           onPick: () => {
+            setFocusHeading(true);
             setWaitingFor(platform);
             setPhase("waiting");
           },
@@ -358,7 +368,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
         key: "other",
         ...chooseCopy.other,
         current: false,
-        onPick: () => setPhase("other"),
+        onPick: () => {
+          setFocusHeading(true);
+          setPhase("other");
+        },
       });
       body = (
         <>
@@ -383,7 +396,13 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
                 ? { label: chooseCopy.open(name), onClick: () => openElsewhere(settings) }
                 : null
             }
-            secondary={{ label: waitingCopy.pickAnother, onClick: () => setPhase("choose") }}
+            secondary={{
+              label: waitingCopy.pickAnother,
+              onClick: () => {
+                setFocusHeading(true);
+                setPhase("choose");
+              },
+            }}
           />
         </>
       );
@@ -403,7 +422,13 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
             <StepNotice alert>{failureCopy.generic}</StepNotice>
           )}
           <StepActions
-            secondary={{ label: waitingCopy.pickAnother, onClick: () => setPhase("choose") }}
+            secondary={{
+              label: waitingCopy.pickAnother,
+              onClick: () => {
+                setFocusHeading(true);
+                setPhase("choose");
+              },
+            }}
           />
         </>
       );
@@ -425,7 +450,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
               label: connected.has(next)
                 ? joinedCopy.another
                 : joinedCopy.addToo(CLIENT_PLATFORM_NAMES[next]),
-              onClick: () => setPhase("choose"),
+              onClick: () => {
+                setFocusHeading(true);
+                setPhase("choose");
+              },
             }}
           />
         </>
@@ -445,9 +473,18 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
               inviter,
             })}
           />
-          {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <EndedActions
-            resubscribe={facts.checkoutAvailable ? checkout : null}
+            resubscribe={
+              facts.checkoutAvailable
+                ? {
+                    ...checkout,
+                    subscribe: async () => {
+                      setFocusHeading(true);
+                      await checkout.subscribe();
+                    },
+                  }
+                : null
+            }
             exportMemory={exportMemory}
           />
         </>
@@ -493,7 +530,12 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   }
 
   return (
-    <JourneyPage kind={KIND[current]} headerEmail={facts.email} stepKey={current}>
+    <JourneyPage
+      kind={KIND[current]}
+      headerEmail={facts.email}
+      stepKey={current}
+      focusHeading={focusHeading}
+    >
       {body}
       {failureNotice}
       <SignedInLine

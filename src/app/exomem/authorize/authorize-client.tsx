@@ -216,6 +216,7 @@ function Consent({
 }) {
   const { app, confirmation, nonce, account } = request;
   const name = app.displayName;
+  const [focusHeading, setFocusHeading] = useState(false);
   const [phase, setPhase] = useState<Phase>(screen);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -251,6 +252,7 @@ function Consent({
     // Without JavaScript the form posts itself and the server answers with a redirect.
     event?.preventDefault();
     setFailure(null);
+    setFocusHeading(true);
     setPhase("connecting");
     let answer: { status: number; body: unknown };
     try {
@@ -275,6 +277,7 @@ function Consent({
 
   async function decline(kind: "declined" | "kept") {
     if (busy) return;
+    setFocusHeading(true);
     setBusy(kind);
     setFailure(null);
     let answer: { status: number; body: unknown } | null = null;
@@ -309,6 +312,7 @@ function Consent({
   }
 
   async function switchAccount() {
+    setFocusHeading(true);
     if (await signOut()) setPhase("switched");
     else setFailure(failureCopy.generic);
   }
@@ -319,6 +323,7 @@ function Consent({
   if (current === "signedout" || current === "switched") {
     return (
       <StartFlow
+        focusHeading={current === "switched"}
         context={{ kind: "app", app: name, nonce, requestLife }}
         reviewerEnabled={request.reviewerEnabled}
         frame={{ app: tile, footer }}
@@ -365,17 +370,23 @@ function Consent({
           {current === "subscribe" && subscribe.friendCard ? (
             <PriceCard {...subscribe.friendCard} />
           ) : null}
-          {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
+          <StepNotice alert visible={checkout.failed}>
+            {failureCopy.generic}
+          </StepNotice>
           {current === "subscribe" ? (
             <StepActions
               primary={{
                 label: subscribeCopy.primary,
                 working: checkout.opening,
-                onClick: () => void checkout.subscribe(),
+                disabled: busy !== null,
+                onClick: () => {
+                  setFocusHeading(true);
+                  void checkout.subscribe();
+                },
               }}
               secondary={{
                 label: subscribeCopy.notNow,
-                disabled: busy !== null,
+                working: busy === "declined",
                 onClick: () => void decline("declined"),
               }}
             />
@@ -405,9 +416,17 @@ function Consent({
           {current === "preparing" ? (
             <StepNotice attention>{consentCopy.preparing}</StepNotice>
           ) : null}
-          {readOnly ? <StepNotice>{consentCopy.readOnly.notice(readOnlyUntil)}</StepNotice> : null}
+          {readOnly ? (
+            <StepNotice>
+              {consentCopy.readOnly.notice(
+                account.readOnlyUntil.value === null ? null : readOnlyUntil
+              )}
+            </StepNotice>
+          ) : null}
           <ScopesCard scopes={request.scopes} readOnly={readOnly} />
-          {failure ? <StepNotice alert>{failure}</StepNotice> : null}
+          <StepNotice alert visible={!!failure}>
+            {failure ?? failureCopy.generic}
+          </StepNotice>
           <form
             className={styles.form}
             action="/api/exomem/oauth/authorize/complete"
@@ -426,6 +445,7 @@ function Consent({
                       ? consentCopy.again.primary
                       : consentCopy.connect,
                 working: current === "connecting",
+                disabled: busy !== null,
                 onClick: () => {},
               }}
               secondary={
@@ -434,12 +454,12 @@ function Consent({
                   : readOnly
                     ? {
                         label: consentCopy.readOnly.fixBilling,
-                        disabled: busy !== null,
+                        working: busy === "billing",
                         onClick: () => void fixBilling(),
                       }
                     : {
                         label: again ? consentCopy.again.keep : consentCopy.notNow,
-                        disabled: busy !== null,
+                        working: busy === "kept" || busy === "declined",
                         onClick: () => void decline(again ? "kept" : "declined"),
                       }
               }
@@ -544,9 +564,21 @@ function Consent({
               inviter,
             })}
           />
-          {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
+          <StepNotice alert visible={checkout.failed}>
+            {failureCopy.generic}
+          </StepNotice>
           <EndedActions
-            resubscribe={account.checkoutAvailable ? checkout : null}
+            resubscribe={
+              account.checkoutAvailable
+                ? {
+                    ...checkout,
+                    subscribe: async () => {
+                      setFocusHeading(true);
+                      await checkout.subscribe();
+                    },
+                  }
+                : null
+            }
             exportMemory={exportMemory}
           />
         </>
@@ -556,7 +588,9 @@ function Consent({
       body = (
         <>
           <StepHeading title={breakCopy.paused.title} lede={breakCopy.paused.lede(name)} />
-          {failure ? <StepNotice alert>{failure}</StepNotice> : null}
+          <StepNotice alert visible={!!failure}>
+            {failure ?? failureCopy.generic}
+          </StepNotice>
           <StepActions
             primary={{
               label: breakCopy.paused.resume,
@@ -596,6 +630,7 @@ function Consent({
 
   return (
     <JourneyPage
+      focusHeading={focusHeading}
       kind={KIND[current]}
       app={tile}
       headerEmail={signedIn}

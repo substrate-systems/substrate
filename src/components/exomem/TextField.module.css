@@ -35,6 +35,7 @@
 
 /* The generic error: drawn as the flow's notice (a 2 px amber edge). */
 .error {
+  display: grid;
   box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--exo-border-card);
@@ -45,4 +46,13 @@
   line-height: 1.5;
   color: var(--fg-primary);
   background: var(--bg-panel);
+}
+
+.errorSpace,
+.errorText {
+  grid-area: 1 / 1;
+}
+
+.errorSpace {
+  visibility: hidden;
 }
