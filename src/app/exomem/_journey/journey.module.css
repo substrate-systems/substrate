@@ -20,7 +20,7 @@
 .page::before,
 .page::after {
   content: "";
-  flex: 1;
+  flex: 1 1 0px;
   min-height: calc(56px - var(--edge-gap));
 }
 
@@ -634,7 +634,7 @@
 /* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
    the light ground, where 80% would not. */
 .footer {
-  flex: 1;
+  flex: 1 1 0px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
