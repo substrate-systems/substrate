@@ -45,6 +45,16 @@
       "name": "exomem-reconcile",
       "path": "/api/cron/exomem-reconcile",
       "schedule": "* * * * *"
+    },
+    {
+      "name": "exomem-health-control",
+      "path": "/api/cron/exomem-health-control",
+      "schedule": "* * * * *"
+    },
+    {
+      "name": "exomem-health-email",
+      "path": "/api/cron/exomem-health-email",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
