@@ -6,6 +6,7 @@ import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { ButtonLink } from "@/components/exomem/Button";
 import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 import { Wordmark } from "@/components/exomem/Wordmark";
+import { CLIENT_FAMILY_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import phone from "@/components/exomem/phone.module.css";
 import { HeroPanel } from "./landing/HeroPanel";
 import { ConnectDrawing, EvolveDrawing, LivingMap, RememberDrawing } from "./landing/Illustrations";
@@ -32,11 +33,18 @@ export const metadata = {
     title: "Exomem — MCP memory server over your Markdown knowledge base",
     description: `${PHONE_LEDE_START}.`,
     path: "/exomem",
-    ogImage: "/exomem/og",
+    ogImage: "/exomem/social/og-image.png",
     standaloneTitle: true,
   }),
   // Exomem subtree uses its own "E" monogram as the favicon (matches /exomem/og lockup).
-  icons: { icon: "/exomem/icons/mark.svg" },
+  icons: {
+    icon: [
+      { url: "/exomem/icons/favicon.ico", sizes: "any" },
+      { url: "/exomem/icons/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/exomem/icons/apple-touch-icon.png",
+  },
+  manifest: "/exomem/icons/site.webmanifest",
 };
 
 const GITHUB = "https://github.com/Artexis10/exomem";
@@ -44,7 +52,9 @@ const PYPI = "https://pypi.org/project/exomem/";
 const README = `${GITHUB}#readme`;
 const SIGN_IN = "/exomem/sign-in";
 const START = "Start with your email →";
-const ASSISTANTS = ["Claude", "ChatGPT", "Claude Code", "Codex"];
+const ASSISTANTS = Object.entries(CLIENT_FAMILY_NAMES)
+  .filter(([family]) => family !== "other")
+  .map(([, name]) => name);
 
 const softwareJsonLd = {
   "@context": "https://schema.org",
@@ -111,6 +121,12 @@ function Assistants() {
           {name}
         </span>
       ))}
+      <span
+        className={`${styles.chip} ${styles.anyApp}`}
+        title="Any app or agent that supports MCP"
+      >
+        + any MCP app
+      </span>
     </div>
   );
 }
@@ -223,7 +239,7 @@ export default function ExomemPage() {
         <header className={styles.header}>
           <div className={styles.brand}>
             <span className={`${styles.wordmark} ${responsive.deskOnly}`}>
-              <Wordmark height={19} />
+              <Wordmark height={17} />
             </span>
             <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
               <Wordmark height={17} />
@@ -358,9 +374,7 @@ export default function ExomemPage() {
               <div className={`${styles.door} ${styles.cloudDoor}`}>
                 <div className={styles.doorHead}>
                   <h3>In your assistant</h3>
-                  <span className={`${styles.tag} ${styles.cloudTag}`}>
-                    <Copy desk="Exomem Cloud" phone="Cloud" />
-                  </span>
+                  <span className={`${styles.tag} ${styles.cloudTag}`}>hosted</span>
                 </div>
                 <ol className={styles.steps}>
                   {cloudSteps.map(({ desk, phone: onPhone }, index) => (
@@ -425,15 +439,11 @@ export default function ExomemPage() {
 
           <section id="lp-cloud" className={`${styles.section} ${styles.cloud}`} data-sec="cloud">
             <div className={styles.cloudCopy}>
-              <Eyebrow>04 · Yours to leave</Eyebrow>
-              <h2 className={`${styles.h2} ${styles.cloudTitle}`}>
-                Hosted, private, and yours to leave.
-              </h2>
+              <Eyebrow>04 · Yours to keep</Eyebrow>
+              <h2 className={`${styles.h2} ${styles.cloudTitle}`}>We run it. You own it.</h2>
               <p className={`${styles.cloudLede} ${responsive.deskOnly}`}>
-                Same open-source engine, run for you. Your vault stays plain Markdown
-                {exportOffered
-                  ? " you can export at any time, including after you stop paying"
-                  : ""}
+                The same open-source engine, hosted for you. Your vault is plain Markdown
+                {exportOffered ? " and you can export it any time, even after you stop paying" : ""}
                 .
               </p>
               <div className={styles.cloudCta}>

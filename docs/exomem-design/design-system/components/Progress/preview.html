@@ -1,0 +1,31 @@
+<!-- @dsCard group="Live" height=200 subtitle="Any process: the writing E beside what is happening now" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Progress — preview</title>
+<style>html,body{margin:0;background:var(--bg-base);color:var(--fg-primary);font-family:var(--font-sans)}
+.pv{padding:20px 24px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box}
+.row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
+.cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:96px}
+.k{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
+.t{font-size:13px;line-height:1.45;color:var(--fg-secondary)}
+.n{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.panel{padding:18px;border:1px solid var(--exo-border-card);border-radius:var(--r-card);background:var(--bg-panel)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+const h = React.createElement, X = window.Exomem;
+const useTick = (ms) => { const [t, setT] = React.useState(0); React.useEffect(() => { const i = setInterval(() => setT((x) => x + 1), ms); return () => clearInterval(i); }, []); return t; };
+
+const STEPS = ['Sent to Paddle', 'Your bank approves', 'Paid', 'Switching on your Exomem'];
+function App() {
+  const t = useTick(1600), [fail, setFail] = React.useState(false), ph = t % 7;
+  const step = Math.min(ph, 4);
+  return h('div', { className: 'pv' },
+    h('div', { className: 'panel' }, h(X.Progress, { steps: STEPS, step: ph === 6 ? 0 : step, count: true, doneLabel: 'Paid. Your Exomem is ready.', failed: fail ? 'Declined. Nothing was charged.' : null })),
+    h('div', { className: 'row', style: { gap: 8 } }, h(X.Button, { onClick: () => setFail(!fail) }, fail ? 'Try again' : 'Decline the card')));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

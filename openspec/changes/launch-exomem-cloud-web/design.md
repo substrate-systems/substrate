@@ -15,11 +15,32 @@ Goals:
 
 Non-goals:
 
-- Storage add-ons, email change, vault import and the graph viewer. The launch cut defers them.
+- Email change, vault import, Why, Review and listening remain deferred.
+- The approved graph viewer and storage add-ons have separate capability contracts; this integrated web batch does not implement them.
 - A generic proxy from the web to the cell.
 - A second specification tree. The deltas in this change are the durable contract.
 
 ## Decisions
+
+### Design update rounds 41–47
+
+The update in `docs/exomem-design/UPDATE-2026-10-13.md` supplies the current visual reference. Later review rounds supersede earlier rules. Frozen examples are illustrative; the product reads prices, dates, counts and states from their actual sources.
+
+One integrated batch ports the shared components and motion engine, then subscription checkout, start and connect flows, Home and accessibility. The product adapts the supplied source for React lifecycle and keyboard focus. It does not embed the prototype runtime. Existing approved AA contrast corrections remain.
+
+The writing E replaces the earlier row scan and supports the process's actual step count. Hidden and outgoing panes are inert. Transitions cannot duplicate payment frames or session effects. Each page has one polite status region, and each new step follows the reference's focus rules.
+An immediate successful connection still completes the writing sequence and completion seal before returning to the app. Reduced motion uses the static treatment.
+The clean email form has a 20 px field-to-button gap. Hint and error rows appear only when they contain guidance.
+
+Phone journeys center within the space between the header and lower decoration band. Desktop journeys remain centered. Short windows may scroll; normal phone flows fit except checkout. Signed-in flow wordmarks go to Home; signed-out wordmarks remain still. The first-party keep action returns to the app list. An external OAuth request retains its denial callback without a second celebration.
+
+Subscription checkout uses Paddle's inline one-page frame. Events remain bound to the current transaction. The provider supplies prices and tax facts; account facts supply renewal dates when available. Unknown tax semantics use honest wording. Backend lifecycle readiness controls the final ready state. Other products retain their overlay checkout.
+
+Owner sign-in authentication remains single-use for 15 minutes. Access-start invitations remain separate and last 48 hours. A separate opaque recovery receipt binds a request to its browser. Its configured window defaults to one hour. It survives authentication expiry but cannot create a session or disclose an address. It permits only a uniform resend. Missing or mismatched proof shows the generic form.
+
+Visible waits derive only from the common browser or network limiter. Address-specific suppression remains invisible. Anonymous requests retain the uniform acknowledgement and response floor. The sent state does not promise a sign-in link for suppressed or waitlisted requests. Current provider prices remain until catalog changes are supplied.
+
+The product review covers the whole integrated batch. Its independent UI pass compares enabled drawn states at desktop 1440 and phone 390×844 in both themes. It checks normal spacing, navigation, recovery, focus, reduced motion, forced colours, zoom, landscape and keyboard use. Missing operational support remains an explicit dependency rather than simulated success.
 
 ### Admission, Turnstile, waitlist and outbox
 

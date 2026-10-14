@@ -5,7 +5,11 @@
 
 import { subscribeLine } from "@/components/exomem/subscribe-line";
 import { formatMoney } from "@/lib/exomem/money";
-import { CLIENT_PLATFORM_NAMES, displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
+import {
+  CLIENT_FAMILY_NAMES,
+  CLIENT_PLATFORM_GLYPHS,
+  displayNameVouched,
+} from "@/lib/exomem-hosted/client-platforms";
 import type {
   ActivityClientFamily,
   CloudHomeUnavailableReason,
@@ -207,13 +211,6 @@ function cellNow(facts: ActivityFacts, clock: Clock): number {
 
 // The cell names a client by its content-free family; null is a client it does not
 // name, which the board calls "Your app".
-const CLIENT_FAMILY_NAMES: Record<ActivityClientFamily, string> = {
-  "claude-ai": CLIENT_PLATFORM_NAMES.claude,
-  chatgpt: CLIENT_PLATFORM_NAMES.openai,
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  other: "Your app",
-};
 
 function clientName(family: ActivityClientFamily | null): string {
   return family === null ? "Your app" : CLIENT_FAMILY_NAMES[family];
@@ -232,7 +229,7 @@ export function liveLine(
   apps: readonly HomeApp[],
   disconnected: ReadonlySet<string>,
   clock: Clock
-): { text: string; key: string } | null {
+): { text: string; key: string; client?: ActivityClientFamily | null } | null {
   if (!facts) return null;
   if (facts.noteCount === 0) {
     const first = apps.find((app) => !disconnected.has(app.id))?.displayName;
@@ -246,6 +243,7 @@ export function liveLine(
     return {
       text: `${clientName(event.client)} ${eventVerb(event)} · ${secondsAgo(event.at, cellNow(facts, clock))}`,
       key: `${event.at}|${event.client}|${event.action}|${event.items}`,
+      client: event.client,
     };
   }
   return {
@@ -486,8 +484,8 @@ export function notices(
 
 export function appGlyph(app: HomeApp): string {
   if (app.kind === "local") return ">_";
-  if (app.platform === "claude") return "C";
-  if (app.platform === "openai") return "G";
+  if (app.platform === "claude" || app.platform === "openai")
+    return CLIENT_PLATFORM_GLYPHS[app.platform];
   return app.displayName.trim().charAt(0).toUpperCase() || "+";
 }
 

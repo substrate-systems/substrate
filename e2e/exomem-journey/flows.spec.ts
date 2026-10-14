@@ -118,26 +118,51 @@ test("Not now tells a web app no, and nothing is shared", async ({ page, context
   expect(await grantCount(client)).toBe(0);
 });
 
-test("Connect hands a web app its code", async ({ page, context }) => {
-  const owner = await seedOwner("ready");
-  await context.addCookies(owner.cookies);
-  const client = await seedClient({
-    name: "Journey Web App",
-    redirectUri: "https://web-app.example.test/callback",
-    platform: null,
+for (const reducedMotion of ["no-preference", "reduce"] as const)
+  test(`Connect preserves its full completion before handing back (${reducedMotion})`, async ({
+    page,
+    context,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    const owner = await seedOwner("ready");
+    await context.addCookies(owner.cookies);
+    const client = await seedClient({
+      name: "Journey Web App",
+      redirectUri: "https://web-app.example.test/callback",
+      platform: null,
+    });
+    const reached = await appCallback(page, "https://web-app.example.test");
+    const request = authorizeRequest(client);
+
+    await page.goto(request.url);
+    const completed = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/exomem/oauth/authorize/complete"
+    );
+    await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
+    expect((await completed).status()).toBe(200);
+    expect(await grantCount(client)).toBe(1);
+    if (reducedMotion === "no-preference")
+      await expect(
+        page.getByRole("button", { name: consentCopy.connecting, exact: true })
+      ).toBeVisible();
+
+    await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
+    // Wait for the visible mark's finite completion animations, not a guessed wall-clock delay.
+    await page
+      .getByRole("img", { name: "Exomem", exact: true })
+      .last()
+      .evaluate(async (element) => {
+        const finite = element
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+        await Promise.allSettled(finite.map((animation) => animation.finished));
+      });
+    expect(reached).toHaveLength(0);
+    await page.waitForURL("https://web-app.example.test/**");
+    expect(reached[0]!.searchParams.get("code")).toBeTruthy();
+    expect(reached[0]!.searchParams.get("state")).toBe(request.state);
+    expect(await grantCount(client)).toBe(1);
   });
-  const reached = await appCallback(page, "https://web-app.example.test");
-  const request = authorizeRequest(client);
-
-  await page.goto(request.url);
-  await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
-
-  await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
-  await page.waitForURL("https://web-app.example.test/**");
-  expect(reached[0]!.searchParams.get("code")).toBeTruthy();
-  expect(reached[0]!.searchParams.get("state")).toBe(request.state);
-  expect(await grantCount(client)).toBe(1);
-});
 
 // The answer to Connect can be lost after the server has already connected the app.
 // The page must then say it could not confirm, never that nothing changed.
@@ -182,6 +207,7 @@ test("a 500 from Connect is not reported as nothing changed", async ({ page, con
   const served: number[] = [];
   await page.route("**/api/exomem/oauth/authorize/complete", async (route) => {
     served.push((await route.fetch()).status());
+    await new Promise((resolve) => setTimeout(resolve, 2100));
     await route.fulfill({
       status: 500,
       contentType: "application/json",

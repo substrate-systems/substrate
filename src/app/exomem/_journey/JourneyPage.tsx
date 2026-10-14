@@ -1,11 +1,11 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { MessageCircle, Sparkles } from "lucide-react";
 import { FlowField, type FieldKind } from "@/components/exomem/FlowField";
 import { PairedTiles } from "@/components/exomem/PairedTiles";
 import { Wordmark } from "@/components/exomem/Wordmark";
-import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
+import { CLIENT_PLATFORM_GLYPHS } from "@/lib/exomem-hosted/client-platforms";
+import { FadeIn } from "@/components/exomem/Transitions";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
@@ -18,16 +18,10 @@ export function appTile(app: { displayName: string; platform: string | null; loo
   if (app.loopback) return { name: app.displayName, glyph: ">_", glyphSize: 17 };
   // `platform` is the closed client_platform set (claude | openai).
   if (app.platform === "claude" || app.platform === "openai") {
-    const Icon = app.platform === "claude" ? Sparkles : MessageCircle;
     return {
       name: app.displayName,
-      glyph: (
-        <span className={styles.platformGlyph}>
-          <Icon size={22} />
-          <span>{CLIENT_PLATFORM_NAMES[app.platform]}</span>
-        </span>
-      ),
-      glyphSize: 10,
+      glyph: CLIENT_PLATFORM_GLYPHS[app.platform],
+      glyphSize: 20,
     };
   }
   return { name: app.displayName, glyph: "MCP", glyphSize: 12 };
@@ -61,6 +55,7 @@ type JourneyPageProps = {
   stepKey: string;
   /** A person started this transition; initial loading leaves focus alone. */
   focusHeading?: boolean;
+  onPairMotionComplete?: (state: "connecting" | "connected") => void;
   /** None while the page waits for its first answer. */
   children?: ReactNode;
 };
@@ -69,35 +64,82 @@ export function JourneyPage({
   kind,
   app,
   headerEmail,
-  homeHref = headerEmail ? "/exomem/home" : "/exomem",
+  homeHref = "/exomem/home",
   footer,
   tilesIdle = false,
   stepKey,
   focusHeading = false,
+  onPairMotionComplete,
   children,
 }: JourneyPageProps) {
   const content = useRef<HTMLDivElement>(null);
   const previousStep = useRef<string | null>(null);
+  const status = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = content.current;
+    if (!element) return;
+    const announce = () => {
+      const current = element.cloneNode(true) as HTMLElement;
+      current
+        .querySelectorAll('[aria-hidden="true"], [inert]')
+        .forEach((hidden) => hidden.remove());
+      const message = [
+        current.querySelector("h1"),
+        ...current.querySelectorAll("[data-step-status]"),
+      ]
+        .map((node) => node?.textContent?.trim())
+        .filter(Boolean)
+        .join(". ");
+      if (status.current && status.current.textContent !== message)
+        status.current.textContent = message;
+    };
+    announce();
+    const observer = new MutationObserver(announce);
+    observer.observe(element, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["aria-hidden", "inert"],
+    });
+    return () => observer.disconnect();
+  }, []);
   useLayoutEffect(() => {
     if (focusHeading && previousStep.current !== stepKey) {
-      content.current?.querySelector("h1")?.focus({ preventScroll: true });
+      content.current
+        ?.querySelector<HTMLElement>("[data-step-focus], h1")
+        ?.focus({ preventScroll: true });
     }
     previousStep.current = stepKey;
   }, [stepKey, focusHeading]);
   return (
-    <main className={`${styles.page} brand-exomem`}>
+    <main className={`${styles.page} brand-exomem`} data-alive-surface>
       <FlowField kind={kind} footer={!!footer} />
-      <a className={`${styles.wordmark} ${phone.hitArea}`} href={homeHref} aria-label="Exomem home">
-        <Wordmark />
-      </a>
+      {headerEmail ? (
+        <a
+          className={`${styles.wordmark} ${phone.hitArea}`}
+          href={homeHref}
+          aria-label="Exomem home"
+        >
+          <Wordmark state={kind === "stop" ? "off" : "rest"} />
+        </a>
+      ) : (
+        <div className={styles.wordmark}>
+          <Wordmark state={kind === "stop" ? "off" : "rest"} />
+        </div>
+      )}
       {headerEmail ? <div className={styles.headerEmail}>{headerEmail}</div> : null}
       <div className={styles.center}>
         <div className={styles.column}>
           <div className={styles.tiles}>
-            <PairedTiles state={tilesIdle ? "idle" : tilesState(kind)} app={app} />
+            <PairedTiles
+              state={tilesIdle ? "idle" : tilesState(kind)}
+              app={app}
+              onMotionComplete={onPairMotionComplete}
+            />
           </div>
           <div className={styles.content} ref={content}>
-            {children}
+            <FadeIn key={stepKey}>{children}</FadeIn>
           </div>
         </div>
       </div>
@@ -106,6 +148,7 @@ export function JourneyPage({
           <span className={styles.footerText}>{footer}</span>
         </div>
       ) : null}
+      <div ref={status} className={styles.status} role="status" aria-live="polite" aria-atomic />
     </main>
   );
 }

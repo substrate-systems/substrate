@@ -1,30 +1,181 @@
-/* Mark (Dot E) (components.md: Brand and live). Home, while the memory is on, draws every
-   dot amber and the middle row breathes, each dot a little after the one before (--ed). */
-.ink {
-  fill: var(--fg-primary);
+@property --exo-w {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
 }
-
-.lit {
-  fill: var(--exo-amber);
+@property --exo-b {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
 }
-
-/* Not live (Home read-only or ended): amber is only for live state, so the middle row
-   drops to the faint non-text ink the Home board draws. */
-.unlit {
-  fill: var(--fg-tertiary);
+@property --exo-rest {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
 }
-
-.breathing .row {
-  animation: hpEb 5.5s ease-in-out var(--ed) infinite;
+.mark {
+  overflow: visible;
+  transition:
+    --exo-w var(--exo-we-wd, 0.9s) var(--ease-settle, cubic-bezier(0.2, 0.7, 0.2, 1)),
+    --exo-b 0.45s ease,
+    --exo-rest 0.55s ease,
+    filter 0.6s ease;
 }
-
-/* Home-Page · hpEb 5.5s ease-in-out var(--ed) infinite — Home mark slow breath */
-@keyframes hpEb {
+.mark circle {
+  transition: fill 0.5s ease;
+}
+.ink circle {
+  fill: var(--exo-we-ink, var(--fg-primary));
+  opacity: calc(var(--exo-we-faint, 0.24) + (1 - var(--exo-we-faint, 0.24)) * var(--exo-rest));
+}
+.lit circle {
+  fill: var(--exo-we-acc, var(--exo-amber));
+  opacity: min(
+    1,
+    calc(
+      clamp(0, var(--exo-w) - var(--exo-k), 1) * (1 - var(--exo-rest)) + var(--exo-row) *
+        var(--exo-rest)
+    )
+  );
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pen circle {
+  fill: var(--exo-we-acc, var(--exo-amber));
+  opacity: max(
+    0,
+    calc(
+      (clamp(0, var(--exo-b) - var(--exo-k), 1) - clamp(0, var(--exo-w) - var(--exo-k), 1)) *
+        (1 - var(--exo-rest))
+    )
+  );
+  animation: exoWePen 1.2s ease-in-out calc(var(--exo-k) * 0.14s - 12s) infinite;
+}
+@keyframes exoWePen {
   0%,
   100% {
-    opacity: 1;
+    fill-opacity: 0.28;
+  }
+  35% {
+    fill-opacity: 1;
+  }
+}
+.mark.indet .pen circle {
+  animation: exoWeComet 1.8s linear calc(var(--exo-k) * 1.8s / var(--exo-L) - 12s) infinite;
+}
+@keyframes exoWeComet {
+  0% {
+    fill-opacity: 1;
+  }
+  22% {
+    fill-opacity: 0.18;
+  }
+  100% {
+    fill-opacity: 0.18;
+  }
+}
+.mark.done {
+  filter: var(--exo-we-glow, none);
+}
+.mark.done .lit circle {
+  animation: exoWeSeal 0.7s cubic-bezier(0.16, 1, 0.3, 1) calc(0.75s + var(--exo-k) * 0.035s) both;
+}
+@keyframes exoWeSeal {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.42);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.mark.breathe .lit circle {
+  animation: exoWeBreath 3.2s ease-in-out calc(var(--exo-k) * 0.2s - 12s) infinite;
+}
+@keyframes exoWeBreath {
+  0%,
+  100% {
+    fill-opacity: 1;
   }
   50% {
-    opacity: 0.55;
+    fill-opacity: 0.5;
+  }
+}
+.mark.recall .lit circle {
+  animation: exoWeWave 1.1s ease-in-out calc(var(--exo-k) * 0.14s - 12s) infinite;
+}
+@keyframes exoWeWave {
+  0%,
+  100% {
+    fill-opacity: 0.4;
+    transform: scale(0.88);
+  }
+  50% {
+    fill-opacity: 1;
+    transform: scale(1.08);
+  }
+}
+.mark.off circle {
+  fill: var(--exo-we-off, var(--exo-we-ink, var(--fg-primary)));
+}
+.mark.off .pen circle {
+  opacity: 0;
+}
+.wordmark .word {
+  fill: var(--exo-we-ink, var(--fg-primary));
+  transition: fill 0.5s ease;
+}
+.wordmark.off .word {
+  fill: var(--exo-we-offw, var(--exo-we-ink, var(--fg-primary)));
+}
+@media (prefers-reduced-motion: reduce) {
+  .mark {
+    transition: none;
+  }
+  .mark circle {
+    animation: none !important;
+    transition: none;
+  }
+  .pen circle {
+    fill-opacity: 0.7;
+  }
+}
+.mark.save .lit circle {
+  animation: exoWeWrite 0.5s cubic-bezier(0.16, 1, 0.3, 1) calc(var(--exo-k) * 0.06s) both;
+}
+@keyframes exoWeWrite {
+  0% {
+    fill-opacity: 0;
+    transform: scale(1.9);
+  }
+  100% {
+    fill-opacity: 1;
+    transform: scale(1);
+  }
+}
+[data-theme="light"] .mark {
+  --exo-we-glow: drop-shadow(0 0 2.5px var(--exo-phosphor));
+}
+@media (prefers-reduced-motion: reduce) {
+  .mark.save .lit circle {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .mark {
+    filter: none;
+  }
+  .mark .ink circle,
+  .mark .word,
+  .wordmark.off .word {
+    fill: CanvasText;
+    opacity: 1;
+  }
+  .mark .lit,
+  .mark .pen {
+    display: none;
   }
 }

@@ -218,7 +218,7 @@ test("an export packs, becomes ready, and Download follows a fresh link", async 
   expect((await download).url()).toBe(downloadUrl);
 });
 
-test("a checkout return that cannot be checked says so on Home, and Not now clears it", async ({
+test("a checkout return that cannot be checked stays recoverable, and Not now returns Home", async ({
   page,
 }) => {
   // An owner who already pays returns from an old checkout link; the server refuses it.
@@ -226,9 +226,9 @@ test("a checkout return that cannot be checked says so on Home, and Not now clea
   await signIn(page.context(), owner);
   await page.goto(`/exomem/home?_ptxn=txn_${"a".repeat(26)}`);
 
-  const failure = page.getByText("We couldn't reconnect to checkout. Your Exomem account is safe.");
+  const failure = page.getByRole("heading", { name: "We couldn’t check this checkout" });
   await expect(failure).toBeVisible();
-  expect(new URL(page.url()).search).toBe("");
+  expect(new URL(page.url()).searchParams.has("_ptxn")).toBe(true);
   await page.getByRole("button", { name: "Not now" }).click();
   await expect(failure).toBeHidden();
   await page.reload();

@@ -1,0 +1,35 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exomem Design System</title>
+<style>
+  html, body { margin: 0; background: var(--bg-base); }
+  .cv { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--bg-base); }
+  .cv svg { position: absolute; left: 0; top: 0; }
+  .ink { fill: var(--fg-primary); } .amb { fill: var(--exo-amber); } .trk { fill: var(--bg-track); }
+  .blk { rx: var(--r-tag); }
+  .cut { fill: var(--bg-base); }
+  .nm { position: absolute; left: 40px; bottom: 36px; max-width: 880px; }
+  .nm h1 { margin: 0; font-family: var(--font-mono); font-weight: 500; font-size: 64px; line-height: .95; letter-spacing: -0.02em; color: var(--fg-primary); white-space: nowrap; }
+  .nm p { margin: 14px 0 0; font-family: var(--font-sans); font-size: 14px; color: var(--fg-secondary); }
+</style>
+</head>
+<body>
+<div class="cv">
+  <!-- blocks: fg-primary 120×96, exo-amber 440×96, bg-track 364×96 (bleeds right); corners r-tag
+       arrangement: a top band of unequal flush strips, ink → amber → track, the track running off the right edge
+       pattern: a dot grid cut out of the band in bg-base (3 rows × 20, r 2.2 as in the Dot E) — "precise, technical, mono":
+         Exomem's mark is itself dots on a grid, so the band is punched like the E's own matrix
+       steps: dot pitch 16 px (r-sheet), band 96 px tall from y 24, name 64 px mono one step below -->
+  <svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+    <rect class="ink blk" x="40" y="24" width="120" height="96"/>
+    <rect class="amb blk" x="160" y="24" width="440" height="96"/>
+    <rect class="trk blk" x="600" y="24" width="364" height="96"/>
+    <circle class="cut" cx="392" cy="56" r="2.2"/><circle class="cut" cx="408" cy="56" r="2.2"/><circle class="cut" cx="424" cy="56" r="2.2"/><circle class="cut" cx="440" cy="56" r="2.2"/><circle class="cut" cx="456" cy="56" r="2.2"/><circle class="cut" cx="472" cy="56" r="2.2"/><circle class="cut" cx="488" cy="56" r="2.2"/><circle class="cut" cx="504" cy="56" r="2.2"/><circle class="cut" cx="520" cy="56" r="2.2"/><circle class="cut" cx="536" cy="56" r="2.2"/><circle class="cut" cx="552" cy="56" r="2.2"/><circle class="cut" cx="568" cy="56" r="2.2"/><circle class="cut" cx="584" cy="56" r="2.2"/><circle class="cut" cx="600" cy="56" r="2.2"/><circle class="cut" cx="616" cy="56" r="2.2"/><circle class="cut" cx="632" cy="56" r="2.2"/><circle class="cut" cx="648" cy="56" r="2.2"/><circle class="cut" cx="664" cy="56" r="2.2"/><circle class="cut" cx="680" cy="56" r="2.2"/><circle class="cut" cx="696" cy="56" r="2.2"/><circle class="cut" cx="392" cy="72" r="2.2"/><circle class="cut" cx="408" cy="72" r="2.2"/><circle class="cut" cx="424" cy="72" r="2.2"/><circle class="cut" cx="440" cy="72" r="2.2"/><circle class="cut" cx="456" cy="72" r="2.2"/><circle class="cut" cx="472" cy="72" r="2.2"/><circle class="cut" cx="488" cy="72" r="2.2"/><circle class="cut" cx="504" cy="72" r="2.2"/><circle class="cut" cx="520" cy="72" r="2.2"/><circle class="cut" cx="536" cy="72" r="2.2"/><circle class="cut" cx="552" cy="72" r="2.2"/><circle class="cut" cx="568" cy="72" r="2.2"/><circle class="cut" cx="584" cy="72" r="2.2"/><circle class="cut" cx="600" cy="72" r="2.2"/><circle class="cut" cx="616" cy="72" r="2.2"/><circle class="cut" cx="632" cy="72" r="2.2"/><circle class="cut" cx="648" cy="72" r="2.2"/><circle class="cut" cx="664" cy="72" r="2.2"/><circle class="cut" cx="680" cy="72" r="2.2"/><circle class="cut" cx="696" cy="72" r="2.2"/><circle class="cut" cx="392" cy="88" r="2.2"/><circle class="cut" cx="408" cy="88" r="2.2"/><circle class="cut" cx="424" cy="88" r="2.2"/><circle class="cut" cx="440" cy="88" r="2.2"/><circle class="cut" cx="456" cy="88" r="2.2"/><circle class="cut" cx="472" cy="88" r="2.2"/><circle class="cut" cx="488" cy="88" r="2.2"/><circle class="cut" cx="504" cy="88" r="2.2"/><circle class="cut" cx="520" cy="88" r="2.2"/><circle class="cut" cx="536" cy="88" r="2.2"/><circle class="cut" cx="552" cy="88" r="2.2"/><circle class="cut" cx="568" cy="88" r="2.2"/><circle class="cut" cx="584" cy="88" r="2.2"/><circle class="cut" cx="600" cy="88" r="2.2"/><circle class="cut" cx="616" cy="88" r="2.2"/><circle class="cut" cx="632" cy="88" r="2.2"/><circle class="cut" cx="648" cy="88" r="2.2"/><circle class="cut" cx="664" cy="88" r="2.2"/><circle class="cut" cx="680" cy="88" r="2.2"/><circle class="cut" cx="696" cy="88" r="2.2"/>
+  </svg>
+  <div class="nm"><h1>Exomem Design System</h1><p>Warm black, ink, and one amber that lights only what is live.</p></div>
+</div>
+</body>
+</html>

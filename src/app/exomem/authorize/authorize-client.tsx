@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { FieldKind } from "@/components/exomem/FlowField";
+import { CheckoutInline } from "@/components/exomem/CheckoutInline";
 import type { Known } from "@/lib/exomem-hosted/known";
-import { usePaddlePricePreview } from "@/lib/paddle";
-import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
+import { openBillingPortal, signOut } from "../_journey/account-actions";
 import {
   breakCopy,
   consentCopy,
   failureCopy,
   handbackCopy,
   startCopy,
-  subscribeCopy,
   UNNAMED_APP,
 } from "../_journey/copy";
 import { returnToWebApp, tellLoopbackApp } from "../_journey/handback";
@@ -21,7 +20,6 @@ import {
   EndedActions,
   endedLede,
   openElsewhere,
-  PriceCard,
   ScopesCard,
   SignedInLine,
   StepActions,
@@ -31,7 +29,7 @@ import {
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
 import styles from "../_journey/journey.module.css";
-import { offerInviter, showsUsualPrice, subscribeView, type FriendOffer } from "../home/home-view";
+import { offerInviter, type FriendOffer } from "../home/home-view";
 import { offersConnect, type ConsentScreen } from "./consent-screen";
 
 export type AccountFacts = {
@@ -79,6 +77,7 @@ type Phase =
   | ConsentScreen
   | "confirming"
   | "connecting"
+  | "sealing"
   | "connecterror"
   | "unconfirmed"
   | "handback"
@@ -104,8 +103,9 @@ const KIND: Record<Phase, FieldKind> = {
   preparing: "live",
   readonly: "live",
   connecting: "go",
+  sealing: "done",
   handback: "done",
-  kept: "done",
+  kept: "quiet",
 };
 
 // The board repeats the signed-in email under the actions on a desktop only here.
@@ -117,7 +117,7 @@ const SIGNED_IN_ON_DESKTOP: Phase[] = [
   "subscribe",
   "connecterror",
 ];
-const SIGNED_OUT: Phase[] = ["expired", "signedout", "switched", "handback", "kept"];
+const SIGNED_OUT: Phase[] = ["expired", "signedout", "switched"];
 
 type Outcome = { redirectUrl: string; loopback: boolean };
 
@@ -214,31 +214,26 @@ function Consent({
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<"declined" | "kept" | "billing" | null>(null);
+  const motion = useRef<Partial<Record<"connecting" | "connected", () => void>>>({});
+  const onPairMotionComplete = useCallback((state: "connecting" | "connected") => {
+    motion.current[state]?.();
+    delete motion.current[state];
+  }, []);
   const readOnlyUntil = useReaderDate(account.readOnlyUntil);
   const keptUntil = useReaderDate(account.keptUntil);
 
   // The app hears the answer: a web app by a navigation after the page has shown it,
   // an app on this computer in the background while the page stays.
   useEffect(() => {
-    if (!outcome) return;
+    if (!outcome || (phase !== "handback" && phase !== "declined" && phase !== "kept")) return;
     if (outcome.loopback) {
       void tellLoopbackApp(outcome.redirectUrl);
       return;
     }
     return returnToWebApp(outcome.redirectUrl);
-  }, [outcome]);
+  }, [outcome, phase]);
 
-  const onSettled = useCallback((destination: string | null) => {
-    if (destination) window.location.replace(destination);
-    else window.location.reload();
-  }, []);
-  const checkout = useCheckout(onSettled, request.email);
-  // A friend offer's price is not the previewed one, so it is not previewed.
-  const price = usePaddlePricePreview(
-    phase === "subscribe" && showsUsualPrice(account.friendOffer) ? request.priceId : null
-  );
-  const current: Phase = checkout.confirming ? "confirming" : phase;
-  const subscribe = subscribeView(account.friendOffer, price, name);
+  const current = phase;
   const inviter = offerInviter(account.friendOffer);
 
   async function connect(event?: FormEvent<HTMLFormElement>) {
@@ -246,6 +241,9 @@ function Consent({
     event?.preventDefault();
     setFailure(null);
     setFocusHeading(true);
+    const cycle = new Promise<void>((resolve) => {
+      motion.current.connecting = resolve;
+    });
     setPhase("connecting");
     let answer: { status: number; body: unknown };
     try {
@@ -258,7 +256,13 @@ function Consent({
     }
     const connected = answer.status === 200 ? outcomeOf(answer.body) : null;
     if (connected) {
+      await cycle;
+      const seal = new Promise<void>((resolve) => {
+        motion.current.connected = resolve;
+      });
       setOutcome(connected);
+      setPhase("sealing");
+      await seal;
       setPhase("handback");
       return;
     }
@@ -330,6 +334,16 @@ function Consent({
     );
   }
 
+  if ((current === "subscribe" || current === "confirming") && request.email) {
+    return (
+      <CheckoutInline
+        email={request.email}
+        inviter={inviter}
+        onReady={() => window.location.reload()}
+      />
+    );
+  }
+
   const signedIn = !SIGNED_OUT.includes(current) && request.email ? request.email : null;
   const signedInLine = signedIn ? (
     <SignedInLine
@@ -351,41 +365,6 @@ function Consent({
           title={breakCopy.expired.title}
           lede={breakCopy.expired.lede(requestLife, name)}
         />
-      );
-      break;
-    case "subscribe":
-    case "confirming":
-      body = (
-        <>
-          <StepHeading
-            title={current === "confirming" ? subscribeCopy.confirming.title : subscribeCopy.title}
-            lede={current === "confirming" ? subscribeCopy.confirming.lede(name) : subscribe.line}
-          />
-          {current === "subscribe" && subscribe.friendCard ? (
-            <PriceCard {...subscribe.friendCard} />
-          ) : null}
-          <StepNotice alert visible={checkout.failed}>
-            {failureCopy.generic}
-          </StepNotice>
-          {current === "subscribe" ? (
-            <StepActions
-              primary={{
-                label: subscribeCopy.primary,
-                working: checkout.opening,
-                disabled: busy !== null,
-                onClick: () => {
-                  setFocusHeading(true);
-                  void checkout.subscribe();
-                },
-              }}
-              secondary={{
-                label: subscribeCopy.notNow,
-                working: busy === "declined",
-                onClick: () => void decline("declined"),
-              }}
-            />
-          ) : null}
-        </>
       );
       break;
     case "connect":
@@ -494,6 +473,7 @@ function Consent({
         />
       );
       break;
+    case "sealing":
     case "handback":
       body = (
         <>
@@ -541,7 +521,6 @@ function Consent({
       body = (
         <>
           <StepHeading title={handbackCopy.kept.title} lede={handbackCopy.kept.lede(name)} />
-          <DoneLine>{handbackCopy.kept.done(name)}</DoneLine>
         </>
       );
       break;
@@ -558,17 +537,14 @@ function Consent({
               inviter,
             })}
           />
-          <StepNotice alert visible={checkout.failed}>
-            {failureCopy.generic}
-          </StepNotice>
           <EndedActions
             resubscribe={
               account.checkoutAvailable
                 ? {
-                    ...checkout,
+                    opening: false,
                     subscribe: async () => {
                       setFocusHeading(true);
-                      await checkout.subscribe();
+                      setPhase("subscribe");
                     },
                   }
                 : null
@@ -630,9 +606,14 @@ function Consent({
       headerEmail={signedIn}
       homeHref={request.email ? "/exomem/home" : "/exomem"}
       footer={footer}
+      onPairMotionComplete={onPairMotionComplete}
       // Connect, its variants and Connecting… are one step whose button changes.
       stepKey={
-        offersConnect(current as ConsentScreen) || current === "connecting" ? "consent" : current
+        offersConnect(current as ConsentScreen) || current === "connecting"
+          ? "consent"
+          : current === "sealing"
+            ? "handback"
+            : current
       }
     >
       {body}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
   findExomemSessionByDigest,
   revokeExomemSession,
@@ -18,8 +19,9 @@ export const EXOMEM_SESSION_COOKIE = "exomem_session";
 export const EXOMEM_CSRF_COOKIE = "exomem_csrf";
 export const EXOMEM_CSRF_HEADER = "x-exomem-csrf";
 export const EXOMEM_MAGIC_CHALLENGE_COOKIE = "exomem_magic_challenge";
+export const EXOMEM_ACCESS_RECOVERY_COOKIE = "exomem_access_recovery";
 export const EXOMEM_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-export const EXOMEM_MAGIC_CHALLENGE_TTL_MS = 15 * 60 * 1000;
+export const EXOMEM_MAGIC_CHALLENGE_TTL_MS = OWNER_SIGN_IN_TTL_MS;
 
 export type SessionMaterial = {
   sessionToken: string;
@@ -65,7 +67,7 @@ export function mintSessionMaterial(
   };
 }
 
-function cookieValue(request: Request, name: string): string | null {
+export function cookieValue(request: Request, name: string): string | null {
   const header = request.headers.get("cookie");
   if (!header) return null;
   for (const part of header.split(";")) {

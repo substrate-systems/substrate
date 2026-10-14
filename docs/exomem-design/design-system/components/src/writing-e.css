@@ -1,0 +1,28 @@
+
+@property --exo-w{syntax:'<number>';inherits:true;initial-value:0}
+@property --exo-b{syntax:'<number>';inherits:true;initial-value:0}
+@property --exo-rest{syntax:'<number>';inherits:true;initial-value:1}
+.exo-we{overflow:visible;transition:--exo-w var(--exo-we-wd,.9s) var(--ease-settle, cubic-bezier(.2,.7,.2,1)),--exo-b .45s ease,--exo-rest .55s ease,filter .6s ease}
+.exo-we circle{transition:fill .5s ease}
+.exo-we-i circle{fill:var(--exo-we-ink, var(--fg-primary));opacity:calc(var(--exo-we-faint,.24) + (1 - var(--exo-we-faint,.24)) * var(--exo-rest))}
+.exo-we-l circle{fill:var(--exo-we-acc, var(--exo-amber));opacity:min(1, calc(clamp(0, var(--exo-w) - var(--exo-k), 1) * (1 - var(--exo-rest)) + var(--exo-row) * var(--exo-rest)));transform-box:fill-box;transform-origin:center}
+.exo-we-p circle{fill:var(--exo-we-acc, var(--exo-amber));opacity:max(0, calc((clamp(0, var(--exo-b) - var(--exo-k), 1) - clamp(0, var(--exo-w) - var(--exo-k), 1)) * (1 - var(--exo-rest))));animation:exoWePen 1.2s ease-in-out calc(var(--exo-k) * .14s - 12s) infinite}
+@keyframes exoWePen{0%,100%{fill-opacity:.28}35%{fill-opacity:1}}
+.exo-we.indet .exo-we-p circle{animation:exoWeComet 1.8s linear calc(var(--exo-k) * 1.8s / var(--exo-L) - 12s) infinite}
+@keyframes exoWeComet{0%{fill-opacity:1}22%{fill-opacity:.18}100%{fill-opacity:.18}}
+.exo-we.done{filter:var(--exo-we-glow, none)}
+.exo-we.done .exo-we-l circle{animation:exoWeSeal .7s cubic-bezier(.16,1,.3,1) calc(.75s + var(--exo-k) * .035s) both}
+@keyframes exoWeSeal{0%{transform:scale(1)}40%{transform:scale(1.42)}100%{transform:scale(1)}}
+.exo-we.breathe .exo-we-l circle{animation:exoWeBreath 3.2s ease-in-out calc(var(--exo-k) * .2s - 12s) infinite}
+@keyframes exoWeBreath{0%,100%{fill-opacity:1}50%{fill-opacity:.5}}
+.exo-we.recall .exo-we-l circle{animation:exoWeWave 1.1s ease-in-out calc(var(--exo-k) * .14s - 12s) infinite}
+@keyframes exoWeWave{0%,100%{fill-opacity:.4;transform:scale(.88)}50%{fill-opacity:1;transform:scale(1.08)}}
+.exo-we.off circle{fill:var(--exo-we-off, var(--exo-we-ink, var(--fg-primary)))}
+.exo-we.off .exo-we-p circle{opacity:0}
+.exo-we-wm .exo-we-word{fill:var(--exo-we-ink, var(--fg-primary));transition:fill .5s ease}
+.exo-we-wm.off .exo-we-word{fill:var(--exo-we-offw,var(--exo-we-ink, var(--fg-primary)))}
+@media (prefers-reduced-motion: reduce){.exo-we{transition:none}.exo-we circle{animation:none !important;transition:none}.exo-we-p circle{fill-opacity:.7}}
+.exo-we.save .exo-we-l circle{animation:exoWeWrite .5s cubic-bezier(.16,1,.3,1) calc(var(--exo-k) * .06s) both}
+@keyframes exoWeWrite{0%{fill-opacity:0;transform:scale(1.9)}100%{fill-opacity:1;transform:scale(1)}}
+[data-theme="light"] .exo-we{--exo-we-glow:drop-shadow(0 0 2.5px var(--exo-phosphor, #ffb000))}
+@media (prefers-reduced-motion: reduce){.exo-we.save .exo-we-l circle{animation:none}}

@@ -62,13 +62,20 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
     friendOffer: account.plan.friendPrice,
     exportOffered: cloudExportsEnabled(),
     checkoutAvailable: billing.checkoutAvailable,
+    paidPlan: account.plan.source === "paddle",
   };
 }
 
 /** The web journey after sign-in: subscribe, then add Exomem to an assistant. */
-export default async function SetupPage() {
+export default async function SetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const cookieStore = await cookies();
   const facts = await setupFacts(cookieStore.get(EXOMEM_SESSION_COOKIE)?.value);
   if (!facts) redirect("/exomem/sign-in");
+  const returned = (await searchParams)._ptxn;
+  if (typeof returned === "string") facts.returnedTransactionId = returned;
   return <SetupClient facts={facts} />;
 }

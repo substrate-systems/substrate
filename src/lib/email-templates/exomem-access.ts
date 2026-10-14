@@ -128,18 +128,17 @@ export function renderExomemHoldReminderEmail(input: {
   });
 }
 
-/** The waitlist email, in the product owner's approved copy (2026-10-12). */
+/** W1: the approved invitation-only copy from round41. */
 export function renderExomemWaitlistEmail(): RenderedExomemAccessEmail {
   return renderExomemEmail({
-    subject: "You’re on the Exomem waitlist",
-    preheader: "We'll email you when a place opens.",
+    subject: "You’re on the Exomem list",
+    preheader: "We’ll email you when there’s a place for you.",
     band: "arrive",
-    headline: "You're on the list",
+    headline: "You’re on the list",
     body: [
-      "Exomem is full for now. We add room as we grow. When a place opens for you, we'll send a link to start.",
+      "Exomem is open by invitation for now. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
     ],
-    smallPrint:
-      "You don't need to do anything. If you didn't ask for this, ignore this email. We write again only when a place opens.",
+    smallPrint: "If you didn’t ask for this, ignore this email.",
   });
 }
 

@@ -445,10 +445,6 @@ body {
    THE ONE HARD RULE: --exo-amber lights ONLY live / retrieved / current state —
    never decoration.
 ============================================================================= */
-.brand-exomem ::selection {
-  background: rgba(var(--amber-rgb), 0.22);
-}
-
 /* Hover state for server-rendered links (house rule: color/border/opacity only —
    never scale or translate on press). */
 .brand-exomem .exo-link-ts {

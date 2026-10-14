@@ -1,27 +1,62 @@
-import type { CSSProperties, ReactNode } from "react";
-import { DOT_E_INK, DOT_E_LIT, DOT_E_RADIUS } from "./dot-e";
+"use client";
+
+import { useEffect, useRef, type ReactNode } from "react";
+import { Mark } from "./Mark";
 import phone from "./phone.module.css";
 import styles from "./PairedTiles.module.css";
-
-// Each ink dot lights a little after the one before, in reading order; the slot the
-// middle row would take (.35 s) is skipped. From the Journey board's tile mark.
-const SWEEP_DELAY_S = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7];
 
 type PairedTilesProps = {
   /** idle: asking · connecting: the dot travels · connected: the Exomem tile blooms · stopped: the light is out. */
   state: "idle" | "connecting" | "connected" | "stopped";
   /** The app asking to connect. Omit when the person started on our site: only the Exomem tile shows. */
   app?: { name: string; glyph: ReactNode; glyphSize: number };
+  onMotionComplete?: (state: "connecting" | "connected") => void;
 };
 
 /** The consent page's pairing: the app's tile, a line, and the Exomem tile. */
-export function PairedTiles({ state, app }: PairedTilesProps) {
+export function PairedTiles({ state, app, onMotionComplete }: PairedTilesProps) {
+  const tiles = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!onMotionComplete || (state !== "connecting" && state !== "connected")) return;
+    let active = true;
+    let timer = 0;
+    const frame = requestAnimationFrame(() => {
+      const animations = tiles.current?.getAnimations({ subtree: true }) ?? [];
+      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (state === "connecting" || reduced || !animations.length) {
+        // One complete visible cycle survives a fast provider response; reduced motion settles statically.
+        const duration = reduced
+          ? 140
+          : Math.max(
+              140,
+              ...animations.map((animation) => Number(animation.effect?.getTiming().duration) || 0)
+            );
+        timer = window.setTimeout(() => active && onMotionComplete(state), duration);
+      } else {
+        const finite = animations.filter(
+          (animation) => animation.effect?.getTiming().iterations !== Infinity
+        );
+        void Promise.allSettled(finite.map((animation) => animation.finished)).then(() => {
+          if (active) onMotionComplete(state);
+        });
+      }
+    });
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [state, onMotionComplete]);
   return (
-    <div className={`${styles.tiles} ${phone.pairLine} ${state === "idle" ? "" : styles[state]}`}>
+    <div
+      ref={tiles}
+      className={`${styles.tiles} ${phone.pairLine} ${state === "idle" ? "" : styles[state]}`}
+    >
       {app && (
         <>
           <div className={styles.tile} title={app.name} style={{ fontSize: app.glyphSize }}>
             <span aria-hidden="true">{app.glyph}</span>
+            <span className={styles.appName}>{app.name}</span>
           </div>
           <svg className={styles.pair} height="10" aria-hidden="true">
             <line className={styles.pl} x1="4" y1="5" x2="100%" y2="5" strokeWidth="1.5" />
@@ -30,28 +65,11 @@ export function PairedTiles({ state, app }: PairedTilesProps) {
         </>
       )}
       <div className={`${styles.tile} ${styles.xt}`}>
-        <svg viewBox="0 0 48 48" width="42" height="42" role="img" aria-label="Exomem">
-          {DOT_E_INK.map(([cx, cy], i) => (
-            <circle
-              key={`${cx},${cy}`}
-              className={styles.ed}
-              cx={cx}
-              cy={cy}
-              r={DOT_E_RADIUS}
-              style={{ "--rd": `${SWEEP_DELAY_S[i]}s` } as CSSProperties}
-            />
-          ))}
-          {DOT_E_LIT.map(([cx, cy], i) => (
-            <circle
-              key={`${cx},${cy}`}
-              className={styles.md}
-              cx={cx}
-              cy={cy}
-              r={DOT_E_RADIUS}
-              style={{ "--i": i } as CSSProperties}
-            />
-          ))}
-        </svg>
+        <Mark
+          size={42}
+          state={state === "connecting" ? "working" : state === "connected" ? "done" : "off"}
+          label="Exomem"
+        />
       </div>
     </div>
   );

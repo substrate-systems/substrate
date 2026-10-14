@@ -1,0 +1,28 @@
+<!-- @dsCard group="Live" height=120 subtitle="What is happening now, live, with Pause" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>LiveLine — preview</title>
+<style>html,body{margin:0;background:var(--bg-base);color:var(--fg-primary);font-family:var(--font-sans)}
+.pv{padding:20px 24px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box}
+.row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
+.cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:96px}
+.k{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
+.t{font-size:13px;line-height:1.45;color:var(--fg-secondary)}
+.n{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.panel{padding:18px;border:1px solid var(--exo-border-card);border-radius:var(--r-card);background:var(--bg-panel)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+const h = React.createElement, X = window.Exomem;
+const useTick = (ms) => { const [t, setT] = React.useState(0); React.useEffect(() => { const i = setInterval(() => setT((x) => x + 1), ms); return () => clearInterval(i); }, []); return t; };
+
+const EV = ['Claude recalled 3 notes · 14:02', 'Cursor saved a decision · 14:03', 'ChatGPT recalled 1 note · 14:05'];
+function App() {
+  const t = useTick(2600), [live, setLive] = React.useState(true);
+  return h('div', { className: 'pv' }, h(X.LiveLine, { text: live ? EV[t % EV.length] : 'Paused', live, onToggle: () => setLive(!live) }));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

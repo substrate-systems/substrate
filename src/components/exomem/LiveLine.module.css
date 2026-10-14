@@ -17,6 +17,14 @@
   animation: vBlink 1.6s ease-in-out infinite;
   flex: none;
 }
+.glyph {
+  font-size: 11px;
+  color: var(--exo-amber-text);
+  flex: none;
+}
+.paused .glyph {
+  color: var(--fg-secondary);
+}
 
 /* Paused: a grey dot that holds still. */
 .paused .dot {

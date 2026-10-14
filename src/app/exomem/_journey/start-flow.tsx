@@ -9,14 +9,6 @@ import { ChallengeError, useTurnstile } from "./turnstile";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
-/**
- * How long "Try again" waits after a send. The server's limit is silent by
- * design (every request answers the same 202), so without a wait an impatient person
- * spends the hourly allowance with nothing to show for it. This is not a security
- * control; the server enforces the real limit.
- */
-const RESEND_WAIT_MS = 60_000;
-
 type StartContext =
   | { kind: "web" }
   /** An app's consent page: the reviewer sign-in binds to its request with the form nonce. */
@@ -35,7 +27,9 @@ type StartFlowProps = {
   focusHeading?: boolean;
 };
 
-type StartOutcome = "sent" | "challenge_failed" | "failed";
+type StartOutcome =
+  | { kind: "sent"; retryAfterSeconds: number; retryLimited: boolean }
+  | { kind: "challenge_failed" | "failed" };
 
 /**
  * POST /api/exomem/access/start. Every request that passes the challenge answers the
@@ -55,15 +49,32 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
       }),
       credentials: "same-origin",
       cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
     });
   } catch {
-    return "failed";
+    return { kind: "failed" };
   }
-  if (response.status === 202) return "sent";
-  const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
-  return response.status === 400 && body?.error === "challenge_failed"
-    ? "challenge_failed"
-    : "failed";
+  const body = (await response.json().catch(() => null)) as {
+    error?: unknown;
+    retryAfterSeconds?: unknown;
+    retryLimited?: unknown;
+  } | null;
+  if (
+    response.status === 202 &&
+    typeof body?.retryAfterSeconds === "number" &&
+    Number.isInteger(body.retryAfterSeconds) &&
+    body.retryAfterSeconds >= 0
+  ) {
+    return {
+      kind: "sent",
+      retryAfterSeconds: body.retryAfterSeconds,
+      retryLimited: body.retryLimited === true,
+    };
+  }
+  return {
+    kind:
+      response.status === 400 && body?.error === "challenge_failed" ? "challenge_failed" : "failed",
+  };
 }
 
 function clock(ms: number): string {
@@ -79,13 +90,17 @@ export function StartFlow({
   notice,
   focusHeading = false,
 }: StartFlowProps) {
-  const [step, setStep] = useState<"form" | "sent" | "reviewer">("form");
+  const [step, setStep] = useState<"form" | "sent" | "limited" | "reviewer" | "unreachable">(
+    "form"
+  );
+  const [retryIn, setRetryIn] = useState(8);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [focusStep, setFocusStep] = useState(focusHeading);
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [shownNotice, setShownNotice] = useState(notice ?? null);
-  const [sentAt, setSentAt] = useState(0);
+  const [retryAt, setRetryAt] = useState(0);
   const [now, setNow] = useState(0);
   const {
     mount: challengeHost,
@@ -99,9 +114,47 @@ export function StartFlow({
     <div className={asking ? styles.challengeShown : styles.challenge} ref={challengeHost} />
   );
 
-  const waitLeft = sentAt + RESEND_WAIT_MS - now;
+  const waitLeft = retryAt - now;
   useEffect(() => {
-    if (step !== "sent" || waitLeft <= 0) return;
+    if (step !== "unreachable") return;
+    let active = true;
+    let timer = 0;
+    let delay = 8;
+    let remaining = delay;
+    const tick = async () => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        try {
+          const response = await fetch("/healthz", {
+            cache: "no-store",
+            signal: AbortSignal.timeout(5000),
+          });
+          const body = await response.json();
+          if (active && response.ok && body?.ok === true) {
+            setFocusStep(true);
+            setStep("form");
+            setFailure(null);
+            return;
+          }
+        } catch {
+          /* The next bounded read can recover the form. */
+        }
+        delay = Math.min(60, delay * 2);
+        remaining = delay;
+      }
+      if (active) {
+        setRetryIn(remaining);
+        timer = window.setTimeout(tick, 1000);
+      }
+    };
+    timer = window.setTimeout(tick, 1000);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [step, retryAttempt]);
+  useEffect(() => {
+    if ((step !== "sent" && step !== "limited") || waitLeft <= 0) return;
     const timer = window.setTimeout(() => setNow(Date.now()), Math.min(1000, waitLeft));
     return () => window.clearTimeout(timer);
   }, [step, waitLeft]);
@@ -113,26 +166,35 @@ export function StartFlow({
     try {
       outcome = await requestStart(email, await challengeToken());
     } catch (error) {
-      outcome = error instanceof ChallengeError ? "challenge_failed" : "failed";
+      outcome = { kind: error instanceof ChallengeError ? "challenge_failed" : "failed" };
     }
     resetChallenge();
     setSending(false);
-    if (outcome === "sent") {
+    if (outcome.kind === "sent") {
       setFailure(null);
       const at = Date.now();
-      setSentAt(at);
+      setRetryAt(at + outcome.retryAfterSeconds * 1000);
       setNow(at);
       setShownNotice(null);
       setFocusStep(true);
-      setStep("sent");
+      setStep(outcome.retryLimited ? "limited" : "sent");
       return;
     }
     // Both steps hold the widget, so retry failures can keep the control focused.
-    setFailure(outcome === "challenge_failed" ? failureCopy.challenge : failureCopy.generic);
+    if (outcome.kind === "failed") {
+      setRetryIn(8);
+      setRetryAttempt((attempt) => attempt + 1);
+      setFocusStep(true);
+      setStep("unreachable");
+    } else setFailure(failureCopy.challenge);
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!event.currentTarget.checkValidity()) {
+      event.currentTarget.querySelector<HTMLInputElement>("input:invalid")?.focus();
+      return;
+    }
     void send();
   }
 
@@ -154,15 +216,45 @@ export function StartFlow({
 
   return (
     <JourneyPage
-      kind="quiet"
+      kind={step === "unreachable" ? "stop" : "quiet"}
       app={frame.app}
       footer={frame.footer}
       stepKey={step}
       focusHeading={focusStep}
     >
-      {step === "sent" ? (
+      {step === "unreachable" ? (
         <>
-          <StepHeading title={sentCopy.title} lede={sentCopy.lede} />
+          <StepHeading
+            title="Can’t reach Exomem."
+            lede="Your memories are safe. We can’t reach Exomem right now."
+          />
+          {challenge}
+          <StepNotice>Checking again in {retryIn} seconds.</StepNotice>
+          <StepActions
+            primary={{
+              label: sending ? "Trying…" : "Try now",
+              working: sending,
+              onClick: () => void send(),
+            }}
+            secondary={{
+              label: "Back to sign-in",
+              onClick: () => {
+                setFocusStep(true);
+                setStep("form");
+              },
+            }}
+          />
+        </>
+      ) : step === "sent" || step === "limited" ? (
+        <>
+          <StepHeading
+            title={step === "limited" ? "Give it a moment" : sentCopy.title}
+            lede={
+              step === "limited"
+                ? "Use the latest email you received, or check your spam folder. You can request another email when the wait ends."
+                : sentCopy.lede
+            }
+          />
           <div className={styles.group}>
             <SentCard email={email} />
             {challenge}
@@ -196,7 +288,7 @@ export function StartFlow({
           {shownNotice ? (
             <StepNotice attention={shownNotice.attention}>{shownNotice.text}</StepNotice>
           ) : null}
-          <form className={styles.form} onSubmit={submit}>
+          <form className={styles.form} onSubmit={submit} noValidate>
             <div className={styles.group}>
               <TextField
                 label={startCopy.emailLabel}
@@ -208,6 +300,7 @@ export function StartFlow({
                 value={email}
                 onChange={(event) => {
                   setEmail(event.target.value);
+                  setFailure(null);
                   void startChallenge();
                 }}
                 error={failure ?? undefined}
@@ -261,6 +354,10 @@ function ReviewerSignIn({
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!event.currentTarget.checkValidity()) {
+      event.currentTarget.querySelector<HTMLInputElement>("input:invalid")?.focus();
+      return;
+    }
     if (submitting) return;
     setSubmitting(true);
     let destination: string | null = null;
@@ -281,7 +378,6 @@ function ReviewerSignIn({
     } catch {
       destination = null;
     }
-    setPassword("");
     if (destination) {
       window.location.assign(destination);
       return;
@@ -305,10 +401,7 @@ function ReviewerSignIn({
           </>
         }
       />
-      <StepNotice alert id="reviewer-failure" visible={failed}>
-        {failure}
-      </StepNotice>
-      <form className={styles.form} onSubmit={signIn}>
+      <form className={styles.form} onSubmit={signIn} noValidate>
         <div className={styles.fields}>
           <TextField
             label={reviewerCopy.username}
@@ -325,8 +418,11 @@ function ReviewerSignIn({
             required
             value={password}
             invalid={failed}
-            aria-describedby={failed ? "reviewer-failure" : undefined}
-            onChange={(event) => setPassword(event.target.value)}
+            error={failed ? failure : undefined}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setFailed(false);
+            }}
           />
         </div>
         <StepActions

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { cloudHomeChannelEnabled } from "@/lib/exomem-hosted/cloud-home-mcp";
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
@@ -15,7 +16,13 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export default function ExomemHomePage() {
+export default async function ExomemHomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const returned = (await searchParams)._ptxn;
+  if (typeof returned === "string") redirect(`/exomem/setup?_ptxn=${encodeURIComponent(returned)}`);
   return (
     <main className={`${styles.page} brand-exomem`}>
       <HomeClient

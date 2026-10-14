@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Subscribe, inline checkout</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}
+
+@property --w{syntax:'<number>';inherits:true;initial-value:0}
+@property --b{syntax:'<number>';inherits:true;initial-value:0}
+@property --rest{syntax:'<number>';inherits:true;initial-value:1}
+.we{overflow:visible;transition:--w var(--we-wd,.9s) cubic-bezier(.2,.7,.2,1),--b .45s ease,--rest .55s ease,filter .6s ease}
+.we circle{transition:fill .5s ease}
+.we-i circle{fill:var(--we-ink);opacity:calc(var(--we-faint,.24) + (1 - var(--we-faint,.24)) * var(--rest))}
+.we-l circle{fill:var(--we-acc);opacity:min(1, calc(clamp(0, var(--w) - var(--k), 1) * (1 - var(--rest)) + var(--row) * var(--rest)));transform-box:fill-box;transform-origin:center}
+.we-p circle{fill:var(--we-acc);opacity:max(0, calc((clamp(0, var(--b) - var(--k), 1) - clamp(0, var(--w) - var(--k), 1)) * (1 - var(--rest))));animation:wePen 1.2s ease-in-out calc(var(--k) * .14s - 12s) infinite}
+@keyframes wePen{0%,100%{fill-opacity:.28}35%{fill-opacity:1}}
+.we.indet .we-p circle{animation:weComet 1.8s linear calc(var(--k) * 1.8s / var(--L) - 12s) infinite}
+@keyframes weComet{0%{fill-opacity:1}22%{fill-opacity:.18}100%{fill-opacity:.18}}
+.we.done{filter:var(--we-glow,none)}
+.we.done .we-l circle{animation:weSeal .7s cubic-bezier(.16,1,.3,1) calc(.75s + var(--k) * .035s) both}
+@keyframes weSeal{0%{transform:scale(1)}40%{transform:scale(1.42)}100%{transform:scale(1)}}
+.we.breathe .we-l circle{animation:weBreath 3.2s ease-in-out calc(var(--k) * .2s - 12s) infinite}
+@keyframes weBreath{0%,100%{fill-opacity:1}50%{fill-opacity:.5}}
+.we.recall .we-l circle{animation:weWave 1.1s ease-in-out calc(var(--k) * .14s - 12s) infinite}
+@keyframes weWave{0%,100%{fill-opacity:.4;transform:scale(.88)}50%{fill-opacity:1;transform:scale(1.08)}}
+.we.off circle{fill:var(--we-off)}
+.we.off .we-p circle{opacity:0}
+.we-wm .we-word{fill:var(--we-ink);transition:fill .5s ease}
+.we-wm.off .we-word{fill:var(--we-offw,var(--we-ink))}
+@media (prefers-reduced-motion: reduce){.we{transition:none}.we circle{animation:none !important;transition:none}.we-p circle{fill-opacity:.7}}
+
+.ck .sk{animation:ckSk 1.6s ease-in-out infinite}@keyframes ckSk{0%,100%{opacity:.55}50%{opacity:1}}
+.ck .nv{animation:ckNv .5s ease-out both}@keyframes ckNv{from{opacity:0}to{opacity:1}}
+.ck .spin{animation:ckSpin .8s linear infinite}@keyframes ckSpin{to{transform:rotate(360deg)}}
+.ck .pd{animation:ckPd 2.4s ease-in-out infinite}@keyframes ckPd{0%,100%{opacity:1}50%{opacity:.55}}
+.ck .dl{animation:ckPd 1.6s ease-in-out infinite}
+.ck button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.ck::-webkit-scrollbar{width:12px;height:12px}.ck::-webkit-scrollbar-track{background:transparent}
+.ck::-webkit-scrollbar-thumb{background-color:rgba(var(--sb),.16);border-radius:12px;border:4px solid transparent;background-clip:padding-box}
+.ck:hover::-webkit-scrollbar-thumb{background-color:rgba(var(--sb),.26)}.ck::-webkit-scrollbar-thumb:hover{background-color:rgba(var(--sb),.42);border-width:3px}.ck::-webkit-scrollbar-thumb:active{background-color:var(--acc);border-width:3px}
+@supports not selector(::-webkit-scrollbar){.ck{scrollbar-width:thin;scrollbar-color:rgba(var(--sb),.22) transparent}}
+.ck .bar{position:absolute;left:0;right:0;top:-1px;height:2px;overflow:hidden;border-radius:14px 14px 0 0}.ck .bar::after{content:'';position:absolute;top:0;bottom:0;width:30%;background:linear-gradient(90deg,transparent,var(--acc),transparent);animation:ckBar 1.4s ease-in-out infinite}@keyframes ckBar{from{left:-30%}to{left:100%}}
+.ck .pf .ck-fl{font-size:13px;color:var(--pl)}
+.ck .pf .ck-fb{position:relative;display:flex;align-items:center}
+.ck .pf .ck-fi{width:100%;height:44px;box-sizing:border-box;border:1px solid var(--pbd);border-radius:6px;background:var(--pfd);padding:0 12px;font:15px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;color:var(--pt);outline:none;display:flex;align-items:center;justify-content:space-between;text-align:left;cursor:text;transition:border-color .15s,box-shadow .15s}
+.ck .pf .ck-fi::placeholder{color:var(--pph)}.ck .pf .ck-fsel{cursor:pointer}.ck .pf .ck-fi[readonly]{padding-right:72px}
+.ck .pf .ck-fi:focus,.ck .pf .ck-fi:focus-visible{border-color:var(--pt);box-shadow:0 0 0 1px var(--pt)}
+.ck .pf .ck-link{position:absolute;right:12px;border:0;background:transparent;font:13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;color:var(--pl);cursor:pointer;padding:4px 0}
+.ck .pf .ck-add{align-self:flex-start;border:0;background:transparent;padding:2px 0;font:13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;color:var(--pl);text-decoration:underline;cursor:pointer;margin-top:-4px}
+.ck .pf .ck-cg{border:1px solid var(--pbd);border-radius:6px;background:var(--pfd);overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.ck .pf .ck-ci{display:block;width:100%;height:44px;box-sizing:border-box;border:0;background:transparent;padding:0 12px;font:15px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;color:var(--pt);outline:none}
+.ck .pf .ck-ci::placeholder{color:var(--pph)}.ck .pf .ck-cg>.ck-ci,.ck .pf .ck-cg>div{border-top:1px solid var(--pbd)}.ck .pf .ck-cg>.ck-ci:first-child{border-top:0}.ck .pf .ck-cvv{border-left:1px solid var(--pbd)}
+.ck .pf .ck-cg:focus-within{border-color:var(--pt);box-shadow:0 0 0 1px var(--pt)}
+.ck .pf .ck-mk{display:flex;gap:10px;align-items:flex-start;font:12.5px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;color:var(--pl);cursor:pointer}.ck .pf .ck-mk input{width:16px;height:16px;margin:1px 0 0;flex:none;accent-color:var(--pt)}
+.ck .pf.fx .ck-cg{border-color:var(--fx-bd);border-radius:8px;background:var(--fx-bg)}.ck .pf.fx .ck-cg>.ck-ci,.ck .pf.fx .ck-cg>div{border-top-color:var(--fx-bd)}.ck .pf.fx .ck-cvv{border-left-color:var(--fx-bd)}
+.ck .pf.fx .ck-ci{caret-color:var(--acc)}.ck .pf.fx .ck-ci::placeholder{color:var(--fx-ph)}.ck .pf.fx .ck-cg:hover{border-color:var(--fx-bdh)}
+.ck .pf.fx .ck-cg:focus-within{outline:2px solid transparent;border-color:var(--acc);box-shadow:0 0 0 3px var(--fx-ring)}
+.ck .pf.fx .ck-mk input{accent-color:var(--acc)}
+.ck .pf .ck-pm{height:40px;border-radius:6px;border:1px solid var(--pbd);background:transparent;display:flex;align-items:center;justify-content:center;gap:7px;font:13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;color:var(--pl);cursor:pointer}
+.ck .pf .ck-pm[aria-pressed="true"]{border:1.5px solid var(--pt);font-weight:600;color:var(--pt)}
+.ck .pf .ck-pbtn{border-radius:6px;background:var(--pbtn);color:var(--pbtnf)}
+.ck .ck-retry:focus-visible{outline:2px solid transparent;outline-offset:2px;box-shadow:0 0 0 2px var(--pn),0 0 0 4px var(--acc),0 0 0 7px var(--fx-ring2)}
+.ck .pf button:focus-visible{outline:2px solid var(--pt);outline-offset:2px}
+.ck .pf.fx .ck-fl{font-size:12.5px;color:var(--fx-lab)}
+.ck .pf.fx .ck-fi{border-color:var(--fx-bd);border-radius:8px;background:var(--fx-bg);caret-color:var(--acc)}
+.ck .pf.fx .ck-fi::placeholder{color:var(--fx-ph)}
+.ck .pf.fx .ck-fi:hover{border-color:var(--fx-bdh)}
+.ck .pf.fx .ck-fi:focus,.ck .pf.fx .ck-fi:focus-visible{outline:2px solid transparent;border-color:var(--acc);box-shadow:0 0 0 3px var(--fx-ring)}
+.ck .pf.fx .ck-pm{border-radius:8px;border-color:var(--fx-bd)}.ck .pf.fx .ck-pm:hover{border-color:var(--fx-bdh)}
+.ck .pf.fx .ck-pm[aria-pressed="true"]{border:1.5px solid var(--pt)}
+.ck .pf.fx .ck-pbtn{border-radius:8px;background:var(--fx-btn);color:var(--fx-btnf)}
+.ck .pf.fx button:focus-visible{outline:2px solid transparent;outline-offset:2px;box-shadow:0 0 0 2px var(--fx-bg),0 0 0 4px var(--acc),0 0 0 7px var(--fx-ring)}
+.ck .etile{transition:border-color .4s}
+.ck .ck-now::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--acc);animation:ckPd 1.2s ease-in-out infinite}.ck .ck-next::before{content:'';width:7px;height:7px;border-radius:50%;border:1.5px solid currentColor;box-sizing:border-box}
+.ck .ck-in{animation:ckIn .45s cubic-bezier(.16,1,.3,1) both}@keyframes ckIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.ck .ck-fade,.ck .ck-ov,.ck .ck-x{transition:opacity .45s ease,visibility 0s linear 0s}
+.ck .ck-fade:not(.on),.ck .ck-ov:not(.on),.ck .ck-x:not(.on){opacity:0;visibility:hidden;pointer-events:none;transition:opacity .35s ease,visibility 0s linear .35s}
+.ck .ck-ov{position:absolute;inset:0}
+.we.we-js{transition:filter .6s ease}
+.ck .ck-area{transition:max-height .7s cubic-bezier(.2,.7,.2,1),min-height .7s cubic-bezier(.2,.7,.2,1)}.ck .ck-area.ck-shrink{max-height:290px !important;min-height:0 !important;overflow:hidden}
+.ck ::selection{background:color-mix(in srgb,var(--acc) 30%,transparent);color:rgb(var(--sb))}
+.ck .ck-stack{display:grid}.ck .ck-stack>*{grid-area:1/1}
+.ck .ck-col{display:grid;grid-template-rows:0fr;margin-bottom:-14px;opacity:0;transition:grid-template-rows .4s cubic-bezier(.2,.7,.2,1),margin-bottom .4s cubic-bezier(.2,.7,.2,1),opacity .3s ease}.ck .ck-col>div{overflow:hidden;min-height:0}
+.ck .ck-col.on{grid-template-rows:1fr;margin-bottom:0;opacity:1}
+.ck .ck-le{width:0;margin-right:-10px;opacity:0;overflow:hidden;transition:width .4s cubic-bezier(.2,.7,.2,1),margin-right .4s cubic-bezier(.2,.7,.2,1),opacity .35s ease}.ck .ck-le.on{width:22px;margin-right:0;opacity:1}.ck .etile.pay,.ck .etile.lit{border-color:var(--accl)}
+@keyframes ckTile{50%{box-shadow:0 0 0 3px var(--fx-ring2)}}
+.ck.ck-stop .sk{animation:none}
+@media (forced-colors: active){.ck button{border:1px solid ButtonText !important}.ck .ck-fi,.ck .ck-cg{border:1px solid FieldText !important}}
+@media (prefers-reduced-motion: reduce){.ck *{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<div class="ck {{ rootCls }}" data-ck="{{ key }}" style="--acc: {{ c.amber }}; --pn: {{ c.panel }}; --accl: {{ c.accl }}; --fx-ring2: {{ c.ring }}; --fg0: {{ c.fg }}; --emf: {{ c.emf }}; --we-ink: {{ c.fg }}; --we-acc: {{ c.amber }}; --we-glow: {{ c.emf }}; --we-faint: .26; --glowc: {{ c.halo }}; --sb: {{ c.rgb }}; position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; padding: {{ pagePad }}; background: {{ calm }}; background-color: {{ ground }}; color: {{ c.fg }}; font-family: Inter, system-ui, sans-serif">
+  <div style="height: {{ hdH }}px; display: flex; align-items: center; justify-content: space-between; color: {{ c.fg }}; max-width: {{ hdW }}px; margin: 0 auto"><span style="line-height: 0"><svg viewBox="2.30 -27.92 139.90 28.40" height="17" role="img" aria-label="Exomem"><g transform="translate(-6.642 -32.782) scale(0.7843)"><circle cx="13.6" cy="8.4" r="2.2" fill="currentColor"/><circle cx="18.8" cy="8.4" r="2.2" fill="currentColor"/><circle cx="24" cy="8.4" r="2.2" fill="currentColor"/><circle cx="29.2" cy="8.4" r="2.2" fill="currentColor"/><circle cx="34.4" cy="8.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="13.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="18.8" r="2.2" fill="currentColor"/><circle cx="13.6" cy="29.2" r="2.2" fill="currentColor"/><circle cx="13.6" cy="34.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="39.6" r="2.2" fill="currentColor"/><circle cx="18.8" cy="39.6" r="2.2" fill="currentColor"/><circle cx="24" cy="39.6" r="2.2" fill="currentColor"/><circle cx="29.2" cy="39.6" r="2.2" fill="currentColor"/><circle cx="34.4" cy="39.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="18.8" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="24" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="29.2" cy="24" r="2.2" style="fill: var(--acc)"/></g><path d="M25.8 0.0 33.480000000000004 -10.48 26.12 -20.64H31.2L33.92 -16.72L36.08 -13.6H36.32L38.44 -16.72L41.16 -20.64H45.879999999999995L38.480000000000004 -10.64L46.24 0.0H41.120000000000005L38.04 -4.44L35.92 -7.48H35.68L33.6 -4.44L30.560000000000002 0.0ZM60.0 0.48Q57.72 0.48 55.9 -0.28Q54.08 -1.04 52.82 -2.44Q51.56 -3.84 50.88 -5.84Q50.2 -7.84 50.2 -10.32Q50.2 -12.8 50.88 -14.8Q51.56 -16.8 52.82 -18.200000000000003Q54.08 -19.6 55.9 -20.36Q57.72 -21.12 60.0 -21.12Q62.28 -21.12 64.1 -20.36Q65.92 -19.6 67.18 -18.200000000000003Q68.44 -16.8 69.12 -14.8Q69.8 -12.8 69.8 -10.32Q69.8 -7.84 69.12 -5.84Q68.44 -3.84 67.18 -2.44Q65.92 -1.04 64.1 -0.28Q62.28 0.48 60.0 0.48ZM60.0 -2.96Q62.4 -2.96 63.82000000000001 -4.42Q65.24000000000001 -5.88 65.24000000000001 -8.76V-11.88Q65.24000000000001 -14.76 63.82000000000001 -16.22Q62.4 -17.68 60.0 -17.68Q57.6 -17.68 56.18 -16.22Q54.76 -14.76 54.76 -11.88V-8.76Q54.76 -5.88 56.18 -4.42Q57.6 -2.96 60.0 -2.96ZM73.76 0.0V-20.64H77.48V-17.96H77.68Q78.16 -19.28 79.06 -20.200000000000003Q79.96 -21.12 81.64 -21.12Q83.28 -21.12 84.18 -20.22Q85.08 -19.32 85.32 -17.76H85.48Q86.04 -19.16 87.03999999999999 -20.14Q88.03999999999999 -21.12 89.92 -21.12Q92.32 -21.12 93.25999999999999 -19.44Q94.2 -17.76 94.2 -14.52V0.0H90.48V-13.96Q90.48 -16.12 89.96000000000001 -16.94Q89.44 -17.76 88.28 -17.76Q87.24 -17.76 86.53999999999999 -17.060000000000002Q85.84 -16.36 85.84 -14.96V0.0H82.12V-13.96Q82.12 -16.12 81.62 -16.94Q81.12 -17.76 79.96 -17.76Q78.88 -17.76 78.18 -17.060000000000002Q77.48 -16.36 77.48 -14.96V0.0ZM108.44 0.48Q106.08 0.48 104.19999999999999 -0.28Q102.32 -1.04 101.03999999999999 -2.44Q99.76 -3.84 99.08000000000001 -5.82Q98.4 -7.8 98.4 -10.28Q98.4 -12.76 99.1 -14.760000000000002Q99.8 -16.76 101.06 -18.18Q102.32 -19.6 104.12 -20.36Q105.92 -21.12 108.12 -21.12Q110.28 -21.12 112.03999999999999 -20.380000000000003Q113.8 -19.64 115.03999999999999 -18.28Q116.28 -16.92 116.94 -15.040000000000001Q117.6 -13.16 117.6 -10.88V-9.24H102.8V-8.56Q102.8 -6.12 104.32 -4.58Q105.84 -3.04 108.52 -3.04Q110.52 -3.04 111.94 -3.9Q113.36 -4.76 114.24000000000001 -6.2L116.96000000000001 -3.8000000000000003Q115.92 -2.0 113.78 -0.76Q111.64 0.48 108.44 0.48ZM108.12 -17.8Q106.96000000000001 -17.8 105.98 -17.4Q105.0 -17.0 104.3 -16.259999999999998Q103.6 -15.52 103.19999999999999 -14.52Q102.8 -13.52 102.8 -12.32V-12.040000000000001H113.16V-12.44Q113.16 -14.88 111.78 -16.34Q110.4 -17.8 108.12 -17.8ZM121.76 0.0V-20.64H125.48V-17.96H125.68Q126.16 -19.28 127.06 -20.200000000000003Q127.96 -21.12 129.64 -21.12Q131.28 -21.12 132.18 -20.22Q133.08 -19.32 133.32 -17.76H133.48Q134.04 -19.16 135.04 -20.14Q136.04 -21.12 137.92000000000002 -21.12Q140.32 -21.12 141.26 -19.44Q142.2 -17.76 142.2 -14.52V0.0H138.48V-13.96Q138.48 -16.12 137.95999999999998 -16.94Q137.44 -17.76 136.28 -17.76Q135.24 -17.76 134.54000000000002 -17.060000000000002Q133.84 -16.36 133.84 -14.96V0.0H130.12V-13.96Q130.12 -16.12 129.62 -16.94Q129.12 -17.76 127.96 -17.76Q126.88 -17.76 126.18 -17.060000000000002Q125.48 -16.36 125.48 -14.96V0.0Z" fill="currentColor"/></svg></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{ c.muted }}; display: {{ hdEmail }}">{{ email }}</span></div>
+  <div style="width: 100%; max-width: {{ maxW }}px; margin: 0 auto; display: flex; flex-direction: column; gap: {{ gap }}px">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding-top: {{ headTop }}px">
+      <h1 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: {{ h1 }}px; letter-spacing: -0.02em; line-height: 1.25; text-wrap: balance"><span class="ck-in" key="{{ title }}">{{ title }}</span></h1>
+      <sc-if value="{{ showLede }}" hint-placeholder-val="{{ true }}"><p style="margin: 0; font-size: 14.5px; line-height: 1.55; color: {{ c.muted }}; max-width: 480px; min-height: {{ ledeH }}px">{{ lede }}</p></sc-if>
+    </div>
+    <div data-panel style="position: relative; border: 1px solid {{ c.line }}; border-radius: 14px; background: {{ c.panel }}; box-shadow: {{ c.shadow }}; {{ gridStyle }}">
+
+        <div style="display: flex; flex-direction: column; gap: 18px; padding: {{ sumPad }}; box-sizing: border-box; min-width: 0">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <span class="etile {{ eTile }}" style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid {{ c.line }}; display: flex; align-items: center; justify-content: center; flex: none"><svg class="we we-js {{ eCls }}" viewBox="0 0 48 48" width="22" height="22" aria-hidden="true" data-w="{{ eS.w }}" data-b="{{ eS.b }}" data-r="{{ eRest }}" style="--L: 10"><g class="we-i"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g><g class="we-l"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g><g class="we-p"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g></svg></span>
+            <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; color: {{ c.fg }}">Exomem</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{ c.muted }}">monthly · one knowledge base for every assistant</span></span>
+          </div>
+          <sc-if value="{{ isHero }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <sc-if value="{{ heroFriend }}" hint-placeholder-val="{{ false }}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: {{ c.amberText }}">{{ inviter }}’s friend price</span></sc-if>
+              <div style="display: flex; align-items: baseline; gap: 10px; min-height: 52px"><sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}"><span class="sk" style="display: inline-block; width: 150px; height: 36px; border-radius: 6px; background: {{ c.skel }}"></span></sc-if><sc-if value="{{ notLoading }}" hint-placeholder-val="{{ true }}"><span class="nv" style="font-family: 'IBM Plex Mono', monospace; font-size: 44px; font-weight: 500; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: {{ c.fg }}">{{ heroFmt }}</span></sc-if><span style="font-size: 15px; color: {{ c.muted }}">a month</span><sc-if value="{{ friendNum }}" hint-placeholder-val="{{ false }}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: {{ c.faint }}; text-decoration: line-through">{{ wasFmt }}</span></sc-if></div>
+              <span style="font-size: 13px; color: {{ c.muted }}">{{ heroNote }}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ friendBlock }}" hint-placeholder-val="{{ false }}">
+            <div style="border-left: 2px solid {{ c.amber }}; padding: 2px 0 2px 12px; display: flex; flex-direction: column; gap: 3px">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: {{ c.amberText }}">{{ inviter }}’s friend price</span>
+              <span style="font-size: 13px; line-height: 1.5; color: {{ c.muted }}">{{ friendNow }} a month instead of {{ friendWas }}, for as long as you stay subscribed.</span>
+            </div>
+          </sc-if>
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <sc-if value="{{ showPlan }}" hint-placeholder-val="{{ true }}"><div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 14px; line-height: 1.45">
+            <span style="color: {{ c.muted }}">Monthly plan</span><span style="display: flex; gap: 8px; align-items: baseline"><sc-if value="{{ friendNum }}" hint-placeholder-val="{{ false }}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: {{ c.faint }}; text-decoration: line-through">{{ wasFmt }}</span></sc-if><span style="min-width: 86px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-variant-numeric: tabular-nums; color: {{ c.fg }}"><sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}"><span class="sk" style="display: inline-block; width: 68px; height: 12px; border-radius: 4px; background: {{ c.skel }}; vertical-align: middle"></span></sc-if><sc-if value="{{ notLoading }}" hint-placeholder-val="{{ true }}"><span class="nv" key="{{ planFmtK }}">{{ planFmt }}</span></sc-if></span></span></div></sc-if>
+            <sc-if value="{{ friendRow }}" hint-placeholder-val="{{ false }}"><div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 14px; line-height: 1.45">
+            <span style="color: {{ c.muted }}">Friend price from {{ inviter }}</span><span style="min-width: 86px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-variant-numeric: tabular-nums; color: {{ c.fg }}"><sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}"><span class="sk" style="display: inline-block; width: 68px; height: 12px; border-radius: 4px; background: {{ c.skel }}; vertical-align: middle"></span></sc-if><sc-if value="{{ notLoading }}" hint-placeholder-val="{{ true }}"><span class="nv" key="{{ discFmtK }}">{{ discFmt }}</span></sc-if></span></div></sc-if>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 14px; line-height: 1.45">
+            <span style="color: {{ c.muted }}"><span>{{ taxName }} <span style="display: inline-block; min-width: 150px">{{ vatLabel }}</span></span></span><span style="min-width: 86px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; font-variant-numeric: tabular-nums; color: {{ c.fg }}"><sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}"><span class="sk" style="display: inline-block; width: 68px; height: 12px; border-radius: 4px; background: {{ c.skel }}; vertical-align: middle"></span></sc-if><sc-if value="{{ notLoading }}" hint-placeholder-val="{{ true }}"><span class="nv" key="{{ vatFmtK }}">{{ vatFmt }}</span></sc-if></span></div>
+            <div style="height: 1px; background: {{ c.line }}; margin: 4px 0"></div>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px">
+              <span class="ck-in" key="{{ dueLabel }}" style="font-size: 15px; color: {{ dueCol }}; transition: color .4s ease">{{ dueLabel }}</span>
+              <span style="min-width: 120px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 500; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: {{ c.fg }}"><sc-if value="{{ loading }}" hint-placeholder-val="{{ false }}"><span class="sk" style="display: inline-block; width: 104px; height: 20px; border-radius: 5px; background: {{ c.skel }}; vertical-align: middle"></span></sc-if><sc-if value="{{ notLoading }}" hint-placeholder-val="{{ true }}"><span class="nv" key="{{ dueFmtK }}">{{ dueFmt }}</span></sc-if></span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 10px; min-height: 42px; font-size: 13px; line-height: 1.55; color: {{ lineCol }}"><span class="ck-le {{ lineE }}" style="flex: none; line-height: 0"><svg class="we we-js {{ eCls }}" viewBox="0 0 48 48" width="22" height="22" aria-hidden="true" data-w="{{ eS.w }}" data-b="{{ eS.b }}" data-r="{{ eRest }}" style="--L: 10"><g class="we-i"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g><g class="we-l"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g><g class="we-p"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g></svg></span><sc-if value="{{ hasDot }}" hint-placeholder-val="{{ false }}"><span class="{{ statusDotCls }}" style="width: 7px; height: 7px; margin-top: 7px; border-radius: 50%; background: {{ statusDot }}; flex: none"></span></sc-if><span class="ck-in" key="{{ lineK }}">{{ line }}</span></div>
+          </div>
+
+
+
+          <sc-if value="{{ sample }}" hint-placeholder-val="{{ true }}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: {{ c.faint }}; border: 1px dashed {{ c.line }}; border-radius: 6px; padding: 6px 8px; align-self: flex-start">Sample numbers · live from Paddle in the product</span></sc-if>
+          <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid {{ c.line }}; display: {{ stepsDisplay }}; flex-direction: column; gap: 9px">
+            <sc-for list="{{ steps }}" as="s" hint-placeholder-count="3"><div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px; color: {{ s.col }}"><span style="width: 18px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ s.numCol }}">{{ s.n }}</span><span style="flex: 1">{{ s.t }}</span><span style="width: 7px; height: 7px; border-radius: 50%; background: {{ s.dot }}; box-shadow: {{ s.glow }}; flex: none"></span></div></sc-for>
+            <sc-for list="{{ gets }}" as="g" hint-placeholder-count="0"><div style="display: flex; align-items: baseline; gap: 12px; font-size: 13.5px; line-height: 1.5; color: {{ c.muted }}"><span style="width: 18px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ c.faint }}">—</span><span>{{ g.t }}</span></div></sc-for>
+            <sc-if value="{{ showNextLine }}" hint-placeholder-val="{{ false }}"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{ c.faint }}; padding-top: 4px">Next: add Exomem to your assistant</div></sc-if>
+          </div>
+        </div>
+      <div style="background: {{ c.line }}; {{ divStyle }}"></div>
+      <div style="padding: {{ framePad }}; box-sizing: border-box; min-width: 0">
+          <div class="ck-area {{ areaCls }}" style="position: relative; min-height: {{ frameH }}px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; {{ areaStyle }}">
+            <div class="ck-ov {{ skOn }}" aria-hidden="{{ skHide }}">
+              <div style="display: flex; flex-direction: column; gap: 16px">
+                <div class="sk" style="height: 64px; border-radius: 8px; border: 1px solid {{ c.line }}"></div>
+                <div class="sk" style="height: 64px; border-radius: 8px; border: 1px solid {{ c.line }}"></div>
+                <div class="sk" style="height: 120px; border-radius: 8px; border: 1px solid {{ c.line }}"></div>
+                <div class="sk" style="height: 48px; border-radius: 8px; background: {{ c.skel }}"></div>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{ c.muted }}; text-align: center">Loading Paddle’s secure form</span>
+              </div>
+            </div>
+            <div class="ck-ov {{ unOn }}" aria-hidden="{{ unHide }}">
+              <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; font-family: Inter, system-ui, sans-serif">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 500; color: {{ c.fg }}">Paddle’s form didn’t load</span>
+                <span style="font-size: 13.5px; line-height: 1.55; color: {{ c.muted }}; max-width: 300px">A content blocker or a weak connection can stop it. Nothing was charged.</span>
+                <button type="button" class="ck-retry" onClick="{{ retry }}" style="margin-top: 4px; height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid {{ c.fieldBdH }}; background: transparent; color: {{ c.fg }}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 500; cursor: pointer">Try again</button>
+              </div>
+            </div>
+              <div class="pf ck-fade {{ fieldsCls }} {{ frameOn }}" aria-hidden="{{ frameHide }}" style="display: flex; flex-direction: column; gap: 14px; --pl: {{ p.label }}; --pt: {{ p.text }}; --pfd: {{ p.field }}; --pbd: {{ p.border }}; --pph: {{ p.ph }}; --pbtn: {{ p.btn }}; --pbtnf: {{ p.btnFg }}; --fx-bg: {{ c.fieldBg }}; --fx-bd: {{ c.fieldBd }}; --fx-bdh: {{ c.fieldBdH }}; --fx-ring: {{ c.ring }}; --fx-ph: {{ c.fieldPh }}; --fx-lab: {{ c.muted }}; --fx-btn: {{ c.fg }}; --fx-btnf: {{ c.bg }}">
+                <div class="ck-col {{ failOpen }}" role="alert"><div><div style="border-radius: 6px; padding: 12px 14px; background: {{ p.errBg }}; color: {{ p.errFg }}; font-size: 14px; line-height: 1.45">{{ failText }}</div></div></div>
+                <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 34px; gap: 8px">
+                  <button type="button" class="ck-pm" aria-pressed="{{ pmCard }}" onClick="{{ pickCard }}"><svg width="18" height="13" viewBox="0 0 18 13" aria-hidden="true"><rect x=".75" y=".75" width="16.5" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M1 4.2h16" stroke="currentColor" stroke-width="2"/></svg>Card</button>
+                  <button type="button" class="ck-pm" aria-pressed="{{ pmPaypal }}" onClick="{{ pickPaypal }}">PayPal</button>
+                  <button type="button" class="ck-pm" aria-pressed="{{ pmApple }}" onClick="{{ pickApple }}">Google Pay</button>
+                  <button type="button" class="ck-pm" aria-label="More ways to pay" title="More ways to pay (Apple Pay and others, as Paddle offers them)">›</button>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px"><span class="ck-fl">Email address</span><div class="ck-fb"><input class="ck-fi" type="email" aria-label="Email address" value="{{ email }}"></div></div>
+                <div style="display: flex; flex-direction: column; gap: 6px"><span class="ck-fl">Name on card</span><div class="ck-fb"><input class="ck-fi" aria-label="Name on card" placeholder="Cardholder name" autocomplete="off"></div></div>
+                <div style="display: flex; flex-direction: column; gap: 6px"><span class="ck-fl">Card details</span>
+                  <div class="ck-cg"><input class="ck-ci" aria-label="Card number" inputmode="numeric" placeholder="{{ cardNum }}" autocomplete="off"><div style="display: grid; grid-template-columns: 1fr 1fr"><input class="ck-ci" aria-label="Expiry" placeholder="{{ cardExp }}" autocomplete="off"><input class="ck-ci ck-cvv" aria-label="Security code" placeholder="{{ cardCvc }}" autocomplete="off"></div></div>
+                </div>
+                <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px">
+                  <div style="display: flex; flex-direction: column; gap: 6px"><span class="ck-fl">Country</span><div class="ck-fb"><button type="button" class="ck-fi ck-fsel" onClick="{{ nextCountry }}" title="Prototype: change country to see tax and currency update"><span>{{ countryName }}</span><span aria-hidden="true">▾</span></button></div></div>
+                  <div style="display: flex; flex-direction: column; gap: 6px"><span class="ck-fl">Postcode</span><div class="ck-fb"><input class="ck-fi" aria-label="Postcode" placeholder="{{ postcode }}" autocomplete="off"></div></div>
+                </div>
+                <span style="font-size: 12px; line-height: 1.45; color: var(--pl); margin-top: -6px">We collect this information to prevent fraud and secure your payment.</span>
+                <sc-if value="{{ isBiz }}" hint-placeholder-val="{{ false }}"><div style="display: flex; flex-direction: column; gap: 6px"><span class="ck-fl">VAT number</span><div class="ck-fb"><input class="ck-fi" aria-label="VAT number" value="{{ vatId }}" readonly></div></div></sc-if>
+                <sc-if value="{{ notBiz }}" hint-placeholder-val="{{ true }}"><button type="button" class="ck-add">Add a VAT number</button></sc-if>
+                <label class="ck-mk"><input type="checkbox"><span>Paddle.com Market Limited may send me product updates and offers by email. You can opt out at any time.</span></label>
+                <button type="button" class="ck-pbtn" onClick="{{ pay }}" style="height: 48px; border: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px"><sc-if value="{{ paying }}" hint-placeholder-val="{{ false }}"><span class="spin ck-in" style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid {{ p.btnFg }}; border-right-color: transparent"></span></sc-if><span class="ck-in" key="{{ payLabel }}">{{ payLabel }}</span></button>
+                <div style="font-size: 11.5px; line-height: 1.5; color: {{ p.label }}; text-align: center">Paddle.com is the merchant of record for this order. <span style="text-decoration: underline">Terms</span> · <span style="text-decoration: underline">Privacy</span></div>
+              </div>
+            <div class="ck-ov {{ paidOn }}" aria-hidden="{{ paidHide }}">
+              <div aria-live="polite" style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; font-family: Inter, system-ui, sans-serif">
+                <span style="width: 64px; height: 64px; display: block"><svg class="we we-js {{ eCls }}" viewBox="0 0 48 48" width="64" height="64" aria-hidden="true" data-w="{{ eF.w }}" data-b="{{ eF.b }}" data-r="{{ eRest }}" style="--L: 18"><g class="we-i"><circle cx="34.4" cy="8.4" r="2.2" style="--k: 0; --row: 0"/><circle cx="29.2" cy="8.4" r="2.2" style="--k: 1; --row: 0"/><circle cx="24" cy="8.4" r="2.2" style="--k: 2; --row: 0"/><circle cx="18.8" cy="8.4" r="2.2" style="--k: 3; --row: 0"/><circle cx="13.6" cy="8.4" r="2.2" style="--k: 4; --row: 0"/><circle cx="13.6" cy="13.6" r="2.2" style="--k: 5; --row: 0"/><circle cx="13.6" cy="18.8" r="2.2" style="--k: 6; --row: 0"/><circle cx="13.6" cy="24" r="2.2" style="--k: 7; --row: 1"/><circle cx="18.8" cy="24" r="2.2" style="--k: 8; --row: 1"/><circle cx="24" cy="24" r="2.2" style="--k: 9; --row: 1"/><circle cx="29.2" cy="24" r="2.2" style="--k: 10; --row: 1"/><circle cx="13.6" cy="29.2" r="2.2" style="--k: 11; --row: 0"/><circle cx="13.6" cy="34.4" r="2.2" style="--k: 12; --row: 0"/><circle cx="13.6" cy="39.6" r="2.2" style="--k: 13; --row: 0"/><circle cx="18.8" cy="39.6" r="2.2" style="--k: 14; --row: 0"/><circle cx="24" cy="39.6" r="2.2" style="--k: 15; --row: 0"/><circle cx="29.2" cy="39.6" r="2.2" style="--k: 16; --row: 0"/><circle cx="34.4" cy="39.6" r="2.2" style="--k: 17; --row: 0"/></g><g class="we-l"><circle cx="34.4" cy="8.4" r="2.2" style="--k: 0; --row: 0"/><circle cx="29.2" cy="8.4" r="2.2" style="--k: 1; --row: 0"/><circle cx="24" cy="8.4" r="2.2" style="--k: 2; --row: 0"/><circle cx="18.8" cy="8.4" r="2.2" style="--k: 3; --row: 0"/><circle cx="13.6" cy="8.4" r="2.2" style="--k: 4; --row: 0"/><circle cx="13.6" cy="13.6" r="2.2" style="--k: 5; --row: 0"/><circle cx="13.6" cy="18.8" r="2.2" style="--k: 6; --row: 0"/><circle cx="13.6" cy="24" r="2.2" style="--k: 7; --row: 1"/><circle cx="18.8" cy="24" r="2.2" style="--k: 8; --row: 1"/><circle cx="24" cy="24" r="2.2" style="--k: 9; --row: 1"/><circle cx="29.2" cy="24" r="2.2" style="--k: 10; --row: 1"/><circle cx="13.6" cy="29.2" r="2.2" style="--k: 11; --row: 0"/><circle cx="13.6" cy="34.4" r="2.2" style="--k: 12; --row: 0"/><circle cx="13.6" cy="39.6" r="2.2" style="--k: 13; --row: 0"/><circle cx="18.8" cy="39.6" r="2.2" style="--k: 14; --row: 0"/><circle cx="24" cy="39.6" r="2.2" style="--k: 15; --row: 0"/><circle cx="29.2" cy="39.6" r="2.2" style="--k: 16; --row: 0"/><circle cx="34.4" cy="39.6" r="2.2" style="--k: 17; --row: 0"/></g><g class="we-p"><circle cx="34.4" cy="8.4" r="2.2" style="--k: 0; --row: 0"/><circle cx="29.2" cy="8.4" r="2.2" style="--k: 1; --row: 0"/><circle cx="24" cy="8.4" r="2.2" style="--k: 2; --row: 0"/><circle cx="18.8" cy="8.4" r="2.2" style="--k: 3; --row: 0"/><circle cx="13.6" cy="8.4" r="2.2" style="--k: 4; --row: 0"/><circle cx="13.6" cy="13.6" r="2.2" style="--k: 5; --row: 0"/><circle cx="13.6" cy="18.8" r="2.2" style="--k: 6; --row: 0"/><circle cx="13.6" cy="24" r="2.2" style="--k: 7; --row: 1"/><circle cx="18.8" cy="24" r="2.2" style="--k: 8; --row: 1"/><circle cx="24" cy="24" r="2.2" style="--k: 9; --row: 1"/><circle cx="29.2" cy="24" r="2.2" style="--k: 10; --row: 1"/><circle cx="13.6" cy="29.2" r="2.2" style="--k: 11; --row: 0"/><circle cx="13.6" cy="34.4" r="2.2" style="--k: 12; --row: 0"/><circle cx="13.6" cy="39.6" r="2.2" style="--k: 13; --row: 0"/><circle cx="18.8" cy="39.6" r="2.2" style="--k: 14; --row: 0"/><circle cx="24" cy="39.6" r="2.2" style="--k: 15; --row: 0"/><circle cx="29.2" cy="39.6" r="2.2" style="--k: 16; --row: 0"/><circle cx="34.4" cy="39.6" r="2.2" style="--k: 17; --row: 0"/></g></svg></span>
+                <span class="ck-in" key="{{ paidTitle }}" style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500; color: {{ c.fg }}">{{ paidTitle }}</span>
+                <div class="ck-stack" style="min-height: 66px"><span class="ck-x {{ paidOnly }}" style="font-size: 13.5px; line-height: 1.55; color: {{ c.muted }}; max-width: 300px">{{ paidText }}</span>
+                <div class="ck-x {{ confOnly }}" style="display: flex; flex-direction: column; gap: 7px; text-align: left; font-size: 13.5px; line-height: 1.45; justify-self: center">
+                  <sc-for list="{{ setupSteps }}" as="s" hint-placeholder-count="3"><div style="display: flex; align-items: center; gap: 10px; color: {{ s.col }}"><span class="{{ s.cls }}" style="width: 14px; height: 14px; flex: none; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{ s.mk }}">{{ s.g }}</span><span>{{ s.t }}</span></div></sc-for>
+                </div></div>
+                <div style="height: 46px; display: flex; align-items: flex-end"><button type="button" class="ck-x {{ paidOnly }}" tabindex="{{ nextTab }}" onClick="{{ next }}" style="margin-top: 6px; height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{ c.fg }}; color: {{ c.bg }}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 500; cursor: pointer">Add it to your assistant →</button></div>
+              </div>
+            </div>
+            <sc-if value="{{ sample }}" hint-placeholder-val="{{ true }}"><span style="position: absolute; right: 0; top: -22px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: {{ c.faint }}">{{ frameTag }}</span></sc-if>
+          </div>
+      </div>
+    </div>
+    <sc-if value="{{ phoneLow }}" hint-placeholder-val="{{ false }}"><div aria-live="polite" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 22px; font-size: 13px; color: {{ c.fg }}"><sc-if value="{{ paying }}" hint-placeholder-val="{{ false }}"><span class="ck-in" style="display: flex; align-items: center; gap: 8px"><svg class="we we-js {{ eCls }}" viewBox="0 0 48 48" width="22" height="22" aria-hidden="true" data-w="{{ eS.w }}" data-b="{{ eS.b }}" data-r="{{ eRest }}" style="--L: 10"><g class="we-i"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g><g class="we-l"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g><g class="we-p"><circle cx="31.5" cy="9" r="3.1" style="--k: 0; --row: 0"/><circle cx="24" cy="9" r="3.1" style="--k: 1; --row: 0"/><circle cx="16.5" cy="9" r="3.1" style="--k: 2; --row: 0"/><circle cx="16.5" cy="16.5" r="3.1" style="--k: 3; --row: 0"/><circle cx="16.5" cy="24" r="3.1" style="--k: 4; --row: 1"/><circle cx="24" cy="24" r="3.1" style="--k: 5; --row: 1"/><circle cx="16.5" cy="31.5" r="3.1" style="--k: 6; --row: 0"/><circle cx="16.5" cy="39" r="3.1" style="--k: 7; --row: 0"/><circle cx="24" cy="39" r="3.1" style="--k: 8; --row: 0"/><circle cx="31.5" cy="39" r="3.1" style="--k: 9; --row: 0"/></g></svg><span class="ck-in" key="{{ lowTxt }}">{{ lowTxt }}</span></span></sc-if></div></sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"state":{"editor":"enum","default":"auto","options":["auto","loading","ready","paying","slow","failed","confirming","confirmslow","paid","unavailable"]},"buyer":{"editor":"enum","default":"person","options":["person","business"]},"country":{"editor":"enum","default":"EE","options":["EE","DE","FI","GB","US"]},"paddle":{"editor":"enum","default":"ok","options":["ok","blocked"]},"payMs":{"editor":"number","default":3600},"confirmMs":{"editor":"number","default":1600},"price":{"editor":"enum","default":"standard","options":["standard","friend"]},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"inviter":{"editor":"text","default":"Alex"},"email":{"editor":"text","default":"reader@example.com"},"sample":{"editor":"boolean","default":true},"summary":{"editor":"enum","default":"hero","options":["steps","hero","included"]},"ground":{"editor":"enum","default":"own","options":["own","clear"]},"scroll":{"editor":"enum","default":"top","options":["top","end"]},"onDone":{"editor":null},"onPaid":{"editor":null},"onPaying":{"editor":null},"fields":{"editor":"enum","default":"exomem","options":["exomem","paddle"]},"$preview":{"width":1280,"height":820}}'>
+// Sample numbers only. In the product every amount, the VAT label and the currency come from Paddle's checkout events
+// (checkout.loaded, checkout.updated when the country changes); nothing here is computed by Exomem.
+// [code, name, rate, sample postcode, how Paddle shows tax there]: Europe includes it; the US adds it on top (Paddle's tax_mode: location)
+const weEase = (t) => 1 - Math.pow(1 - t, 3);
+function weDrive(sel) {
+  const st = new WeakMap(), D = { w: 900, b: 450, r: 550 };
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let raf = 0, dead = false;
+  const frame = (now) => {
+    if (dead) return;
+    try {
+      const root = document.querySelector(sel);
+      if (root) root.querySelectorAll('svg.we-js').forEach((el) => {
+        const tg = { w: +el.getAttribute('data-w') || 0, b: +el.getAttribute('data-b') || 0, r: +(el.getAttribute('data-r') ?? 1) };
+        let s = st.get(el);
+        if (!s) { s = { cur: { ...tg }, from: { ...tg }, to: { ...tg }, t0: { w: now, b: now, r: now } }; st.set(el, s); }
+        for (const k of ['w', 'b', 'r']) {
+          if (s.to[k] !== tg[k]) { s.from[k] = s.cur[k]; s.to[k] = tg[k]; s.t0[k] = now; }
+          const p = still ? 1 : Math.min(1, (now - s.t0[k]) / D[k]);
+          s.cur[k] = s.from[k] + (s.to[k] - s.from[k]) * weEase(p);
+        }
+        el.style.setProperty('--w', s.cur.w.toFixed(3)); el.style.setProperty('--b', s.cur.b.toFixed(3)); el.style.setProperty('--rest', s.cur.r.toFixed(3));
+      });
+    } catch (e) {}
+    raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+  return () => { dead = true; cancelAnimationFrame(raf); };
+}
+const COUNTRIES = [['EE', 'Estonia', 0.24, '10115', 'incl', 'EUR'], ['DE', 'Germany', 0.19, '10115', 'incl', 'EUR'], ['FI', 'Finland', 0.255, '00100', 'incl', 'EUR'], ['GB', 'United Kingdom', 0.20, 'SW1A 1AA', 'incl', 'GBP'], ['US', 'United States', 0.08875, '10001', 'added', 'USD']];
+// local prices (Paddle price overrides), [standard, friend]. Samples: Paddle sends the real ones.
+const PRICES = { EUR: [15, 10], USD: [15, 10], GBP: [13, 9] };
+const LOC = { EUR: 'en-IE', USD: 'en-US', GBP: 'en-GB' };
+const EU = ['EE', 'DE', 'FI'];
+const eur = (x) => '€' + x.toFixed(2);
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { st: null, ci: 0, k: 0 }; this.__key = 'ck' + Math.random().toString(36).slice(2, 8); }
+  mode() { const s = this.props.state ?? 'auto'; return s === 'auto' ? (this.state.st || 'loading') : (this.state.st && this.state.live ? this.state.st : s); }
+  componentDidMount() {
+    this.undrive = weDrive(`[data-ck="${this.__key}"]`);
+    if ((this.props.state ?? 'auto') === 'auto') this.t1 = setTimeout(() => this.setState({ st: (this.props.paddle ?? 'ok') === 'blocked' ? 'unavailable' : 'ready' }), (this.props.paddle ?? 'ok') === 'blocked' ? 2600 : 1300);
+    if ((this.props.scroll ?? 'top') === 'end') this.t4 = setTimeout(() => { const el = document.querySelector(`[data-ck="${this.__key}"]`); if (el) { el.scrollTop = el.scrollHeight; const m = el.closest('main'); if (m) m.scrollTop = m.scrollHeight; } }, 500);
+  }
+  componentWillUnmount() { [this.t1, this.t2, this.t3, this.t4, this.t5, this.t6].forEach(clearTimeout); if (this.undrive) this.undrive(); }
+  shrinkPhone() {
+    if ((this.props.device ?? 'desktop') !== 'phone') return;
+    const a = document.querySelector(`[data-ck="${this.__key}"] .ck-area`); if (!a) return;
+    this.setState({ areaFrom: a.offsetHeight, shrink: false });
+    requestAnimationFrame(() => requestAnimationFrame(() => { this.setState({ shrink: true }); clearTimeout(this.t6); this.t6 = setTimeout(() => { const pb = a.querySelector('.ck-ov.on'); if (pb && pb.scrollIntoView) pb.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 760); }));
+  }
+  renderVals() {
+    const light = (this.props.theme ?? 'dark') === 'light', phone = (this.props.device ?? 'desktop') === 'phone', tight = false;
+    const c = light
+      ? { bg: '#FAF8F4', panel: '#FFFFFF', fg: '#1A1814', muted: '#6B665C', faint: '#8A857B', line: 'rgba(26,24,20,0.10)', skel: 'rgba(26,24,20,0.07)', amber: '#A86E00', amberText: '#A06600', glow: 'rgba(255,176,0,0.55)', halo: 'rgba(255,176,0,0.28)', emf: 'drop-shadow(0 0 2.5px rgba(255,176,0,0.6))', fieldBg: '#FAF8F4', fieldPh: '#757068', fieldBd: 'rgba(26,24,20,0.14)', fieldBdH: 'rgba(26,24,20,0.34)', ring: 'rgba(255,176,0,0.30)', accl: 'rgba(168,110,0,0.40)', rgb: '26,24,20', shadow: '0 20px 60px -30px rgba(60,50,30,0.25)' }
+      : { bg: '#0A0908', panel: '#12100E', fg: '#ECE9E2', muted: '#A39E93', faint: '#858075', line: 'rgba(236,233,226,0.10)', skel: 'rgba(236,233,226,0.07)', amber: '#FFB000', amberText: '#FFB000', glow: 'rgba(255,176,0,0.5)', halo: 'rgba(255,176,0,0.22)', emf: 'none', fieldBg: '#0C0A09', fieldPh: '#858075', fieldBd: 'rgba(236,233,226,0.14)', fieldBdH: 'rgba(236,233,226,0.34)', ring: 'rgba(255,176,0,0.20)', accl: 'rgba(255,176,0,0.40)', rgb: '236,233,226', shadow: '0 30px 80px -30px rgba(0,0,0,0.7)' };
+    // Paddle's light or dark theme, approximated (Paddle draws this part)
+    const p = light
+      ? { label: '#5F6368', text: '#1F1F1F', field: '#FFFFFF', border: '#D3D3D3', ph: '#9A9A9A', link: '#5F6368', btn: '#1F1F1F', btnFg: '#FFFFFF', errBg: '#FDECEA', errFg: '#9B1C1C' }
+      : { label: '#B4B4B4', text: '#F2F2F2', field: '#1E1E1E', border: '#3A3A3A', ph: '#7D7D7D', link: '#B4B4B4', btn: '#F2F2F2', btnFg: '#111111', errBg: '#3A1715', errFg: '#FFB4AB' };
+    const sv = this.props.summary ?? 'hero';
+    const st = this.mode(), loading = st === 'loading', friend = (this.props.price ?? 'standard') === 'friend';
+    const ci0 = Math.max(0, COUNTRIES.findIndex((x) => x[0] === (this.props.country ?? 'EE'))), [cc, cname, rate, pc, tm0, cur] = COUNTRIES[(this.state.ci + ci0) % COUNTRIES.length];
+    const eur = (x) => new Intl.NumberFormat(LOC[cur], { style: 'currency', currency: cur }).format(x), PP = PRICES[cur];
+    // prices people read (the big one, sentences) drop .00 when whole; the ledger rows keep two decimals so the column lines up
+    const eurW = (x) => Math.abs(x - Math.round(x)) < 0.005 ? new Intl.NumberFormat(LOC[cur], { style: 'currency', currency: cur, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(x) : eur(x);
+    const biz = (this.props.buyer ?? 'person') === 'business', tm = biz && EU.includes(cc) ? 'reverse' : tm0;
+    // what is charged each month, the tax in it, and the price shown big (every number comes from Paddle at run time; these are samples)
+    const list = friend ? PP[1] : PP[0], net = tm === 'reverse' ? list / (1 + rate) : list;
+    const gross = tm === 'added' ? list * (1 + rate) : net, vat = tm === 'incl' ? list - list / (1 + rate) : tm === 'added' ? list * rate : 0;
+    const was = tm === 'reverse' ? PP[0] / (1 + rate) : PP[0], heroP = tm === 'reverse' ? net : list;
+    const pay = st === 'paying' || st === 'slow', stop = st === 'unavailable', conf = st === 'confirming' || st === 'confirmslow';
+    const next = new Date(); next.setMonth(next.getMonth() + 1);
+    const nextStr = next.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+    const inviter = this.props.inviter ?? 'Alex', email = this.props.email ?? 'reader@example.com';
+    const k = String(this.state.ci);
+    const thenTxt = friend ? `Then ${eurW(gross)} a month, next on ${nextStr}. The friend price stays for as long as you stay subscribed.` : `Then ${eurW(gross)} a month, next on ${nextStr}. Cancel any time; Paddle stops it at the end of the month.`;
+    const statusX = { unavailable: ['Prices appear when Paddle’s form loads.', c.muted, 'transparent', ''], confirming: ['Paid. Switching on your Exomem.', c.fg, c.amber, ''], confirmslow: ['Paid. Switching on your Exomem: slower than usual.', c.fg, c.amber, ''], slow: ['Still waiting for your bank. This can take a minute. Keep this tab open.', c.fg, c.amber, 'dl'], loading: ['Getting the price from Paddle', c.faint, 'transparent', ''], ready: ['', c.faint, 'transparent', ''], paying: [`Paying ${eurW(gross)} with Paddle. Keep this tab open.`, c.fg, c.amber, 'dl'], failed: ['Nothing was charged.', c.muted, c.faint, ''], paid: [`Subscribed · next payment ${nextStr}`, c.fg, c.amber, 'pd'] }[st];
+    const go = (s, ms) => { this.setState({ st: s, live: true }); };
+    // the writing E, 4 steps: sent to Paddle, your bank approves, paid, switching on. Failing un-writes, then rests.
+    const weAt = (L, i) => { const e = L === 18 ? [5, 9, 13, 18] : [3, 5, 7, 10]; return i >= 4 ? { w: L, b: L } : { w: i ? e[i - 1] : 0, b: e[i] }; };
+    const ei = pay ? 1 : conf ? 3 : st === 'paid' ? 4 : -1, now = Date.now();
+    if (st === 'failed' && this.__pst !== 'failed') { this.__failAt = now; clearTimeout(this.t5); this.t5 = setTimeout(() => this.setState({ fr: Date.now() }), 950); }
+    this.__pst = st;
+    const unwriting = st === 'failed' && now - (this.__failAt || 0) < 900;
+    const frameOn = st === 'ready' || pay || st === 'failed';
+    return {
+      key: this.__key, c, p, inviter, email, sample: this.props.sample ?? true,
+      eF: ei < 0 ? { w: 0, b: 0 } : weAt(18, ei), eS: ei < 0 ? { w: 0, b: 0 } : weAt(10, ei), eRest: ei < 0 && !unwriting ? 1 : 0, eCls: st === 'paid' ? 'done' : '',
+      frameOn: frameOn ? 'on' : '', frameHide: String(!frameOn), skOn: loading ? 'on' : '', skHide: String(!loading), unOn: stop ? 'on' : '', unHide: String(!stop),
+      paidOn: st === 'paid' || conf ? 'on' : '', paidHide: String(!(st === 'paid' || conf)), paidOnly: st === 'paid' ? 'on' : '', confOnly: conf ? 'on' : '', nextTab: st === 'paid' ? '0' : '-1',
+      areaCls: phone && (st === 'paid' || conf) && (this.state.shrink || !this.state.live) ? 'ck-shrink' : '', areaStyle: phone && (st === 'paid' || conf) && !this.state.shrink && this.state.areaFrom ? `max-height: ${this.state.areaFrom}px` : '',
+      failOpen: st === 'failed' ? 'on' : '', failText: 'Your card was declined. Try another card or payment method.',
+      title: st === 'paid' || conf ? 'You’re subscribed' : 'Subscribe to finish setting up',
+      lede: friend ? `${inviter}’s friend price is applied below. Paddle takes the payment. Cancel any time.` : 'Exomem, billed monthly by Paddle. Cancel any time. Next, you add it to your assistant.',
+      h1: phone ? 22 : 28, ledeH: phone ? 66 : 44, gap: phone ? 18 : tight ? 16 : 22, maxW: phone ? 358 : 940, showLede: !(tight && !phone),
+      pagePad: phone ? '12px 16px 40px' : '12px 40px 20px', hdH: phone ? 51 : 50, hdW: phone ? 358 : 1200, hdEmail: phone ? 'none' : 'inline',
+      gridStyle: phone ? 'display: flex; flex-direction: column' : 'display: grid; grid-template-columns: minmax(0, 1fr) 1px 476px',
+      divStyle: phone ? 'height: 1px; margin: 0 20px' : 'width: 1px; margin: 24px 0',
+      sumPad: phone ? '20px 20px 18px' : tight ? '24px 26px 20px' : '30px 30px 26px', framePad: phone ? '30px 20px 22px' : tight ? '24px 26px 20px' : '34px 30px 26px',
+      ground: (this.props.ground ?? 'own') === 'clear' ? 'transparent' : c.bg,
+      frameH: 450, stepsDisplay: phone ? 'none' : 'flex',
+      // the field stays behind the page but steps back where people read and pay
+      calm: 'none',
+      loading: loading || stop, notLoading: !loading && !stop, frameLoading: loading, unavailable: stop, rootCls: stop ? 'ck-stop' : '', showFrame: st === 'ready' || pay || st === 'failed', failed: st === 'failed', paying: pay, paid: st === 'paid', paidBlock: st === 'paid' || conf, conf,
+      setupSteps: [{ t: 'Payment received by Paddle', g: '✓', mk: c.amber, col: c.fg, cls: '' }, { t: st === 'confirmslow' ? 'Switching on your Exomem: slower than usual' : 'Switching on your Exomem', g: '', mk: c.amber, col: c.fg, cls: 'ck-now' }, { t: st === 'confirmslow' ? `We’ll email ${email} when it’s ready` : 'Then you add it to your assistant', g: '', mk: c.faint, col: c.muted, cls: 'ck-next' }],
+      emCls: conf ? 'es3' : 'em', paidTitle: st === 'confirmslow' ? 'Paid. Still setting up.' : conf ? 'Paid. Almost ready.' : 'Paid. Your Exomem is ready.',
+      paidText: st === 'confirmslow' ? `This is taking longer than usual. We’ll email ${email} when it’s ready, so you can close this tab.` : conf ? 'This usually takes a few seconds.' : `Paddle is sending the receipt to ${email}. Next, you add Exomem to your assistant.`,
+      retry: () => { this.setState({ st: 'loading', live: true }); clearTimeout(this.t1); this.t1 = setTimeout(() => this.setState({ st: 'ready', live: true }), 1300); },
+      isBiz: biz && EU.includes(cc), notBiz: !(biz && EU.includes(cc)), vatId: cc + '123456789',
+      frameOp: 1, frameTag: st === 'paid' || conf ? 'Exomem, after checkout.completed' : 'Paddle’s frame · approximated',
+      friend, friendNum: friend, friendNow: eurW(tm === 'reverse' ? PP[1] / (1 + rate) : PP[1]), friendWas: eurW(was), wasFmt: eurW(was),
+      planFmt: eur(friend ? was : net), planFmtK: k, discFmt: '−' + eur(was - net), discFmtK: k,
+      taxName: stop ? 'Tax' : tm === 'added' ? 'Sales tax' : 'VAT', vatLabel: stop ? '' : tm === 'reverse' ? '0%, reverse charge' : `${+(rate * 100).toFixed(3)}%, ${tm === 'added' ? 'New York' : cname}, ${tm === 'added' ? 'added' : 'included'}`, vatFmt: eur(vat), vatFmtK: k,
+      dueCol: pay ? c.amberText : c.fg, dueLabel: st === 'paid' || conf ? 'Paid today' : pay ? 'Paying now' : 'Due today', dueFmt: eur(gross), dueFmtK: k,
+      line: st === 'ready' || st === 'loading' || (phone && pay) ? thenTxt : statusX[0], lineCol: (pay && !phone) || st === 'paid' || conf ? c.fg : c.muted,
+      phoneLow: phone && (st === 'ready' || pay || st === 'failed'), lowTxt: st === 'slow' ? 'Still waiting for your bank. Keep this tab open.' : `Paying ${eurW(gross)} with Paddle. Keep this tab open.`,
+      hasDot: st === 'paid', lineE: (pay && !phone) || conf ? 'on' : '', lineK: pay ? 'pay' + st : conf ? 'conf' + st : st,
+      eTile: pay || conf ? 'pay' : st === 'paid' ? 'lit' : '', eSvg: pay ? 'es1' : conf ? 'es3' : st === 'paid' ? 'elit' : '', statusDot: statusX[2], statusDotCls: statusX[3],
+      fieldsCls: (this.props.fields ?? 'exomem') === 'exomem' ? 'fx' : '', pmCard: String((this.state.pm || 'card') === 'card'), pmPaypal: String(this.state.pm === 'paypal'), pmApple: String(this.state.pm === 'apple'),
+      pickCard: () => this.setState({ pm: 'card' }), pickPaypal: () => this.setState({ pm: 'paypal' }), pickApple: () => this.setState({ pm: 'apple' }),
+      countryName: cname, postcode: pc, cardNum: '1234 1234 1234 1234', cardExp: 'MM / YY', cardCvc: 'CVC',
+      payLabel: pay ? 'Processing' : 'Subscribe now',
+      nextCountry: () => { if (st === 'ready' || st === 'failed') this.setState({ ci: this.state.ci + 1 }); },
+      pay: () => { if (st !== 'ready' && st !== 'failed') return; this.setState({ st: 'paying', live: true }); if (typeof this.props.onPaying === 'function') this.props.onPaying(); const ms = +(this.props.payMs ?? 3600); clearTimeout(this.t2); clearTimeout(this.t3); if (ms > 9000) this.t3 = setTimeout(() => this.setState({ st: 'slow', live: true }), 8000); this.t2 = setTimeout(() => { clearTimeout(this.t3); this.shrinkPhone(); this.setState({ st: 'confirming', live: true }); this.t3 = setTimeout(() => { this.setState({ st: 'paid', live: true }); if (typeof this.props.onPaid === 'function') this.props.onPaid(); }, +(this.props.confirmMs ?? 1600)); }, ms); },
+      next: () => { if (typeof this.props.onDone === 'function') this.props.onDone(); },
+      isHero: sv === 'hero', showPlan: sv !== 'hero', friendRow: friend && sv !== 'hero', heroFmt: eurW(heroP),
+      heroNote: stop ? 'Cancel any time.' : (friend ? 'For as long as you stay subscribed. ' : '') + (tm === 'added' ? 'Plus sales tax, shown below.' : tm === 'reverse' ? 'No VAT: reverse charge with your VAT number.' : 'VAT included.') + (friend ? '' : ' Cancel any time.'), friendBlock: friend && sv !== 'hero', heroFriend: friend && sv === 'hero', headTop: phone ? 56 : 0,
+      gets: sv === 'steps' ? [] : [{ t: 'One knowledge base for every assistant you connect' }, { t: 'Keeps what changed, why, and what replaced it' }, { t: 'Plain Markdown you own. Export it any time.' }],
+      showNextLine: sv !== 'steps' && st !== 'paid',
+      steps: sv !== 'steps' ? [] : [['1', 'Subscribe'], ['2', 'Add Exomem to your assistant'], ['3', 'Ask it to remember something']].map(([n, t], i) => {
+        const cur = (st === 'paid' ? 1 : 0) === i, done = st === 'paid' && i === 0;
+        return { n: done ? '✓' : n, t, col: cur ? c.fg : c.muted, numCol: cur ? c.amberText : c.faint, dot: cur ? c.amber : 'transparent', glow: cur ? `0 0 8px ${c.glow}` : 'none' };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,340 @@
+/* Checkout-Inline: the supplied price-first summary and Paddle frame form one panel. */
+.page {
+  position: relative;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  padding: 12px 40px 20px;
+}
+.header {
+  position: relative;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: auto;
+}
+.wordmark {
+  line-height: 0;
+  color: var(--fg-primary);
+}
+.email {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.content {
+  position: relative;
+  max-width: 940px;
+  margin: auto;
+  min-height: calc(100dvh - 82px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+}
+.heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.heading h1 {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.heading p {
+  margin: 0;
+  max-width: 480px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+}
+.panel {
+  position: relative;
+  border: 1px solid var(--exo-border-card);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 476px;
+}
+.summary {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+.product {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono-exo);
+  font-size: 16px;
+}
+.tile {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pop);
+  border: 1px solid var(--exo-border-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.productNote {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-sans-exo);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg-secondary);
+}
+.price {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.price > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 52px;
+}
+.priceValue {
+  font-family: var(--font-mono-exo);
+  font-size: 42px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.cadence {
+  font-size: 14px;
+  color: var(--fg-secondary);
+}
+.friend {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--exo-amber-text);
+}
+.priceNote {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+.ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.ledger > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+.ledger dt {
+  color: var(--fg-secondary);
+}
+.ledger dt span {
+  font-size: 12px;
+}
+.ledger dd {
+  margin: 0;
+  min-width: 86px;
+  text-align: right;
+  font-family: var(--font-mono-exo);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ledger .due {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--exo-border-card);
+}
+.due dt {
+  font-size: 15px;
+  color: var(--fg-primary);
+}
+.due dd {
+  font-size: 24px;
+  font-weight: 500;
+}
+.statusLine {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-height: 42px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+}
+.statusLine > svg {
+  flex: none;
+}
+.steps {
+  margin: auto 0 0;
+  padding: 16px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--exo-border-card);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  counter-reset: checkoutSteps;
+}
+.steps li {
+  counter-increment: checkoutSteps;
+}
+.steps li::before {
+  content: "0" counter(checkoutSteps);
+  display: inline-block;
+  width: 30px;
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+.paymentArea {
+  position: relative;
+  padding: 24px;
+  border-left: 1px solid var(--exo-border-card);
+  min-width: 0;
+}
+.form,
+.loading,
+.unavailable,
+.paid {
+  min-height: 450px;
+}
+.form {
+  overflow: hidden;
+}
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px 0;
+  box-sizing: border-box;
+}
+.unavailable,
+.paid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+}
+.unavailable h2,
+.paid h2 {
+  font-family: var(--font-mono-exo);
+  font-size: 20px;
+  font-weight: 500;
+  margin: 0;
+}
+.unavailable p,
+.paid p {
+  margin: 0;
+  max-width: 300px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+}
+.readySteps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+}
+.failure {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  color: var(--fg-primary);
+}
+.phoneStatus {
+  display: none;
+}
+.home {
+  align-self: center;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  text-decoration: underline;
+}
+.announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 640px), (max-height: 480px) {
+  .page {
+    padding: 12px 16px 40px;
+  }
+  .header {
+    height: 51px;
+    max-width: 358px;
+  }
+  .email {
+    display: none;
+  }
+  .content {
+    min-height: 0;
+    max-width: 358px;
+    gap: 18px;
+    margin-top: 18px;
+  }
+  .heading h1 {
+    font-size: 22px;
+  }
+  .panel {
+    grid-template-columns: 1fr;
+  }
+  .summary {
+    padding: 22px 20px;
+    gap: 18px;
+  }
+  .priceValue {
+    font-size: 38px;
+  }
+  .paymentArea {
+    border-left: 0;
+    border-top: 1px solid var(--exo-border-card);
+    padding: 22px 20px;
+  }
+  .phoneStatus {
+    display: block;
+    margin: 12px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+  }
+  .panel[data-paid] .loading,
+  .panel[data-paid] .unavailable {
+    position: absolute;
+    inset: 0;
+    min-height: 0;
+  }
+  .panel[data-paid] .paid {
+    min-height: 0;
+    padding: 8px 0;
+  }
+}

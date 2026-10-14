@@ -10,6 +10,7 @@ import { failureCopy } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
 import { StepActions, StepHeading } from "../_journey/parts";
 import { StartFlow } from "../_journey/start-flow";
+import { AccessRecovery } from "./recovery";
 
 /** Shown to a screen reader while the link from the email signs the browser in. */
 const SIGNING_IN = "Signing you in…";
@@ -25,7 +26,15 @@ const CONFIRM = {
   primary: "Continue sign-in",
 };
 
-type Mode = "checking" | "confirm" | "redeeming" | "form" | "unusable" | "failed";
+type Mode =
+  | "checking"
+  | "confirm"
+  | "redeeming"
+  | "form"
+  | "unusable"
+  | "failed"
+  | "expired"
+  | "used";
 
 /**
  * "Start with your email", and the page the email's link opens. The link carries its
@@ -71,12 +80,18 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
         // Links work once, for a limited time, in the browser that asked: a refused
         // token is nearly always spent or late. Anything else is ours.
         setMode(
-          error instanceof HostedBrowserError && error.code === "ACCESS_TOKEN_INVALID"
-            ? "unusable"
-            : "failed"
+          error instanceof HostedBrowserError && error.code === "ACCESS_LINK_EXPIRED"
+            ? "expired"
+            : error instanceof HostedBrowserError && error.code === "ACCESS_LINK_USED"
+              ? "used"
+              : error instanceof HostedBrowserError && error.code === "ACCESS_TOKEN_INVALID"
+                ? "unusable"
+                : "failed"
         )
       );
   }
+  if (mode === "expired" || mode === "used")
+    return <AccessRecovery state={mode} onChangeAddress={() => setMode("form")} />;
 
   if (mode === "checking") {
     return <JourneyPage kind="hold" stepKey="checking" />;

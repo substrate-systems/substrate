@@ -40,7 +40,7 @@ Access SHALL start in one of three ways: a start request, an operator invitation
 
 ### Requirement: Existing users can request a non-enumerating sign-in link
 
-An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The start form SHALL answer every request that passes the challenge with the same 202 acknowledgement, cookie and minimum response time. That includes five outcomes: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full. A start request MUST NOT create an account or tenant.
+An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The start form SHALL answer every request that passes the challenge with the same 202 acknowledgement, cookie policy and minimum response time. That includes five outcomes: a malformed address, an address-limited request, an existing owner, a new address with a free place, a new address when Cloud is full. A common browser or network retry signal MAY vary with that public limiter; it MUST NOT vary with address eligibility or address-specific suppression. A start request MUST NOT create an account or tenant.
 
 #### Scenario: Existing Exomem owner requests a link
 
@@ -620,3 +620,70 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 - **WHEN** the session's email differs from the invitation's email
 - **THEN** the system refuses the decision and changes nothing
+
+### Requirement: Sign-in recovery cannot authenticate or enumerate accounts
+
+Owner authentication links SHALL remain single-use and expire after 15 minutes. A separate opaque recovery receipt SHALL bind resend recovery to the requesting browser. Its configured lifetime SHALL default to one hour. Recovery MUST NOT create a session, return an address, reveal account eligibility or recover another browser's request.
+
+#### Scenario: A proven browser opens an expired or used link
+
+- **WHEN** the browser presents a valid recovery binding for that request
+- **THEN** the page can show the corresponding expired or used state and one resend action
+- **AND** the action preserves uniform acknowledgement and address-specific suppression
+
+#### Scenario: Recovery proof is absent or mismatched
+
+- **WHEN** the browser cannot prove the recovery binding
+- **THEN** the page shows the generic email form without disclosing the token outcome or bound address
+
+#### Scenario: Recovery receipt reaches the authentication boundary
+
+- **WHEN** a caller presents a recovery receipt instead of an authentication token
+- **THEN** the authentication boundary refuses to create a session
+
+### Requirement: Anonymous resend waits preserve address privacy
+
+The server SHALL supply visible retry timing only from the common browser or network limiter. The response MUST NOT expose the address bucket, account membership or waitlist membership. The browser SHALL render the server timing rather than assume a fixed countdown.
+
+#### Scenario: Different addresses share a limited browser or network
+
+- **WHEN** requests differ only in their submitted address
+- **THEN** they receive the same public retry policy for that browser or network
+- **AND** suppression for one address does not create a distinct public state
+
+### Requirement: Web flows follow the approved design states with real facts
+
+The web experience SHALL use the approved rounds 41–47 components and states. Prices, dates, counts and lifecycle sentences MUST follow their runtime sources. Hidden transition panes SHALL be inert, and each page SHALL have one polite status region. Phone placement, navigation and recovery SHALL match the latest reference.
+
+#### Scenario: A connection succeeds before its animation ends
+
+- **WHEN** the server confirms the connection before the writing sequence finishes
+- **THEN** navigation waits for the writing sequence and completion seal
+- **AND** reduced motion uses the static treatment without claiming simulated backend progress
+
+#### Scenario: The email form has no guidance to show
+
+- **WHEN** the email field has no hint or error
+- **THEN** the field-to-button gap is 20 px and no empty guidance row occupies space
+
+#### Scenario: Subscription checkout completes before the service is ready
+
+- **WHEN** Paddle reports completion but backend readiness is still pending
+- **THEN** the page shows the drawn preparing state without claiming usable service
+- **AND** it reaches ready only after the server reports the qualified lifecycle state
+
+#### Scenario: An old payment frame emits a late event
+
+- **WHEN** an event does not belong to the current bound transaction
+- **THEN** it cannot change the current checkout or activate another account
+
+#### Scenario: A flow changes its visible step
+
+- **WHEN** the previous pane leaves and the new pane enters
+- **THEN** hidden controls do not receive keyboard focus and the new step follows the reference's focus rule
+- **AND** the transition does not duplicate payment or session effects
+
+#### Scenario: A short phone window cannot fit the flow
+
+- **WHEN** the viewport is shorter than the drawn content
+- **THEN** the flow remains reachable by scrolling without horizontal overflow or decoration obscuring controls

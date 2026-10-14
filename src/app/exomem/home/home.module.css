@@ -81,7 +81,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 28px 40px 0;
+  height: 75px;
+  box-sizing: border-box;
+  padding: 0 40px;
 }
 
 .headerStart {
@@ -198,13 +200,21 @@
   background: var(--bg-panel);
 }
 
-.firstDot {
+.firstDot,
+.firstDotQuiet {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  flex: none;
+}
+
+.firstDot {
   background: var(--exo-amber);
   box-shadow: 0 0 10px var(--exo-amber);
-  flex: none;
+}
+
+.firstDotQuiet {
+  background: var(--fg-muted);
 }
 
 .firstText {
@@ -803,7 +813,7 @@
   }
 
   .header {
-    padding: 28px 16px 0;
+    padding: 0 16px;
   }
 
   .headerStart {

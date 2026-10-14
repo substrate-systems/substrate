@@ -29,7 +29,7 @@
   color: var(--fg-muted);
 }
 
-/* On a narrow panel the question clips; the latency keeps its place. */
+/* The desktop query keeps its latency beside the typed question. */
 .ask {
   min-width: 0;
   white-space: nowrap;
@@ -105,10 +105,31 @@
   }
 
   .query {
-    align-items: normal;
+    align-items: flex-start;
     gap: 8px;
     padding: 12px 14px;
     font-size: 12px;
+  }
+
+  .query {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+  .ask {
+    display: contents;
+  }
+  .app {
+    grid-area: 1 / 1;
+  }
+  .latency {
+    grid-area: 1 / 2;
+  }
+  .query .q {
+    grid-area: 2 / 1 / 3 / 3;
+    width: auto;
+    max-width: 100%;
+    animation: none;
+    white-space: normal;
   }
 
   .answer {
@@ -154,7 +175,7 @@
 }
 
 .n1 {
-  fill-opacity: 0.85;
+  fill: color-mix(in srgb, var(--exo-amber) 85%, var(--bg-section));
   animation: hpNode1 6.5s ease-out infinite;
 }
 
@@ -252,13 +273,14 @@
   opacity: 0.16 !important;
 }
 
-.graph[data-active] .node {
-  opacity: var(--graph-dim);
+.graph[data-active] .node .mark {
+  fill: color-mix(in srgb, var(--fg-primary) calc(var(--graph-dim) * 100%), var(--bg-section));
+  animation: none;
 }
 
-.graph[data-active] .node.isNeighbour,
-.graph[data-active] .node.isActive {
-  opacity: 1;
+.graph[data-active] .node.isNeighbour .mark,
+.graph[data-active] .node.isActive .mark {
+  fill: var(--fg-primary);
 }
 
 .graph[data-active] .edge.isIncident {
@@ -324,17 +346,17 @@
   0%,
   16% {
     fill: var(--fg-primary);
-    fill-opacity: 0.35;
+    fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-section));
   }
   20%,
   90% {
     fill: var(--exo-amber);
-    fill-opacity: 0.85;
+    fill: color-mix(in srgb, var(--exo-amber) 85%, var(--bg-section));
   }
   96%,
   100% {
     fill: var(--fg-primary);
-    fill-opacity: 0.35;
+    fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-section));
   }
 }
 
@@ -343,17 +365,16 @@
   0%,
   18% {
     fill: var(--fg-primary);
-    fill-opacity: 0.35;
+    fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-section));
   }
   22%,
   90% {
     fill: var(--exo-amber);
-    fill-opacity: 1;
   }
   96%,
   100% {
     fill: var(--fg-primary);
-    fill-opacity: 0.35;
+    fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-section));
   }
 }
 
@@ -362,17 +383,16 @@
   0%,
   26% {
     fill: var(--fg-primary);
-    fill-opacity: 0.35;
+    fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-section));
   }
   30%,
   90% {
     fill: var(--exo-amber);
-    fill-opacity: 1;
   }
   96%,
   100% {
     fill: var(--fg-primary);
-    fill-opacity: 0.35;
+    fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-section));
   }
 }
 

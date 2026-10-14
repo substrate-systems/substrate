@@ -1,0 +1,40 @@
+# Exomem status · Upptime config (.upptimerc.yml). Fill in CONTROL_HOST and CLUSTER_HOST.
+owner: substrate-systems
+repo: exomem-status
+
+sites:
+  - name: Website and sign-in
+    url: https://exomem.io/
+    maxResponseTime: 5000
+  - name: Sign-in service
+    url: https://CONTROL_HOST/healthz
+    maxResponseTime: 3000
+  - name: Your Exomem
+    url: https://CLUSTER_HOST/healthz
+    maxResponseTime: 3000
+  - name: Sign-in emails
+    url: https://CONTROL_HOST/healthz/email
+    maxResponseTime: 5000
+
+workflowSchedule:
+  uptime: "*/5 * * * *"
+  responseTime: "0 23 * * *"
+  graphs: "0 0 * * *"
+  summary: "0 0 * * *"
+  staticSite: "0 1 * * *"
+
+status-website:
+  cname: status.exomem.io
+  logoUrl: https://status.exomem.io/exomem-wordmark-initial.svg
+  name: Exomem status
+  favicon: https://status.exomem.io/favicon.svg
+  themeUrl: https://status.exomem.io/exomem-status.css
+  introTitle: "Exomem status"
+  introMessage: "Checked every five minutes from outside our servers."
+  navbar:
+    - title: Status
+      href: /
+    - title: Paddle status (payments)
+      href: https://www.paddlestatus.com
+    - title: exomem.io
+      href: https://exomem.io

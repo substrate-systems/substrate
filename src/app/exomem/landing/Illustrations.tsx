@@ -1,39 +1,68 @@
-import type { CSSProperties } from "react";
+"use client";
+
+import { AliveGraph, useAliveGraph } from "@/components/exomem/AliveGraph";
 import responsive from "./responsive.module.css";
 import styles from "./illustrations.module.css";
 
-// The board's drawings, coordinates as drawn (Landing-Page, "How it stays true" and
-// "See it"). Each runner light carries its link's length (--len), its loop (--d) and its
-// start (--dl); a pulse shares its link's loop.
+// These coordinates are the approved landing illustrations, not account or vault data.
+const REMEMBER_NODES = [
+  [22, 18, 7],
+  [22, 46, 7],
+  [22, 74, 7],
+  [22, 102, 7],
+  [138, 60, 5],
+  [190, 26, 2.6],
+  [204, 70, 2.6],
+  [176, 100, 2.6],
+  [222, 40, 2.6],
+] as const;
+const REMEMBER_EDGES = [
+  [0, 4],
+  [1, 4],
+  [2, 4],
+  [3, 4],
+  [4, 5],
+  [4, 6],
+  [4, 7],
+  [4, 8],
+] as const;
+const CONNECT_NODES = [
+  [40, 60, 4],
+  [120, 30, 4.5],
+  [120, 92, 3.6],
+  [200, 58, 3.6],
+] as const;
+const CONNECT_EDGES = [
+  [0, 1],
+  [0, 2],
+  [1, 3],
+  [2, 3],
+] as const;
 
-const run = (len: number, d: number, dl: number) =>
-  ({ "--len": len, "--d": `${d}s`, "--dl": `${dl}s` }) as CSSProperties;
-const pulse = (d: number, dl: number) => ({ "--d": `${d}s`, "--dl": `${dl}s` }) as CSSProperties;
-
-const AMBER = "var(--exo-amber)";
-const INK = "var(--fg-primary)";
-const MUTED = "var(--fg-muted)";
-const AMBER_TEXT = "var(--exo-amber-text)";
-
-/** 01 Remember: four sources feed one note, which links on. */
+/** Four sources feed one note, which links on. Ambient motion stays in ink. */
 export function RememberDrawing() {
-  const sources = [11, 39, 67, 95];
-  const linked = [
-    [190, 26],
-    [204, 70],
-    [176, 100],
-    [222, 40],
-  ];
+  const graph = JSON.stringify({ n: REMEMBER_NODES, e: REMEMBER_EDGES });
+  const svg = useAliveGraph("landing-remember", "live", graph);
   return (
     <svg
+      ref={svg}
       viewBox="0 0 250 120"
-      width="250"
-      height="120"
       className={styles.pillar}
-      aria-hidden="true"
+      aria-hidden
+      data-alive="loop"
+      data-graph={graph}
+      data-walk="ink"
     >
-      {sources.map((y, i) => (
+      {[11, 39, 67, 95].map((y) => (
         <g key={y}>
+          <line
+            x1="31"
+            y1={y + 7}
+            x2="138"
+            y2="60"
+            stroke="var(--fg-primary)"
+            strokeOpacity=".18"
+          />
           <rect
             x="15"
             y={y}
@@ -43,269 +72,182 @@ export function RememberDrawing() {
             fill="var(--bg-hover)"
             stroke="rgba(var(--ink-rgb), .18)"
           />
-          <line
-            x1="31"
-            y1={y + 7}
-            x2="132"
-            y2="60"
-            stroke={AMBER}
-            strokeOpacity={i === 1 ? 0.75 : 0.18}
-            strokeWidth={i === 1 ? 1.6 : 1}
-          />
         </g>
       ))}
-      <line
-        className={styles.pt}
-        x1="31"
-        y1="46"
-        x2="132"
-        y2="60"
-        stroke={AMBER}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        style={run(102, 7, 0)}
-      />
-      <circle
-        className={styles.pp}
-        cx="138"
-        cy="60"
-        r="10"
-        fill={AMBER}
-        opacity=".18"
-        style={pulse(7, 0)}
-      />
-      <circle cx="138" cy="60" r="5" fill={AMBER} />
-      {linked.map(([x, y]) => (
-        <g key={`${x},${y}`}>
-          <circle cx={x} cy={y} r="2.6" fill={INK} opacity=".35" />
-          <line x1="138" y1="60" x2={x} y2={y} stroke={INK} strokeOpacity=".12" />
-        </g>
+      {REMEMBER_EDGES.slice(4).map(([i, j]) => (
+        <line
+          key={j}
+          x1={REMEMBER_NODES[i][0]}
+          y1={REMEMBER_NODES[i][1]}
+          x2={REMEMBER_NODES[j][0]}
+          y2={REMEMBER_NODES[j][1]}
+          stroke="var(--fg-primary)"
+          strokeOpacity=".12"
+        />
+      ))}
+      {REMEMBER_NODES.slice(4).map(([x, y, r]) => (
+        <circle key={`${x},${y}`} data-graph-node cx={x} cy={y} r={r} className={styles.node} />
       ))}
     </svg>
   );
 }
 
-/** 02 Connect: one note supports another, and contradicts a third. */
+/** One note supports another and contradicts a third. */
 export function ConnectDrawing() {
   return (
-    <svg
+    <AliveGraph
+      id="landing-connect"
+      nodes={CONNECT_NODES}
+      edges={CONNECT_EDGES}
       viewBox="0 0 250 120"
-      width="250"
-      height="120"
-      className={styles.pillar}
-      aria-hidden="true"
+      className={`${styles.pillar} ${styles.connect}`}
     >
-      <line x1="40" y1="60" x2="120" y2="30" stroke={AMBER} strokeWidth="2" />
-      <line
-        className={styles.mz}
-        x1="40"
-        y1="60"
-        x2="120"
-        y2="92"
-        stroke={INK}
-        strokeOpacity=".55"
-        strokeDasharray="5 4"
-      />
-      <line
-        className={styles.pt}
-        x1="40"
-        y1="60"
-        x2="120"
-        y2="30"
-        stroke={AMBER}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        style={run(85.4, 7.5, 1.2)}
-      />
-      <line
-        className={styles.pt}
-        x1="120"
-        y1="30"
-        x2="200"
-        y2="58"
-        stroke={AMBER}
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        style={run(84.8, 7.5, 3.8)}
-      />
-      <line x1="120" y1="30" x2="200" y2="58" stroke={AMBER} strokeDasharray="1.5 3.5" />
-      <line x1="120" y1="92" x2="200" y2="58" stroke={INK} strokeOpacity=".2" />
-      <circle cx="40" cy="60" r="4" fill={INK} />
-      <circle cx="120" cy="30" r="4.5" fill={AMBER} />
-      <circle cx="120" cy="92" r="3.6" fill={INK} />
-      <circle cx="200" cy="58" r="3.6" fill={INK} />
-      <text className={styles.svgText} x="58" y="34" fontSize="9" fill={AMBER_TEXT}>
+      <text className={styles.svgText} x="58" y="34" fontSize="9">
         supports
       </text>
-      <text className={styles.svgText} x="52" y="96" fontSize="9" fill={MUTED}>
+      <text className={styles.svgText} x="52" y="96" fontSize="9">
         contradicts
       </text>
-    </svg>
+    </AliveGraph>
   );
 }
 
-/** 03 Evolve: the old plan is superseded by a newer note, kept on the timeline. */
+/** The old plan stays on the timeline after a newer note replaces it. */
 export function EvolveDrawing() {
-  const ticks = [30, 80, 130, 180, 220];
+  const graph = JSON.stringify({
+    n: [
+      [60, 48, 5],
+      [170, 48, 5],
+    ],
+    e: [[0, 1]],
+  });
+  const svg = useAliveGraph("landing-evolve", "live", graph);
   return (
     <svg
+      ref={svg}
       viewBox="0 0 250 120"
-      width="250"
-      height="120"
       className={styles.pillar}
-      aria-hidden="true"
+      aria-hidden
+      data-alive="loop"
+      data-graph={graph}
+      data-walk="ink"
     >
       <line x1="20" y1="88" x2="230" y2="88" stroke="var(--bg-track)" strokeWidth="3" />
-      {ticks.map((x) => (
+      {[30, 80, 130, 180, 220].map((x) => (
         <line key={x} x1={x} y1="84" x2={x} y2="92" stroke="var(--fg-tertiary)" />
       ))}
-      <circle cx="60" cy="48" r="5" fill="var(--bg-base)" stroke={MUTED} strokeWidth="1.4" />
-      <text
-        className={styles.svgText}
-        x="44"
-        y="30"
-        fontSize="9"
-        fill={MUTED}
-        textDecoration="line-through"
-      >
-        old-plan
-      </text>
-      <path d="M 68 46 Q 115 22 162 44" fill="none" stroke={AMBER} strokeWidth="1.5" />
-      <path d="M 154 39 L 163 45 L 153 48" fill="none" stroke={AMBER} strokeWidth="1.5" />
+      <path d="M 68 46 Q 115 22 162 44" fill="none" stroke="var(--fg-primary)" strokeWidth="1.5" />
       <path
-        className={styles.pt}
-        d="M 68 46 Q 115 22 162 44"
+        d="M 154 39 L 163 45 L 153 48"
         fill="none"
-        stroke={AMBER}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        style={run(104, 8, 2.4)}
+        stroke="var(--fg-primary)"
+        strokeWidth="1.5"
       />
       <circle
-        className={styles.pp}
-        cx="170"
+        data-graph-node
+        cx="60"
         cy="48"
-        r="9"
-        fill={AMBER}
-        opacity=".18"
-        style={pulse(8, 2.4)}
+        r="5"
+        fill="var(--bg-base)"
+        stroke="var(--fg-muted)"
+        strokeWidth="1.4"
       />
-      <circle cx="170" cy="48" r="5" fill={AMBER} />
-      <text className={styles.svgText} x="150" y="70" fontSize="9" fill={AMBER_TEXT}>
+      <circle data-graph-node cx="170" cy="48" r="5" className={styles.node} />
+      <text className={styles.svgText} x="44" y="30" fontSize="9" textDecoration="line-through">
+        old-plan
+      </text>
+      <text className={styles.svgText} x="150" y="70" fontSize="9">
         newer
       </text>
-      <rect x="196" y="85" width="34" height="6" rx="3" fill={AMBER} />
+      <rect x="196" y="85" width="34" height="6" rx="3" fill="var(--fg-primary)" />
     </svg>
   );
 }
 
-// The living map: one hub and its eleven links, each typed. A light runs out along one
-// link at a time on a 15 s loop.
-type Spoke = {
-  x: number;
-  y: number;
-  kind: "supports" | "refines" | "contradicts" | "superseded" | "relates";
-  /** When the runner light leaves along this link, if it does. */
-  run?: { len: number; dl: number };
-};
+// The supplied map's hub and typed spokes. Relation styles are a fixed illustration contract.
+const SPOKES = [
+  [419, 58, "supports"],
+  [455.5, 87.6, "refines"],
+  [475.4, 127.9, "supports"],
+  [475.4, 172.1, "contradicts"],
+  [455.5, 212.4, "superseded"],
+  [419, 242, "relates"],
+  [301, 242, "supports"],
+  [257.8, 203.1, "refines"],
+  [242, 150, "contradicts"],
+  [257.8, 96.9, "relates"],
+  [301, 58, "supports"],
+] as const;
+const MAP_NODES = [[360, 150, 6], ...SPOKES.map(([x, y]) => [x, y, 3.6] as const)] as const;
+const MAP_EDGES = SPOKES.map((_, i) => [0, i + 1] as const);
+const FIELD = Array.from({ length: 70 }, (_, i) => [40 + ((53 * i) % 680), 20 + ((37 * i) % 260)]);
 
-const HUB = { x: 360, y: 150 };
-const MAP_LOOP_S = 15;
-
-const SPOKES: readonly Spoke[] = [
-  { x: 419, y: 58, kind: "supports", run: { len: 109.3, dl: 0 } },
-  { x: 455.5, y: 87.6, kind: "refines", run: { len: 114.1, dl: 1.6 } },
-  { x: 475.4, y: 127.9, kind: "supports", run: { len: 117.5, dl: 3.2 } },
-  { x: 475.4, y: 172.1, kind: "contradicts" },
-  { x: 455.5, y: 212.4, kind: "superseded" },
-  { x: 419, y: 242, kind: "relates", run: { len: 109.3, dl: 8 } },
-  { x: 301, y: 242, kind: "supports", run: { len: 109.3, dl: 9.6 } },
-  { x: 257.8, y: 203.1, kind: "refines", run: { len: 115.2, dl: 11.2 } },
-  { x: 242, y: 150, kind: "contradicts" },
-  { x: 257.8, y: 96.9, kind: "relates", run: { len: 115.2, dl: 14.4 } },
-  { x: 301, y: 58, kind: "supports", run: { len: 109.3, dl: 16 } },
-];
-
-const SPOKE_LINE: Record<
-  Spoke["kind"],
-  { stroke: string; width?: number; opacity?: number; dash?: string }
-> = {
-  supports: { stroke: AMBER, width: 1.8 },
-  refines: { stroke: AMBER, dash: "1.5 3.5" },
-  contradicts: { stroke: INK, opacity: 0.6, dash: "5 4" },
-  superseded: { stroke: AMBER },
-  relates: { stroke: INK, opacity: 0.3 },
-};
-
-// The faint field behind the map: 70 points stepped across the frame (the board's spread).
-const FIELD = Array.from({ length: 70 }, (_, i) => ({
-  x: 40 + ((53 * i) % 680),
-  y: 20 + ((37 * i) % 260),
-}));
-
-function MapDrawing({ viewBox, className }: { viewBox: string; className: string }) {
+function MapDrawing({
+  viewBox,
+  className,
+  id,
+}: {
+  viewBox: string;
+  className: string;
+  id: string;
+}) {
+  const graph = JSON.stringify({ n: MAP_NODES, e: MAP_EDGES });
+  const svg = useAliveGraph(id, "live", graph);
   return (
-    <svg viewBox={viewBox} className={`${styles.map} ${className}`} aria-hidden="true">
-      {FIELD.map(({ x, y }) => (
-        <circle key={`${x},${y}`} cx={x} cy={y} r="2" fill={INK} opacity=".12" />
+    <svg
+      ref={svg}
+      viewBox={viewBox}
+      className={`${styles.map} ${className}`}
+      aria-hidden
+      data-alive="loop"
+      data-graph={graph}
+      data-walk="ink"
+    >
+      {FIELD.map(([x, y]) => (
+        <circle key={`${x},${y}`} cx={x} cy={y} r="2" className={styles.fieldNode} />
       ))}
-      {SPOKES.map((spoke) => {
-        const line = SPOKE_LINE[spoke.kind];
-        return (
-          <g key={`${spoke.x},${spoke.y}`}>
-            <line
-              x1={HUB.x}
-              y1={HUB.y}
-              x2={spoke.x}
-              y2={spoke.y}
-              stroke={line.stroke}
-              strokeWidth={line.width}
-              strokeOpacity={line.opacity}
-              strokeDasharray={line.dash}
-            />
-            {spoke.run && (
-              <line
-                className={styles.pt}
-                x1={HUB.x}
-                y1={HUB.y}
-                x2={spoke.x}
-                y2={spoke.y}
-                stroke={AMBER}
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                style={run(spoke.run.len, MAP_LOOP_S, spoke.run.dl)}
-              />
-            )}
-            {spoke.kind === "superseded" ? (
-              <circle
-                cx={spoke.x}
-                cy={spoke.y}
-                r="3.6"
-                fill="var(--bg-base)"
-                stroke={MUTED}
-                strokeWidth="1.3"
-              />
-            ) : (
-              <circle cx={spoke.x} cy={spoke.y} r="3.6" fill={INK} />
-            )}
-          </g>
-        );
-      })}
-      <circle className={styles.br} cx={HUB.x} cy={HUB.y} r="12" fill={AMBER} opacity=".2" />
-      <circle cx={HUB.x} cy={HUB.y} r="6" fill={AMBER} />
+      {SPOKES.map(([x, y, kind]) => (
+        <line
+          key={`${x},${y}`}
+          x1="360"
+          y1="150"
+          x2={x}
+          y2={y}
+          stroke="var(--fg-primary)"
+          strokeOpacity={kind === "contradicts" ? 0.6 : 0.3}
+          strokeDasharray={
+            kind === "contradicts" ? "5 4" : kind === "refines" ? "1.5 3.5" : undefined
+          }
+        />
+      ))}
+      <circle data-graph-node cx="360" cy="150" r="6" className={styles.node} />
+      {SPOKES.map(([x, y, kind]) => (
+        <circle
+          key={`${x},${y}`}
+          data-graph-node
+          cx={x}
+          cy={y}
+          r="3.6"
+          className={kind === "superseded" ? undefined : styles.node}
+          fill={kind === "superseded" ? "var(--bg-base)" : undefined}
+          stroke={kind === "superseded" ? "var(--fg-muted)" : undefined}
+          strokeWidth={kind === "superseded" ? 1.3 : undefined}
+        />
+      ))}
     </svg>
   );
 }
 
-/**
- * The living map, 720 × 300 on desktop; on a phone the frame crops to the hub
- * (viewBox 200 20 320 260, R20-Mobile).
- */
+/** The phone crops the same living map to its hub. */
 export function LivingMap() {
   return (
     <>
-      <MapDrawing viewBox="0 0 720 300" className={responsive.deskOnly} />
-      <MapDrawing viewBox="200 20 320 260" className={responsive.phoneOnly} />
+      <MapDrawing id="landing-map-desktop" viewBox="0 0 720 300" className={responsive.deskOnly} />
+      <MapDrawing
+        id="landing-map-phone"
+        viewBox="200 20 320 260"
+        className={responsive.phoneOnly}
+      />
     </>
   );
 }

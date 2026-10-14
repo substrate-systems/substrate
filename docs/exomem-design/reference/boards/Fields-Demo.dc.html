@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fields demo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500;600&amp;display=swap">
+<style>
+.fd{display:flex;flex-direction:column;gap:10px;padding:24px 26px 22px;border-radius:12px;box-sizing:border-box;font-family:Inter,system-ui,sans-serif}
+.fd-t{font-family:'IBM Plex Mono', monospace;font-size:15px;font-weight:500;color:var(--tx);margin-bottom:10px}
+.fd-f{display:flex;flex-direction:column;gap:6px}
+.fd-l{font-size:12.5px;color:var(--lab)}.fd-l em{font-style:normal;color:var(--ph)}
+.fd-i{width:100%;height:48px;padding-left:14px;box-sizing:border-box;border:1px solid var(--bd);border-radius:8px;background:var(--fd);padding:0 12px;font:15px Inter,system-ui,sans-serif;color:var(--tx);caret-color:var(--acc);outline:none;transition:border-color .15s,box-shadow .15s}
+.fd-i::placeholder{color:var(--ph)}.fd-i:hover{border-color:var(--bdh)}
+.fd-i.bad{border-color:var(--tx);box-shadow:0 0 0 .5px var(--tx)}
+.fd-i:focus{outline:2px solid transparent;border-color:var(--acc);box-shadow:0 0 0 3px var(--ring)}
+.fd-m{min-height:18px;font-size:12.5px;line-height:18px;color:var(--ph)}.fd-m.bad{color:var(--tx)}
+.fd-row{display:flex;align-items:center;gap:14px;margin-top:8px}
+.fd-b{height:44px;padding:0 18px;border-radius:8px;border:0;background:var(--btn);color:var(--btnf);font:600 14px Inter,system-ui,sans-serif;cursor:pointer}
+.fd-b:focus{outline:none}.fd-b:focus-visible{outline:2px solid transparent;outline-offset:2px;box-shadow:0 0 0 2px var(--pn),0 0 0 4px var(--acc),0 0 0 7px var(--ring)}
+.fd-s{font-size:13px;color:var(--lab);min-height:18px}
+.fd-ro{padding-right:84px;color:var(--lab);background:transparent}.fd-ro:hover{border-color:var(--bd)}
+.fd-chg{position:absolute;right:6px;height:32px;padding:0 10px;border:0;border-radius:6px;background:transparent;font:500 13px Inter,system-ui,sans-serif;color:var(--tx);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.fd-chg:hover{background:var(--fd)}.fd-chg:focus{outline:none}.fd-chg:focus-visible{outline:2px solid transparent;outline-offset:2px;box-shadow:0 0 0 2px var(--acc),0 0 0 5px var(--ring)}
+</style>
+</helmet>
+<form class="fd" novalidate onSubmit="{{ submit }}" style="--lab: {{ c.lab }}; --bd: {{ c.bd }}; --bdh: {{ c.bdh }}; --fd: {{ c.fd }}; --tx: {{ c.tx }}; --ph: {{ c.ph }}; --acc: {{ c.acc }}; --ring: {{ c.ring }}; --btn: {{ c.btn }}; --btnf: {{ c.btnf }}; --pn: {{ c.pn }}; background: {{ c.pn }}; width: 100%">
+  <span class="fd-t">Change your email</span>
+  <div class="fd-f"><label class="fd-l" for="{{ id_cur }}">Current email</label><div style="position: relative; display: flex; align-items: center"><input class="fd-i fd-ro" id="{{ id_cur }}" type="email" value="reader@example.com" readonly><button type="button" class="fd-chg" onClick="{{ change }}">Change</button></div><span class="fd-m">Read-only. “Change” is a real button: Tab reaches it.</span></div>
+  <div class="fd-f">
+        <label class="fd-l" for="{{ id_email }}">New email address</label>
+        <input class="fd-i {{ cls_email }}" id="{{ id_email }}" data-fv="email" type="email" value="{{ v_email }}" aria-invalid="{{ inv_email }}" aria-describedby="{{ id_email }}-m" onInput="{{ in_email }}" onBlur="{{ bl_email }}" autocomplete="off" placeholder="you@example.com">
+        <span class="fd-m {{ mcls_email }}" id="{{ id_email }}-m" aria-live="polite">{{ m_email }}</span>
+      </div>
+  <div class="fd-f">
+        <label class="fd-l" for="{{ id_name }}">Name <em>(optional)</em></label>
+        <input class="fd-i {{ cls_name }}" id="{{ id_name }}" data-fv="name" type="text" value="{{ v_name }}" aria-invalid="{{ inv_name }}" aria-describedby="{{ id_name }}-m" onInput="{{ in_name }}" onBlur="{{ bl_name }}" autocomplete="off">
+        <span class="fd-m {{ mcls_name }}" id="{{ id_name }}-m" aria-live="polite">{{ m_name }}</span>
+      </div>
+  <div class="fd-f">
+        <label class="fd-l" for="{{ id_pw }}">Your password</label>
+        <input class="fd-i {{ cls_pw }}" id="{{ id_pw }}" data-fv="pw" type="password" value="{{ v_pw }}" aria-invalid="{{ inv_pw }}" aria-describedby="{{ id_pw }}-m" onInput="{{ in_pw }}" onBlur="{{ bl_pw }}" autocomplete="off">
+        <span class="fd-m {{ mcls_pw }}" id="{{ id_pw }}-m" aria-live="polite">{{ m_pw }}</span>
+      </div>
+  <div class="fd-row"><button class="fd-b" type="submit">Save</button><span class="fd-s" aria-live="polite">{{ done }}</span></div>
+</form>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"$preview":{"width":520,"height":540}}'>
+const HINT = { email: 'We’ll send a link to the new address to confirm it.', name: '', pw: 'To make sure it’s you.' };
+const check = {
+  email: (v) => !v.trim() ? 'Enter your new email address.' : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? 'Check the address: it needs an @ and a dot.' : '',
+  name: () => '',
+  pw: (v) => !v ? 'Enter your password.' : '',
+};
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { v: { email: '', name: '', pw: '' }, shown: {}, err: {}, done: '' }; this.k = 'fd' + Math.random().toString(36).slice(2, 7); }
+  setV(f, val) { const v = { ...this.state.v, [f]: val }, err = { ...this.state.err }; if (this.state.shown[f]) err[f] = check[f](val); if (f === 'pw') delete err.server; this.setState({ v, err, done: '' }); }
+  leave(f) { const e = check[f](this.state.v[f]); if (!e && !this.state.shown[f]) return; this.setState({ shown: { ...this.state.shown, [f]: true }, err: { ...this.state.err, [f]: e } }); }
+  renderVals() {
+    const L = (this.props.theme ?? 'dark') === 'light';
+    const c = L ? { lab: '#6B665C', bd: 'rgba(26,24,20,0.14)', bdh: 'rgba(26,24,20,0.34)', fd: '#FAF8F4', tx: '#1A1814', ph: '#757068', acc: '#A86E00', ring: 'rgba(255,176,0,0.30)', btn: '#1A1814', btnf: '#FFFFFF', pn: '#FFFFFF' }
+                : { lab: '#A39E93', bd: 'rgba(236,233,226,0.14)', bdh: 'rgba(236,233,226,0.34)', fd: '#0C0A09', tx: '#ECE9E2', ph: '#858075', acc: '#FFB000', ring: 'rgba(255,176,0,0.20)', btn: '#ECE9E2', btnf: '#0A0908', pn: '#12100E' };
+    const o = { c, done: this.state.done, id_cur: this.k + 'cur', change: () => { const el = document.getElementById(this.k + 'email'); if (el) el.focus(); } };
+    ['email', 'name', 'pw'].forEach((f) => {
+      const e = this.state.err[f] || (f === 'pw' ? this.state.err.server : '') || '';
+      Object.assign(o, { ['id_' + f]: this.k + f, ['v_' + f]: this.state.v[f], ['inv_' + f]: e ? 'true' : 'false', ['cls_' + f]: e ? 'bad' : '', ['mcls_' + f]: e ? 'bad' : '', ['m_' + f]: e || HINT[f],
+        ['in_' + f]: (ev) => this.setV(f, ev.target.value), ['bl_' + f]: () => this.leave(f) });
+    });
+    o.submit = (ev) => {
+      ev.preventDefault();
+      const err = {}; ['email', 'name', 'pw'].forEach((f) => { err[f] = check[f](this.state.v[f]); });
+      const first = ['email', 'name', 'pw'].find((f) => err[f]);
+      if (first) { this.setState({ err, shown: { email: true, name: true, pw: true }, done: '' }); setTimeout(() => { const el = document.getElementById(this.k + first); if (el) el.focus(); }, 0); return; }
+      // the server answers: in this demo any password but "exomem" is wrong, and the error lands on the password field
+      if (this.state.v.pw !== 'exomem') { this.setState({ err: { server: 'That password isn’t right.' }, done: '' }); setTimeout(() => { const el = document.getElementById(this.k + 'pw'); if (el) el.focus(); }, 0); return; }
+      this.setState({ err: {}, done: 'Sent. Open the link in the new inbox to finish.' });
+    };
+    return o;
+  }
+}
+</script>
+</body>
+</html>

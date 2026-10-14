@@ -97,11 +97,11 @@
 - [ ] 7.1 Build "Start with your email" with the Turnstile widget and the uniform "check your email" step
 - [ ] 7.2 Build the invitation steps: friend, covered, existing owner, unusable
 - [ ] 7.3 Build the consent steps with the code destination, the declined and kept hand-back (at most 3 s on screen for web apps) for web and loopback apps
-- [ ] 7.4 Build subscribe with the Paddle overlay and the confirming step
+- [ ] 7.4 Build subscribe with Paddle inline checkout and backend-confirmed readiness
 - [ ] 7.5 Build the setup step with connection polling (3 s, then 30 s after 10 minutes) and the joined state
 - [ ] 7.6 Build the break states: connect error, ended, paused, suspended, expired, read-only
 - [ ] 7.7 Build reviewer sign-in on the web
-- [ ] 7.8 Check phone layouts fit one screen in dark and light
+- [ ] 7.8 Check the approved phone placement and short-window scrolling in dark and light
 - [ ] 7.9 Block tasks 7.3 and 8.7 until the product owner approves deviations (h) and (i)
 
 ## 8. Frontend Home
@@ -144,3 +144,16 @@ These corrections follow the launch polish merge because both batches change sub
 - [ ] 10.9 Run focused unit, route, PostgreSQL, webhook, security, static and browser checks for paid operator invitations
 - [ ] 10.10 Prove one paid operator invitation in the Paddle sandbox from redemption to payment, then repeat as one controlled production invitation
 - [ ] 10.11 Run strict OpenSpec validation and archive this change after the delivery
+
+## 11. Design update rounds 41–47
+
+This section tracks the approved integrated web batch. Earlier unchecked tasks remain programme records; they do not prove that existing code is absent. Viewer, add-ons and external status have separate capability and deployment boundaries. Their dependencies do not delay this batch.
+
+- [ ] 11.1 Prepare public-safe design references and served brand assets, preserving the original export separately
+- [ ] 11.2 Port the shared tokens, writing E, scoped motion engine and accessible transitions
+- [ ] 11.3 Build inline subscription checkout with transaction-bound events and server-confirmed readiness
+- [ ] 11.4 Add browser-bound resend recovery without changing authentication lifetime or account privacy
+- [ ] 11.5 Derive visible resend waits from the common server limiter and update invitation-only email copy
+- [ ] 11.6 Apply the latest landing, start, connect and Home states over their actual data contracts
+- [ ] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
+- [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification

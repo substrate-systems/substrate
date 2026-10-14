@@ -1,5 +1,5 @@
-// The hero's illustration: a small vault of twelve notes that answers "where are we
-// staying?". The same notes and links are laid out wide on desktop (Landing-Page board)
+// The hero's illustration: a small vault of twelve notes that answers "what is our
+// current release plan?". The same notes and links are laid out wide on desktop (Landing-Page board)
 // and tall on a phone (R20-Mobile); the coordinates are the boards'. The vault is a
 // drawing, not anyone's data.
 
@@ -15,18 +15,18 @@ export type NoteRole =
 export type HeroNote = { path: string; role: NoteRole; answer?: 1 | 2 | 3 };
 
 export const HERO_NOTES: readonly HeroNote[] = [
-  { path: "trip/flights.md", role: "note" },
-  { path: "trip/car-rental.md", role: "note" },
-  { path: "trip/itinerary.md", role: "answer", answer: 2 },
-  { path: "Maria", role: "entity" },
-  { path: "trip/airbnb-laugavegur.md", role: "superseded" },
-  { path: "trip/hotel-borg.md", role: "answer", answer: 3 },
-  { path: "Reykjavík", role: "entity" },
-  { path: "sources/booking-email.md", role: "answer", answer: 1 },
-  { path: "trip/budget.md", role: "note" },
-  { path: "notes/restaurants.md", role: "note" },
-  { path: "sources/chat-with-maria.md", role: "note" },
-  { path: "trip/packing-list.md", role: "note" },
+  { path: "Demo/build-notes.md", role: "note" },
+  { path: "Demo/test-plan.md", role: "note" },
+  { path: "Demo/interface.md", role: "answer", answer: 2 },
+  { path: "API", role: "entity" },
+  { path: "Demo/old-checklist.md", role: "superseded" },
+  { path: "Demo/release-checklist.md", role: "answer", answer: 3 },
+  { path: "Release", role: "entity" },
+  { path: "Demo/api-contract.md", role: "answer", answer: 1 },
+  { path: "Demo/resource-budget.md", role: "note" },
+  { path: "Demo/review-notes.md", role: "note" },
+  { path: "Demo/design-review.md", role: "note" },
+  { path: "Demo/deployment.md", role: "note" },
 ];
 
 /** The note the answer settles on, and the plan it replaced. */
@@ -148,9 +148,9 @@ export const DESKTOP_LAYOUT: HeroLayout = {
   contradictsWidth: 1.2,
   supersedesWidth: 1.6,
   supersedes: {
-    d: "M 170 214 Q 245 158 311 189",
+    d: "M 170 214 Q 245 158 324.2 193.4",
     length: 170,
-    arrow: "M 306.8 182.7 L 311.7 189.0 L 303.7 189.5",
+    arrow: "M 319.8 187.2 L 324.2 193.4 L 316.5 194.5",
     label: { x: 208, y: 168, anchor: "start", size: 9 },
   },
   strike: { x1: 94.8, x2: 237.2, y: 234, width: 1 },
@@ -162,15 +162,15 @@ export const PHONE_LAYOUT: HeroLayout = {
   gridStart: 12,
   notes: [
     { x: 58, y: 46, label: { x: 58, y: 34, tone: "ink", onDemand: true } },
-    { x: 186, y: 28, label: { x: 186, y: 48, tone: "ink", onDemand: true } },
+    { x: 186, y: 28, label: { x: 186, y: 16, tone: "ink", onDemand: true } },
     { x: 300, y: 64, label: { x: 276, y: 46, tone: "ink" } },
     { x: 26, y: 128, label: { x: 26, y: 116, tone: "ink", onDemand: true } },
     { x: 86, y: 196, label: { x: 92, y: 220, tone: "muted" } },
     { x: 262, y: 176, label: { x: 262, y: 204, tone: "amber" } },
-    { x: 334, y: 214, label: { x: 334, y: 202, tone: "ink", onDemand: true } },
+    { x: 334, y: 214, label: { x: 308, y: 238, anchor: "middle", tone: "ink", onDemand: true } },
     { x: 174, y: 292, label: { x: 174, y: 318, tone: "ink" } },
     { x: 36, y: 300, label: { x: 36, y: 288, tone: "ink", onDemand: true } },
-    { x: 310, y: 326, label: { x: 310, y: 314, tone: "ink", onDemand: true } },
+    { x: 310, y: 326, label: { x: 284, y: 314, tone: "ink", onDemand: true } },
     { x: 100, y: 372, label: { x: 100, y: 360, tone: "ink", onDemand: true } },
     { x: 236, y: 384, label: { x: 236, y: 372, tone: "ink", onDemand: true } },
   ],

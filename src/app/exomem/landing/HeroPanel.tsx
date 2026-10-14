@@ -20,6 +20,7 @@ import {
 } from "./hero-graph";
 import responsive from "./responsive.module.css";
 import styles from "./HeroPanel.module.css";
+import { useAliveGraph } from "@/components/exomem/AliveGraph";
 
 // Which notes each note links to, for the hover: its neighbours stay lit.
 const NEIGHBOURS = HERO_NOTES.map(
@@ -50,13 +51,19 @@ type GraphProps = {
   shortNames: boolean;
   className: string;
   active: number | null;
-  onActive: (note: number | null) => void;
+  onActive: (note: number | null, tapped?: boolean) => void;
 };
 
 function HeroGraph({ layout, shortNames, className, active, onActive }: GraphProps) {
+  const graph = JSON.stringify({
+    n: layout.notes.map(({ x, y }) => [x, y, layout.noteRadius]),
+    e: HERO_LINKS.map(({ from, to }) => [from, to]),
+  });
+  const svg = useAliveGraph(`hero-${layout.width}`, "live", graph);
   // Mouse: hover lights a note. With a finger or a pen, a tap names it; another tap on it, or a
   // tap anywhere else on the page (HeroPanel listens for that), puts it out.
   const pointer = useRef<string>("mouse");
+  const ignoreMouseUntil = useRef(0);
   const at = (note: number) => layout.notes[note];
   const linkClass = (from: number, to: number, base: string) =>
     [styles.edge, base, active !== null && (from === active || to === active) && styles.isIncident]
@@ -65,17 +72,22 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
 
   const hover = (note: number | null) => (event: ReactPointerEvent) => {
     pointer.current = event.pointerType;
-    if (event.pointerType === "mouse") onActive(note);
+    if (event.pointerType === "mouse" && performance.now() >= ignoreMouseUntil.current)
+      onActive(note);
   };
 
   return (
     <svg
+      ref={svg}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       className={`${styles.graph} ${className}`}
       // Scales down with the panel, never past the size it is drawn at.
       style={{ maxWidth: layout.width }}
       aria-hidden="true"
       data-active={active !== null || undefined}
+      data-alive="loop"
+      data-graph={graph}
+      data-walk="ink"
       onPointerDown={(event) => (pointer.current = event.pointerType)}
     >
       <defs>
@@ -199,7 +211,8 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
             onPointerLeave={hover(null)}
             onClick={() => {
               if (pointer.current === "mouse") return;
-              onActive(isActive ? null : index);
+              ignoreMouseUntil.current = performance.now() + 2000;
+              onActive(isActive ? null : index, true);
             }}
           >
             <circle className={styles.hit} cx={x} cy={y} r={layout.hitRadius} />
@@ -215,21 +228,22 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
             {note.role === "note" && (
               <circle
                 className={styles.mark}
+                data-graph-node
                 cx={x}
                 cy={y}
                 r={layout.noteRadius}
-                fill="var(--fg-primary)"
-                opacity={layout.noteOpacity}
+                fill={`color-mix(in srgb, var(--fg-primary) ${layout.noteOpacity * 100}%, var(--bg-section))`}
               />
             )}
             {note.role === "entity" && (
               <rect
                 className={styles.mark}
+                data-graph-node
                 x={x - layout.entitySize / 2}
                 y={y - layout.entitySize / 2}
                 width={layout.entitySize}
                 height={layout.entitySize}
-                fill="none"
+                fill="var(--bg-section)"
                 stroke="var(--fg-muted)"
                 strokeWidth={layout.entityStroke}
               />
@@ -237,6 +251,7 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
             {note.role === "superseded" && (
               <circle
                 className={styles.mark}
+                data-graph-node
                 cx={x}
                 cy={y}
                 r={layout.supersededRadius}
@@ -257,6 +272,7 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
             {note.answer && (
               <circle
                 className={`${styles.mark} ${styles.rn} ${ANSWER_MOTION[note.answer]}`}
+                data-graph-node
                 cx={x}
                 cy={y}
                 r={layout.answerRadius[note.answer]}
@@ -355,6 +371,11 @@ const LEGEND = ["supports", "refines", "contradicts", "supersedes"] as const;
  */
 export function HeroPanel({ latency }: { latency: string }) {
   const [active, setActive] = useState<number | null>(null);
+  const [tapped, setTapped] = useState(false);
+  const onActive = (note: number | null, tap = false) => {
+    setActive(note);
+    setTapped(tap);
+  };
 
   // A note lit by a tap goes out, and the loop resumes, when the next tap lands anywhere
   // but on that note. (A tap on the note itself toggles it in HeroGraph.)
@@ -368,8 +389,12 @@ export function HeroPanel({ latency }: { latency: string }) {
       setActive(null);
     };
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [active]);
+    const timer = tapped ? window.setTimeout(() => setActive(null), 1800) : undefined;
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [active, tapped]);
 
   const answer = HERO_NOTES[ANSWER_NOTE].path;
   const superseded = HERO_NOTES[SUPERSEDED_NOTE].path;
@@ -377,13 +402,8 @@ export function HeroPanel({ latency }: { latency: string }) {
     <div className={styles.panel} data-paused={active !== null || undefined}>
       <div className={styles.query}>
         <span className={styles.ask}>
-          <span className={styles.app}>Claude Code ›</span>{" "}
-          <span className={`${styles.q} ${responsive.deskOnly}`}>
-            where are we staying in Reykjavík?
-          </span>
-          <span className={`${styles.q} ${styles.qm} ${responsive.phoneOnly}`}>
-            where are we staying?
-          </span>
+          <span className={styles.app}>Claude ›</span>{" "}
+          <span className={styles.q}>what is our current release plan?</span>
         </span>
         <span className={`${styles.row} ${styles.r3} ${styles.latency}`}>{latency}</span>
       </div>
@@ -392,14 +412,14 @@ export function HeroPanel({ latency }: { latency: string }) {
         shortNames={false}
         className={responsive.deskOnly}
         active={active}
-        onActive={setActive}
+        onActive={onActive}
       />
       <HeroGraph
         layout={PHONE_LAYOUT}
         shortNames
         className={responsive.phoneOnly}
         active={active}
-        onActive={setActive}
+        onActive={onActive}
       />
       <div className={styles.answer}>
         <div className={`${styles.row} ${styles.r1} ${styles.answerRow}`}>
@@ -407,7 +427,7 @@ export function HeroPanel({ latency }: { latency: string }) {
             → <span className={responsive.deskOnly}>{answer}</span>
             <span className={responsive.phoneOnly}>{noteName(answer)}</span>
           </span>
-          <span className={styles.current}>booked 2 May · current</span>
+          <span className={styles.current}>approved · current</span>
         </div>
         <div className={`${styles.row} ${styles.r2} ${styles.answerRow} ${styles.old}`}>
           <span className={styles.struck}>

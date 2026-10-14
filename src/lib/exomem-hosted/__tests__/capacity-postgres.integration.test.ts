@@ -129,8 +129,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       });
     }) as typeof fetch;
 
-    // Only the request id and the challenge are random in a start response.
-    // Fixing them lets the test compare whole responses byte for byte.
+    // Fix public metadata; encrypted cookie values remain random and carry no account outcome.
     const actualHttp = await import("@/lib/exomem-hosted/http");
     const actualSessions = await import("@/lib/exomem-hosted/sessions");
     mock.module("@/lib/exomem-hosted/http", {
@@ -215,7 +214,9 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       answers.push({
         status: response.status,
         body: await response.text(),
-        cookies: response.headers.getSetCookie().join("\n"),
+        cookies: JSON.stringify(
+          response.cookies.getAll().map((cookie) => ({ ...cookie, value: undefined }))
+        ),
         elapsedMs: performance.now() - startedAt,
       });
     }
@@ -287,9 +288,11 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     assert.deepEqual(JSON.parse(answers[0]!.body), {
       success: true,
       status: "if_eligible_email_sent",
+      retryAfterSeconds: 60,
+      retryLimited: false,
       requestId: FIXED_REQUEST_ID,
     });
-    assert.match(answers[0]!.cookies, /exomem_magic_challenge=/);
+    assert.match(answers[0]!.cookies, /exomem_magic_challenge/);
     for (const answer of answers) assert.ok(answer.elapsedMs >= 600, `${answer.elapsedMs} ms`);
   });
 
@@ -327,7 +330,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [email]),
       1
     );
-    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 2);
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 3);
   });
 
   it("admits exactly one of many simultaneous starts at the last free slot and queues the rest", async () => {

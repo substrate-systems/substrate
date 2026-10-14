@@ -2,6 +2,7 @@
    and the "Run it yourself" door; R20-Mobile on a phone, where the hero drops it). */
 .pip {
   display: inline-flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 14px;
@@ -9,7 +10,7 @@
   font-family: var(--font-mono-exo);
   line-height: normal;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
   cursor: pointer;
 }
 

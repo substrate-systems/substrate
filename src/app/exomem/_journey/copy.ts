@@ -12,12 +12,12 @@ export const UNNAMED_APP = "your app";
 export const startCopy = {
   web: {
     title: "Start with your email",
-    lede: "New or returning, it’s the same step. No password.",
+    lede: "Your Exomem is tied to this email. New or returning, it’s the same step. No password.",
     primary: "Email me a link",
   },
   app: (app: string) => ({
     title: `Connect ${app} to your memory`,
-    lede: "Sign in with your email. You’ll come straight back here.",
+    lede: "Sign in with the email your Exomem is tied to.",
     primary: "Email me a sign-in link",
   }),
   emailLabel: "Email",
@@ -199,7 +199,7 @@ export const joinedCopy = {
   done: (app: string) => `${app} · memory on`,
   home: "Go to Home",
   addToo: (app: string) => `Add ${app} too`,
-  another: "Connect another app",
+  another: "Add another app",
   levelsLabel: "How much your app uses Exomem",
   instructions: (level: string) => `${level} instructions`,
   characters: (count: string) => `${count} characters`,

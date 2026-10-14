@@ -9,6 +9,25 @@
  */
 export const CLIENT_PLATFORM_NAMES = { claude: "Claude", openai: "ChatGPT" } as const;
 
+// The approved letter glyphs map to the schema's closed client_platform set.
+export const CLIENT_PLATFORM_GLYPHS = { claude: "C", openai: "G" } as const;
+
+// The cell protocol fixes these content-free activity families.
+export const CLIENT_FAMILY_NAMES = {
+  "claude-ai": CLIENT_PLATFORM_NAMES.claude,
+  chatgpt: CLIENT_PLATFORM_NAMES.openai,
+  "claude-code": "Claude Code",
+  codex: "Codex",
+  other: "Your app",
+} as const;
+export const CLIENT_FAMILY_GLYPHS = {
+  "claude-ai": "C",
+  chatgpt: "G",
+  "claude-code": ">_",
+  codex: ">_",
+  other: "+",
+} as const;
+
 export type ClientPlatform = keyof typeof CLIENT_PLATFORM_NAMES;
 
 export function clientPlatformName(platform: string | null): string | null {

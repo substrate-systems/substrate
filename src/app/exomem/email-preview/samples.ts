@@ -102,7 +102,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       note: "ready, friend's invitation",
       email: renderExomemReadyEmail({
         homeUrl: home,
-        recipientName: "Maria",
+        recipientName: "Reader",
         connected: true,
         billing: {
           price: { amount: "1000", currencyCode: "EUR" },
@@ -249,7 +249,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "12",
       note: "invitation used, to the inviter",
       email: renderExomemInvitationUsedEmail({
-        inviteeName: "Maria",
+        inviteeName: "Reader",
         usedAt: now,
         friendPrice: { amount: "1000", currencyCode: "EUR" },
         timeZone: ZONE,
@@ -260,7 +260,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "13",
       note: "invitation ended unused, to the inviter",
       email: renderExomemInvitationEndedEmail({
-        inviteeName: "Maria",
+        inviteeName: "Reader",
         issuedAt: at(-14 * DAY),
         expiredAt: now,
       }),
