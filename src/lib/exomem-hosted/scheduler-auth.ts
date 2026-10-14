@@ -10,7 +10,7 @@ function constantTimeEqual(provided: string, expected: string): boolean {
   return candidate.length === reference.length && timingSafeEqual(candidate, reference);
 }
 
-/** Authenticate only the three externally scheduled Exomem jobs.
+/** Authenticate only the externally scheduled Exomem jobs.
  *
  * The global CRON_SECRET deliberately has no authority here. One explicit
  * previous receiver value permits a staged Vercel/K3s rotation; no larger key

@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { buildCloudProtectedResourceMetadata, handleCloudMcpRequest } from "./cloud-handler";
+import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
 const CACHE_HEADERS = {
@@ -115,6 +116,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
     let abort: AbortController | undefined;
     try {
       const path = new URL(request.url ?? "/", "http://gateway.invalid").pathname;
+      if (path === "/healthz/canary" && request.method === "GET") {
+        await writeResponse(await functionalHealthResponse("memory"), response);
+        return;
+      }
       if (path === "/healthz") {
         response.writeHead(200, CACHE_HEADERS).end();
         return;

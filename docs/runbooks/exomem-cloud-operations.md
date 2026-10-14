@@ -691,3 +691,40 @@ ORDER BY outbox.created_at;
 The access-delivery job checks a waiting receipt every 5 minutes and sends it
 once cellctl finishes. cellctl runs in Exomem, so investigate the cell there.
 Do not edit the outbox row.
+
+### Functional health
+
+Public health readers certify the latest completed proof, rather than a responding process. Missing, failed, stale or unreadable proof returns HTTP 503 with `{"ok":false}`. Fresh successful proof returns HTTP 200 with `{"ok":true}`. Readers disable caching and perform no sends or writes.
+
+| Public route | Checked scope | Schedule | Default freshness |
+| --- | --- | --- | --- |
+| Control `/healthz` | PostgreSQL temporary-row write/read | Each minute | 180 seconds |
+| Control `/healthz/email` | Transactional provider acceptance with a message identifier | Each 30 minutes | 3,600 seconds |
+| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read | Platform CronJob each minute | 180 seconds |
+
+These checks do not certify inbox delivery, OAuth issuance, semantic recall or every customer cell. Functional failure does not gate admission or restart pods. Direct gateway `/healthz` and `/readyz` retain their pod probe semantics.
+
+The public gateway ingress must allow GET only and rewrite `/healthz` to `/healthz/canary`. Pod probes bypass that rewrite. Until the rewrite and first proof exist, public memory status stays unavailable.
+
+Freshness uses `EXOMEM_HEALTH_CONTROL_FRESHNESS_SECONDS`, `EXOMEM_HEALTH_EMAIL_FRESHNESS_SECONDS` and `EXOMEM_HEALTH_MEMORY_FRESHNESS_SECONDS`. Each value must be a positive integer. Email freshness cannot exceed one hour.
+
+The protected control and email routes are `/api/cron/exomem-health-control` and `/api/cron/exomem-health-email`. Both use the existing dedicated scheduler bearer. Email requires `EXOMEM_HEALTH_EMAIL_RECIPIENT`, set to a synthetic inbox.
+
+The gateway image includes `gateway/memory-health-runner.cjs`. Its one-shot CronJob requires these values:
+
+| Variable | Meaning |
+| --- | --- |
+| `DATABASE_URL` | Dedicated runner role's proof database connection |
+| `EXOMEM_HEALTH_MEMORY_MCP_URL` | Only the dedicated synthetic cell's MCP endpoint |
+| `EXOMEM_HEALTH_MEMORY_BEARER` | Only that cell's bearer; never the shared signing key |
+| `EXOMEM_HEALTH_MEMORY_PAGE` | One mutable synthetic page with a unique `exomem_id` |
+| `EXOMEM_HEALTH_MEMORY_BODY_TEMPLATE` | A valid page body containing `{{nonce}}`; its semantic vocabulary follows the cell's configuration |
+| `EXOMEM_HEALTH_MEMORY_TIMEOUT_MS` | Total MCP budget; default 15,000, valid range 100–20,000 |
+
+The runner validates `replace_body`, reuses its transition proof, commits the same body and reads the page. It compares the returned body with the fresh nonce body. It records one final proof per attempt and exits nonzero on failure. Proof storage contains only the component, run identity, start time, check time and success.
+
+Migration0070 creates `exomem_record_memory_health_proof(uuid, timestamptz, timestamptz, boolean)`. It writes only the memory component, uses a fixed schema-qualified table, validates timestamps and cannot replace a newer attempt. The migration revokes public execution.
+
+The deployment owner provisions roles and grants through the normal platform release. The runner role gets CONNECT on the database, USAGE on the application schema and EXECUTE on that exact function. It gets no proof table grant. The public gateway reader gets SELECT on `exomem_health_proofs` and no execution grant on the function. The existing control writer retains its ordinary application authority.
+
+The platform packet must provide the runner's synthetic-only network allowance, minute schedule and command. It must synchronize the two HTTP jobs from `ops/exomem-hosted-schedules.json`. An actual scheduled proof remains a separate rollout check; source verification does not certify deployed health.

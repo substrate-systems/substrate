@@ -12,7 +12,12 @@ describe("Exomem hosted operations contract", () => {
     const vercel = JSON.parse(source("vercel.json")) as {
       crons?: Array<{ path?: string; schedule?: string }>;
     };
-    const frequentPaths = ["/api/cron/exomem-access-delivery", "/api/cron/exomem-reconcile"];
+    const frequentPaths = [
+      "/api/cron/exomem-access-delivery",
+      "/api/cron/exomem-reconcile",
+      "/api/cron/exomem-health-control",
+      "/api/cron/exomem-health-email",
+    ];
     for (const path of frequentPaths) {
       assert.equal(
         vercel.crons?.some((entry) => entry.path === path),
@@ -87,6 +92,16 @@ describe("Exomem hosted operations contract", () => {
         name: "exomem-reconcile",
         path: "/api/cron/exomem-reconcile",
         schedule: "* * * * *",
+      },
+      {
+        name: "exomem-health-control",
+        path: "/api/cron/exomem-health-control",
+        schedule: "* * * * *",
+      },
+      {
+        name: "exomem-health-email",
+        path: "/api/cron/exomem-health-email",
+        schedule: "*/30 * * * *",
       },
     ]);
   });
