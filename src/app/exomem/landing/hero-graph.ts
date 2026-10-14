@@ -38,6 +38,45 @@ export function noteName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 
+type LabelBounds = { x: number; y: number; width: number; height: number };
+
+/** Keep a measured on-demand label inside the drawing and clear of persistent text. */
+export function heroLabelOffset(
+  bounds: { width: number; height: number },
+  label: LabelBounds,
+  obstacles: readonly LabelBounds[],
+  halo: number
+): { x: number; y: number } {
+  const padding = halo / 2;
+  const x = Math.max(padding, Math.min(label.x, bounds.width - padding - label.width)) - label.x;
+  const left = label.x + x;
+  const right = left + label.width;
+  const candidates = [
+    0,
+    ...obstacles.flatMap((other) => [
+      other.y - halo - label.y - label.height,
+      other.y + other.height + halo - label.y,
+    ]),
+  ].sort((a, b) => Math.abs(a) - Math.abs(b));
+  const y =
+    candidates.find((offset) => {
+      const top = label.y + offset;
+      const bottom = top + label.height;
+      return (
+        top >= padding &&
+        bottom <= bounds.height - padding &&
+        obstacles.every(
+          (other) =>
+            right <= other.x - halo ||
+            left >= other.x + other.width + halo ||
+            bottom <= other.y - halo ||
+            top >= other.y + other.height + halo
+        )
+      );
+    }) ?? 0;
+  return { x, y };
+}
+
 export type LinkKind = "relates" | "supports" | "refines" | "contradicts" | "supersedes";
 
 /** Paint order: the quiet links first, then the recall's typed links. */

@@ -803,7 +803,7 @@
 
 /* --- Phone --- */
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .webDesktop {
     display: none;
   }
@@ -829,6 +829,7 @@
   }
 
   .column {
+    width: 358px;
     margin-top: 64px;
   }
 

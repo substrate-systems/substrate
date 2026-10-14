@@ -504,7 +504,7 @@
 /* ---- Between the drawn sizes: the header keeps only what the phone keeps, and rows
    wrap rather than overflow ---- */
 
-@media (max-width: 900px) and (min-width: 641px) {
+@media (max-width: 900px) and (min-width: 641px) and (min-height: 481px) {
   .byline,
   .sectionLink {
     display: none;
@@ -530,7 +530,7 @@
 
 /* ---- Phone (R20-Mobile, 390 px) ---- */
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .main {
     max-width: 430px;
     padding: 0;

@@ -8,6 +8,7 @@ let startCalls = 0;
 let reviewerCredentialKind: string | null = null;
 let returnedTransaction: string | null = null;
 let returnedResult: { state: "open"; checkoutUrl: string } | { state: "settled" };
+let sessionTenantId = TENANT_ID;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/sessions", {
@@ -15,7 +16,7 @@ before(() => {
       resolveExomemSession: async () => ({
         id: "session-1",
         userId: USER_ID,
-        tenantId: TENANT_ID,
+        tenantId: sessionTenantId,
         csrfDigest: Buffer.alloc(32),
         expiresAt: "2026-07-13T00:00:00.000Z",
         reviewerCredentialKind,
@@ -52,6 +53,7 @@ beforeEach(() => {
   startCalls = 0;
   reviewerCredentialKind = null;
   returnedTransaction = null;
+  sessionTenantId = TENANT_ID;
   returnedResult = {
     state: "open",
     checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${TRANSACTION_ID}`,
@@ -59,6 +61,69 @@ beforeEach(() => {
 });
 
 describe("POST /api/exomem/billing/checkout", () => {
+  it("rejects a cookie switch between successful transaction validation and the readiness read", async () => {
+    returnedResult = { state: "settled" };
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    const validated = await POST(
+      new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tenantId: TENANT_ID, transactionId: TRANSACTION_ID }),
+      })
+    );
+    assert.equal(validated.status, 200);
+    assert.equal((await validated.json()).state, "settled");
+    sessionTenantId = "018f2d91-7c42-7000-8000-0000000000b2";
+    const { GET } = await import("../../../status/route");
+    const status = await GET(
+      new NextRequest(`https://substratesystems.io/api/exomem/status?tenantId=${TENANT_ID}`)
+    );
+    assert.equal(status.status, 403);
+    const body = await status.json();
+    assert.equal(body.error.code, "EXOMEM_ENTITLEMENT_DENIED");
+    assert.equal(body.status, undefined);
+  });
+  it("refuses initiation and resume when the rendered checkout account differs from the session", async () => {
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    for (const body of [
+      { tenantId: "018f2d91-7c42-7000-8000-0000000000b2" },
+      { tenantId: "018f2d91-7c42-7000-8000-0000000000b2", transactionId: TRANSACTION_ID },
+    ]) {
+      const response = await POST(
+        new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      );
+      assert.equal(response.status, 403);
+      assert.equal((await response.json()).error.code, "EXOMEM_ENTITLEMENT_DENIED");
+      assert.equal(startCalls, 0);
+      assert.equal(returnedTransaction, null);
+    }
+  });
+
+  it("accepts the matching rendered account on initiation and resume", async () => {
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    for (const body of [
+      { tenantId: TENANT_ID },
+      { tenantId: TENANT_ID, transactionId: TRANSACTION_ID },
+    ]) {
+      const response = await POST(
+        new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      );
+      assert.equal(response.status, 200);
+    }
+    assert.equal(startCalls, 1);
+    assert.equal(returnedTransaction, TRANSACTION_ID);
+  });
   it("denies Cloud reviewer initiation and resume before billing work", async () => {
     reviewerCredentialKind = "cloud_provider_review";
     const { NextRequest } = await import("next/server");

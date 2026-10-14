@@ -39,7 +39,7 @@
   white-space: normal;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .landing {
     width: 100%;
     min-height: 52px;

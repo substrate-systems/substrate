@@ -57,7 +57,7 @@
   text-align: right;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .door {
     padding: 12px 14px;
   }

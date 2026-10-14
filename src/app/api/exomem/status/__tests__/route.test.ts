@@ -51,16 +51,31 @@ beforeEach(() => {
   cloudStatus = { state: "ready", code: "CELL_READY", retryable: false };
 });
 
-async function getStatus(): Promise<Response> {
+async function getStatus(query = ""): Promise<Response> {
   const { GET } = await import("../route");
   return GET(
     new Request(
-      "https://substratesystems.io/api/exomem/status"
+      `https://substratesystems.io/api/exomem/status${query}`
     ) as unknown as import("next/server").NextRequest
   );
 }
 
 describe("GET /api/exomem/status", () => {
+  it("refuses another account's readiness after the checkout validation cookie changes", async () => {
+    const response = await getStatus("?tenantId=018f2d91-7c42-7000-8000-000000000082");
+    assert.equal(response.status, 403);
+    assert.equal(cloudStatusCalls, 0);
+    const body = await response.json();
+    assert.equal(body.error.code, "EXOMEM_ENTITLEMENT_DENIED");
+    assert.equal(body.status, undefined);
+  });
+
+  it("reads the rendered checkout account when its session still matches", async () => {
+    const response = await getStatus(`?tenantId=${TENANT}`);
+    assert.equal(response.status, 200);
+    assert.equal(cloudStatusCalls, 1);
+    assert.equal((await response.json()).status.state, "ready");
+  });
   it("returns the content-free Cloud cell status and the Cloud MCP connector URL", async () => {
     cloudStatus = { state: "degraded", code: "CELL_NOT_READY", retryable: true };
     const response = await getStatus();

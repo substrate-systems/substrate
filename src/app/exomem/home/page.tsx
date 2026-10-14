@@ -24,7 +24,7 @@ export default async function ExomemHomePage({
   const returned = (await searchParams)._ptxn;
   if (typeof returned === "string") redirect(`/exomem/setup?_ptxn=${encodeURIComponent(returned)}`);
   return (
-    <main className={`${styles.page} brand-exomem`}>
+    <main className={`${styles.page} brand-exomem`} data-alive-surface>
       <HomeClient
         priceId={exomemCheckoutPriceId()}
         exportOffered={cloudExportsEnabled()}

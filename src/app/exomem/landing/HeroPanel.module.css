@@ -97,7 +97,7 @@
   align-items: center;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .panel {
     flex: none;
     max-width: none;

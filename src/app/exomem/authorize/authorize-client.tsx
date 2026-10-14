@@ -33,6 +33,7 @@ import { offerInviter, type FriendOffer } from "../home/home-view";
 import { offersConnect, type ConsentScreen } from "./consent-screen";
 
 export type AccountFacts = {
+  tenantId: string | null;
   readOnlyUntil: Known<string>;
   keptUntil: Known<string>;
   supportReference: Known<string>;
@@ -338,6 +339,7 @@ function Consent({
     return (
       <CheckoutInline
         email={request.email}
+        tenantId={request.account.tenantId}
         inviter={inviter}
         onReady={() => window.location.reload()}
       />

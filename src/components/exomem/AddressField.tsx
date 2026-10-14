@@ -24,6 +24,8 @@ type AddressFieldProps = {
   size?: "page" | "row";
   /** The page already says what the address is for: the label only names the field for screen readers. */
   labelHidden?: boolean;
+  /** The journey already owns the page's single status region. */
+  pageStatus?: boolean;
 };
 
 /** An address to paste elsewhere (the MCP address), with Copy inside on the right. */
@@ -32,6 +34,7 @@ export function AddressField({
   address,
   size = "page",
   labelHidden = false,
+  pageStatus = false,
 }: AddressFieldProps) {
   const id = useId();
   const [copied, setCopied] = useState(false);
@@ -80,12 +83,16 @@ export function AddressField({
           type="button"
           className={`${styles.copy} ${phone.hitArea}`}
           onClick={copy}
-          aria-live="polite"
+          aria-live={pageStatus ? undefined : "polite"}
         >
           <span className={styles.copyState} aria-hidden={copied}>
             Copy
           </span>
-          <span className={styles.copyState} aria-hidden={!copied}>
+          <span
+            className={styles.copyState}
+            aria-hidden={!copied}
+            data-step-status={pageStatus || undefined}
+          >
             Copied ✓
           </span>
         </button>

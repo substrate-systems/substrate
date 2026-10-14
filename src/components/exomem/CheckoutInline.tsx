@@ -3,7 +3,11 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { formatMoney, isExomemMoney, type ExomemMoney } from "@/lib/exomem/money";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
-import { getPrivateJson, postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import {
+  getPrivateJson,
+  postPrivateJson,
+  HostedBrowserError,
+} from "@/lib/exomem-hosted/hosted-browser";
 import { openInlineTransactionCheckout } from "@/lib/paddle";
 import { CheckoutEventNames } from "@paddle/paddle-js";
 import { Button } from "./Button";
@@ -31,6 +35,7 @@ function subscribeCompact(notify: () => void) {
 /** The owner transaction stays mounted once, while provider and cell states change around it. */
 export function CheckoutInline({
   email,
+  tenantId,
   inviter,
   onReady,
   readyEmailAvailable = false,
@@ -38,6 +43,7 @@ export function CheckoutInline({
   returnedTransactionId,
 }: {
   email: string;
+  tenantId: string | null;
   inviter?: string | null;
   onReady: () => void;
   readyEmailAvailable?: boolean;
@@ -53,6 +59,8 @@ export function CheckoutInline({
   });
   const [setupSlow, setSetupSlow] = useState(false);
   const [returnFailed, setReturnFailed] = useState(false);
+  const [sessionRejected, setSessionRejected] = useState(false);
+  const accountRejected = !tenantId || sessionRejected;
   const [nextPayment, setNextPayment] = useState<string | null>(null);
   const [accountPrice, setAccountPrice] = useState<ExomemMoney | null>(null);
   const compact = useSyncExternalStore(
@@ -67,8 +75,9 @@ export function CheckoutInline({
   const paid = phase === "confirming" || phase === "ready_to_connect";
   const paying = phase === "paying" || phase === "slow";
   useEffect(() => {
+    if (accountRejected || !tenantId) return;
     let current = true;
-    void getPrivateJson("/api/exomem/account")
+    void getPrivateJson(`/api/exomem/account?tenantId=${encodeURIComponent(tenantId)}`)
       .then((result) => {
         const account = result.account as
           | { nextPaymentAt?: { value?: unknown }; nextPaymentAmount?: { value?: unknown } }
@@ -79,16 +88,22 @@ export function CheckoutInline({
         const amount = account?.nextPaymentAmount?.value;
         if (isExomemMoney(amount)) setAccountPrice(amount);
       })
-      .catch(() => {
+      .catch((error) => {
+        if (
+          current &&
+          error instanceof HostedBrowserError &&
+          (error.status === 401 || error.status === 403)
+        )
+          setSessionRejected(true);
         /* Unknown facts stay unreported. */
       });
     return () => {
       current = false;
     };
-  }, [email, paid]);
+  }, [tenantId, paid, accountRejected]);
 
   useEffect(() => {
-    if (paidOnArrival) return;
+    if (paidOnArrival || accountRejected || !tenantId) return;
     let current = true;
     let expired = false;
     let validated = false;
@@ -104,7 +119,7 @@ export function CheckoutInline({
       try {
         const result = await postPrivateJson(
           "/api/exomem/billing/checkout",
-          returnedTransactionId ? { transactionId: returnedTransactionId } : {}
+          returnedTransactionId ? { tenantId, transactionId: returnedTransactionId } : { tenantId }
         );
         validated = true;
         if (!current || expired) return;
@@ -151,8 +166,15 @@ export function CheckoutInline({
         if (!current) close?.();
         else if (!close && !expired)
           setCheckout((state) => ({ ...state, phase: "unavailable", data: null }));
-      } catch {
+      } catch (error) {
         if (current && !expired) {
+          if (
+            error instanceof HostedBrowserError &&
+            (error.status === 401 || error.status === 403)
+          ) {
+            setSessionRejected(true);
+            return;
+          }
           setReturnFailed(!!returnedTransactionId && !validated);
           setCheckout((state) => ({ ...state, phase: "unavailable", data: null }));
         }
@@ -163,7 +185,7 @@ export function CheckoutInline({
       window.clearTimeout(deadline);
       close?.();
     };
-  }, [email, frameTarget, paidOnArrival, returnedTransactionId]);
+  }, [email, tenantId, frameTarget, paidOnArrival, returnedTransactionId, accountRejected]);
 
   useEffect(() => {
     if (phase !== "paying") return;
@@ -176,7 +198,7 @@ export function CheckoutInline({
   }, [phase]);
 
   useEffect(() => {
-    if (phase !== "confirming") return;
+    if (phase !== "confirming" || accountRejected || !tenantId) return;
     let current = true;
     let timer = 0;
     const slow = window.setTimeout(() => setSetupSlow(true), SETUP_WAIT_MS);
@@ -184,14 +206,18 @@ export function CheckoutInline({
     const observe = async () => {
       try {
         // The owner-bound settlement validates the payment; readiness still comes from the cell controller.
-        if (transactionId)
-          await postPrivateJson("/api/exomem/billing/checkout", { transactionId }).catch(
-            () => null
-          );
-        const status = await getPrivateJson("/api/exomem/status");
+        const settled = transactionId
+          ? await postPrivateJson("/api/exomem/billing/checkout", { tenantId, transactionId })
+          : null;
+        const status =
+          !transactionId || settled?.state === "settled"
+            ? await getPrivateJson(`/api/exomem/status?tenantId=${encodeURIComponent(tenantId)}`)
+            : null;
         if (!current) return;
-        if ((status.status as { state?: unknown } | undefined)?.state === "ready") {
-          const account = await getPrivateJson("/api/exomem/account").catch(() => null);
+        if ((status?.status as { state?: unknown } | undefined)?.state === "ready") {
+          const account = await getPrivateJson(
+            `/api/exomem/account?tenantId=${encodeURIComponent(tenantId)}`
+          );
           const date = (account?.account as { nextPaymentAt?: { value?: unknown } } | undefined)
             ?.nextPaymentAt?.value;
           if (!current) return;
@@ -199,7 +225,15 @@ export function CheckoutInline({
           setCheckout((state) => ({ ...state, phase: "ready_to_connect" }));
           return;
         }
-      } catch {
+      } catch (error) {
+        if (
+          current &&
+          error instanceof HostedBrowserError &&
+          (error.status === 401 || error.status === 403)
+        ) {
+          setSessionRejected(true);
+          return;
+        }
         // The controller and payment webhook converge independently; a later observation may succeed.
       }
       if (current) timer = window.setTimeout(observe, 2000);
@@ -210,10 +244,11 @@ export function CheckoutInline({
       window.clearTimeout(timer);
       window.clearTimeout(slow);
     };
-  }, [phase, checkout.transactionId]);
+  }, [phase, checkout.transactionId, tenantId, accountRejected]);
 
   useEffect(() => {
-    if (phase === "unavailable") retryButton.current?.focus({ preventScroll: true });
+    if (phase === "unavailable" || accountRejected)
+      retryButton.current?.focus({ preventScroll: true });
     if (phase === "ready_to_connect") readyButton.current?.focus({ preventScroll: true });
     if (paid && compact)
       paidPanel.current?.scrollIntoView({
@@ -222,7 +257,7 @@ export function CheckoutInline({
           ? "instant"
           : "smooth",
       });
-  }, [phase, paid, compact]);
+  }, [phase, paid, compact, accountRejected]);
 
   const data = checkout.data;
   const money = (amount: number | undefined, ledger = false) =>
@@ -245,8 +280,9 @@ export function CheckoutInline({
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }).format(new Date(nextPayment))
     : null;
-  const status =
-    phase === "loading"
+  const status = accountRejected
+    ? "We couldn’t check this checkout with your current sign-in. Sign in again to continue."
+    : phase === "loading"
       ? "Getting the price from Paddle."
       : phase === "unavailable"
         ? returnFailed
@@ -384,7 +420,9 @@ export function CheckoutInline({
                 <Mark size={22} state={markState} steps={5} step={progressStep} />
               ) : null}
               <span>
-                <Swap k={phase + String(setupSlow) + String(renewal)}>{status}</Swap>
+                <Swap k={phase + String(accountRejected) + String(setupSlow) + String(renewal)}>
+                  {status}
+                </Swap>
               </span>
             </div>
             <ol className={styles.steps}>
@@ -396,13 +434,15 @@ export function CheckoutInline({
           <div className={styles.paymentArea}>
             <Crossfade
               show={
-                paid
-                  ? "paid"
-                  : phase === "unavailable"
-                    ? "unavailable"
-                    : phase === "loading"
-                      ? "loading"
-                      : "form"
+                accountRejected
+                  ? "unavailable"
+                  : paid
+                    ? "paid"
+                    : phase === "unavailable"
+                      ? "unavailable"
+                      : phase === "loading"
+                        ? "loading"
+                        : "form"
               }
               panes={{
                 form: (
@@ -429,19 +469,31 @@ export function CheckoutInline({
                   <div className={styles.unavailable}>
                     <Mark size={44} state="off" />
                     <h2>
-                      {returnFailed
-                        ? "We couldn’t check this checkout"
-                        : "Paddle’s form didn’t load"}
+                      {accountRejected
+                        ? "Sign in again to continue"
+                        : returnFailed
+                          ? "We couldn’t check this checkout"
+                          : "Paddle’s form didn’t load"}
                     </h2>
                     <p>
-                      {returnFailed
-                        ? "Your payment may have reached Paddle. Try again, or check your account."
-                        : "A content blocker or a weak connection can stop it."}
+                      {accountRejected
+                        ? "This does not change any payment Paddle received. Sign in to the account that opened this checkout."
+                        : returnFailed
+                          ? "Your payment may have reached Paddle. Try again, or check your account."
+                          : "A content blocker or a weak connection can stop it."}
                     </p>
-                    <Button ref={retryButton} size="page" onClick={() => window.location.reload()}>
-                      Try again
+                    <Button
+                      ref={retryButton}
+                      size="page"
+                      onClick={() =>
+                        accountRejected
+                          ? window.location.assign("/exomem/sign-in")
+                          : window.location.reload()
+                      }
+                    >
+                      {accountRejected ? "Sign in again" : "Try again"}
                     </Button>
-                    {returnFailed ? (
+                    {returnFailed && !accountRejected ? (
                       <Button
                         variant="ghost"
                         size="page"

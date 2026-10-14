@@ -47,6 +47,7 @@ import type { SetupScreen } from "./setup-screen";
 export type SetupFacts = {
   screen: SetupScreen;
   email: string;
+  tenantId: string;
   keptUntil: Known<string>;
   /** "EX-XXXX", quoted to support. */
   supportReference: string;
@@ -173,7 +174,8 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
 
   // Preparing: ask for the cell's state until it is ready.
   useEffect(() => {
-    if (current !== "preparing") return;
+    // CheckoutInline owns paid readiness, including its account binding and recovery.
+    if (current !== "preparing" || facts.paidPlan) return;
     let timer = 0;
     let active = true;
     const check = async () => {
@@ -200,7 +202,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [current]);
+  }, [current, facts.paidPlan]);
 
   // Choose: which assistants already have Exomem.
   useEffect(() => {
@@ -293,6 +295,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     return (
       <CheckoutInline
         email={facts.email}
+        tenantId={facts.tenantId}
         inviter={inviter}
         paidOnArrival={current === "preparing" && !facts.returnedTransactionId}
         returnedTransactionId={returnHandled ? undefined : facts.returnedTransactionId}
@@ -432,6 +435,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
               label={otherAppCopy.addressLabel}
               address={facts.mcpAddress}
               labelHidden
+              pageStatus
             />
           ) : (
             <StepNotice alert>{failureCopy.generic}</StepNotice>

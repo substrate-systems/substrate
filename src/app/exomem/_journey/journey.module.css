@@ -671,7 +671,7 @@
 }
 
 /* The phone layout, up to 640 px wide: the one Exomem breakpoint (phone.module.css). */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .page {
     --gutter: 16px;
     padding-top: 84px;
@@ -697,7 +697,7 @@
 }
 
 /* On a desktop only some steps repeat the signed-in email under the actions. */
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 481px) {
   .phoneOnly {
     display: none;
   }
@@ -707,7 +707,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .reviewerNoteApart {
     display: none;
   }

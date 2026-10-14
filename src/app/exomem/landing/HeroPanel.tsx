@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -15,6 +16,7 @@ import {
   PHONE_LAYOUT,
   SUPERSEDED_NOTE,
   noteName,
+  heroLabelOffset,
   type HeroLayout,
   type LinkKind,
 } from "./hero-graph";
@@ -60,6 +62,19 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
     e: HERO_LINKS.map(({ from, to }) => [from, to]),
   });
   const svg = useAliveGraph(`hero-${layout.width}`, "live", graph);
+  useLayoutEffect(() => {
+    const element = svg.current;
+    if (!element) return;
+    const labels = [...element.querySelectorAll<SVGTextElement>("[data-note] > text")];
+    labels.forEach((label) => label.removeAttribute("transform"));
+    if (active === null || !layout.notes[active].label.onDemand) return;
+    const selected = labels[active];
+    const obstacles = labels.flatMap((label, index) =>
+      layout.notes[index].label.onDemand ? [] : [label.getBBox()]
+    );
+    const offset = heroLabelOffset(layout, selected.getBBox(), obstacles, layout.labelHalo);
+    selected.setAttribute("transform", `translate(${offset.x} ${offset.y})`);
+  }, [active, layout, svg]);
   // Mouse: hover lights a note. With a finger or a pen, a tap names it; another tap on it, or a
   // tap anywhere else on the page (HeroPanel listens for that), puts it out.
   const pointer = useRef<string>("mouse");

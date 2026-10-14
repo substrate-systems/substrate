@@ -280,6 +280,7 @@ class Alive {
         v = true;
       else if ([...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) v = true;
       else {
+        // The fixed sRGB palette computes to rgb/rgba or color(srgb); an optional fourth number is alpha.
         const cs = getComputedStyle(el),
           bg = cs.backgroundColor.match(/[\d.]+/g);
         v =

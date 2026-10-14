@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled, readCloudExport } from "@/lib/exomem-hosted/cloud-exports";
 import { getOwnerCloudHomeStatus } from "@/lib/exomem-hosted/cloud-status";
+import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 
@@ -22,6 +23,9 @@ function cloudConnectorUrl(): string | undefined {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const session = await resolveExomemSession(request);
+    const tenantId = new URL(request.url).searchParams.get("tenantId");
+    // A checkout's rendered ID checks consistency; it grants no authority beyond this session.
+    if (tenantId !== null && tenantId !== session.tenantId) throw exomemErrors.entitlementDenied();
     const headers = {
       "cache-control": "private, no-store, max-age=0",
       "x-robots-tag": "noindex, nofollow",

@@ -30,15 +30,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const keys = Object.keys(body);
     const transactionId = (body as Record<string, unknown>).transactionId;
+    const tenantId = (body as Record<string, unknown>).tenantId;
     if (
-      keys.length > 1 ||
-      (keys.length === 1 &&
-        (keys[0] !== "transactionId" ||
-          typeof transactionId !== "string" ||
-          !PADDLE_TRANSACTION_ID.test(transactionId)))
+      // The checkout request schema admits only a transaction and its rendered account binding.
+      keys.some((key) => key !== "transactionId" && key !== "tenantId") ||
+      (keys.includes("transactionId") &&
+        (typeof transactionId !== "string" || !PADDLE_TRANSACTION_ID.test(transactionId))) ||
+      (keys.includes("tenantId") && typeof tenantId !== "string")
     ) {
       throw exomemErrors.invalidRequest();
     }
+    // The rendered ID checks consistency; the resolved session alone authorizes the account.
+    if (tenantId !== undefined && tenantId !== session.tenantId)
+      throw exomemErrors.entitlementDenied();
     let result: Record<string, unknown>;
     if (typeof transactionId === "string") {
       const returned = await resumeReturnedOwnerCheckout(

@@ -49,6 +49,7 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
   return {
     screen,
     email: account.email,
+    tenantId: session.tenantId,
     keptUntil: account.keptUntil,
     supportReference: account.supportReference,
     mcpAddress: mcpAddress(),
