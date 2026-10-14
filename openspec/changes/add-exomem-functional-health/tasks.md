@@ -2,14 +2,14 @@
 
 ## 1. Proof storage and readers
 
-- [ ] 1.1 Add migration0070 and typed proof storage; verify latest-failure and late-attempt behavior against isolated PostgreSQL.
-- [ ] 1.2 Add public control/email and gateway readers; verify bounded unavailable responses, privacy and unchanged pod probes.
-- [ ] 1.3 Document freshness and checked scope in the existing operations runbook; verify the described responses match execution.
+- [x] 1.1 Add migration0070 and typed proof storage; verify latest-failure and late-attempt behavior against isolated PostgreSQL.
+- [x] 1.2 Add public control/email and gateway readers; verify bounded unavailable responses, privacy and unchanged pod probes.
+- [x] 1.3 Document freshness and checked scope in the existing operations runbook; verify the described responses match execution.
 
 ## 2. Scheduled checks
 
-- [ ] 2.1 Add protected control and email checks through existing adapters; verify authorization and provider acceptance with isolated boundaries.
-- [ ] 2.2 Bundle the memory runner; prove a nonce survives a dedicated synthetic cell write/read and fails on a mismatched read.
+- [x] 2.1 Add protected control and email checks through existing adapters; verify authorization and provider acceptance with isolated boundaries.
+- [x] 2.2 Bundle the memory runner; prove a nonce survives a dedicated synthetic cell write/read and fails on a mismatched read.
 - [ ] 2.3 Extend the scheduler source contract and deployment packet; verify schedule synchronization and render the public health rewrite.
 
 ## 3. Delivery and observation

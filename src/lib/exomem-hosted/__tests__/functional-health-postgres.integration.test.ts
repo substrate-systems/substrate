@@ -106,6 +106,27 @@ describe("functional health PostgreSQL boundary", { skip: !databaseUrl }, () => 
     );
   });
 
+  it("keeps concurrent same-time failures unavailable in both storage paths", async (context) => {
+    context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    try {
+      for (const component of ["control", "memory"] as const) {
+        const successful = health.runFunctionalHealthCheck(component, async () => true);
+        const failed = health.runFunctionalHealthCheck(component, async () => {
+          await successful;
+          return false;
+        });
+        assert.deepEqual(await Promise.all([successful, failed]), [true, false]);
+        const proof = await store.readHealthProof(component);
+        assert.equal(proof?.success, false);
+        await expectPublic(() => health.functionalHealthResponse(component), false);
+        await store.saveHealthProof(proof!);
+        assert.deepEqual(await store.readHealthProof(component), proof);
+      }
+    } finally {
+      context.mock.timers.reset();
+    }
+  });
+
   it("rejects inconsistent timestamps and treats future observations as unavailable", async () => {
     await assert.rejects(
       scoped.query(

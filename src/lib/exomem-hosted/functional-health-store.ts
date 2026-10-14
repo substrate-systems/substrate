@@ -107,7 +107,10 @@ export async function saveHealthProof(proof: HealthProof): Promise<void> {
        ON CONFLICT (component) DO UPDATE SET
          run_id = EXCLUDED.run_id, started_at = EXCLUDED.started_at,
          checked_at = EXCLUDED.checked_at, success = EXCLUDED.success
-       WHERE EXCLUDED.started_at > exomem_health_proofs.started_at`,
+       -- Equal starts have no order, so a tied failure supersedes success.
+       WHERE EXCLUDED.started_at > exomem_health_proofs.started_at
+          OR (EXCLUDED.started_at = exomem_health_proofs.started_at
+              AND exomem_health_proofs.success AND NOT EXCLUDED.success)`,
       [proof.component, proof.runId, proof.startedAt, proof.checkedAt, proof.success]
     );
   });
