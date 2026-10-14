@@ -27,7 +27,7 @@ export type MemoryHealthConfig = {
   timeoutMs: number;
 };
 
-export function loadMemoryHealthConfig(): MemoryHealthConfig {
+function loadMemoryHealthConfig(): MemoryHealthConfig {
   const config = z
     .object({
       url: z.url(),
