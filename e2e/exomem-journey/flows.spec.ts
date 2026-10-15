@@ -322,7 +322,7 @@ test("setup notices the app that just connected", async ({ page, context }) => {
   await consent.waitForURL("https://claude-app.example.test/**");
 
   await expect(page.getByRole("heading", { name: joinedCopy.title("Claude") })).toBeVisible({
-    timeout: 10_000,
+    timeout: AFTER_CONNECT_MS,
   });
   await expect(page.getByText(joinedCopy.done("Claude"))).toBeVisible();
 });
@@ -347,7 +347,7 @@ async function joinWithoutPlugin(page: Page, context: BrowserContext) {
   await consent.close();
 
   await expect(page.getByRole("heading", { name: joinedCopy.title("Claude Code") })).toBeVisible({
-    timeout: 10_000,
+    timeout: AFTER_CONNECT_MS,
   });
 }
 
