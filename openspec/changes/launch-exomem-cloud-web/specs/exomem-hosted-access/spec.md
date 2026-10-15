@@ -566,7 +566,7 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 #### Scenario: Owner on another price
 
-- **WHEN** an owner's live subscription is on a price other than the base price that the friend discount is restricted to, or its price was never reported
+- **WHEN** an owner's live subscription is on a price other than the configured regular or friend price, or its price was never reported
 - **THEN** inspect shows the friend price as unknown with the reason `plan_price_differs` or `plan_price_unknown`
 - **AND** the decision accepts only `keep_plan` and does not call Paddle
 
@@ -582,15 +582,15 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 #### Scenario: Paddle reports the friend discount first
 
-- **WHEN** the newest subscription event that the system applies, from a webhook or from reconciliation, shows the configured friend discount and the tenant holds no friend offer
+- **WHEN** the newest subscription event that the system applies, from a webhook or from reconciliation, shows the configured friend price or legacy discount and the tenant holds no friend offer
 - **THEN** the system records the offer of a friend invitation addressed to the owner in the same transaction, so a later resubscribe keeps the friend price
 - **AND** an older event that arrives late records nothing
 
 #### Scenario: An earlier answer reached Paddle
 
 - **WHEN** an owner's `use_friend_price` reached Paddle but its answer was lost, and the owner then chooses `keep_plan`
-- **THEN** the system checks the stored subscription facts, and reads the subscription at Paddle when they do not show the friend discount, before it stores a decision
-- **AND** because the subscription carries the friend discount, it records `applied` and the friend offer, and answers 200 `applied`
+- **THEN** the system checks the stored subscription facts, and reads the subscription at Paddle when they do not show the friend price or legacy discount, before it stores a decision
+- **AND** because the subscription carries the friend price or legacy discount, it records `applied` and the friend offer, and answers 200 `applied`
 - **AND** a friend offer that the tenant holds never stands in for that check
 
 #### Scenario: Owner already holds the friend price through another invitation
@@ -603,8 +603,8 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 #### Scenario: Friend discount is not configured
 
-- **WHEN** an owner chooses `keep_plan` on a friend invitation for a live subscription and no friend discount is configured
-- **THEN** the system answers 503 with `FRIEND_PRICE_UNAVAILABLE` and leaves the invitation unconsumed, because nothing can show the discount absent
+- **WHEN** an owner chooses `keep_plan` on a friend invitation for a live subscription and neither a friend price nor a legacy discount is configured
+- **THEN** the system answers 503 with `FRIEND_PRICE_UNAVAILABLE` and leaves the invitation unconsumed, because nothing can show friend pricing absent
 
 #### Scenario: Payment provider fails
 

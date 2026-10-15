@@ -1,5 +1,6 @@
 import { paddleFetch } from "@/lib/hosted-backup/paddle-client";
 import type { PaddleTransport } from "./paddle-billing";
+import { carriesFriendPrice } from "./paddle-friend-price";
 import { EXOMEM_ALPHA_BUNDLE } from "./entitlements";
 import {
   assertExomemPaddlePurpose,
@@ -8,7 +9,6 @@ import {
   type ExomemPaddleEnvironment,
 } from "./paddle-config";
 import {
-  carriesFriendDiscount,
   mapPaddleSubscriptionState,
   paddleExomemItem,
   paddleSubscriptionFacts,
@@ -93,7 +93,10 @@ export async function readExomemPaddleSubscriptionApplication(
   const state = mapPaddleSubscriptionState(data.status);
   if (!state) throw invalid();
 
-  const item = paddleExomemItem(data, dependencies.config.productId);
+  const item = paddleExomemItem(data, dependencies.config.productId, [
+    dependencies.config.priceId,
+    dependencies.config.friendPriceId,
+  ]);
   if (!item || item.productId !== dependencies.config.productId) throw invalid();
 
   const customData = isRecord(data.custom_data) ? data.custom_data : null;
@@ -143,9 +146,9 @@ export async function readExomemPaddleSubscriptionApplication(
       priceId: item.priceId,
     },
     subscriptionFacts,
-    subscriptionCarriesFriendDiscount: carriesFriendDiscount(
-      subscriptionFacts,
-      dependencies.config.friendDiscountId
+    subscriptionCarriesFriendPrice: carriesFriendPrice(
+      { priceId: item.priceId, discountId: subscriptionFacts.discountId },
+      dependencies.config
     ),
   };
   return application;

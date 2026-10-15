@@ -31,6 +31,7 @@ let schema: string | undefined;
 
 const PRODUCT = `pro_${"p".repeat(26)}`;
 const BASE_PRICE = `pri_${"b".repeat(26)}`;
+const FRIEND_PRICE = `pri_${"f".repeat(26)}`;
 const STORAGE_PRICE = `pri_${"s".repeat(26)}`;
 const FRIEND_DISCOUNT = `dsc_${"f".repeat(26)}`;
 const PUBLIC_BASE_URL = "https://substratesystems.io";
@@ -102,14 +103,15 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
   }
   if (method === "POST" && pathname === "/pricing-preview") {
     const discounted = body?.discount_id === FRIEND_DISCOUNT;
+    const priceId = (body?.items as { price_id: string }[])[0].price_id;
     return Response.json({
       data: {
         currency_code: "EUR",
         details: {
           line_items: [
             {
-              price: { id: BASE_PRICE },
-              totals: { total: discounted ? "1000" : "1500" },
+              price: { id: priceId },
+              totals: { total: discounted || priceId === FRIEND_PRICE ? "1000" : "1500" },
               discounts: discounted ? [{ discount: { id: FRIEND_DISCOUNT } }] : [],
             },
           ],
@@ -125,7 +127,11 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
       return Response.json({ data: subscription });
     }
     // Paddle previews the next transaction with the subscription's own discount.
-    const friend = (subscription.discount as { id?: string } | null)?.id === FRIEND_DISCOUNT;
+    const friend =
+      (subscription.discount as { id?: string } | null)?.id === FRIEND_DISCOUNT ||
+      (subscription.items as { price: { id: string } }[]).some(
+        (item) => item.price.id === FRIEND_PRICE
+      );
     const totals = { grand_total: friend ? "1000" : "1500", currency_code: "EUR" };
     return Response.json({
       data: {
@@ -141,9 +147,25 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
     const subscription = paddle.subscriptions.get(pathname.split("/")[2]!);
     const discount = body?.discount as { id: string } | undefined;
     if (subscription && discount) subscription.discount = { id: discount.id };
+    if (subscription && body?.items) {
+      const previous = subscription.items as {
+        price: { id: string; product_id: string };
+        quantity: number;
+      }[];
+      subscription.items = (body.items as { price_id: string; quantity: number }[]).map((item) => ({
+        price: {
+          id: item.price_id,
+          product_id:
+            item.price_id === FRIEND_PRICE
+              ? PRODUCT
+              : previous.find((old) => old.price.id === item.price_id)!.price.product_id,
+        },
+        quantity: item.quantity,
+      }));
+    }
     if (paddle.subscriptionUpdateAnswerLost) return new Response("{}", { status: 504 });
     return Response.json({
-      data: { id: pathname.split("/")[2], next_billed_at: "2026-11-12T09:00:00Z" },
+      data: { ...subscription, id: pathname.split("/")[2], next_billed_at: "2026-11-12T09:00:00Z" },
     });
   }
   if (paddle.transactionsHang && pathname.startsWith("/transactions")) {
@@ -168,7 +190,10 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
       discount_id: body?.discount_id ?? null,
       customer_id: body?.customer_id ?? null,
       custom_data: body?.custom_data,
-      items: [{ price: { id: BASE_PRICE, product_id: PRODUCT } }],
+      items: (body?.items as { price_id: string; quantity: number }[]).map((item) => ({
+        price: { id: item.price_id, product_id: PRODUCT },
+        quantity: item.quantity,
+      })),
       checkout: { url: `${PUBLIC_BASE_URL}/exomem/home?_ptxn=${id}` },
     };
     paddle.transactions.set(id, transaction);
@@ -201,7 +226,9 @@ function subscriptionAtPaddle(input: {
     updated_at: input.updatedAt.toISOString(),
     next_billed_at: input.status === "active" ? "2026-11-12T09:00:00Z" : null,
     discount: null,
-    items: [{ price: { id: BASE_PRICE, product_id: PRODUCT, name: "Exomem · monthly" } }],
+    items: [
+      { price: { id: BASE_PRICE, product_id: PRODUCT, name: "Exomem · monthly" }, quantity: 1 },
+    ],
     custom_data: {
       product_key: "exomem-hosted",
       user_id: input.owner.userId,
@@ -583,6 +610,107 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     paddle.duringSubscriptionUpdate = null;
     __clearExomemPriceCacheForTests();
     await pool!.query("UPDATE exomem_cloud_capacity SET observed_at = now()");
+  });
+
+  for (const choice of ["use_friend_price", "keep_plan"] as const) {
+    it(`records a regional price after a lost provider response followed by ${choice}`, async () => {
+      process.env.EXOMEM_PADDLE_FRIEND_PRICE_ID = FRIEND_PRICE;
+      try {
+        const owner = await paidOwner({ sourceState: "active", cell: "running" });
+        const subscription = paddle.subscriptions.get(owner.subscriptionRef)!;
+        subscription.items = [
+          { price: { id: BASE_PRICE, product_id: PRODUCT }, quantity: 2 },
+          { price: { id: STORAGE_PRICE, product_id: "pro_storage" }, quantity: 3 },
+        ];
+        const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
+        const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+        paddle.subscriptionUpdateAnswerLost = true;
+        await assert.rejects(decideInvitation({ token, choice: "use_friend_price", session }));
+        assert.equal((await invitation(inviteId)).consumed_at, null);
+        paddle.subscriptionUpdateAnswerLost = false;
+        // The stored event has not caught up with the provider's new price.
+        const answer = await decideInvitation({ token, choice, session });
+        assert.equal(answer.status, "applied");
+        assert.equal((await invitation(inviteId)).decision, "applied");
+        assert.equal(await friendOffer(owner.tenantId), inviteId);
+        await subscriptionEvent(owner, { occurredAt: new Date(), discountId: null });
+        const account = await loadExomemAccountView({
+          userId: owner.userId,
+          tenantId: owner.tenantId,
+          reviewerCredentialId: null,
+        });
+        assert.equal(account.plan.friendPrice.applied, true);
+        const updates = paddle.calls.filter(
+          (call) => call.method === "PATCH" && call.path.startsWith("/subscriptions/")
+        );
+        assert.equal(updates.length, 1);
+        assert.deepEqual(updates[0].body, {
+          items: [
+            { price_id: FRIEND_PRICE, quantity: 2 },
+            { price_id: STORAGE_PRICE, quantity: 3 },
+          ],
+          proration_billing_mode: "do_not_bill",
+        });
+      } finally {
+        delete process.env.EXOMEM_PADDLE_FRIEND_PRICE_ID;
+      }
+    });
+  }
+
+  it("preserves another provider promotion and leaves the friend invitation usable", async () => {
+    process.env.EXOMEM_PADDLE_FRIEND_PRICE_ID = FRIEND_PRICE;
+    try {
+      const owner = await paidOwner({ sourceState: "active", cell: "running" });
+      const subscription = paddle.subscriptions.get(owner.subscriptionRef)!;
+      subscription.discount = { id: `dsc_${"x".repeat(26)}` };
+      const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
+      await assert.rejects(
+        decideInvitation({
+          token,
+          choice: "use_friend_price",
+          session: {
+            id: owner.sessionId,
+            userId: owner.userId,
+            tenantId: owner.tenantId,
+          },
+        })
+      );
+      assert.equal((await invitation(inviteId)).consumed_at, null);
+      assert.equal(
+        paddle.calls.some((call) => call.method === "PATCH"),
+        false
+      );
+      assert.deepEqual(subscription.discount, { id: `dsc_${"x".repeat(26)}` });
+    } finally {
+      delete process.env.EXOMEM_PADDLE_FRIEND_PRICE_ID;
+    }
+  });
+
+  it("replaces an open regular checkout with the regional friend price after invitation acceptance", async () => {
+    process.env.EXOMEM_PADDLE_FRIEND_PRICE_ID = FRIEND_PRICE;
+    try {
+      const owner = await paidOwner({ sourceState: "cancelled", cell: "read_only" });
+      const first = await startOwnerCheckout(owner.userId, owner.tenantId);
+      const { token } = await issueFriendInvitation({ email: owner.email });
+      await decideInvitation({
+        token,
+        choice: "use_friend_price",
+        session: {
+          id: owner.sessionId,
+          userId: owner.userId,
+          tenantId: owner.tenantId,
+        },
+      });
+      const second = await startOwnerCheckout(owner.userId, owner.tenantId);
+      assert.notEqual(second.transactionId, first.transactionId);
+      assert.equal(paddle.transactions.get(first.transactionId)!.status, "canceled");
+      assert.deepEqual(paddle.transactions.get(second.transactionId)!.items, [
+        { price: { id: FRIEND_PRICE, product_id: PRODUCT }, quantity: 1 },
+      ]);
+      assert.equal(paddle.transactions.get(second.transactionId)!.discount_id, null);
+    } finally {
+      delete process.env.EXOMEM_PADDLE_FRIEND_PRICE_ID;
+    }
   });
 
   it("issues a friend invitation with Paddle's prices, its reminder three days before the end and the inviter's ended notice", async () => {

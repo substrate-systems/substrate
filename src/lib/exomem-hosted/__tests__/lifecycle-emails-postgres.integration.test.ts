@@ -234,7 +234,7 @@ function pastDueEvent(
       discountId: null,
       scheduledChangeAt: null,
     },
-    subscriptionCarriesFriendDiscount: false,
+    subscriptionCarriesFriendPrice: false,
   };
 }
 

@@ -162,3 +162,5 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 Task 11.9 needs an additive backend field. Current activity events identify a client family; connected rows identify OAuth grants.
 The UI cannot infer that join from a family or display name. Home activity remains disabled until its existing rollout acceptance.
 Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
+
+- [ ] 11.10 Deliver regional regular and friend catalogue selection, legacy compatibility and safe subscription conversion with provider acceptance

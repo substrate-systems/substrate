@@ -292,7 +292,7 @@ Home SHALL show the plan name, the next payment date, the next payment amount, t
 
 #### Scenario: Friend price applies
 
-- **WHEN** the provider-reported discount equals the configured friend discount
+- **WHEN** the provider-reported price equals the configured friend price or its discount equals the configured legacy friend discount
 - **THEN** Home shows the friend price as applied, with the inviter's name
 
 #### Scenario: Reviewer opens Home

@@ -12,7 +12,7 @@ import {
   createExomemCustomerPortal,
   ExomemBillingError,
   resumeExomemCheckout,
-  verifyExomemFriendDiscount,
+  selectExomemCheckoutPrice,
   type ExomemCheckoutOptions,
 } from "./paddle-billing";
 import {
@@ -250,7 +250,7 @@ type CheckoutRecoveryDependencies = {
 };
 
 type BoundCheckoutRecovery =
-  | { state: "open"; checkoutUrl: string; discountId: string | null }
+  | { state: "open"; checkoutUrl: string; priceId: string; discountId: string | null }
   | { state: "canceled" }
   | { state: "completed" };
 
@@ -347,8 +347,7 @@ export type OwnerCheckoutDependencies = {
   checkout?: typeof createExomemCheckout;
   cancelTransaction?: typeof cancelExomemCheckoutTransaction;
   recordResubscribe?: typeof recordExomemResubscribeTransaction;
-  /** Checks the configured friend discount at Paddle and returns its id. */
-  verifyFriendDiscount?: () => Promise<string>;
+  selectCheckoutPrice?: typeof selectExomemCheckoutPrice;
   now?: () => Date;
 } & CheckoutRecoveryDependencies &
   CloudCheckoutGateDependencies;
@@ -363,17 +362,14 @@ export type OwnerCheckoutDependencies = {
  */
 async function reusableOpenCheckout(
   account: OwnerBillingAccount,
-  open: { discountId: string | null },
+  open: { priceId: string; discountId: string | null },
   dependencies: OwnerCheckoutDependencies,
   now: Date
 ): Promise<boolean> {
-  const owed = account.friendOffer
-    ? await (
-        dependencies.verifyFriendDiscount ??
-        (() => verifyExomemFriendDiscount(loadExomemPaddleConfig()))
-      )()
-    : null;
-  if (open.discountId !== owed) return false;
+  const owed = await (dependencies.selectCheckoutPrice ?? selectExomemCheckoutPrice)(
+    account.friendOffer
+  );
+  if (open.priceId !== owed.priceId || open.discountId !== owed.discountId) return false;
   const current = await (dependencies.load ?? loadOwnerBillingAccount)(
     account.userId,
     account.tenantId

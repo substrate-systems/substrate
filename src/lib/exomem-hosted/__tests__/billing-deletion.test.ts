@@ -11,6 +11,7 @@ const CONFIG: ExomemPaddleConfig = {
   productKey: "exomem-hosted",
   productId: "pro_01kxatbjfrehbp0sxbjefcacqs",
   priceId: "pri_01kxatbjfrehbp0sxbjefcacqs",
+  friendPriceId: null,
   friendDiscountId: null,
   checkoutUrl: "https://substratesystems.io/exomem/home",
   apiKey: "pdl_sdbx_test-key",

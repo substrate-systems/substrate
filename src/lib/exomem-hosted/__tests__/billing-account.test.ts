@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import {
   billingSummary,
   resumeReturnedOwnerCheckout,
@@ -27,6 +27,25 @@ const ACCOUNT: OwnerBillingAccount = {
 };
 
 const NEW_TRANSACTION = `txn_${"n".repeat(26)}`;
+
+const priorPriceEnv = {
+  PADDLE_ENVIRONMENT: process.env.PADDLE_ENVIRONMENT,
+  EXOMEM_PADDLE_PRODUCT_ID: process.env.EXOMEM_PADDLE_PRODUCT_ID,
+  EXOMEM_PADDLE_PRICE_ID: process.env.EXOMEM_PADDLE_PRICE_ID,
+};
+before(() =>
+  Object.assign(process.env, {
+    PADDLE_ENVIRONMENT: "sandbox",
+    EXOMEM_PADDLE_PRODUCT_ID: "pro_regular",
+    EXOMEM_PADDLE_PRICE_ID: "pri_regular",
+  })
+);
+after(() => {
+  for (const [key, value] of Object.entries(priorPriceEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
 
 describe("owner Exomem billing account", () => {
   it("exposes checkout only for an awaiting-payment Paddle invite", () => {
@@ -131,6 +150,7 @@ describe("owner Exomem billing account", () => {
         return {
           state: "open",
           checkoutUrl: "https://checkout.paddle.test/resumed",
+          priceId: "pri_regular",
           discountId: null,
         };
       },
@@ -159,6 +179,7 @@ describe("owner Exomem billing account", () => {
           return {
             state: "open",
             checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${transactionRef}`,
+            priceId: "pri_regular",
             discountId: null,
           };
         },
@@ -327,7 +348,12 @@ describe("owner Exomem billing account", () => {
         }),
         resume: async () => {
           resumeCalls += 1;
-          return { state: "open", checkoutUrl: "https://example.invalid", discountId: null };
+          return {
+            state: "open",
+            checkoutUrl: "https://example.invalid",
+            priceId: "pri_regular",
+            discountId: null,
+          };
         },
       }),
       (error) => error instanceof ExomemHostedError && error.code === "EXOMEM_ENTITLEMENT_DENIED"
@@ -376,7 +402,12 @@ describe("owner Exomem billing account", () => {
         load: async () => ({ ...ACCOUNT, transactionRef: `txn_${"a".repeat(26)}` }),
         resume: async () => {
           resumeCalls += 1;
-          return { state: "open", checkoutUrl: "https://example.invalid", discountId: null };
+          return {
+            state: "open",
+            checkoutUrl: "https://example.invalid",
+            priceId: "pri_regular",
+            discountId: null,
+          };
         },
       }),
       (error) => error instanceof ExomemHostedError && error.code === "EXOMEM_ENTITLEMENT_DENIED"
@@ -536,10 +567,14 @@ describe("owner Exomem billing account", () => {
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
       assertCloudCellOwnership: async () => undefined,
       load: async () => ({ ...bound, friendOffer: true }),
-      verifyFriendDiscount: async () => `dsc_${"f".repeat(26)}`,
+      selectCheckoutPrice: async () => ({
+        priceId: "pri_regular",
+        discountId: `dsc_${"f".repeat(26)}`,
+      }),
       resume: async () => ({
         state: "open",
         checkoutUrl: "https://checkout.paddle.test/full-price",
+        priceId: "pri_regular",
         discountId: null,
       }),
       cancelTransaction: async (input) => {
