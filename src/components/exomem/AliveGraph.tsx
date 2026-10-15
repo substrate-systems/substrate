@@ -70,6 +70,7 @@ export function AliveGraph({
   viewBox,
   state = "live",
   hover = true,
+  walk = false,
   entry,
   id,
   className,
@@ -82,6 +83,8 @@ export function AliveGraph({
   viewBox: string;
   state?: "live" | "still" | "cut";
   hover?: boolean;
+  /** An ink light walks the web while nothing happens (Home's band). */
+  walk?: boolean;
   entry?: string;
   id: string;
   className?: string;
@@ -101,7 +104,7 @@ export function AliveGraph({
       data-alive={state === "live" ? "loop" : "off"}
       data-graph={graph}
       data-alive-key={id}
-      data-walk="ink"
+      data-walk={walk ? "ink" : undefined}
       data-hover={hover && state === "live" ? "glow" : undefined}
       data-entry={entry}
     >

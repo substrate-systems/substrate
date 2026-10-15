@@ -1,15 +1,18 @@
 "use client";
 
-import { AliveGraph, useAliveGraph } from "@/components/exomem/AliveGraph";
+import { useEffect } from "react";
+import { AliveGraph, fireAlive, useAliveGraph } from "@/components/exomem/AliveGraph";
 import responsive from "./responsive.module.css";
 import styles from "./illustrations.module.css";
 
 // These coordinates are the approved landing illustrations, not account or vault data.
+// The engine's graph is the board's: the four sources are notes the pointer can light, and
+// the ambient pulses run only along the note's own links.
 const REMEMBER_NODES = [
-  [22, 18, 7],
-  [22, 46, 7],
-  [22, 74, 7],
-  [22, 102, 7],
+  [22, 18, 3],
+  [22, 46, 3],
+  [22, 74, 3],
+  [22, 102, 3],
   [138, 60, 5],
   [190, 26, 2.6],
   [204, 70, 2.6],
@@ -17,10 +20,6 @@ const REMEMBER_NODES = [
   [222, 40, 2.6],
 ] as const;
 const REMEMBER_EDGES = [
-  [0, 4],
-  [1, 4],
-  [2, 4],
-  [3, 4],
   [4, 5],
   [4, 6],
   [4, 7],
@@ -51,7 +50,7 @@ export function RememberDrawing() {
       aria-hidden
       data-alive="loop"
       data-graph={graph}
-      data-walk="ink"
+      data-hover="glow"
     >
       {[11, 39, 67, 95].map((y) => (
         <g key={y}>
@@ -74,7 +73,7 @@ export function RememberDrawing() {
           />
         </g>
       ))}
-      {REMEMBER_EDGES.slice(4).map(([i, j]) => (
+      {REMEMBER_EDGES.map(([i, j]) => (
         <line
           key={j}
           x1={REMEMBER_NODES[i][0]}
@@ -114,13 +113,8 @@ export function ConnectDrawing() {
 
 /** The old plan stays on the timeline after a newer note replaces it. */
 export function EvolveDrawing() {
-  const graph = JSON.stringify({
-    n: [
-      [60, 48, 5],
-      [170, 48, 5],
-    ],
-    e: [[0, 1]],
-  });
+  // The board's graph: only the old plan is a note the pointer lights; nothing travels here.
+  const graph = JSON.stringify({ n: [[60, 48, 5]], e: [] });
   const svg = useAliveGraph("landing-evolve", "live", graph);
   return (
     <svg
@@ -130,7 +124,7 @@ export function EvolveDrawing() {
       aria-hidden
       data-alive="loop"
       data-graph={graph}
-      data-walk="ink"
+      data-hover="glow"
     >
       <line x1="20" y1="88" x2="230" y2="88" stroke="var(--bg-track)" strokeWidth="3" />
       {[30, 80, 130, 180, 220].map((x) => (
@@ -193,6 +187,11 @@ function MapDrawing({
 }) {
   const graph = JSON.stringify({ n: MAP_NODES, e: MAP_EDGES });
   const svg = useAliveGraph(id, "live", graph);
+  // Every few seconds the map recalls a note and what it links to (the board's 6.5 s).
+  useEffect(() => {
+    const timer = window.setInterval(() => fireAlive(id, { kind: "recall" }), 6500);
+    return () => window.clearInterval(timer);
+  }, [id]);
   return (
     <svg
       ref={svg}
@@ -201,7 +200,6 @@ function MapDrawing({
       aria-hidden
       data-alive="loop"
       data-graph={graph}
-      data-walk="ink"
     >
       {FIELD.map(([x, y]) => (
         <circle key={`${x},${y}`} cx={x} cy={y} r="2" className={styles.fieldNode} />

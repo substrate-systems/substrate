@@ -102,7 +102,6 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
       data-active={active !== null || undefined}
       data-alive="loop"
       data-graph={graph}
-      data-walk="ink"
       onPointerDown={(event) => (pointer.current = event.pointerType)}
     >
       <defs>
