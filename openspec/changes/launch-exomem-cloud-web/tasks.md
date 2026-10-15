@@ -157,3 +157,8 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 - [ ] 11.6 Apply the latest landing, start, connect and Home states over their actual data contracts
 - [ ] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
 - [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification
+- [ ] 11.9 Carry authenticated app identity through the gateway, cell activity feed and Home consumers; highlight the matching app for three seconds
+
+Task 11.9 needs an additive backend field. Current activity events identify a client family; connected rows identify OAuth grants.
+The UI cannot infer that join from a family or display name. Home activity remains disabled until its existing rollout acceptance.
+Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
