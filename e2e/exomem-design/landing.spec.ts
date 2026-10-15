@@ -60,7 +60,7 @@ test("holds still under reduced motion and still reads", async ({ page }) => {
     () => document.getAnimations().filter((animation) => animation.playState === "running").length
   );
   expect(running).toBe(0);
-  // The hero shows the finished answer.
-  await expect(page.getByText("booked 2 May · current")).toBeVisible();
+  // The current-status suffix is fixed; the demo's example wording can change.
+  await expect(page.getByText(/· current$/)).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Grows with you.Stays true.");
 });
