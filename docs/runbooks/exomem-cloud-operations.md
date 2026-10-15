@@ -746,6 +746,8 @@ The panel previews the immediate charge and recurring total before one confirmat
 A declined card uses the subscription's payment-method form. The owner then checks and confirms a fresh price.
 An unknown provider result stays pending. Reopening the panel checks the existing operation; it does not repeat the charge.
 Paid storage becomes complete only after the original claim reports sufficient capacity for the requested generation.
+The desired-size change also changes the rendered cell template and restarts its serving pod during reconciliation.
+Include that brief interruption in the controller rollout and feature-enablement window.
 
 The application preserves paid allowance through later subscription events.
 This flow does not buy storage automatically, reduce a volume or remove an add-on.

@@ -323,10 +323,9 @@ async function recover(ctx: Context, op: Operation): Promise<Operation> {
     (op.state === "updating" || op.state === "unknown" || op.state === "payment_required")
   ) {
     const current = await currentSubscription(ctx);
-    if (
-      sameStorageItems(storageItems(current), op.target_items) &&
-      current.custom_data?.exomem_storage_operation === op.id
-    ) {
+    const target = op.target_items.find((item) => item.price_id === op.storage_price_id);
+    const present = current.items.find((item) => item.price.id === op.storage_price_id);
+    if (target && present && present.quantity >= target.quantity) {
       const paid = await findStoragePayment(
         current,
         op.id,
@@ -336,7 +335,11 @@ async function recover(ctx: Context, op: Operation): Promise<Operation> {
         ctx.transport
       );
       // A provider-confirmed zero charge requires no payment transaction; a browser event never supplies this proof.
-      if (paid || op.quote.due.amount === "0") await recordPaid(ctx, op, paid);
+      if (
+        paid ||
+        (op.quote.due.amount === "0" && current.custom_data?.exomem_storage_operation === op.id)
+      )
+        await recordPaid(ctx, op, paid);
     }
   }
   return operation(ctx, op.id);
@@ -384,6 +387,11 @@ async function confirm(ctx: Context, op: Operation): Promise<CloudStorageOperati
         quote.recurring.currencyCode !== op.quote.recurring.currencyCode
       )
         throw conflict();
+      // Persist the checked charge before Paddle so a lost response can still recover a zero-due update.
+      await executeExomemSql`
+        UPDATE exomem_cloud_storage_operations SET quote = ${JSON.stringify(quote)}::jsonb, updated_at = now()
+        WHERE id = ${op.id}::uuid AND attempt_id = ${attemptId}::uuid AND state = 'updating'
+      `;
       submitted = true;
       await updateStorageSubscription(current, op.target_items, op.id, bounded.transport);
     });

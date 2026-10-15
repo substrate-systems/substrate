@@ -248,6 +248,8 @@ async function storageFixture() {
   };
   const cardId = `txn_${"e".repeat(26)}`;
   const paymentId = `txn_${"f".repeat(26)}`;
+  let charged: { items: typeof current.items; custom_data: typeof current.custom_data } | null =
+    null;
   const transport = async (path: string, init?: RequestInit) => {
     if (path === `/prices/${storagePrice}`)
       return Response.json({
@@ -268,9 +270,14 @@ async function storageFixture() {
           currency_code: "EUR",
           next_billed_at: "2026-02-01T00:00:00Z",
           consent_requirements: [],
-          immediate_transaction: {
-            details: { totals: { grand_total: billing.due, tax: "38", currency_code: "EUR" } },
-          },
+          immediate_transaction:
+            billing.due === "0"
+              ? null
+              : {
+                  details: {
+                    totals: { grand_total: billing.due, tax: "38", currency_code: "EUR" },
+                  },
+                },
           recurring_transaction_details: { totals: { grand_total: "1200", currency_code: "EUR" } },
         },
       });
@@ -297,7 +304,7 @@ async function storageFixture() {
     if (path.startsWith("/transactions?"))
       return Response.json({
         data:
-          billing.paid && current.custom_data.exomem_storage_operation
+          billing.paid && charged
             ? [
                 {
                   id: paymentId,
@@ -305,8 +312,8 @@ async function storageFixture() {
                   subscription_id: subscriptionId,
                   origin: "subscription_update",
                   status: "completed",
-                  custom_data: current.custom_data,
-                  items: current.items,
+                  custom_data: charged.custom_data,
+                  items: charged.items,
                   details: {
                     totals: { grand_total: billing.actualDue, tax: "37", currency_code: "EUR" },
                   },
@@ -330,6 +337,7 @@ async function storageFixture() {
         quantity: item.quantity,
       }));
       current.custom_data = body.custom_data;
+      charged = structuredClone({ items: current.items, custom_data: current.custom_data });
       current.updated_at = "2026-01-01T00:01:00Z";
       if (billing.loseResponse) throw new TypeError("provider response lost");
       return Response.json({ data: current });
@@ -488,6 +496,41 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         ).rows[0].count,
         "1"
       );
+    });
+
+    it("recovers paid storage after a friend conversion changes the base item", async () => {
+      const f = await storageFixture();
+      f.billing.loseResponse = true;
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      assert.equal(
+        (await f.call({ action: "confirm", operationId: preview.id })).operation!.state,
+        "unknown"
+      );
+      f.current.items.find((item) => item.price.id === f.basePrice)!.price.id =
+        `pri_${"h".repeat(26)}`;
+
+      assert.equal(
+        (await f.call({ action: "status", operationId: preview.id })).operation!.state,
+        "paid"
+      );
+      assert.equal(f.billing.calls, 1);
+    });
+
+    it("recovers a zero-due confirmation after a nonzero preview and lost response", async () => {
+      const f = await storageFixture();
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      f.billing.due = "0";
+      f.billing.paid = false;
+      f.billing.loseResponse = true;
+      assert.equal(
+        (await f.call({ action: "confirm", operationId: preview.id })).operation!.state,
+        "unknown"
+      );
+
+      const recovered = (await f.call({ action: "status", operationId: preview.id })).operation!;
+      assert.equal(recovered.state, "paid");
+      assert.equal(recovered.quote.due.amount, "0");
+      assert.equal(f.billing.calls, 1);
     });
 
     it("refuses a higher quote before submitting a provider update", async () => {
