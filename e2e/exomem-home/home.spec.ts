@@ -24,6 +24,7 @@ import {
   refuseEmailTo,
 } from "./seed";
 import { homeE2eEnvironment } from "./environment";
+import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 
 const DAY = 86_400_000;
 
@@ -286,10 +287,23 @@ test("an unowned checkout return offers sign-in recovery and a return to Home", 
   // An owner who already pays returns from an old checkout link; the server refuses it.
   const owner = await createOwner();
   await signIn(page.context(), owner);
-  await page.goto(`/exomem/home?_ptxn=txn_${"a".repeat(26)}`);
+  await page.goto("/exomem/home");
+  await expect(page.getByRole("heading", { name: "Your memory is on" })).toBeVisible();
+  const transactionId = `txn_${"a".repeat(26)}`;
+  await page.evaluate(
+    ({ key, transactionId }) => {
+      window.sessionStorage.setItem(key, transactionId);
+      window.sessionStorage.setItem("checkout-test-sentinel", "keep");
+    },
+    { key: PENDING_TRANSACTION_KEY, transactionId }
+  );
+  await page.reload();
 
   const failure = page.getByRole("heading", { name: "Sign in again to continue", exact: true });
   await expect(failure).toBeVisible();
+  await expect(
+    page.getByText("This does not change any payment Paddle received.", { exact: false })
+  ).toBeVisible();
   expect(new URL(page.url()).searchParams.has("_ptxn")).toBe(true);
   await expect(page.getByRole("button", { name: "Sign in again", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Go to Home", exact: true }).click();
@@ -298,6 +312,12 @@ test("an unowned checkout return offers sign-in recovery and a return to Home", 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Your memory is on" })).toBeVisible();
   await expect(failure).toBeHidden();
+  expect(
+    await page.evaluate((key) => window.sessionStorage.getItem(key), PENDING_TRANSACTION_KEY)
+  ).toBeNull();
+  expect(await page.evaluate(() => window.sessionStorage.getItem("checkout-test-sentinel"))).toBe(
+    "keep"
+  );
 });
 
 test("a confirmation email that cannot be sent deletes nothing, and Home says so", async ({
