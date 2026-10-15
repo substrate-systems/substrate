@@ -12,6 +12,8 @@ test("private hosted pages are excluded without hiding the public Exomem page", 
   assert.equal(isPrivateExomemPath("https://substratesystems.io/exomem"), false);
   assert.equal(isPrivateExomemPath("/exomem/home"), true);
   assert.equal(isPrivateExomemPath("/exomem/home/memory?query=private#fragment"), true);
+  assert.equal(isPrivateExomemPath("/exomem/viewer"), true);
+  assert.equal(shouldMountAnalytics("/exomem/viewer"), false);
   assert.equal(isPrivateExomemPath("/exomem/invite"), true);
   assert.equal(isPrivateExomemPath("/exomem/sign-in"), true);
   assert.equal(isPrivateExomemPath("/exomem/delete/confirm"), true);
@@ -24,6 +26,12 @@ test("private hosted pages are excluded without hiding the public Exomem page", 
 });
 
 test("Vercel and PostHog filters drop private events", () => {
+  const viewerCapture = {
+    event: "$autocapture",
+    properties: { $current_url: "https://example.test/exomem/viewer", $el_text: "A private note" },
+  };
+  assert.equal(filterPostHogCapture(viewerCapture, "https://example.test/exomem/viewer"), null);
+  assert.equal(filterPostHogCapture(viewerCapture, "https://example.test/"), null);
   const vercelEvent = { type: "pageview", url: "https://example.test/exomem/home" };
   assert.equal(filterVercelAnalyticsEvent(vercelEvent), null);
 
