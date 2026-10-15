@@ -84,6 +84,11 @@
   --graph-dim: 0.42; /* everything else while one note is hovered (landing) */
   --graph-wake: 0.62; /* notes near the pointer (flow, glow hover) */
   --graph-lit-link: 0.45; /* links of the lit note (flow, glow hover) */
+  --graph-on-link: 0.62; /* links of the walking light (flow field) */
+  --graph-held-node: 0.3; /* the walking light held dim behind the checkout */
+  --graph-held-link: 0.07;
+  --graph-lit-halo: var(--exo-amber); /* glow around a lit note: walking light, connection, hub */
+  --graph-hover-halo: var(--exo-glow); /* glow around the note under the pointer */
 
   /* type */
   --font-mono-exo: var(--font-plex-mono), ui-monospace, monospace; /* IBM Plex Mono 400/500 */
@@ -153,6 +158,13 @@
   --scrim-soft: rgba(60, 50, 30, 0.12);
   --graph-node: 0.3;
   --graph-link: 0.12;
+  /* Lit notes at full strength with the bright phosphor as their halo (CHANGES-R41 §1). */
+  --graph-lit-link: 0.85;
+  --graph-on-link: 0.85;
+  --graph-held-node: 0.38;
+  --graph-held-link: 0.085;
+  --graph-lit-halo: rgba(255, 176, 0, 0.5);
+  --graph-hover-halo: rgba(255, 176, 0, 0.5);
 }
 
 /* -----------------------------------------------------------------------------

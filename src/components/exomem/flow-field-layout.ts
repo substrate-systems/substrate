@@ -50,6 +50,17 @@ function seg(a: Point, b: Point) {
   };
 }
 
+function trimSeg(a: Point, b: Point, ra: number, rb: number): [Point, Point] {
+  const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const ux = (b.x - a.x) / length;
+  const uy = (b.y - a.y) / length;
+  if (length <= ra + rb + 1) return [a, b];
+  return [
+    { x: a.x + ux * ra, y: a.y + uy * ra },
+    { x: b.x - ux * rb, y: b.y - uy * rb },
+  ];
+}
+
 /**
  * Lays out the web for a vw × vh page. `phone` uses the phone density; `footer`
  * keeps the strip under the content clear for the request footer (pages opened by an app).
@@ -156,10 +167,12 @@ export function buildFieldLayout(
       hub: hubs.has(i),
     };
   });
+  // Round 41: a link stops at each note's edge, so no line shows through a note.
+  const rad = nodes.map((n) => n.s / 2 + 1);
   const edges = links.map(([i, j], k) => {
     const [a, b] = depth[i] <= depth[j] ? [i, j] : [j, i];
     return {
-      ...seg(pts[a], pts[b]),
+      ...seg(...trimSeg(pts[a], pts[b], rad[a], rad[b])),
       dd: round(depth[a] * stepT + rnd() * 0.25, 2),
       i,
       j,

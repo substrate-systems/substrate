@@ -91,7 +91,9 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await expect(
     page.getByRole("heading", { name: "This sign-in link was already used" })
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Email me a new link", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Email me a new link", exact: true })
+  ).toBeVisible();
   await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
   await page.getByRole("button", { name: "Use a different email", exact: true }).click();
   await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
@@ -145,10 +147,31 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
     expect((await completed).status()).toBe(200);
     expect(await grantCount(client)).toBe(1);
-    if (reducedMotion === "no-preference")
+    if (reducedMotion === "no-preference") {
       await expect(
         page.getByRole("button", { name: consentCopy.connecting, exact: true })
       ).toBeVisible();
+      // The answer came at once, yet the page says it connected only after the whole
+      // field has lit: when its last note or link finishes, not when the tiles do.
+      const { lighting, fieldLit, connectedAt } = await page.evaluate(async (title) => {
+        const field = document.querySelector("main svg[data-alive-key]")!;
+        const ends = field.getAnimations({ subtree: true }).map((animation) => {
+          const timing = animation.effect!.getComputedTiming();
+          return Number(timing.endTime) - Number(timing.localTime ?? 0);
+        });
+        const lit = performance.now() + Math.max(...ends);
+        const at = await new Promise<number>((resolve) => {
+          const look = () =>
+            [...document.querySelectorAll("h1")].some((h) => h.textContent?.includes(title))
+              ? resolve(performance.now())
+              : requestAnimationFrame(look);
+          look();
+        });
+        return { lighting: ends.length, fieldLit: lit, connectedAt: at };
+      }, handbackCopy.title);
+      expect(lighting).toBeGreaterThan(0);
+      expect(connectedAt).toBeGreaterThanOrEqual(fieldLit - 50);
+    }
 
     await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
     // Wait for the visible mark's finite completion animations, not a guessed wall-clock delay.
