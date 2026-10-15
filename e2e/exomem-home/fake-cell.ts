@@ -25,6 +25,7 @@ export type FakeCellState = {
   operator: boolean;
   noteCount: number | null;
   events: {
+    app_id?: string | null;
     client: string | null;
     action: "recalled" | "saved";
     items: number | null;

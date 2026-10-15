@@ -1,47 +1,104 @@
-import type { CSSProperties } from "react";
-import { DOT_E_INK, DOT_E_LIT, DOT_E_RADIUS } from "./dot-e";
+"use client";
+
+import * as React from "react";
+import { FULL, FULL_ROW, SMALL, SMALL_ROW } from "./dot-e";
+import { markNumbers, type MarkState } from "./writing-e";
 import styles from "./Mark.module.css";
 
-// Home's stagger between the lit dots, from the board (0, .35, .7, 1.05 s).
-const BREATH_STEP_S = 0.35;
+const { useState, useEffect } = React;
+const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(" ");
 
-type MarkProps = {
-  size: number;
-  /**
-   * Home's status mark. on: the memory is live, so every dot is amber and the middle row
-   * breathes · off: not live (read-only, ended), so the middle row is faint ink. Omitted:
-   * the Dot E icon, its middle row amber.
-   */
+/** 'failed' un-writes the stroke, then rests. */
+export function useSettled(state: MarkState): MarkState {
+  const [current, setCurrent] = useState({ requested: state, settled: state });
+  if (current.requested !== state) setCurrent({ requested: state, settled: state });
+  useEffect(() => {
+    if (state !== "failed") return;
+    const t = setTimeout(() => setCurrent({ requested: state, settled: "rest" }), 950);
+    return () => clearTimeout(t);
+  }, [state]);
+  return current.requested === state ? current.settled : state;
+}
+
+export function Dots({ pts, row, r }: { pts: [number, number][]; row: number[]; r: number }) {
+  const c = pts.map(([x, y], k) => (
+    <circle
+      key={k}
+      cx={x}
+      cy={y}
+      r={r}
+      style={{
+        ["--exo-k" as keyof React.CSSProperties]: k,
+        ["--exo-row" as keyof React.CSSProperties]: row.includes(k) ? 1 : 0,
+      }}
+    />
+  ));
+  return (
+    <>
+      <g className={styles.ink}>{c}</g>
+      <g className={styles.lit}>{c}</g>
+      <g className={styles.pen}>{c}</g>
+    </>
+  );
+}
+
+export interface MarkProps {
+  /** Pixel size. Below 32 px the small cut is used. */
+  size?: number;
+  state?: MarkState;
+  /** progress: how many steps, and which one is running (0-based; steps = done). */
+  steps?: number;
+  step?: number;
+  /** progress: a fraction 0–1 instead of steps. */
+  value?: number;
+  /** At rest the middle row breathes. Set false for a still logo. */
+  breathe?: boolean;
+  /** Accessible name. Defaults to "Exomem". Pass null to hide it from assistive tech. */
+  label?: string | null;
+  small?: boolean;
+  className?: string;
   status?: "on" | "off";
-  /** Names the mark for screen readers; omit when the mark sits inside a labelled control. */
-  label?: string;
-};
+}
 
-/** The Dot E icon: the E in dots, its middle row amber. */
-export function Mark({ size, status, label }: MarkProps) {
-  const ink = status === "on" ? styles.lit : styles.ink;
-  const row = status === "off" ? styles.unlit : styles.lit;
+/** The Dot E, alive: the logo at rest, a meter that writes itself while work runs. */
+export function Mark({
+  size = 40,
+  state = "rest",
+  steps,
+  step,
+  value,
+  breathe = true,
+  label = null,
+  small,
+  className,
+  status,
+}: MarkProps) {
+  const s = useSettled(status === "off" ? "off" : status === "on" ? "done" : state);
+  const sm = small ?? size < 32;
+  const L = sm ? 10 : 18;
+  const n = markNumbers(L, s, { steps, step, value });
+  const cls = n.cls === "breathe" && !breathe ? "" : n.cls;
   return (
     <svg
+      className={cx(styles.mark, cls && styles[cls], className)}
       viewBox="0 0 48 48"
       width={size}
       height={size}
-      className={status === "on" ? styles.breathing : undefined}
-      {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
+      role={label ? "img" : undefined}
+      aria-label={label || undefined}
+      aria-hidden={label ? undefined : true}
+      style={{
+        ["--exo-L" as keyof React.CSSProperties]: L,
+        ["--exo-w" as keyof React.CSSProperties]: n.w,
+        ["--exo-b" as keyof React.CSSProperties]: n.b,
+        ["--exo-rest" as keyof React.CSSProperties]: n.rest,
+      }}
     >
-      {DOT_E_INK.map(([cx, cy]) => (
-        <circle key={`${cx},${cy}`} className={ink} cx={cx} cy={cy} r={DOT_E_RADIUS} />
-      ))}
-      {DOT_E_LIT.map(([cx, cy], i) => (
-        <circle
-          key={`${cx},${cy}`}
-          className={`${row} ${styles.row}`}
-          cx={cx}
-          cy={cy}
-          r={DOT_E_RADIUS}
-          style={{ "--ed": `${i * BREATH_STEP_S}s` } as CSSProperties}
-        />
-      ))}
+      {sm ? (
+        <Dots pts={SMALL} row={SMALL_ROW} r={3.1} />
+      ) : (
+        <Dots pts={FULL} row={FULL_ROW} r={2.2} />
+      )}
     </svg>
   );
 }

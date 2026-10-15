@@ -1,6 +1,6 @@
 /* What changes on a phone, shared by the Exomem components.
 
-   The phone layout covers viewports up to 640 px wide: the one Exomem breakpoint.
+   The phone layout covers narrow viewports and short landscape viewports.
    PairedTiles reads --pair-w; FlowField reads --field-phone to lay out its web. */
 .pairLine {
   --pair-w: 120px;
@@ -10,7 +10,7 @@
   --field-phone: 0;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .pairLine {
     --pair-w: 88px;
   }

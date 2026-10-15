@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
+import { CheckoutInline } from "@/components/exomem/CheckoutInline";
 import type { FieldKind } from "@/components/exomem/FlowField";
 import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import { getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import type { Known } from "@/lib/exomem-hosted/known";
-import { usePaddlePricePreview } from "@/lib/paddle";
-import { openBillingPortal, signOut, useCheckout } from "../_journey/account-actions";
+import { openBillingPortal, signOut } from "../_journey/account-actions";
 import {
   breakCopy,
   chooseCopy,
@@ -16,7 +16,7 @@ import {
   joinedCopy,
   otherAppCopy,
   startCopy,
-  subscribeCopy,
+  consentCopy,
   UNNAMED_APP,
   waitingCopy,
   type PluginApp,
@@ -27,7 +27,6 @@ import {
   DoneLine,
   LevelTune,
   openElsewhere,
-  PriceCard,
   SignedInLine,
   StepActions,
   StepHeading,
@@ -40,13 +39,7 @@ import {
 } from "../_journey/parts";
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
-import {
-  levelContextTitle,
-  offerInviter,
-  showsUsualPrice,
-  subscribeView,
-  type FriendOffer,
-} from "../home/home-view";
+import { levelContextTitle, offerInviter, type FriendOffer } from "../home/home-view";
 import { joinedSince, pollDelay, type ListedApp } from "./join-rule";
 import { useLevelSave } from "./level-save";
 import type { SetupScreen } from "./setup-screen";
@@ -54,6 +47,7 @@ import type { SetupScreen } from "./setup-screen";
 export type SetupFacts = {
   screen: SetupScreen;
   email: string;
+  tenantId: string;
   keptUntil: Known<string>;
   /** "EX-XXXX", quoted to support. */
   supportReference: string;
@@ -71,9 +65,12 @@ export type SetupFacts = {
   exportOffered: boolean;
   /** Whether checkout can start now, as Home's billing summary says (a resubscription here). */
   checkoutAvailable: boolean;
+  /** A returning paid account resumes setup without another checkout. */
+  paidPlan?: boolean;
+  returnedTransactionId?: string;
 };
 
-type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
+type Phase = SetupScreen | "confirming" | "again" | "waiting" | "other" | "joined" | "switched";
 
 // kindOf() in the board.
 const KIND: Record<Exclude<Phase, "switched">, FieldKind> = {
@@ -81,6 +78,7 @@ const KIND: Record<Exclude<Phase, "switched">, FieldKind> = {
   confirming: "hold",
   preparing: "hold",
   choose: "quiet",
+  again: "live",
   waiting: "quiet",
   other: "quiet",
   joined: "done",
@@ -167,22 +165,17 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
   const [connected, setConnected] = useState<Set<string>>(new Set());
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [returnHandled, setReturnHandled] = useState(false);
   const keptUntil = useReaderDate(facts.keptUntil);
 
   // The server knows what comes next after a payment or a sign-out: ask it again.
-  const onSettled = useCallback(() => window.location.reload(), []);
-  const checkout = useCheckout(onSettled, facts.email);
-  const current: Phase = checkout.confirming ? "confirming" : phase;
-  // A friend offer's price is not the previewed one, so it is not previewed.
-  const price = usePaddlePricePreview(
-    current === "subscribe" && showsUsualPrice(facts.friendOffer) ? facts.priceId : null
-  );
-  const subscribe = subscribeView(facts.friendOffer, price);
+  const current = phase;
   const inviter = offerInviter(facts.friendOffer);
 
   // Preparing: ask for the cell's state until it is ready.
   useEffect(() => {
-    if (current !== "preparing") return;
+    // CheckoutInline owns paid readiness, including its account binding and recovery.
+    if (current !== "preparing" || facts.paidPlan) return;
     let timer = 0;
     let active = true;
     const check = async () => {
@@ -209,7 +202,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [current]);
+  }, [current, facts.paidPlan]);
 
   // Choose: which assistants already have Exomem.
   useEffect(() => {
@@ -293,13 +286,35 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     );
   }
 
+  if (
+    (!returnHandled && !!facts.returnedTransactionId) ||
+    current === "subscribe" ||
+    current === "confirming" ||
+    (current === "preparing" && facts.paidPlan)
+  ) {
+    return (
+      <CheckoutInline
+        email={facts.email}
+        tenantId={facts.tenantId}
+        inviter={inviter}
+        paidOnArrival={current === "preparing" && !facts.returnedTransactionId}
+        returnedTransactionId={returnHandled ? undefined : facts.returnedTransactionId}
+        onReady={() => {
+          setFocusHeading(true);
+          setReturnHandled(true);
+          setPhase("choose");
+        }}
+      />
+    );
+  }
+
   const goHome = () => window.location.assign("/exomem/home");
   const exportMemory = {
     label: facts.exportOffered ? breakCopy.export : breakCopy.home,
     onClick: goHome,
   };
   const failureNotice = (
-    <StepNotice alert visible={!!failure || checkout.failed}>
+    <StepNotice alert visible={!!failure}>
       {failure ?? failureCopy.generic}
     </StepNotice>
   );
@@ -307,37 +322,6 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
 
   let body;
   switch (current) {
-    case "subscribe":
-      body = (
-        <>
-          <StepHeading title={subscribeCopy.title} lede={subscribe.line} />
-          {subscribe.friendCard ? <PriceCard {...subscribe.friendCard} /> : null}
-          <StepActions
-            primary={{
-              label: subscribeCopy.primary,
-              working: checkout.opening,
-              onClick: () => {
-                setFocusHeading(true);
-                void checkout.subscribe();
-              },
-            }}
-            // The board leaves "Not now" without a target; Home keeps the unpaid account.
-            secondary={{ label: subscribeCopy.notNow, onClick: goHome }}
-          />
-        </>
-      );
-      break;
-    case "confirming":
-      body = (
-        <>
-          <StepHeading
-            title={subscribeCopy.confirming.title}
-            lede={subscribeCopy.confirming.lede(null)}
-          />
-          <WorkingBar label={subscribeCopy.confirming.title} />
-        </>
-      );
-      break;
     case "preparing":
       body = (
         <>
@@ -360,7 +344,11 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
           onPick: () => {
             setFocusHeading(true);
             setWaitingFor(platform);
-            setPhase("waiting");
+            if (isConnected) setPhase("again");
+            else if (facts.settings[platform]) {
+              openElsewhere(facts.settings[platform]!);
+              setPhase("waiting");
+            } else setPhase("other");
           },
         };
       });
@@ -377,6 +365,36 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
         <>
           <StepHeading title={chooseCopy.title} lede={chooseCopy.lede} />
           <ChoiceList choices={choices} />
+          <StepActions secondary={{ label: joinedCopy.home, onClick: goHome }} />
+        </>
+      );
+      break;
+    }
+    case "again": {
+      const name = CLIENT_PLATFORM_NAMES[waitingFor];
+      const settings = facts.settings[waitingFor];
+      body = (
+        <>
+          <StepHeading title={consentCopy.again.title(name)} lede={consentCopy.again.lede} />
+          <StepActions
+            primary={{
+              label: consentCopy.again.primary,
+              onClick: () => {
+                setFocusHeading(true);
+                if (settings) {
+                  openElsewhere(settings);
+                  setPhase("waiting");
+                } else setPhase("other");
+              },
+            }}
+            secondary={{
+              label: consentCopy.again.keep,
+              onClick: () => {
+                setFocusHeading(true);
+                setPhase("choose");
+              },
+            }}
+          />
         </>
       );
       break;
@@ -393,7 +411,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
           <StepActions
             primary={
               settings
-                ? { label: chooseCopy.open(name), onClick: () => openElsewhere(settings) }
+                ? { label: `Open ${name} again ↗`, onClick: () => openElsewhere(settings) }
                 : null
             }
             secondary={{
@@ -417,6 +435,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
               label={otherAppCopy.addressLabel}
               address={facts.mcpAddress}
               labelHidden
+              pageStatus
             />
           ) : (
             <StepNotice alert>{failureCopy.generic}</StepNotice>
@@ -436,7 +455,6 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     case "joined": {
       const app = joined!;
       const plugin = hasPlugin(app);
-      const next: PluginApp = app.platform === "claude" ? "openai" : "claude";
       body = (
         <>
           {plugin ? (
@@ -447,9 +465,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
           <StepActions
             primary={{ label: joinedCopy.home, onClick: goHome }}
             secondary={{
-              label: connected.has(next)
-                ? joinedCopy.another
-                : joinedCopy.addToo(CLIENT_PLATFORM_NAMES[next]),
+              label: joinedCopy.another,
               onClick: () => {
                 setFocusHeading(true);
                 setPhase("choose");
@@ -477,10 +493,10 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
             resubscribe={
               facts.checkoutAvailable
                 ? {
-                    ...checkout,
+                    opening: false,
                     subscribe: async () => {
                       setFocusHeading(true);
-                      await checkout.subscribe();
+                      setPhase("subscribe");
                     },
                   }
                 : null

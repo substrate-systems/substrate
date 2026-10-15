@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requestStart } from "@/lib/exomem-hosted/access";
+import { uniformAccessStartResponse } from "@/lib/exomem-hosted/access-recovery";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
   accessErrorResponse,
@@ -8,11 +8,7 @@ import {
   readBoundedJsonRequest,
 } from "@/lib/exomem-hosted/http";
 import { clientAddressKey } from "@/lib/exomem-hosted/rate-limit";
-import {
-  applyMagicLinkChallengeCookie,
-  mintMagicLinkChallenge,
-  validatePublicAccessRequest,
-} from "@/lib/exomem-hosted/sessions";
+import { validatePublicAccessRequest } from "@/lib/exomem-hosted/sessions";
 import { normalizeTimeZone } from "@/lib/exomem-hosted/time-zone";
 import { verifyTurnstileToken } from "@/lib/exomem-hosted/turnstile";
 
@@ -70,22 +66,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
     if (verdict === "unavailable") {
-      emitAccessEvent({ event: "access.start.challenge_unavailable", outcome: "failed", requestId });
+      emitAccessEvent({
+        event: "access.start.challenge_unavailable",
+        outcome: "failed",
+        requestId,
+      });
     }
 
-    const challenge = mintMagicLinkChallenge();
-    await requestStart({
+    const response = await uniformAccessStartResponse(request, {
       email: fields.email,
-      networkKey: networkKey ?? "unavailable",
-      browserChallengeDigest: challenge.challengeDigest,
       timeZone: normalizeTimeZone(fields.timeZone),
+      requestId,
     });
     emitAccessEvent({ event: "access.start.accepted", outcome: "succeeded", requestId });
-    const response = NextResponse.json(
-      { success: true, status: "if_eligible_email_sent", requestId },
-      { status: 202, headers: NO_STORE }
-    );
-    applyMagicLinkChallengeCookie(response, challenge);
     return response;
   } catch (error) {
     const response = accessErrorResponse({ error, event: "access.request.denied", requestId });

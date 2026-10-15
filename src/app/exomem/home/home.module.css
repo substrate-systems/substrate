@@ -81,7 +81,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 28px 40px 0;
+  height: 75px;
+  box-sizing: border-box;
+  padding: 0 40px;
 }
 
 .headerStart {
@@ -198,13 +200,21 @@
   background: var(--bg-panel);
 }
 
-.firstDot {
+.firstDot,
+.firstDotQuiet {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  flex: none;
+}
+
+.firstDot {
   background: var(--exo-amber);
   box-shadow: 0 0 10px var(--exo-amber);
-  flex: none;
+}
+
+.firstDotQuiet {
+  background: var(--fg-muted);
 }
 
 .firstText {
@@ -341,6 +351,9 @@
   font-family: var(--font-mono-exo);
   font-size: 12px;
   flex: none;
+  transition:
+    border-color var(--dur-swap) ease,
+    color var(--dur-swap) ease;
 }
 
 .glyphAdd {
@@ -348,6 +361,11 @@
   border-style: dashed;
   font-size: 15px;
   color: var(--fg-secondary);
+}
+
+.appActive .glyph {
+  color: var(--exo-amber);
+  border-color: color-mix(in srgb, var(--exo-amber) 50%, transparent);
 }
 
 .panelNote {
@@ -551,14 +569,7 @@
   min-width: 0;
 }
 
-/* The longest level refusal and the standing help text keep their space together. */
-.levelNote {
-  min-height: 2lh;
-  box-sizing: content-box;
-}
-
 .billingStatus {
-  min-height: 2lh;
   padding-top: 8px;
   font-size: 12.5px;
   line-height: 1.5;
@@ -620,15 +631,8 @@
   border-bottom: 1px solid var(--exo-border-card);
 }
 
-/* Packing, Download and retry share one slot, including their wrapped phone copy. */
 .exportDetail {
-  min-height: calc(2lh + 34px);
   font-size: 12px;
-  line-height: 1.5;
-}
-
-.exportMessage {
-  min-height: 1lh;
   line-height: 1.5;
 }
 
@@ -793,7 +797,7 @@
 
 /* --- Phone --- */
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 480px) {
   .webDesktop {
     display: none;
   }
@@ -803,7 +807,7 @@
   }
 
   .header {
-    padding: 28px 16px 0;
+    padding: 0 16px;
   }
 
   .headerStart {
@@ -819,6 +823,7 @@
   }
 
   .column {
+    width: 358px;
     margin-top: 64px;
   }
 
@@ -842,18 +847,6 @@
 
   .levelSwitch {
     width: auto;
-  }
-
-  .levelNote {
-    min-height: 5lh;
-  }
-
-  .exportDetail {
-    min-height: calc(4lh + 24px);
-  }
-
-  .exportMessage {
-    min-height: 2lh;
   }
 }
 

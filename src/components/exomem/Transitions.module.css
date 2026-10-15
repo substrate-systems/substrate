@@ -1,0 +1,94 @@
+/* The supplied component library's transitions. */
+.swap {
+  display: inline-grid;
+  vertical-align: top;
+}
+.block {
+  display: grid;
+}
+.swap > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.in,
+.fadeIn {
+  animation: exoIn var(--dur-swap) var(--ease-out-expo) both;
+}
+.out {
+  animation: exoOut 300ms ease both;
+  pointer-events: none;
+}
+.crossfade {
+  display: grid;
+}
+.pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+  transition:
+    opacity var(--dur-swap) ease,
+    visibility 0s;
+}
+.pane:not(.on) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 350ms ease,
+    visibility 0s linear 350ms;
+}
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--dur-swap) var(--ease-settle),
+    opacity 300ms ease;
+}
+.collapse > div {
+  overflow: hidden;
+  min-height: 0;
+}
+.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.skeleton {
+  display: inline-block;
+  border-radius: var(--r-tag);
+  background: color-mix(in srgb, var(--fg-primary) 7%, transparent);
+  animation: exoSk 1.6s ease-in-out infinite;
+  vertical-align: middle;
+}
+@keyframes exoIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes exoOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+@keyframes exoSk {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .out {
+    display: none;
+  }
+}

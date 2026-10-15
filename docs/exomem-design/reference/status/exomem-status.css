@@ -1,0 +1,32 @@
+/* Exomem theme for Upptime's status site. Values from the locked tokens (dark): bg-base, bg-panel, fg-primary,
+   exo-border-card, exo-amber, fg-secondary. Up is amber (it is live); degraded and down are told apart by words
+   and by ink strength, never by hue alone. */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap');
+:root {
+  --body-background-color: #0a0908;
+  --body-text-color: #ece9e2;
+  --card-background-color: #100e0c;
+  --nav-background-color: #0a0908;
+  --nav-border-bottom-color: rgba(236, 233, 226, 0.07);
+  --nav-current-border-bottom-color: #ffb000;
+  --card-border-color: rgba(236, 233, 226, 0.1);
+  --up-border-left-color: #ffb000;
+  --degraded-border-left-color: #a39e93;
+  --down-border-left-color: #ece9e2;
+  --down-background-color: #1a1815;
+  --tag-color: #0a0908;
+  --tag-up-background-color: #ffb000;
+  --tag-degraded-background-color: #a39e93;
+  --tag-down-background-color: #ece9e2;
+  --change-background-color: #a39e93;
+  --error-button-border-color: rgba(236, 233, 226, 0.34);
+  --error-button-background-color: transparent;
+  --error-button-color: #ece9e2;
+  --submit-button-border-color: #ece9e2;
+  --submit-button-background-color: #ece9e2;
+  --submit-button-color: #0a0908;
+  --graph-opacity: 0.9;
+  --graph-filter: grayscale(1) brightness(1.4);
+}
+body { font-family: Inter, system-ui, sans-serif; }
+h1, h2, h3, nav, .tag, code { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 500; }

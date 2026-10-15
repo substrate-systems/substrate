@@ -42,6 +42,19 @@ beforeEach(() => {
 });
 
 describe("GET /api/exomem/account", () => {
+  it("does not return another session account's billing facts to the rendered checkout", async () => {
+    const { GET } = await import("../route");
+    const response = await GET(
+      new Request(
+        "https://substratesystems.io/api/exomem/account?tenantId=018f2d91-7c42-7000-8000-000000000094"
+      ) as unknown as import("next/server").NextRequest
+    );
+    assert.equal(response.status, 403);
+    const body = await response.json();
+    assert.equal(body.error.code, "EXOMEM_ENTITLEMENT_DENIED");
+    assert.equal(body.account, undefined);
+    assert.equal(body.billing, undefined);
+  });
   it("returns the owner's billing summary unchanged next to the account facts, privately", async () => {
     const { GET } = await import("../route");
     const response = await GET(

@@ -10,9 +10,12 @@ import {
 import { known, unknown, type Known } from "./known";
 import {
   mapPaddleSubscriptionState,
+  paddleExomemItem,
   paddleSubscriptionFacts,
   type PaddleSourceState,
 } from "./paddle-webhook";
+import { carriesFriendPrice } from "./paddle-friend-price";
+import { LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import {
   CURRENCY_CODE,
   isExomemMoney,
@@ -85,12 +88,12 @@ type ResumeCheckoutInput = CheckoutInput & {
 };
 
 export type ExomemCheckoutState =
-  | { state: "open"; checkoutUrl: string; discountId: string | null }
+  | { state: "open"; checkoutUrl: string; priceId: string; discountId: string | null }
   | { state: "canceled" }
   | { state: "completed"; customerId: string | null; subscriptionId: string };
 
 type InspectedExomemCheckoutState =
-  | { state: "open"; checkoutUrl: string | null; discountId: string | null }
+  | { state: "open"; checkoutUrl: string | null; priceId: string | null; discountId: string | null }
   | Exclude<ExomemCheckoutState, { state: "open" }>;
 
 function assertExactInput(
@@ -199,7 +202,10 @@ function safeTransactionCheckoutUrl(
   }
 }
 
-function safePaddleId(value: unknown, prefix: "txn" | "sub" | "ctm" | "dsc"): string | null {
+function safePaddleId(
+  value: unknown,
+  prefix: "txn" | "sub" | "ctm" | "dsc" | "pri"
+): string | null {
   return typeof value === "string" && new RegExp(`^${prefix}_[a-z0-9]{26}$`).test(value)
     ? value
     : null;
@@ -279,6 +285,27 @@ export async function verifyExomemFriendDiscount(
   return discountId;
 }
 
+/** Server-selected catalogue terms; remove the legacy arm after every environment adopts the friend price. */
+export async function selectExomemCheckoutPrice(
+  friend: boolean,
+  config: ExomemPaddleConfig = loadExomemPaddleConfig(),
+  transport: PaddleTransport = paddleFetch
+): Promise<{ priceId: string; discountId: string | null }> {
+  if (!config.priceId) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_CONFIGURATION_INVALID", 503);
+  }
+  if (friend && config.friendPriceId) {
+    if (!safePaddleId(config.friendPriceId, "pri")) {
+      throw new ExomemBillingError("EXOMEM_PADDLE_CONFIGURATION_INVALID", 503);
+    }
+    return { priceId: config.friendPriceId, discountId: null };
+  }
+  return {
+    priceId: config.priceId,
+    discountId: friend ? await verifyExomemFriendDiscount(config, transport) : null,
+  };
+}
+
 /**
  * Creates the server-selected Paddle transaction and binds it to the owner
  * before its URL is returned. The friend discount and the customer come
@@ -301,14 +328,16 @@ export async function createExomemCheckout(
   if (customerId !== null && !safePaddleId(customerId, "ctm")) {
     throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
   }
-  const discountId = options.friendPrice
-    ? await verifyExomemFriendDiscount(config, transport)
-    : null;
+  const { priceId, discountId } = await selectExomemCheckoutPrice(
+    options.friendPrice === true,
+    config,
+    transport
+  );
 
   const payload = await safePaddleJson(transport, "/transactions", {
     method: "POST",
     body: JSON.stringify({
-      items: [{ price_id: config.priceId, quantity: 1 }],
+      items: [{ price_id: priceId, quantity: 1 }],
       ...(discountId ? { discount_id: discountId } : {}),
       ...(customerId ? { customer_id: customerId } : {}),
       custom_data: {
@@ -357,11 +386,10 @@ export async function createExomemCheckout(
 }
 
 /**
- * Puts the friend discount on a live subscription from its next billing
- * period, after checking the discount. Returns the next payment time Paddle
- * reports, or `null` when it reports none.
+ * Changes only the regular base item. Paddle keeps the renewal date, currency
+ * and add-ons; do_not_bill leaves this period's payment unchanged.
  */
-export async function applyExomemFriendDiscountToSubscription(
+export async function applyExomemFriendPriceToSubscription(
   input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
   dependencies: BillingDependencies = {}
 ): Promise<{ nextBilledAt: string | null }> {
@@ -378,6 +406,70 @@ export async function applyExomemFriendDiscountToSubscription(
     throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
   }
   const transport = dependencies.transport ?? paddleFetch;
+  const path = `/subscriptions/${encodeURIComponent(input.subscriptionId)}`;
+  const currentPayload = await safePaddleJson(transport, path, { method: "GET" });
+  const current = safeObject(safeObject(currentPayload)?.data);
+  const state = mapPaddleSubscriptionState(current?.status);
+  if (
+    !current ||
+    current.id !== input.subscriptionId ||
+    !state ||
+    !(LIVE_SUBSCRIPTION_SOURCE_STATES as readonly string[]).includes(state)
+  ) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  const reference = paddleExomemItem(current, config.productId, [
+    config.priceId,
+    config.friendPriceId,
+  ]);
+  const facts = paddleSubscriptionFacts(current, reference);
+  const priceId = reference?.priceId ?? null;
+  if (carriesFriendPrice({ priceId, discountId: facts.discountId }, config)) {
+    return { nextBilledAt: facts.nextBilledAt };
+  }
+  // Do not silently replace or stack another promotion; the invitation remains usable.
+  if (facts.discountId !== null || !config.priceId || priceId !== config.priceId) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  if (config.friendPriceId) {
+    const selected = await selectExomemCheckoutPrice(true, config, transport);
+    const rawItems = Array.isArray(current.items) ? current.items : [];
+    let baseItems = 0;
+    const items = rawItems.map((raw) => {
+      const item = safeObject(raw);
+      const price = safeObject(item?.price);
+      if (
+        !safePaddleId(price?.id, "pri") ||
+        !Number.isSafeInteger(item?.quantity) ||
+        Number(item?.quantity) < 1
+      ) {
+        throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+      }
+      const base = price?.id === config.priceId && price?.product_id === config.productId;
+      if (base) baseItems++;
+      return { price_id: base ? selected.priceId : price!.id, quantity: item!.quantity };
+    });
+    // A single base item prevents an ambiguous replacement from changing other items.
+    if (baseItems !== 1) throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+    const payload = await safePaddleJson(transport, path, {
+      method: "PATCH",
+      body: JSON.stringify({ items, proration_billing_mode: "do_not_bill" }),
+    });
+    const updated = safeObject(safeObject(payload)?.data);
+    if (
+      !updated ||
+      updated.id !== input.subscriptionId ||
+      paddleExomemItem(updated, config.productId, [selected.priceId])?.priceId !== selected.priceId
+    ) {
+      throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+    }
+    return {
+      nextBilledAt: paddleSubscriptionFacts(
+        updated,
+        paddleExomemItem(updated, config.productId, [selected.priceId])
+      ).nextBilledAt,
+    };
+  }
   const discountId = await verifyExomemFriendDiscount(config, transport);
   const payload = await safePaddleJson(
     transport,
@@ -403,7 +495,12 @@ export async function applyExomemFriendDiscountToSubscription(
 export async function readExomemSubscription(
   input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
   dependencies: BillingDependencies = {}
-): Promise<{ state: PaddleSourceState; discountId: string | null; nextBilledAt: string | null }> {
+): Promise<{
+  state: PaddleSourceState;
+  priceId: string | null;
+  discountId: string | null;
+  nextBilledAt: string | null;
+}> {
   if (!safePaddleId(input.subscriptionId, "sub")) {
     throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
   }
@@ -427,7 +524,14 @@ export async function readExomemSubscription(
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
   const facts = paddleSubscriptionFacts(data, null);
-  return { state, discountId: facts.discountId, nextBilledAt: facts.nextBilledAt };
+  return {
+    state,
+    priceId:
+      paddleExomemItem(data, config.productId, [config.priceId, config.friendPriceId])?.priceId ??
+      null,
+    discountId: facts.discountId,
+    nextBilledAt: facts.nextBilledAt,
+  };
 }
 
 export type ExomemPrices = { usual: ExomemMoney; friend: ExomemMoney | null };
@@ -537,6 +641,11 @@ export async function previewExomemPrices(
   };
   const usual = await cachedPrice({ ...base, discountId: null }, transport, now);
   if (!input.friend) return { usual, friend: null };
+  if (config.friendPriceId) {
+    const selected = await selectExomemCheckoutPrice(true, config, transport);
+    const friend = await cachedPrice({ ...base, ...selected }, transport, now);
+    return { usual, friend };
+  }
   let discountId = config.friendDiscountId;
   if (!discountId || (shownDiscountChecks.get(discountId) ?? 0) <= now) {
     discountId = await verifyExomemFriendDiscount(config, transport);
@@ -659,6 +768,9 @@ async function inspectExomemCheckout(
   }
   if (data.status === "draft" || data.status === "ready") {
     let checkoutUrl: string | null = null;
+    const items = Array.isArray(data.items) ? data.items : [];
+    const actualPrice = safeObject(safeObject(items[0])?.price);
+    const priceId = typeof actualPrice?.id === "string" ? actualPrice.id : null;
     if (options.purpose === "checkout") {
       let checkoutConfig: ExomemPaddleConfig;
       try {
@@ -670,13 +782,11 @@ async function inspectExomemCheckout(
       if (checkoutConfig.environment !== input.environment) {
         throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
       }
-      const items = Array.isArray(data.items) ? data.items : [];
-      const catalogMatches = items.some((item) => {
-        const price = safeObject(safeObject(item)?.price);
-        return (
-          price?.id === checkoutConfig.priceId && price?.product_id === checkoutConfig.productId
-        );
-      });
+      // Reuse checks the actual price later; catalogue rotation must still allow cancellation.
+      const catalogMatches =
+        items.length === 1 &&
+        priceId !== null &&
+        actualPrice?.product_id === checkoutConfig.productId;
       checkoutUrl = safeTransactionCheckoutUrl(
         safeObject(data.checkout)?.url,
         checkoutConfig.checkoutUrl,
@@ -687,7 +797,7 @@ async function inspectExomemCheckout(
       }
     }
     const discountId = typeof data.discount_id === "string" ? data.discount_id : null;
-    return { state: "open", checkoutUrl, discountId };
+    return { state: "open", checkoutUrl, priceId, discountId };
   }
   if (["completed", "billed", "paid", "past_due"].includes(String(data.status))) {
     const subscriptionId = safePaddleId(data.subscription_id, "sub");

@@ -15,6 +15,8 @@ type LiveLineProps = {
    * a ticking time ("12 s ago" → "13 s ago") keeps the same key and holds still.
    */
   eventKey?: string;
+  glyph?: string;
+  active?: boolean;
 };
 
 /** A blinking amber dot and one line: the memory is in use right now. */
@@ -24,13 +26,25 @@ export function LiveLine({
   onTogglePause,
   variant = "viewer",
   eventKey,
+  glyph,
+  active = true,
 }: LiveLineProps) {
-  const classes = [styles.live, variant === "home" && styles.home, paused && styles.paused]
+  const classes = [
+    styles.live,
+    variant === "home" && styles.home,
+    (paused || !active) && styles.paused,
+  ]
     .filter(Boolean)
     .join(" ");
   return (
     <span className={classes}>
-      <span className={styles.dot} aria-hidden="true" />
+      {glyph ? (
+        <span className={styles.glyph} aria-hidden="true">
+          {glyph}
+        </span>
+      ) : (
+        <span className={styles.dot} aria-hidden="true" />
+      )}
       <span key={eventKey} className={styles.text}>
         {children}
       </span>

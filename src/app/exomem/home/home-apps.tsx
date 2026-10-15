@@ -57,6 +57,7 @@ type AppsProps = {
   /** A reviewer account: its apps joined during the review. */
   reviewer: boolean;
   clock: Clock;
+  activeAppId: string | null;
 };
 
 function AppRow({
@@ -67,6 +68,7 @@ function AppRow({
   onDisconnect,
   reviewer,
   clock,
+  active,
 }: {
   app: HomeApp;
   ended: boolean;
@@ -75,6 +77,7 @@ function AppRow({
   onDisconnect: (app: HomeApp) => Promise<boolean>;
   reviewer: boolean;
   clock: Clock;
+  active: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
@@ -110,7 +113,7 @@ function AppRow({
 
   return (
     <div
-      className={`${styles.row} ${styles.appRow} ${ended || off ? styles.dimmed : ""}`}
+      className={`${styles.row} ${styles.appRow} ${ended || off ? styles.dimmed : ""} ${active && !ended && !off ? styles.appActive : ""}`}
       data-app-id={app.id}
     >
       <div className={styles.glyph} aria-hidden="true">
@@ -329,6 +332,7 @@ export function ConnectedApps(props: AppsProps) {
           onDisconnect={props.onDisconnect}
           reviewer={props.reviewer}
           clock={props.clock}
+          active={props.activeAppId === app.id}
         />
       ))}
       {!props.ended && (

@@ -32,7 +32,7 @@ export function homeE2eEnvironment() {
       EXOMEM_EXPORT_TTL_HOURS: "24",
       EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true",
       // Emails carry links to this origin; a test opens a link's path on the test server.
-      EXOMEM_PUBLIC_BASE_URL: "https://app.example.test",
+      EXOMEM_PUBLIC_BASE_URL: process.env.EXOMEM_E2E_PUBLIC_BASE_URL ?? "https://app.example.test",
       // Rate limits and stored secrets key off this; a fixed test key, not a secret.
       EXOMEM_CONTROL_PLANE_KEY: Buffer.alloc(32, 0x5a).toString("base64url"),
       BREVO_API_KEY: mailApiKey,

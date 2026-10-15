@@ -4,10 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { usePaddlePricePreview } from "@/lib/paddle";
-import {
-  type PaddleTransactionFailure,
-  PaddleTransactionOpener,
-} from "@/components/PaddleTransactionOpener";
+import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 import {
   billingDestination,
   disconnectApp,
@@ -63,6 +60,7 @@ import {
   subscribeView,
 } from "./home-view";
 import styles from "./home.module.css";
+import { activityEventKey, createActivityObserver, type ActivityEvent } from "./home-activity";
 
 /** Home reads activity, and the status poll, this often while the tab is visible. */
 const REFRESH_MS = 30_000;
@@ -115,6 +113,13 @@ export default function HomeClient({
   );
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
+  const [activityPulse, setActivityPulse] = useState<ActivityEvent | null>(null);
+  const observeActivity = useRef(createActivityObserver());
+  useEffect(() => {
+    if (!activityPulse) return;
+    const timer = window.setTimeout(() => setActivityPulse(null), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [activityPulse]);
   const [now, setNow] = useState(() => Date.now());
 
   const [disconnected, setDisconnected] = useState<ReadonlySet<string>>(new Set());
@@ -137,6 +142,18 @@ export default function HomeClient({
 
   const mounted = useRef(true);
   const statusFlight = useRef(createSingleFlight<StatusRead | null>());
+  const lastStatusAt = useRef<number | null>(null);
+  const [lostAt, setLostAt] = useState<number | null>(null);
+  const [statusRetryAt, setStatusRetryAt] = useState<number | null>(null);
+  const [activityReadFailed, setActivityReadFailed] = useState(false);
+  useEffect(() => {
+    try {
+      const returned = window.sessionStorage.getItem(PENDING_TRANSACTION_KEY);
+      if (returned) window.location.replace(`/exomem/setup?_ptxn=${encodeURIComponent(returned)}`);
+    } catch {
+      /* The URL return works when browser storage is unavailable. */
+    }
+  }, []);
 
   const lifecycle = status?.lifecycle ?? LOADING;
   const mode = homeMode(lifecycle, account, accountRead);
@@ -155,7 +172,12 @@ export default function HomeClient({
     return statusFlight.current(async () => {
       try {
         const next = await readStatus();
-        if (mounted.current) setStatus(next);
+        if (mounted.current) {
+          lastStatusAt.current = Date.now();
+          setLostAt(null);
+          setStatusRetryAt(null);
+          setStatus(next);
+        }
         return next;
       } catch (error) {
         if (error instanceof SignedOutError) {
@@ -163,12 +185,16 @@ export default function HomeClient({
           return null;
         }
         if (mounted.current) {
-          setStatus((current) => ({
-            lifecycle: UNREACHABLE,
-            storage: current?.storage ?? null,
-            exportSummary: current?.exportSummary ?? null,
-            connectorUrl: current?.connectorUrl ?? null,
-          }));
+          setLostAt(lastStatusAt.current ?? 0);
+          setStatus(
+            (current) =>
+              current ?? {
+                lifecycle: UNREACHABLE,
+                storage: null,
+                exportSummary: null,
+                connectorUrl: null,
+              }
+          );
         }
         return null;
       }
@@ -223,9 +249,15 @@ export default function HomeClient({
       const next = await readActivity();
       if (!mounted.current) return;
       setActivity(next);
+      if (next !== NOT_RELEASED) {
+        const fresh = observeActivity.current(next);
+        if (fresh) setActivityPulse(fresh);
+      }
       setActivityAt(Date.now());
+      setActivityReadFailed(false);
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
+      else if (mounted.current) setActivityReadFailed(true);
     }
   }, [channelOn]);
 
@@ -235,6 +267,7 @@ export default function HomeClient({
     let cancelled = false;
     let timer: number | undefined;
     let attempt = 0;
+    let failures = 0;
     async function poll() {
       // An account that could not be read is asked for again with each status read.
       if (attempt > 0 && !accountKnown.current && visibleNow()) void refreshAccount();
@@ -244,7 +277,11 @@ export default function HomeClient({
       if (lifecycleNow?.state === "deleted") return;
       const fast = lifecycleNow ? nextStatusPollDelayMs(lifecycleNow, attempt) : null;
       attempt += 1;
-      timer = window.setTimeout(() => void poll(), fast ?? REFRESH_MS);
+      const delay =
+        next || !visibleNow() ? (fast ?? REFRESH_MS) : Math.min(60_000, 8_000 * 2 ** failures++);
+      if (next) failures = 0;
+      else if (visibleNow()) setStatusRetryAt(Date.now() + delay);
+      timer = window.setTimeout(() => void poll(), delay);
     }
     async function start() {
       await Promise.all([poll(), refreshAccount()]);
@@ -307,6 +344,10 @@ export default function HomeClient({
   }
 
   async function onBilling(kind: "portal" | "checkout", control: BillingControl) {
+    if (kind === "checkout") {
+      window.location.assign("/exomem/setup");
+      return;
+    }
     setBillingBusy(true);
     try {
       const destination = await billingDestination(kind);
@@ -436,7 +477,12 @@ export default function HomeClient({
   const reviewer = account?.kind === "reviewer";
   const shownEmail = account ? (reviewer ? "reviewer (sample account)" : account.email) : null;
   const header = (
-    <HomeHeader email={shownEmail} onSignOut={() => void onSignOut()} signingOut={signingOut} />
+    <HomeHeader
+      email={shownEmail}
+      onSignOut={() => void onSignOut()}
+      signingOut={signingOut}
+      live={lostAt === null && mode.kind === "home" && isLive(mode.variant)}
+    />
   );
   const dialogs = (
     <>
@@ -454,16 +500,6 @@ export default function HomeClient({
     <div role="alert">
       <Notice layout="row">{pageMessage}</Notice>
     </div>
-  );
-  // Paddle returns a checkout here with a transaction to open; the opener checks it
-  // first. It sits at the same place in every mode, so a mode change keeps its state.
-  const checkoutReturn = (
-    <PaddleTransactionOpener
-      validationEndpoint="/api/exomem/billing/checkout"
-      customerEmail={account?.email}
-      customerEmailPending={accountRead === "loading"}
-      FailureView={CheckoutReturnFailure}
-    />
   );
 
   if (mode.kind !== "home") {
@@ -483,7 +519,6 @@ export default function HomeClient({
           />
           {subscribe?.friendCard ? <PriceCard {...subscribe.friendCard} /> : null}
           {message}
-          {checkoutReturn}
           {mode.kind === "subscribe" && (
             <div>
               <Button
@@ -514,12 +549,23 @@ export default function HomeClient({
   }
 
   const variant = mode.variant;
-  const live = isLive(variant);
-  const facts = activityFacts(activity, activityAt);
+  const live = isLive(variant) && lostAt === null;
+  const facts = activityReadFailed && lostAt === null ? null : activityFacts(activity, activityAt);
+  const pulseAppIndex = activityPulse?.app_id
+    ? (apps?.findIndex((app) => app.id === activityPulse.app_id) ?? -1)
+    : -1;
+  const pulseApp =
+    live &&
+    !activityReadFailed &&
+    pulseAppIndex >= 0 &&
+    apps &&
+    !disconnected.has(apps[pulseAppIndex].id)
+      ? apps[pulseAppIndex]
+      : null;
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
   const homeNotices = notices(variant, account, storage, exportOffered, statusPageUrl !== null);
-  const first = live ? firstNoteLine(facts, clock) : null;
+  const first = isLive(variant) ? firstNoteLine(facts, clock) : null;
   const accountBanner = banner(variant, account, billing, clock, exportOffered);
   const exportSummary = status?.exportSummary;
   const exportRow =
@@ -537,18 +583,54 @@ export default function HomeClient({
 
   return (
     <>
-      <HomeWeb live={live} />
+      <HomeWeb
+        live={live}
+        activity={
+          !activityReadFailed && activityPulse
+            ? {
+                kind: activityPulse.action === "saved" ? "save" : "recall",
+                key: activityEventKey(activityPulse),
+                ...(pulseApp ? { from: pulseAppIndex, of: apps!.length } : {}),
+              }
+            : undefined
+        }
+      />
       {header}
       <div className={styles.column}>
         <StatusBlock
           live={live}
-          headline={status_.headline}
+          headline={
+            lostAt === null
+              ? status_.headline
+              : lostAt === 0
+                ? "Can’t reach Exomem."
+                : `${status_.headline} · as of ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(lostAt)}`
+          }
           statusLine={status_.statusLine}
-          liveLine={variant === "ended" ? null : liveLine(facts, apps ?? [], disconnected, clock)}
+          liveLine={
+            variant === "ended" || (activityReadFailed && lostAt === null)
+              ? null
+              : liveLine(facts, apps ?? [], disconnected, clock)
+          }
           activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
         />
         {message}
-        {checkoutReturn}
+        {lostAt !== null && (
+          <Notice
+            layout="row"
+            action={
+              <Button size="detail" onClick={() => void refreshStatus()}>
+                Try now
+              </Button>
+            }
+          >
+            Can’t reach Exomem.{" "}
+            {lostAt > 0 ? "Showing the last successful read. " : "We will try again. "}{" "}
+            {statusRetryAt
+              ? `Checking again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))} seconds.`
+              : "Trying again."}
+          </Notice>
+        )}
         {homeNotices.map((notice) => (
           <Notice
             key={notice.key}
@@ -597,7 +679,7 @@ export default function HomeClient({
         ))}
         {first && (
           <div className={styles.firstNote}>
-            <span className={styles.firstDot} aria-hidden="true" />
+            <span className={live ? styles.firstDot : styles.firstDotQuiet} aria-hidden="true" />
             <div className={styles.firstText}>
               <span>Your first note</span>
               <span className={styles.firstMeta}>{first}</span>
@@ -646,6 +728,7 @@ export default function HomeClient({
           startLevel={codingLevel}
           reviewer={reviewer}
           clock={clock}
+          activeAppId={pulseApp?.id ?? null}
         />
         <InvolvementLevels
           view={levelState}
@@ -675,27 +758,6 @@ export default function HomeClient({
       </div>
       {dialogs}
     </>
-  );
-}
-
-/** A checkout return that could not be checked or opened, as a Home notice. */
-function CheckoutReturnFailure({ message, retry, dismiss }: PaddleTransactionFailure) {
-  return (
-    <Notice
-      layout="row"
-      action={
-        <div className={styles.noticeActions}>
-          <Button variant="primary" size="detail" onClick={retry}>
-            Try again
-          </Button>
-          <Button size="detail" onClick={dismiss}>
-            Not now
-          </Button>
-        </div>
-      }
-    >
-      {message}
-    </Notice>
   );
 }
 

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inline checkout, live</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 1838px; box-sizing: border-box; padding: 56px 64px 72px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 40px">
+<div style="display: flex; flex-direction: column; gap: 10px; max-width: 1500px">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 42 · live · click Subscribe in Paddle’s frame, and the ▾ next to the country to see VAT update</div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 40px; letter-spacing: -0.02em">Subscribe, with the checkout inside the page</div>
+    <div style="font-size: 16px; color: #A39E93; line-height: 1.6">Paddle’s inline frame collects only the email, the country and the payment details, on a transparent background. Everything else is ours: the order summary, the friend price, what happens next. One surface, our type on the left, Paddle’s fields on the right, on the same ground. The field behind steps back while people pay, and the walking light rests: nothing on this page is live except the payment.</div></div>
+  <div style="display: flex; gap: 40px; align-items: flex-start">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #ECE9E2">Desktop · dark · standard price</span><span style="font-size: 12px; color: #858075; line-height: 1.45">Loads, then ready. Subscribe → paying → paid → Add it to your assistant.</span><div style="width: 1280px; height: 820px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12); flex: none"><div style="zoom: 1"><dc-import name="Journey-Page" app="web" checkout="inline" step="subscribe" theme="dark" device="desktop" hint-size="1280px,820px"></dc-import></div></div></div>
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #ECE9E2">Phone · light · friend price</span><span style="font-size: 12px; color: #858075; line-height: 1.45">This step scrolls on a phone: Paddle sets its own height.</span><div style="width: 390px; height: 844px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12); flex: none"><div style="zoom: 1"><dc-import name="Journey-Page" app="web" checkout="inline" step="subscribe" theme="light" device="phone" invite="friend" screen-h="844" hint-size="390px,844px"></dc-import></div></div></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1838,"height":1060}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

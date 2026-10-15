@@ -51,6 +51,7 @@ const CONFIG: ExomemPaddleConfig = {
   productKey: "exomem-hosted",
   productId: null,
   priceId: null,
+  friendPriceId: null,
   friendDiscountId: null,
   checkoutUrl: null,
   apiKey: "fake-test-key",

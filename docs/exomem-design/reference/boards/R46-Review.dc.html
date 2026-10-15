@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Round 46 review</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0} ::selection{background:rgba(255,176,0,.3);color:#ECE9E2}</style>
+</helmet>
+<div style="width: 1440px; box-sizing: border-box; padding: 56px 64px 72px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 10px">
+  <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 46 · your second pass</div>
+  <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 38px; letter-spacing: -0.02em">What changed, and where to check it</div>
+  <div style="font-size: 16px; color: #A39E93; line-height: 1.6; max-width: 1000px; margin-bottom: 18px">5 fixed, 1 explained. Each row says what you saw, what changed and the exact place to look. Reply with the numbers that still look wrong.</div>
+  <div style="display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 40px; padding: 26px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 12px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: #FFB000; width: 28px">1</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 500; color: #ECE9E2">The writing E still flashed in dark</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .04em; color: #FFB000; border: 1px solid rgba(255,176,0,0.45); border-radius: 999px; padding: 4px 12px; white-space: nowrap">Fixed</span></div>
+        <div style="font-size: 13.5px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">You saw · </span>Cards jumped between steps; the try panel was smooth.</div>
+        <div style="font-size: 14.5px; line-height: 1.6; color: #ECE9E2">The E no longer relies on the canvas animating its numbers with CSS. A small script eases them every frame (written 0.9 s, the pen 0.45 s, rest 0.55 s), so it moves the same in any viewer. Tested with every CSS transition switched off: the stroke still sweeps. The checkout’s E uses the same script.</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">Check · </span>Round 44 → “The writing E · dark” → Any number of steps.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start"></div>
+    </div><div style="display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 40px; padding: 26px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 12px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: #FFB000; width: 28px">2</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 500; color: #ECE9E2">The hero asked Claude Code where we’re staying</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .04em; color: #FFB000; border: 1px solid rgba(255,176,0,0.45); border-radius: 999px; padding: 4px 12px; white-space: nowrap">Fixed</span></div>
+        <div style="font-size: 13.5px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">You saw · </span>Nobody asks a coding agent about a hotel.</div>
+        <div style="font-size: 14.5px; line-height: 1.6; color: #ECE9E2">The hero question now comes from Claude, on desktop and phone.</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">Check · </span>Landing, top of the page.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start"></div>
+    </div><div style="display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 40px; padding: 26px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 12px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: #FFB000; width: 28px">3</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 500; color: #ECE9E2">Hover labels ran into other labels</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .04em; color: #FFB000; border: 1px solid rgba(255,176,0,0.45); border-radius: 999px; padding: 4px 12px; white-space: nowrap">Fixed</span></div>
+        <div style="font-size: 13.5px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">You saw · </span>Hovering the top note, “test-plan.md” sat on “interface.md”.</div>
+        <div style="font-size: 14.5px; line-height: 1.6; color: #ECE9E2">Every phone hover label was checked against the static labels and the edge. test-plan.md now sits above its note, Release below and to the left (it also ran off the right edge), review-notes.md is pulled in from the edge. No other collisions.</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">Check · </span>Landing on phone: hover or tap the top note, the one right of hotel-borg, and the one lower right.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start"><figure style="margin: 0; display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #858075">test-plan.md</span><!-- Original screenshot retained in the private design archive. --></figure><figure style="margin: 0; display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #858075">Release</span><!-- Original screenshot retained in the private design archive. --></figure><figure style="margin: 0; display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #858075">review-notes.md</span><!-- Original screenshot retained in the private design archive. --></figure></div>
+    </div><div style="display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 40px; padding: 26px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 12px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: #FFB000; width: 28px">4</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 500; color: #ECE9E2">The map caption</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .04em; color: #FFB000; border: 1px solid rgba(255,176,0,0.45); border-radius: 999px; padding: 4px 12px; white-space: nowrap">Fixed</span></div>
+        <div style="font-size: 13.5px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">You saw · </span>Not needed, and its spacing was off.</div>
+        <div style="font-size: 14.5px; line-height: 1.6; color: #ECE9E2">Removed on desktop and phone. The map says it.</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">Check · </span>Landing → “Your knowledge, as a living map”.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start"><figure style="margin: 0; display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #858075">Phone, now</span><!-- Original screenshot retained in the private design archive. --></figure></div>
+    </div><div style="display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 40px; padding: 26px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 12px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: #FFB000; width: 28px">5</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 500; color: #ECE9E2">Phone checkout: still a bit loose after paying</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .04em; color: #FFB000; border: 1px solid rgba(255,176,0,0.45); border-radius: 999px; padding: 4px 12px; white-space: nowrap">Fixed</span></div>
+        <div style="font-size: 13.5px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">You saw · </span>Better, but more space than needed above and below.</div>
+        <div style="font-size: 14.5px; line-height: 1.6; color: #ECE9E2">The paid view now closes up to its content.</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">Check · </span>Checkout prototype → Phone → Subscribe now.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start"><figure style="margin: 0; display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #858075">Round 45</span><!-- Original screenshot retained in the private design archive. --></figure><figure style="margin: 0; display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #858075">Now</span><!-- Original screenshot retained in the private design archive. --></figure></div>
+    </div><div style="display: grid; grid-template-columns: 560px minmax(0, 1fr); gap: 40px; padding: 26px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: center; gap: 12px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; color: #FFB000; width: 28px">6</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 19px; font-weight: 500; color: #ECE9E2">When it fails: grey, or back to the logo?</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: .04em; color: #ECE9E2; border: 1px solid rgba(236,233,226,0.34); border-radius: 999px; padding: 4px 12px; white-space: nowrap">Explained</span></div>
+
+        <div style="font-size: 14.5px; line-height: 1.6; color: #ECE9E2">Back to the logo, not grey. Grey (no amber) already means one thing: Exomem can’t be reached and nothing is live. A declined card isn’t Exomem being off, so the stroke runs back and the logo rests while the words say what failed (“Nothing was charged”). If grey also meant “failed”, the off state would stop meaning anything.</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #A39E93"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .08em; text-transform: uppercase">Check · </span>Round 44 → Try any transition → Failed.</div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start"></div>
+    </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2370}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

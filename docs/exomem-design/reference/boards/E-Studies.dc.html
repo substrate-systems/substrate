@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>E progress studies</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>
+.es{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding:22px;border-radius:12px}
+.es-c{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 10px;border-radius:10px;border:1px solid var(--ln)}
+.es-t{font-family:'IBM Plex Mono', monospace;font-size:12.5px;color:var(--tx)}.es-d{font-size:12px;line-height:1.5;color:var(--mu);text-align:center;max-width:220px;min-height:54px}
+.es-s{font-family:'IBM Plex Mono', monospace;font-size:11.5px;color:var(--acc);min-height:16px}
+.es-e{position:relative;width:96px;height:96px}.es-e i{position:absolute;width:8.8px;height:8.8px;margin:-4.4px 0 0 -4.4px;border-radius:50%;transition:background .35s ease,opacity .35s ease}
+.d-done{background:var(--acc);opacity:1}.d-fut{background:var(--tx);opacity:.22}.d-past{background:var(--tx);opacity:.55}
+.d-beat{background:var(--acc);animation:esBeat 1.1s ease-in-out infinite}@keyframes esBeat{0%,100%{opacity:.3}50%{opacity:1}}
+.d-pen{background:var(--acc);opacity:.25;animation:esPen var(--pd) linear var(--pdl) infinite}@keyframes esPen{0%{opacity:.25}8%{opacity:1}40%{opacity:.55}100%{opacity:.25}}
+.d-ready{background:var(--acc);opacity:1;animation:esReady .5s ease-out var(--rd) both}@keyframes esReady{from{opacity:.35}to{opacity:1}}
+.es-lit .es-e{filter:var(--glow)}
+@media (prefers-reduced-motion: reduce){.d-beat,.d-pen,.d-ready{animation:none;opacity:1}}
+</style>
+</helmet>
+<div class="es" style="--tx: {{ c.tx }}; --mu: {{ c.mu }}; --acc: {{ c.acc }}; --ln: {{ c.ln }}; --glow: {{ c.glow }}; background: {{ c.bg }}">
+  <sc-for list="{{ variants }}" as="v" hint-placeholder-count="3">
+    <div class="es-c {{ v.lit }}">
+      <span class="es-t">{{ v.name }}</span>
+      <div class="es-e" aria-hidden="true"><sc-for list="{{ v.dots }}" as="d" hint-placeholder-count="18"><i class="{{ d.c }}" style="left: {{ d.x }}px; top: {{ d.y }}px; --pd: {{ d.pd }}; --pdl: {{ d.pdl }}; --rd: {{ d.rd }}"></i></sc-for></div>
+      <span class="es-s">{{ stepName }}</span>
+      <span class="es-d">{{ v.desc }}</span>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"$preview":{"width":900,"height":330}}'>
+// the E's dots in the order a pen draws it; each segment is one real step
+const SEG = [[[34.4, 8.4], [29.2, 8.4], [24, 8.4], [18.8, 8.4], [13.6, 8.4]], [[13.6, 13.6], [13.6, 18.8]], [[13.6, 24], [18.8, 24], [24, 24], [29.2, 24]], [[13.6, 29.2], [13.6, 34.4]], [[13.6, 39.6], [18.8, 39.6], [24, 39.6], [29.2, 39.6], [34.4, 39.6]]];
+const STEPS = ['Sent to Paddle', 'Your bank approves', 'Paid', 'Switching on your Exomem', 'Ready'];
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { st: 0 }; }
+  componentDidMount() { const tick = () => { const st = (this.state.st + 1) % 6; this.setState({ st }); this.t = setTimeout(tick, st === 5 ? 2600 : 1800); }; this.t = setTimeout(tick, 1800); }
+  componentWillUnmount() { clearTimeout(this.t); }
+  renderVals() {
+    const L = (this.props.theme ?? 'dark') === 'light', st = this.state.st;
+    const c = L ? { bg: '#FFFFFF', tx: '#1A1814', mu: '#6B665C', acc: '#A86E00', ln: 'rgba(26,24,20,0.10)', glow: 'drop-shadow(0 0 2.5px rgba(255,176,0,0.6))' } : { bg: '#12100E', tx: '#ECE9E2', mu: '#A39E93', acc: '#FFB000', ln: 'rgba(236,233,226,0.10)', glow: 'none' };
+    const ready = st === 5;
+    const mk = (kind) => SEG.flatMap((seg, si) => seg.map(([x, y], di) => {
+      let cl = 'd-fut';
+      if (ready) cl = 'd-ready';
+      else if (si < st) cl = kind === 'E3' ? 'd-past' : 'd-done';
+      else if (si === st) cl = kind === 'E2' ? 'd-pen' : 'd-beat';
+      const n = seg.length, pd = (n * 0.16 + 0.5).toFixed(2) + 's';
+      return { x: x * 2, y: y * 2, c: cl, pd, pdl: (di * 0.16).toFixed(2) + 's', rd: ((si * 5 + di) * 0.025).toFixed(3) + 's' };
+    }));
+    return { c, stepName: ready ? 'Ready' : `${st + 1} of 5 · ${STEPS[st]}`,
+      variants: [
+        { name: 'E1 · Rows fill', desc: 'Each row is a step. Done rows stay amber, the current one beats. Now in the click-through.', dots: mk('E1'), lit: ready ? 'es-lit' : '' },
+        { name: 'E2 · The E writes itself', desc: 'A pen runs the letter’s stroke: top bar, down, across, down, bottom bar. The current stroke is being drawn.', dots: mk('E2'), lit: ready ? 'es-lit' : '' },
+        { name: 'E3 · The live row moves', desc: 'Only what is happening now is amber, like the logo’s lit row. Done steps go quiet; at Ready the whole E lights.', dots: mk('E3'), lit: ready ? 'es-lit' : '' },
+      ] };
+  }
+}
+</script>
+</body>
+</html>

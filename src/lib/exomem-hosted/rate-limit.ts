@@ -42,6 +42,12 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 20,
     windowSeconds: 60 * 60,
   },
+  // This common browser cooldown prevents repeated links from superseding each other; it never depends on the address.
+  startBrowser: {
+    scope: "exomem:start:browser",
+    limit: 1,
+    windowSeconds: 60,
+  },
   // Invitation inspect is public and calls Paddle's price preview, so each
   // network address is bounded before the token is looked up.
   inviteInspectIp: {

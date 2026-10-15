@@ -68,7 +68,7 @@ export function InvolvementLevels({
             </div>
           );
         })}
-      <div className={`${styles.panelNote} ${styles.levelNote}`} aria-live="polite">
+      <div className={styles.panelNote} aria-live="polite">
         {view.state === "live" && (message ?? view.lockedText)
           ? `${message ?? view.lockedText} `
           : ""}

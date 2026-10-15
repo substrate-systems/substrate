@@ -1,0 +1,30 @@
+<!-- @dsCard group="Brand" height=220 subtitle="The logo, with every Mark state in its capital E" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Wordmark — preview</title>
+<style>html,body{margin:0;background:var(--bg-base);color:var(--fg-primary);font-family:var(--font-sans)}
+.pv{padding:20px 24px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box}
+.row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
+.cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:96px}
+.k{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
+.t{font-size:13px;line-height:1.45;color:var(--fg-secondary)}
+.n{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.panel{padding:18px;border:1px solid var(--exo-border-card);border-radius:var(--r-card);background:var(--bg-panel)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+const h = React.createElement, X = window.Exomem;
+const useTick = (ms) => { const [t, setT] = React.useState(0); React.useEffect(() => { const i = setInterval(() => setT((x) => x + 1), ms); return () => clearInterval(i); }, []); return t; };
+
+const STORY = [['rest', 'At rest'], ['working', 'Loading your Exomem'], ['working', 'Loading your Exomem'], [0, 'Sent to Paddle'], [1, 'Your bank approves'], [2, 'Paid'], [3, 'Switching on your Exomem'], ['done', 'Connected'], ['done', 'Connected'], ['rest', 'At rest'], ['off', 'Can’t reach Exomem'], ['off', 'Can’t reach Exomem']];
+function App() {
+  const t = useTick(1500), [s, label] = STORY[t % STORY.length], num = typeof s === 'number';
+  return h('div', { className: 'pv' },
+    h('div', { className: 'row', style: { alignItems: 'center', gap: 28 } }, h(X.Wordmark, { height: 40, state: num ? 'progress' : s, steps: 4, step: num ? s : 0 }), h('span', { className: 't', style: { color: 'var(--fg-primary)' } }, h(X.Swap, { k: label + t % STORY.length }, label))),
+    h('div', { className: 'row', style: { alignItems: 'center', gap: 28 } }, h(X.Wordmark, { height: 17 }), h('span', { className: 'n' }, 'height={17}, the header size')));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

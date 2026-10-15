@@ -42,14 +42,14 @@ The setup, consent and Home checkout paths SHALL pass the known account email to
 - **THEN** Home validates the transaction and removes the URL credential immediately
 - **AND** checkout opens without prefill after the bounded wait
 
-### Requirement: Friend price is one server-applied recurring Paddle discount
+### Requirement: Friend price uses the server-selected Paddle catalogue
 
-The friend price SHALL be one recurring Paddle discount for each environment, configured by its identifier. The server SHALL attach it to a checkout only for a tenant that accepted a friend offer. The server MUST ignore a discount that a client sends. The discount identifier MUST NOT reach a browser.
+The friend price SHALL use a dedicated monthly Paddle price for each environment, configured by its identifier. Paddle SHALL supply localized amounts and tax. The server SHALL select that price without a discount only for a tenant that accepted a friend offer. Until an environment configures that price, its existing verified recurring discount SHALL remain the fallback. Existing subscriptions with that discount SHALL remain recognized without migration. The server MUST refuse client-selected prices or discounts. Discount identifiers MUST NOT reach a browser.
 
 #### Scenario: Invitee with a friend offer checks out
 
 - **WHEN** a tenant that accepted a friend offer starts checkout
-- **THEN** the transaction carries the configured discount
+- **THEN** the transaction carries the configured friend price without a discount, or the verified legacy discount while no friend price is configured
 
 #### Scenario: Client sends a discount
 
@@ -59,9 +59,9 @@ The friend price SHALL be one recurring Paddle discount for each environment, co
 #### Scenario: Price returns on resubscribe
 
 - **WHEN** an owner with a recorded friend offer resubscribes after an ended subscription
-- **THEN** the new transaction carries the friend discount
+- **THEN** the new transaction uses the same server selection rule for friend pricing
 
-### Requirement: Friend discount is verified before every use and fails closed
+### Requirement: Legacy friend discount is verified before every use and fails closed
 
 Before it attaches the friend discount to a checkout, or applies it to a subscription, the server SHALL verify that the discount is active, recurring without a limit on intervals, has no code, is not enabled for checkout, and is restricted to the Exomem price. If any check fails, the server MUST refuse the action and make no change at the provider.
 
@@ -110,7 +110,7 @@ The system SHALL set the grace start to the event time only when the state moves
 
 ### Requirement: Self-serve and resubscribe checkouts use the server-selected catalog
 
-Checkout SHALL accept a self-serve owner and an owner whose subscription ended inside the kept window. It SHALL return the transaction identifier that the Paddle overlay needs. For a resubscription it SHALL create a new transaction for the owner's existing Paddle customer. The server MUST still choose the product, price and discount. Checkout MUST refuse an owner who already has a live subscription, and an owner who confirmed the account's deletion. Checkout SHALL reopen an open transaction only when it carries the discount the owner is owed, checked at Paddle again, and only while the account may still buy.
+Checkout SHALL accept a self-serve owner and an owner whose subscription ended inside the kept window. It SHALL return the transaction identifier that the Paddle overlay needs. For a resubscription it SHALL create a new transaction for the owner's existing Paddle customer. The server MUST still choose the product, price and discount. Checkout MUST refuse an owner who already has a live subscription, and an owner who confirmed the account's deletion. Checkout SHALL reopen an open transaction only when its actual price and discount match the server selection and the account may still buy. The server SHALL verify a legacy discount again before reuse. A replaced catalogue selection SHALL cancel the obsolete open transaction before creating another. Exact completed or canceled transaction recovery MUST remain independent of the current sale catalogue.
 
 #### Scenario: Self-serve owner starts checkout
 
@@ -155,7 +155,7 @@ Checkout SHALL accept a self-serve owner and an owner whose subscription ended i
 
 #### Scenario: Friend discount changes after a checkout opened
 
-- **WHEN** an owner with a friend offer reopens checkout and the friend discount is missing from the configuration or fails its checks at Paddle
+- **WHEN** no regional friend price is configured and the legacy friend discount fails its checks when an owner reopens checkout
 - **THEN** the server refuses with a stable error and never returns a checkout at the usual price
 
 #### Scenario: Kept window has passed
@@ -167,3 +167,24 @@ Checkout SHALL accept a self-serve owner and an owner whose subscription ended i
 
 - **WHEN** an owner with a live subscription requests checkout
 - **THEN** the server refuses and creates no second subscription
+
+### Requirement: Regional friend conversion preserves the existing subscription
+
+The server SHALL read the live subscription before conversion and replace only the configured regular base item. It SHALL retain that item's quantity and every other item's identifier and quantity. It SHALL send the complete item list with `proration_billing_mode` set to `do_not_bill`. It MUST omit billing date, currency, customer and scheduled change fields. An unrelated existing promotion SHALL prevent conversion and leave the invitation usable.
+
+#### Scenario: Owner has storage add-ons
+
+- **WHEN** an eligible owner chooses the regional friend price
+- **THEN** only the base price changes and no immediate charge occurs
+- **AND** add-on quantities, currency and renewal date stay unchanged
+
+#### Scenario: Provider response is lost
+
+- **WHEN** the provider applies the friend price but its response is lost
+- **THEN** a repeated use or keep decision reads provider facts before checking eligibility
+- **AND** it records the applied friend price without another subscription update
+
+#### Scenario: Another promotion is active
+
+- **WHEN** the provider reports a discount other than the configured legacy friend discount
+- **THEN** conversion sends no update and the invitation remains usable

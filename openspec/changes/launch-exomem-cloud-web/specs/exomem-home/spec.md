@@ -211,6 +211,29 @@ Home SHALL show the level for each context (chat apps and coding agents) and SHA
 
 Home SHALL show recent assistant activity as client family, action (recalled or saved), item count and time. The client family MUST be one of the cell's closed set of families, else unknown. The activity data MUST NOT contain note titles, paths, queries or content. Home SHALL read it on load, on tab focus and every 30 seconds while the tab is visible. When the activity is unavailable, Home SHALL show nothing in its place, and MUST NOT show zero.
 
+An activity event MAY carry `app_id`, the canonical UUID of its authenticated OAuth grant.
+The gateway SHALL set that identity from the access token's stored grant and refuse caller copies.
+Home SHALL join it only to the same owner's connected app ID, never to a family or display name.
+Missing or invalid identity SHALL remain unknown without discarding the event.
+Initial history SHALL stay quiet. Newly observed activity SHALL illuminate its matching app for three seconds.
+Its graph event SHALL use that app's position in the displayed list as its origin.
+
+#### Scenario: Two connections share a provider
+
+- **WHEN** a new event identifies the second of two connected grants from the same provider
+- **THEN** only that grant's app tile receives the amber border and glyph for three seconds
+- **AND** the graph starts the event from that app's position
+
+#### Scenario: An event has no matching actor
+
+- **WHEN** an event has no valid app ID or its grant is absent or disconnected
+- **THEN** Home retains its content-free activity facts without illuminating a guessed app
+
+#### Scenario: Home first reads historical activity
+
+- **WHEN** Home loads a feed that already contains events
+- **THEN** it displays their facts without replaying their animation or row feedback
+
 #### Scenario: Assistant recalls notes
 
 - **WHEN** an assistant recalls five notes
@@ -292,7 +315,7 @@ Home SHALL show the plan name, the next payment date, the next payment amount, t
 
 #### Scenario: Friend price applies
 
-- **WHEN** the provider-reported discount equals the configured friend discount
+- **WHEN** the provider-reported price equals the configured friend price or its discount equals the configured legacy friend discount
 - **THEN** Home shows the friend price as applied, with the inviter's name
 
 #### Scenario: Reviewer opens Home

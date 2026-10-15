@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alive, three ways</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0} .r41 button:focus-visible{outline:2px solid #FFB000;outline-offset:2px} .r41 button:disabled{cursor:default}</style>
+</helmet>
+<div class="r41" style="width: 1840px; height: 1080px; box-sizing: border-box; padding: 40px 48px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; gap: 40px">
+  <div style="width: 380px; flex: none; display: flex; flex-direction: column; gap: 22px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 41 · v3 · one live board at a time</div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 30px; letter-spacing: -0.02em">Alive</div>
+      <div style="font-size: 14px; color: #A39E93; line-height: 1.55">Every view is the real board, running. Only one runs at a time, so it stays smooth.</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #858075">Page</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px">
+        <sc-for list="{{ pages }}" as="b" hint-placeholder-count="3"><button type="button" onClick="{{ b.go }}" aria-pressed="{{ b.on }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid {{ b.bd }}; background: {{ b.bg }}; color: {{ b.fg }}; opacity: {{ b.op }}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">{{ b.label }}</button></sc-for>
+      </div></div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #858075">Direction</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px">
+        <sc-for list="{{ modes }}" as="b" hint-placeholder-count="3"><button type="button" onClick="{{ b.go }}" aria-pressed="{{ b.on }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid {{ b.bd }}; background: {{ b.bg }}; color: {{ b.fg }}; opacity: {{ b.op }}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">{{ b.label }}</button></sc-for>
+      </div></div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #858075">Home activity</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px">
+        <sc-for list="{{ acts }}" as="b" hint-placeholder-count="3"><button type="button" onClick="{{ b.go }}" aria-pressed="{{ b.on }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid {{ b.bd }}; background: {{ b.bg }}; color: {{ b.fg }}; opacity: {{ b.op }}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">{{ b.label }}</button></sc-for>
+      </div></div>
+    <div style="display: flex; gap: 24px"><div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #858075">Theme</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px">
+        <sc-for list="{{ themes }}" as="b" hint-placeholder-count="3"><button type="button" onClick="{{ b.go }}" aria-pressed="{{ b.on }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid {{ b.bd }}; background: {{ b.bg }}; color: {{ b.fg }}; opacity: {{ b.op }}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">{{ b.label }}</button></sc-for>
+      </div></div><div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #858075">Device</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px">
+        <sc-for list="{{ devices }}" as="b" hint-placeholder-count="3"><button type="button" onClick="{{ b.go }}" aria-pressed="{{ b.on }}" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid {{ b.bd }}; background: {{ b.bg }}; color: {{ b.fg }}; opacity: {{ b.op }}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">{{ b.label }}</button></sc-for>
+      </div></div></div>
+    <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid rgba(236,233,226,0.12)">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px">{{ modeTitle }}</span>
+      <span style="font-size: 13.5px; color: #A39E93; line-height: 1.6; min-height: 88px">{{ modeText }}</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075; letter-spacing: .1em; text-transform: uppercase; margin-top: 6px">What to look for here</span>
+      <span style="font-size: 13.5px; color: #A39E93; line-height: 1.6; min-height: 88px">{{ lookText }}</span>
+    </div>
+  </div>
+  <div style="flex: 1; display: flex; align-items: flex-start; justify-content: center; min-width: 0"><div data-scrollto="{{ scrollTo }}" style="width: {{ fw }}px; height: {{ fh }}px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.12); flex: none">
+      <sc-if value="{{ isLanding }}" hint-placeholder-val="{{ true }}"><dc-import name="Landing-Page" alive="{{ mode }}" theme="{{ theme }}" device="{{ device }}" hint-size="1280px,820px"></dc-import></sc-if>
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}"><dc-import name="Home-Page" alive="{{ mode }}" activity="{{ activity }}" theme="{{ theme }}" device="{{ device }}" hint-size="1280px,820px"></dc-import></sc-if>
+      <sc-if value="{{ isJourney }}" hint-placeholder-val="{{ false }}"><dc-import name="Journey-Page" alive="{{ mode }}" step="{{ step }}" app="{{ app }}" theme="{{ theme }}" device="{{ device }}" screen-h="844" hint-size="1280px,820px"></dc-import></sc-if>
+    </div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1840,"height":1080}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { page: 'map', mode: 'loop', activity: 'on', theme: 'dark', device: 'desktop' }; }
+  renderVals() {
+    const s = this.state, opt = (key, list, offFn) => list.map(([v, label]) => { const on = s[key] === v, off = offFn ? offFn(v) : false; return { label, on: String(on), off, go: () => { if (!off) this.setState({ [key]: v }); }, bd: on ? 'rgba(236,233,226,.4)' : 'rgba(236,233,226,.12)', bg: on ? '#2A2724' : 'transparent', fg: on ? '#ECE9E2' : '#A39E93', op: off ? .35 : 1 }; });
+    const MODES = {
+      shipped: ['Shipped', 'What’s live today. The map’s amber lights walk on a loop, Home’s amber dots breathe, the flow pages’ light walks. Nothing else moves.'],
+      current: ['A · Current', 'Quiet ink: a path of two or three links fills in, line by line, and fades, with a soft glint on each note it reaches. No moving dot, no tail (v1 read as little arrows). All of today’s amber loops are gone; amber only appears for a real event.'],
+      loop: ['A + loop · both', 'Current, plus today’s walking amber light kept as the idle state on the landing and flow pages. On Home, the one page with real data, the idle walker is ink, so a real recall (amber) can’t be mistaken for idle. Home’s band also answers the pointer now, like the flow pages.'],
+      tide: ['C · Tide', 'A slow front of light crosses the web every nine seconds, ink only. One calm gesture. Amber only for events.'],
+      tideloop: ['C + loop', 'Tide, plus today’s walking amber light as the idle state (ink on Home). The calmest version that still has the loop you like.'],
+    };
+    const LOOK = {
+      hero: 'Ink pulses behind the typed recall. The typed question and its answer are the hero’s event, unchanged.',
+      map: 'The living map. In “A + loop” the amber lights keep walking and an example recall lights notes every 6.5 s, captioned “Example”.',
+      home: s.activity === 'on' ? 'Hover the band: the closest note lights and its links warm. Activity on: a call arrives every 8 s (a stand-in for the call ledger; in the product each one is a real recall or save). Each app comes into the web at its own place. Amber runs in, the notes light, the app’s tile rings, the line under the title updates. Then it cools to ink.' : 'Activity off: no data yet. The band moves in ink; the line under the title keeps its space and says nothing.',
+      start: 'Before anything is connected. In “A + loop” the amber light still walks, with ink pulses around it.',
+      connected: 'Arriving on “Connected” plays the connect event once. Switch away and back to replay it.',
+    };
+    const landing = s.page === 'hero' || s.page === 'map', phone = s.device === 'phone';
+    return {
+      pages: opt('page', [['hero', 'Landing'], ['map', 'Living map'], ['home', 'Home'], ['start', 'Start'], ['connected', 'Connected']]),
+      modes: opt('mode', [['shipped', 'Shipped'], ['current', 'A Current'], ['loop', 'A + loop'], ['tide', 'C Tide'], ['tideloop', 'C + loop']]),
+      acts: opt('activity', [['off', 'Off'], ['on', 'On']], () => s.page !== 'home'),
+      themes: opt('theme', [['dark', 'Dark'], ['light', 'Light']]),
+      devices: opt('device', [['desktop', 'Desktop'], ['phone', 'Phone']]),
+      isLanding: landing, isHome: s.page === 'home', isJourney: s.page === 'start' || s.page === 'connected',
+      step: s.page === 'connected' ? 'handback' : 'choose', app: s.page === 'connected' ? 'Claude' : 'web',
+      mode: s.mode, activity: s.activity, theme: s.theme, device: s.device,
+      scrollTo: s.page === 'map' ? 'lp-viewer' : landing ? 'top' : '',
+      fw: phone ? 390 : 1280, fh: phone ? 844 : 820,
+      modeTitle: MODES[s.mode][0], modeText: MODES[s.mode][1], lookText: LOOK[s.page],
+    };
+  }
+  componentDidMount() {
+    // keep the Landing frame on the section asked for (top, or the living map)
+    this.__fit = setInterval(() => document.querySelectorAll('.r41 [data-scrollto]').forEach((f) => {
+      const want = f.getAttribute('data-scrollto'); if (!want) return;
+      let s = [...f.querySelectorAll('*')].find((el) => el.scrollHeight > el.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(el).overflowY)); if (!s) return;
+      if (want === 'top') { if (f.__last !== 'top') { s.scrollTop = 0; f.__last = 'top'; } return; }
+      const t = f.querySelector('#' + want); if (!t) return;
+      const k = s.getBoundingClientRect().height / s.clientHeight || 1, to = s.scrollTop + (t.getBoundingClientRect().top - s.getBoundingClientRect().top) / k - 60;
+      if (f.__last !== want) { s.scrollTop = to; f.__last = want; }
+    }), 500);
+  }
+  componentWillUnmount() { clearInterval(this.__fit); }
+}
+</script>
+</body>
+</html>

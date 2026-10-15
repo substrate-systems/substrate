@@ -10,6 +10,26 @@
 <helmet>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
 <style>
+.jp .jhome{all:unset;display:block;line-height:0;border-radius:4px;cursor:pointer}.jp .jhome:disabled{cursor:default}.jp.t-dark .jhome:focus-visible{outline:2px solid transparent;outline-offset:3px;box-shadow:0 0 0 4px rgba(255,176,0,.9)}.jp.t-light .jhome:focus-visible{outline:2px solid transparent;outline-offset:3px;box-shadow:0 0 0 4px rgba(168,110,0,.9)}
+
+/* Exomem text selection (R45) */.jp.t-dark ::selection{background:rgba(255,176,0,.3);color:#ECE9E2}.jp.t-light ::selection{background:rgba(168,110,0,.3);color:#1A1814}
+
+.jp.off .jhd circle[style*="--acc"]{fill:currentColor !important}
+.jp.cut>.ge{opacity:.18 !important}.jp.cut>.gn.on{background:var(--fg) !important;box-shadow:none !important;transform:none !important;opacity:.35 !important}
+@media (forced-colors: active){button,[role=button]{border:1px solid ButtonText !important}input{border:1px solid FieldText !important}}
+.jp.ck .jcol,.jp.ck .jhd{display:none !important}
+.jp.ck .gn.on{background:var(--fg) !important;box-shadow:none !important;transform:none !important;opacity:.3 !important}.jp.ck .ge.on .gi{background:var(--fg) !important;opacity:.07 !important}.jp.ck.t-light .gn.on{opacity:.38 !important}.jp.ck.t-light .ge.on .gi{opacity:.085 !important}.jp.ck{overflow-y:auto !important;overflow-x:hidden !important}.jp.ck div[data-ck]{bottom:auto !important;min-height:100%;overflow:visible !important}.jp.ck.t-dark{--sbj:236,233,226;--acj:#FFB000}.jp.ck.t-light{--sbj:26,24,20;--acj:#A86E00}
+@supports not selector(::-webkit-scrollbar){.jp.ck,.jp.ck *{scrollbar-width:thin;scrollbar-color:rgba(var(--sbj),.22) transparent}}
+.jp.ck::-webkit-scrollbar{width:12px;height:12px}
+.jp.ck::-webkit-scrollbar-track,.jp.ck::-webkit-scrollbar-corner{background:transparent}
+.jp.ck::-webkit-scrollbar-thumb{background-color:rgba(var(--sbj),.16);border-radius:12px;border:4px solid transparent;background-clip:padding-box}
+.jp.ck:hover::-webkit-scrollbar-thumb{background-color:rgba(var(--sbj),.26)}
+.jp.ck::-webkit-scrollbar-thumb:hover{background-color:rgba(var(--sbj),.42);border-width:3px}
+.jp.ck::-webkit-scrollbar-thumb:active{background-color:var(--acj);border-width:3px}
+.jp.al.t-light{--glow:rgba(255,176,0,.5)}
+.jp.al.t-light .gn.c0,.jp.al.t-light .gn.on{box-shadow:0 0 9px 1px rgba(255,176,0,.55)}
+.jp.al.t-light .ge.cn:not(.nw) .gi,.jp.al.t-light .ge.cn.gr .gi{opacity:.85}
+.jp.al.t-light .ge.on .gi{opacity:.85}
 body{margin:0}
 .jp button:focus-visible,.jp a:focus-visible,.jp input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 /* stars */
@@ -107,12 +127,13 @@ body{margin:0}
 .gn.c1{opacity:.62;transition-duration:.3s}.gn.c0{background:var(--acc);opacity:1;transform:scale(1.55);box-shadow:0 0 10px var(--glow);transition-duration:.3s}
 .ge.cn:not(.nw) .gi,.ge.cn.gr .gi{background:var(--acc);opacity:.45;transition:background .3s ease,opacity .3s ease}
 .t-light .gn.c1{opacity:.62}
-.t-light .gi{opacity:.12}.t-light .gn{opacity:.3}.t-light .gn.near{opacity:.62}.t-light .fd{opacity:.16}
+.t-light .gi{opacity:.12}.t-light .gn{opacity:.3}.t-light .gn.near{opacity:.62}
+.jp:not(.lb).t-light .gn.c0,.jp:not(.lb).t-light .gn.on{opacity:1}.t-light .fd{opacity:.16}
 .wk2{animation:jpBlink 1.4s ease-in-out infinite}@keyframes jpBlink{0%,100%{opacity:1}50%{opacity:.3}}
 @media (prefers-reduced-motion: reduce){.jp *{animation:none !important;transition:none !important}}
 </style>
 </helmet>
-<main onMouseMove="{{ onMove }}" onMouseLeave="{{ onLeave }}" class="jp t-{{ theme }} s-{{ phase }} m-{{ mode }} k-{{ kind }} {{ rmCls }}" style="--acc: {{accent}}; --fg: {{fg}}; --tint: {{tint}}; --glow: {{glow}}; --pw: {{ pw }}px; width: {{ vw }}px; height: {{ vh }}px; position: relative; overflow: hidden; background: {{bg}}; color: {{fg}}; font-family: Inter, system-ui, sans-serif">
+<main onMouseMove="{{ onMove }}" onMouseLeave="{{ onLeave }}" onPointerDown="{{ onTap }}" class="jp {{ offCls }} {{ ckCls }} {{ aliveCls }} {{ lbCls }} t-{{ theme }} s-{{ phase }} m-{{ mode }} k-{{ kind }} {{ rmCls }}" style="--acc: {{accent}}; --fg: {{fg}}; --tint: {{tint}}; --glow: {{glow}}; --pw: {{ pw }}px; width: {{ vw }}px; height: {{ vh }}px; position: relative; overflow: hidden; background: {{bg}}; color: {{fg}}; font-family: Inter, system-ui, sans-serif">
   <sc-for list="{{ lines }}" as="l" hint-placeholder-count="0">
     <div class="fl" style="left: {{ l.x }}px; top: {{ l.y }}px; width: {{ l.w }}px; transform: rotate({{ l.a }}deg); --ld: {{ l.d }}s"></div>
   </sc-for>
@@ -122,17 +143,17 @@ body{margin:0}
   <sc-for list="{{ edges }}" as="e" hint-placeholder-count="0">
     <div class="ge {{ e.c }}" style="left: {{ e.x }}px; top: {{ e.y }}px; width: {{ e.w }}px; transform: rotate({{ e.a }}deg); --dd: {{ e.dd }}s"><div class="gi"></div><div class="gp"></div></div>
   </sc-for>
-  <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="0">
+  <svg data-alive="{{ aliveMode }}" data-alive-id="flow" data-alive-key="{{ aliveKey }}" viewBox="0 0 {{ vw }} {{ vh }}" width="{{ vw }}" height="{{ vh }}" style="position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible" aria-hidden="true" data-graph='{{ aliveGraph }}' data-ink="{{fg}}" data-amber="{{accent}}" data-entry="{{ aliveEntry }}"></svg><sc-for list="{{ nodes }}" as="n" hint-placeholder-count="0">
     <div class="gn {{ n.c }}" style="left: {{ n.x }}px; top: {{ n.y }}px; width: {{ n.s }}px; height: {{ n.s }}px; --nd: {{ n.nd }}s"></div>
   </sc-for>
 
-  <div style="position: absolute; left: {{ gutter }}px; top: 29px; line-height: 0; color: {{fg}}"><svg viewBox="2.30 -27.92 139.90 28.40" height="17" role="img" aria-label="Exomem"><g transform="translate(-6.642 -32.782) scale(0.7843)"><circle cx="13.6" cy="8.4" r="2.2" fill="currentColor"/><circle cx="18.8" cy="8.4" r="2.2" fill="currentColor"/><circle cx="24" cy="8.4" r="2.2" fill="currentColor"/><circle cx="29.2" cy="8.4" r="2.2" fill="currentColor"/><circle cx="34.4" cy="8.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="13.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="18.8" r="2.2" fill="currentColor"/><circle cx="13.6" cy="29.2" r="2.2" fill="currentColor"/><circle cx="13.6" cy="34.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="39.6" r="2.2" fill="currentColor"/><circle cx="18.8" cy="39.6" r="2.2" fill="currentColor"/><circle cx="24" cy="39.6" r="2.2" fill="currentColor"/><circle cx="29.2" cy="39.6" r="2.2" fill="currentColor"/><circle cx="34.4" cy="39.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="18.8" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="24" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="29.2" cy="24" r="2.2" style="fill: var(--acc)"/></g><path d="M25.8 0.0 33.480000000000004 -10.48 26.12 -20.64H31.2L33.92 -16.72L36.08 -13.6H36.32L38.44 -16.72L41.16 -20.64H45.879999999999995L38.480000000000004 -10.64L46.24 0.0H41.120000000000005L38.04 -4.44L35.92 -7.48H35.68L33.6 -4.44L30.560000000000002 0.0ZM60.0 0.48Q57.72 0.48 55.9 -0.28Q54.08 -1.04 52.82 -2.44Q51.56 -3.84 50.88 -5.84Q50.2 -7.84 50.2 -10.32Q50.2 -12.8 50.88 -14.8Q51.56 -16.8 52.82 -18.200000000000003Q54.08 -19.6 55.9 -20.36Q57.72 -21.12 60.0 -21.12Q62.28 -21.12 64.1 -20.36Q65.92 -19.6 67.18 -18.200000000000003Q68.44 -16.8 69.12 -14.8Q69.8 -12.8 69.8 -10.32Q69.8 -7.84 69.12 -5.84Q68.44 -3.84 67.18 -2.44Q65.92 -1.04 64.1 -0.28Q62.28 0.48 60.0 0.48ZM60.0 -2.96Q62.4 -2.96 63.82000000000001 -4.42Q65.24000000000001 -5.88 65.24000000000001 -8.76V-11.88Q65.24000000000001 -14.76 63.82000000000001 -16.22Q62.4 -17.68 60.0 -17.68Q57.6 -17.68 56.18 -16.22Q54.76 -14.76 54.76 -11.88V-8.76Q54.76 -5.88 56.18 -4.42Q57.6 -2.96 60.0 -2.96ZM73.76 0.0V-20.64H77.48V-17.96H77.68Q78.16 -19.28 79.06 -20.200000000000003Q79.96 -21.12 81.64 -21.12Q83.28 -21.12 84.18 -20.22Q85.08 -19.32 85.32 -17.76H85.48Q86.04 -19.16 87.03999999999999 -20.14Q88.03999999999999 -21.12 89.92 -21.12Q92.32 -21.12 93.25999999999999 -19.44Q94.2 -17.76 94.2 -14.52V0.0H90.48V-13.96Q90.48 -16.12 89.96000000000001 -16.94Q89.44 -17.76 88.28 -17.76Q87.24 -17.76 86.53999999999999 -17.060000000000002Q85.84 -16.36 85.84 -14.96V0.0H82.12V-13.96Q82.12 -16.12 81.62 -16.94Q81.12 -17.76 79.96 -17.76Q78.88 -17.76 78.18 -17.060000000000002Q77.48 -16.36 77.48 -14.96V0.0ZM108.44 0.48Q106.08 0.48 104.19999999999999 -0.28Q102.32 -1.04 101.03999999999999 -2.44Q99.76 -3.84 99.08000000000001 -5.82Q98.4 -7.8 98.4 -10.28Q98.4 -12.76 99.1 -14.760000000000002Q99.8 -16.76 101.06 -18.18Q102.32 -19.6 104.12 -20.36Q105.92 -21.12 108.12 -21.12Q110.28 -21.12 112.03999999999999 -20.380000000000003Q113.8 -19.64 115.03999999999999 -18.28Q116.28 -16.92 116.94 -15.040000000000001Q117.6 -13.16 117.6 -10.88V-9.24H102.8V-8.56Q102.8 -6.12 104.32 -4.58Q105.84 -3.04 108.52 -3.04Q110.52 -3.04 111.94 -3.9Q113.36 -4.76 114.24000000000001 -6.2L116.96000000000001 -3.8000000000000003Q115.92 -2.0 113.78 -0.76Q111.64 0.48 108.44 0.48ZM108.12 -17.8Q106.96000000000001 -17.8 105.98 -17.4Q105.0 -17.0 104.3 -16.259999999999998Q103.6 -15.52 103.19999999999999 -14.52Q102.8 -13.52 102.8 -12.32V-12.040000000000001H113.16V-12.44Q113.16 -14.88 111.78 -16.34Q110.4 -17.8 108.12 -17.8ZM121.76 0.0V-20.64H125.48V-17.96H125.68Q126.16 -19.28 127.06 -20.200000000000003Q127.96 -21.12 129.64 -21.12Q131.28 -21.12 132.18 -20.22Q133.08 -19.32 133.32 -17.76H133.48Q134.04 -19.16 135.04 -20.14Q136.04 -21.12 137.92000000000002 -21.12Q140.32 -21.12 141.26 -19.44Q142.2 -17.76 142.2 -14.52V0.0H138.48V-13.96Q138.48 -16.12 137.95999999999998 -16.94Q137.44 -17.76 136.28 -17.76Q135.24 -17.76 134.54000000000002 -17.060000000000002Q133.84 -16.36 133.84 -14.96V0.0H130.12V-13.96Q130.12 -16.12 129.62 -16.94Q129.12 -17.76 127.96 -17.76Q126.88 -17.76 126.18 -17.060000000000002Q125.48 -16.36 125.48 -14.96V0.0Z" fill="currentColor"/></svg>
+  <div class="jhd" style="position: absolute; left: {{ gutter }}px; top: 29px; line-height: 0; color: {{fg}}"><button type="button" class="jhome" onClick="{{ homeAct }}" disabled="{{ homeOff }}" aria-label="{{ homeLabel }}" title="{{ homeTitle }}"><svg viewBox="2.30 -27.92 139.90 28.40" height="17" aria-hidden="true"><g transform="translate(-6.642 -32.782) scale(0.7843)"><circle cx="13.6" cy="8.4" r="2.2" fill="currentColor"/><circle cx="18.8" cy="8.4" r="2.2" fill="currentColor"/><circle cx="24" cy="8.4" r="2.2" fill="currentColor"/><circle cx="29.2" cy="8.4" r="2.2" fill="currentColor"/><circle cx="34.4" cy="8.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="13.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="18.8" r="2.2" fill="currentColor"/><circle cx="13.6" cy="29.2" r="2.2" fill="currentColor"/><circle cx="13.6" cy="34.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="39.6" r="2.2" fill="currentColor"/><circle cx="18.8" cy="39.6" r="2.2" fill="currentColor"/><circle cx="24" cy="39.6" r="2.2" fill="currentColor"/><circle cx="29.2" cy="39.6" r="2.2" fill="currentColor"/><circle cx="34.4" cy="39.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="18.8" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="24" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="29.2" cy="24" r="2.2" style="fill: var(--acc)"/></g><path d="M25.8 0.0 33.480000000000004 -10.48 26.12 -20.64H31.2L33.92 -16.72L36.08 -13.6H36.32L38.44 -16.72L41.16 -20.64H45.879999999999995L38.480000000000004 -10.64L46.24 0.0H41.120000000000005L38.04 -4.44L35.92 -7.48H35.68L33.6 -4.44L30.560000000000002 0.0ZM60.0 0.48Q57.72 0.48 55.9 -0.28Q54.08 -1.04 52.82 -2.44Q51.56 -3.84 50.88 -5.84Q50.2 -7.84 50.2 -10.32Q50.2 -12.8 50.88 -14.8Q51.56 -16.8 52.82 -18.200000000000003Q54.08 -19.6 55.9 -20.36Q57.72 -21.12 60.0 -21.12Q62.28 -21.12 64.1 -20.36Q65.92 -19.6 67.18 -18.200000000000003Q68.44 -16.8 69.12 -14.8Q69.8 -12.8 69.8 -10.32Q69.8 -7.84 69.12 -5.84Q68.44 -3.84 67.18 -2.44Q65.92 -1.04 64.1 -0.28Q62.28 0.48 60.0 0.48ZM60.0 -2.96Q62.4 -2.96 63.82000000000001 -4.42Q65.24000000000001 -5.88 65.24000000000001 -8.76V-11.88Q65.24000000000001 -14.76 63.82000000000001 -16.22Q62.4 -17.68 60.0 -17.68Q57.6 -17.68 56.18 -16.22Q54.76 -14.76 54.76 -11.88V-8.76Q54.76 -5.88 56.18 -4.42Q57.6 -2.96 60.0 -2.96ZM73.76 0.0V-20.64H77.48V-17.96H77.68Q78.16 -19.28 79.06 -20.200000000000003Q79.96 -21.12 81.64 -21.12Q83.28 -21.12 84.18 -20.22Q85.08 -19.32 85.32 -17.76H85.48Q86.04 -19.16 87.03999999999999 -20.14Q88.03999999999999 -21.12 89.92 -21.12Q92.32 -21.12 93.25999999999999 -19.44Q94.2 -17.76 94.2 -14.52V0.0H90.48V-13.96Q90.48 -16.12 89.96000000000001 -16.94Q89.44 -17.76 88.28 -17.76Q87.24 -17.76 86.53999999999999 -17.060000000000002Q85.84 -16.36 85.84 -14.96V0.0H82.12V-13.96Q82.12 -16.12 81.62 -16.94Q81.12 -17.76 79.96 -17.76Q78.88 -17.76 78.18 -17.060000000000002Q77.48 -16.36 77.48 -14.96V0.0ZM108.44 0.48Q106.08 0.48 104.19999999999999 -0.28Q102.32 -1.04 101.03999999999999 -2.44Q99.76 -3.84 99.08000000000001 -5.82Q98.4 -7.8 98.4 -10.28Q98.4 -12.76 99.1 -14.760000000000002Q99.8 -16.76 101.06 -18.18Q102.32 -19.6 104.12 -20.36Q105.92 -21.12 108.12 -21.12Q110.28 -21.12 112.03999999999999 -20.380000000000003Q113.8 -19.64 115.03999999999999 -18.28Q116.28 -16.92 116.94 -15.040000000000001Q117.6 -13.16 117.6 -10.88V-9.24H102.8V-8.56Q102.8 -6.12 104.32 -4.58Q105.84 -3.04 108.52 -3.04Q110.52 -3.04 111.94 -3.9Q113.36 -4.76 114.24000000000001 -6.2L116.96000000000001 -3.8000000000000003Q115.92 -2.0 113.78 -0.76Q111.64 0.48 108.44 0.48ZM108.12 -17.8Q106.96000000000001 -17.8 105.98 -17.4Q105.0 -17.0 104.3 -16.259999999999998Q103.6 -15.52 103.19999999999999 -14.52Q102.8 -13.52 102.8 -12.32V-12.040000000000001H113.16V-12.44Q113.16 -14.88 111.78 -16.34Q110.4 -17.8 108.12 -17.8ZM121.76 0.0V-20.64H125.48V-17.96H125.68Q126.16 -19.28 127.06 -20.200000000000003Q127.96 -21.12 129.64 -21.12Q131.28 -21.12 132.18 -20.22Q133.08 -19.32 133.32 -17.76H133.48Q134.04 -19.16 135.04 -20.14Q136.04 -21.12 137.92000000000002 -21.12Q140.32 -21.12 141.26 -19.44Q142.2 -17.76 142.2 -14.52V0.0H138.48V-13.96Q138.48 -16.12 137.95999999999998 -16.94Q137.44 -17.76 136.28 -17.76Q135.24 -17.76 134.54000000000002 -17.060000000000002Q133.84 -16.36 133.84 -14.96V0.0H130.12V-13.96Q130.12 -16.12 129.62 -16.94Q129.12 -17.76 127.96 -17.76Q126.88 -17.76 126.18 -17.060000000000002Q125.48 -16.36 125.48 -14.96V0.0Z" fill="currentColor"/></svg></button>
 </div>
   <sc-if value="{{ showHeaderEmail }}" hint-placeholder-val="{{ false }}">
-    <div style="position: absolute; right: {{ gutter }}px; top: 32px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}">{{ email }}</div>
+    <div class="jhd" style="position: absolute; right: {{ gutter }}px; top: 32px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}">{{ email }}</div>
   </sc-if>
 
-  <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 {{ gutter }}px; box-sizing: border-box">
+  <div class="jcol" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: {{ colPad }}; box-sizing: border-box">
     <div style="width: {{ colW }}px; max-width: 100%; display: flex; flex-direction: column; align-items: center; gap: {{ colGap }}px">
       <div style="display: {{ tileDisplay }}; align-items: center">
         <sc-if value="{{ hasApp }}" hint-placeholder-val="{{ true }}">
@@ -233,9 +254,9 @@ body{margin:0}
         <sc-if value="{{ showSent }}" hint-placeholder-val="{{ false }}">
           <div style="width: 100%; box-sizing: border-box; background: {{panel}}; border: 1px solid {{line}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px">
             <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Sent to</span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ email }}</span></div>
-            <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Link works for</span><span class="cd">{{ linkLeft }}</span></div>
-            <div style="height: 2px; border-radius: 2px; background: {{line}}; overflow: hidden"><div style="height: 100%; width: {{ linkPct }}%; background: {{fg}}; opacity: .5"></div></div>
-            <div style="color: {{muted}}; line-height: 1.5">Open it on this device. It brings you back here.</div>
+            <sc-if value="{{ sentLink }}" hint-placeholder-val="{{ true }}"><div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Link works for</span><span class="cd">{{ linkLeft }}</span></div>
+            <div style="height: 2px; border-radius: 2px; background: {{line}}; overflow: hidden"><div style="height: 100%; width: {{ linkPct }}%; background: {{fg}}; opacity: .5"></div></div></sc-if>
+            <div style="color: {{muted}}; line-height: 1.5">{{ sentHint }}</div>
           </div>
         </sc-if>
 
@@ -260,6 +281,9 @@ body{margin:0}
           </div>
         </sc-if>
 
+        <sc-if value="{{ soloSecondary }}" hint-placeholder-val="{{ false }}">
+          <button type="button" onClick="{{ secondaryAct }}" style="min-height: 44px; padding: 0 16px; border: 0; background: transparent; color: {{muted}}; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">{{ secondary }}</button>
+        </sc-if>
         <sc-if value="{{ hasPrimary }}" hint-placeholder-val="{{ true }}">
           <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%">
             <button type="button" onClick="{{ primaryAct }}" aria-disabled="{{ primaryDisabled }}" style="width: 100%; height: 48px; border: 0; border-radius: 8px; background: {{fg}}; color: {{bg}}; opacity: {{ primaryOpacity }}; font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 500; cursor: pointer">{{ primary }}</button>
@@ -298,6 +322,7 @@ body{margin:0}
     </div>
   </div>
 
+  <sc-if value="{{ isInline }}" hint-placeholder-val="{{ false }}"><dc-import name="Checkout-Inline" ground="clear" summary="{{ ckSummary }}" state="{{ ckState }}" price="{{ ckPrice }}" theme="{{ theme }}" device="{{ ckDevice }}" inviter="{{ inviter }}" email="{{ email }}" scroll="{{ ckScroll }}" sample="{{ ckSample }}" fields="{{ ckFields }}" buyer="{{ ckBuyer }}" country="{{ ckCountry }}" paddle="{{ ckPaddle }}" pay-ms="{{ ckPayMs }}" on-done="{{ ckDone }}" on-paid="{{ ckPaid }}" on-paying="{{ ckPaying }}" hint-size="100%,100%"></dc-import></sc-if>
   <sc-if value="{{ showPaddle }}" hint-placeholder-val="{{ false }}">
     <div style="position: absolute; inset: 0; background: {{ scrim }}; display: flex; align-items: center; justify-content: center">
       <div style="width: {{ paddleW }}px; height: 520px; border-radius: 12px; background: {{ pBg }}; color: {{ pFg }}; border: 1px solid rgba({{ pRgb }},0.12); box-shadow: 0 30px 80px -20px rgba(0,0,0,0.8); box-sizing: border-box; padding: 26px; display: flex; flex-direction: column; gap: 14px; font-family: Inter, system-ui, sans-serif">
@@ -316,7 +341,7 @@ body{margin:0}
   <sc-if value="{{ hasFooter }}" hint-placeholder-val="{{ true }}"><div style="position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{muted}}; opacity: 0.8">{{ footer }}</div></sc-if>
 </main>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"hover":{"editor":"enum","default":"glow","options":["glow","push","clear"]},"step":{"editor":"enum","default":"auto","options":["auto","signedout","invite","accepting","invitebad","inviteexisting","inviteapplied","invitekept","connecterror","reviewer","reviewerfail","sent","subscribe","paying","confirming","choose","waiting","other","joined","connect","preparing","readonly","ended","paused","suspended","expired","connecting","handback","declined","kept"]},"app":{"editor":"enum","default":"Claude Code","options":["Claude Code","Claude","ChatGPT","Codex","web"]},"joined":{"editor":"enum","default":"Claude","options":["Claude","ChatGPT"]},"sequence":{"editor":"enum","default":"app","options":["app","web","connect"]},"inviteOnly":{"editor":"boolean","default":false},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"joinedApp":{"editor":"enum","default":"none","options":["none","Claude","ChatGPT","other"]},"level":{"editor":"enum","default":"default","options":["default","off","light","balanced","maximal"]},"invite":{"editor":"enum","default":"none","options":["none","friend","covered"]},"inviter":{"editor":"text","default":"Alex"},"inviteNote":{"editor":"text","default":"This is what I’ve been building. I’d love to know what you think."},"inviteEmail":{"editor":"text","default":"maria@example.com"},"usualPrice":{"editor":"text","default":"€15"},"friendPrice":{"editor":"text","default":"€10"},"discountMonths":{"editor":"number","default":0},"sides":{"editor":"enum","default":"none","options":["none","chain"]},"screenH":{"editor":"number","default":844},"graceDays":{"editor":"number","default":14},"retentionDays":{"editor":"number","default":30},"reference":{"editor":"text","default":"EX-7Q4M"},"field":{"editor":"enum","default":"web","options":["web","graph","stars"]},"mark":{"editor":"enum","default":"dot","options":["dot","held","cut"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"still":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#FFB000","options":["#FFB000","#FF6B3D","#FFF1D6","#E8C47C","#C6F26B"]},"email":{"editor":"text","default":"you@example.com"},"price":{"editor":"text","default":""},"bg":{"editor":"color","default":"#0A0908"},"panel":{"editor":"color","default":"#12100E"},"fg":{"editor":"color","default":"#ECE9E2"},"muted":{"editor":"color","default":"#A39E93"},"$preview":{"width":1280,"height":820}}'>
+<script type="text/x-dc" data-dc-script data-props='{"checkout":{"editor":"enum","default":"inline","options":["overlay","inline"]},"checkoutState":{"editor":"enum","default":"auto","options":["auto","loading","ready","paying","slow","failed","paid","unavailable"]},"ckBuyer":{"editor":"enum","default":"person","options":["person","business"]},"ckFields":{"editor":"enum","default":"exomem","options":["exomem","paddle"]},"ckScroll":{"editor":"enum","default":"top","options":["top","end"]},"ckSummary":{"editor":"enum","default":"hero","options":["hero","steps","included"]},"sentCopy":{"editor":"enum","default":"shipped","options":["shipped","proposed"]},"alive":{"editor":"enum","default":"loop","options":["shipped","current","loop","tide","tideloop"]},"activity":{"editor":"enum","default":"off","options":["off","on"]},"hover":{"editor":"enum","default":"glow","options":["glow","push","clear"]},"step":{"editor":"enum","default":"auto","options":["auto","signedout","linkexpired","linkused","ratelimited","waitlist","unreachable","invite","accepting","invitebad","inviteexisting","inviteapplied","invitekept","connecterror","reviewer","reviewerfail","sent","subscribe","paying","confirming","choose","waiting","other","joined","connect","preparing","readonly","ended","paused","suspended","expired","connecting","handback","declined","kept"]},"app":{"editor":"enum","default":"Claude Code","options":["Claude Code","Claude","ChatGPT","Codex","web"]},"joined":{"editor":"enum","default":"Claude","options":["Claude","ChatGPT"]},"sequence":{"editor":"enum","default":"app","options":["app","web","connect"]},"inviteOnly":{"editor":"boolean","default":false},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"joinedApp":{"editor":"enum","default":"none","options":["none","Claude","ChatGPT","other"]},"level":{"editor":"enum","default":"default","options":["default","off","light","balanced","maximal"]},"invite":{"editor":"enum","default":"none","options":["none","friend","covered"]},"inviter":{"editor":"text","default":"Alex"},"inviteNote":{"editor":"text","default":"This is what I’ve been building. I’d love to know what you think."},"inviteEmail":{"editor":"text","default":"maria@example.com"},"usualPrice":{"editor":"text","default":"€15"},"friendPrice":{"editor":"text","default":"€10"},"discountMonths":{"editor":"number","default":0},"sides":{"editor":"enum","default":"none","options":["none","chain"]},"screenH":{"editor":"number","default":844},"graceDays":{"editor":"number","default":14},"retentionDays":{"editor":"number","default":30},"reference":{"editor":"text","default":"EX-7Q4M"},"field":{"editor":"enum","default":"web","options":["web","graph","stars"]},"mark":{"editor":"enum","default":"dot","options":["dot","held","cut"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"still":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#FFB000","options":["#FFB000","#FF6B3D","#FFF1D6","#E8C47C","#C6F26B"]},"email":{"editor":"text","default":"reader@example.com"},"price":{"editor":"text","default":""},"bg":{"editor":"color","default":"#0A0908"},"panel":{"editor":"color","default":"#12100E"},"fg":{"editor":"color","default":"#ECE9E2"},"muted":{"editor":"color","default":"#A39E93"},"$preview":{"width":1280,"height":820}}'>
 // Every number on this page is computed at render: the link clock, the resend clock, the price (from Paddle, or nothing).
 const AUTO = [['signedout', 3400], ['sent', 3800], ['connect', 3800], ['connecting', 2700], ['handback', 4800]];
 // Started on the web: the start page, then Claude's consent page (the app changes mid-way), then back to the start page.
@@ -338,12 +363,308 @@ const CHOICES = [
   { name: 'ChatGPT', also: 'also Codex', glyph: 'G', cta: 'Open ChatGPT ↗', app: 'ChatGPT' },
   { name: 'Another app', also: 'any app that supports MCP', glyph: '+', cta: 'Show address', app: 'other' },
 ];
+const OPEN_URL = { Claude: 'https://claude.ai/settings/connectors', ChatGPT: 'https://chatgpt.com/plugins' };
+const openApp = (app) => { const u = OPEN_URL[app]; if (u) try { window.open(u, '_blank', 'noopener'); } catch (e) {} };
 const MCP_URL = 'https://substratesystems.io/api/exomem/mcp/v1';
 // Prominence levels and their copy-paste blocks, verbatim from exomem docs/prominence.md.
 const LEVELS = [{"key": "off", "name": "Off", "desc": "Exomem stays connected but waits. It searches or saves only when you ask it to.", "block": "I keep a personal Knowledge Base served by the Exomem MCP connector. Use it only when I explicitly ask you to search it or save to it. Never search or write on your own judgment, and don't mention it otherwise."}, {"key": "light", "name": "Light", "desc": "Searches when you ask, or when the topic is clearly its. Saves only when you ask.", "block": "I keep a personal Knowledge Base served by the Exomem MCP connector.\n\nExomem prominence: LIGHT.\n- Recall: search Exomem only when I ask a recall question outright, or when the turn is unmistakably about a topic it covers. When in doubt, don't search.\n- Capture: write to Exomem only when I ask. Do not save on your own judgment, however durable the conclusion looks.\n- Narration: never mention searching. Fold anything you retrieve into the answer with a citation and nothing more."}, {"key": "balanced", "name": "Balanced", "desc": "Searches when the topic matches. Saves conclusions. Stays quiet.", "block": "I use Exomem as my durable Knowledge Base. If no skill is loaded, call bootstrap(profile=\"compact\") once per chat and follow it.\n\nExomem prominence: BALANCED.\n- Recall: search when a turn concerns my projects, domains, named entities, or prior conclusions, attempts, or decisions. Skip chit-chat, control, and answered follow-ups; cite useful hits.\n- Capture: save at a stepping stone: a durable conclusion, reusable fact about a recurring entity, or a method carried out with a reported result. A stable preference, recurring routine, historical baseline, or durable affiliation qualifies only with stability or recurrence plus reusable comparison, interpretation, or decision value. Use a uniquely resolved Entity's narrow facet, else concise compiled observation: `proactive_capture`; Records only for a compatible measurement; affiliation relation: `link_acceptance`; new Entity: `proactive_capture`; merge/structural change: confirmed `restructure_execution`. Fleeting preferences, one-offs, incidental associations, trivial metrics, and tentative claims stay quiet. Not mid-thought exploration, tangents, or open questions. Never save transcripts.\n- Entities: once per chat, after primary work and before the final response, review_memory(mode=\"attention\", categories=[\"entity_recurrence\"], limit=3); skip if unavailable.\n- Narration: stay quiet; cite useful recalls and after a write say \"Saved -> <path>\".\n- A committed final mutation result is authoritative despite adjacent warnings."}, {"key": "maximal", "name": "Maximal", "desc": "Searches before every real question. Saves every step forward, and says so.", "block": "I use Exomem as my durable Knowledge Base. If no skill is loaded, call bootstrap(profile=\"compact\") once per chat and follow it.\n\nExomem prominence: MAXIMAL.\n- Recall: search before every substantive turn; skip only chit-chat/control. Cite useful hits. An empty result is a scoped miss and reason to capture.\n- Capture: save every stepping stone: decision, solved problem, diagnosed failure, reusable pattern, reusable fact about a recurring entity, or a method carried out with a reported useful result. A stable preference, recurring routine, historical baseline, or durable affiliation qualifies only with stability or recurrence plus reusable comparison, interpretation, or decision value. Use a uniquely resolved Entity's narrow facet, else concise compiled observation; these and a new Entity: `proactive_capture`; Records only for a compatible measurement; affiliation relation: `link_acceptance`; merge/structural change: confirmed `restructure_execution`. Fleeting preferences, one-offs, incidental associations, trivial metrics, and tentative claims stay quiet. When torn between saving and letting it pass, save. Never save transcripts.\n- Entities: once per chat, after primary work and before the final response, review_memory(mode=\"attention\", categories=[\"entity_recurrence\"], limit=3); skip if unavailable.\n- Narration: cite recalls; after a write say \"Saved -> <path>\".\n- A committed final mutation result is authoritative; never invent a failure code from warnings."}];
 const LINK_MS = 15 * 60 * 1000;
 const REVIEWER_NOTE = 'It’s a sample account with example notes, already subscribed, so there is no checkout.';
 const RESEND_MS = 60 * 1000;
+
+// Exomem "alive" engine (round 41 proposal). One motion grammar for every graph:
+//   ambient — ink only, never amber: the system is on. Three directions: current, grow, tide.
+//   event   — amber, only when something happened (a recall, a save, a connection), always paired with text by the page.
+// It draws into an overlay <g> inside the graph's own <svg>: vectors only, lines stay 1 px at any scale
+// (vector-effect: non-scaling-stroke), dots grow by radius, never by transform. Off under reduced motion.
+// Attach: <svg data-alive="current|grow|tide|off" data-graph='{"n":[[x,y,r],…],"e":[[i,j],…]}' data-ink="#…" data-amber="#…" data-alive-id="…" data-entry="x,y">
+(function () {
+  if (typeof window === 'undefined' || window.__exoAlive) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const reducedQ = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const mk = (tag, attrs, parent) => { const el = document.createElementNS(NS, tag); for (const k in attrs) el.setAttribute(k, attrs[k]); if (parent) parent.appendChild(el); return el; };
+  const ease = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  class Alive {
+    constructor(svg) {
+      this.svg = svg; this.mode = svg.getAttribute('data-alive');
+      let g = {}; try { g = JSON.parse(svg.getAttribute('data-graph') || '{}'); } catch (e) {}
+      this.N = (g.n || []).map(([x, y, r]) => ({ x, y, r: r || 3 }));
+      this.E = (g.e || []).filter(([i, j]) => this.N[i] && this.N[j]);
+      this.adj = this.N.map(() => []); this.E.forEach(([i, j], k) => { this.adj[i].push([j, k]); this.adj[j].push([i, k]); });
+      this.ink = svg.getAttribute('data-ink') || '#ECE9E2'; this.amber = svg.getAttribute('data-amber') || '#FFB000';
+      const vb = (svg.getAttribute('viewBox') || '0 0 100 100').split(/[ ,]+/).map(Number); this.vb = vb;
+      const en = (svg.getAttribute('data-entry') || '').split(',').map(Number); this.entry = en.length === 2 && !isNaN(en[0]) ? { x: en[0], y: en[1] } : { x: vb[0] + vb[2] / 2, y: vb[1] + vb[3] };
+      this.reduced = reducedQ();
+      this.amb = mk('g', { class: 'exo-alive-amb', 'pointer-events': 'none' });   // under the page's own notes and links
+      this.root = mk('g', { class: 'exo-alive', 'pointer-events': 'none' });       // events and hover, on top
+      this.hov = mk('g', {}, this.root); this.evt = mk('g', {}, this.root);
+      const hx = (this.ink.match(/[0-9a-f]{2}/gi) || ['ec', 'e9', 'e2']).slice(0, 3).map((v) => parseInt(v, 16));
+      this.k = (0.299 * hx[0] + 0.587 * hx[1] + 0.114 * hx[2]) / 255 < 0.5 ? 0.6 : 1;   // dark ink on paper reads stronger
+      // moving ink matches dark mode's contrast, not its opacity: light on black pops, grey on paper hides (WCAG luminance, solved per alpha)
+      const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }, unlin = (L) => 255 * (L <= 0.00304 ? L * 12.92 : 1.055 * Math.pow(L, 1 / 2.4) - 0.055);
+      const light = this.k < 1, G = light ? 248 : 9, I = hx[1];
+      this.par = (a) => { if (!light) return a; const cr = (lin(9 + a * (233 - 9)) + 0.05) / (lin(9) + 0.05), L = (lin(G) + 0.05) / cr - 0.05; return Math.min(0.9, Math.max(a, (G - unlin(Math.max(0, L))) / (G - I))); };
+      this.items = []; this.t0 = performance.now(); this.next = {}; this.born = [];
+      this.lenMed = this.E.length ? this.E.map(([i, j]) => Math.hypot(this.N[i].x - this.N[j].x, this.N[i].y - this.N[j].y)).sort((a, b) => a - b)[Math.floor(this.E.length / 2)] : 60;
+      this.unit = Math.max(vb[2], vb[3]) / 1000; // speeds scale with the drawing
+      if (this.mode === 'tide' || this.mode === 'tideloop') this.buildCopies();
+      this.svg.insertBefore(this.amb, this.svg.firstChild); this.svg.appendChild(this.root);
+      if (svg.getAttribute('data-hover') === 'glow') this.hoverOn = true;
+      if (this.hoverOn && this.reduced) this.hovT = setInterval(() => { if (!this.alive()) clearInterval(this.hovT); else this.hoverStep(); }, 120);
+      this.loop = this.loop.bind(this); if (!this.reduced) this.raf = requestAnimationFrame(this.loop);
+    }
+    trim(i, j) { const a = this.N[i], b = this.N[j], L = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, ra = a.r + 1, rb = b.r + 1; if (L <= ra + rb + 1) return [a, b]; return [{ x: a.x + ux * ra, y: a.y + uy * ra }, { x: b.x - ux * rb, y: b.y - uy * rb }]; }
+    line(a, b, attrs, parent) { return mk('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, 'vector-effect': 'non-scaling-stroke', 'stroke-linecap': 'round', ...attrs }, parent || this.amb); }
+    dot(p, r, attrs, parent) { return mk('circle', { cx: p.x, cy: p.y, r, ...attrs }, parent || this.amb); }
+    alive() { return this.svg.isConnected; }
+    loop(now) {
+      // never let one bad frame stop the engine with half-drawn pulses frozen on screen (seen on canvas): schedule first, then draw
+      if (!this.alive()) {
+        // the host may detach and re-attach the svg (a re-render); wait a while before giving up, and clear what was drawn
+        this.items.forEach((it) => it.el && it.el.remove()); this.items = []; while (this.evt.firstChild) this.evt.firstChild.remove(); while (this.hov.firstChild) this.hov.firstChild.remove(); this.hovI = -1;
+        this.gone = (this.gone || 0) + 1; if (this.gone < 600) this.raf = requestAnimationFrame(this.loop); else this.dead = true; return;
+      }
+      this.gone = 0; this.raf = requestAnimationFrame(this.loop);
+      try {
+        if (!this.root.isConnected) this.svg.appendChild(this.root);   // a host re-render dropped the layers: put them back
+        if (!this.amb.isConnected) this.svg.insertBefore(this.amb, this.svg.firstChild);
+        if (this.hoverOn) this.hoverStep();
+        if (!document.hidden) { const t = (now - this.t0) / 1000; this.tick(t); const cur = this.items; this.items = []; const keep = cur.filter((it) => { try { return it.step(t) !== false; } catch (e) { it.el && it.el.remove(); return false; } }); this.items = keep.concat(this.items); }
+      } catch (e) { this.items.forEach((it) => it.el && it.el.remove()); this.items = []; this.busy = false; }
+    }
+    every(key, gap, t, fn) { if (this.next[key] === undefined) this.next[key] = t + gap * Math.random(); if (t >= this.next[key]) { this.next[key] = t + gap * rnd(0.75, 1.25); fn(); } }
+    tick(t) {
+      if (!this.N.length) return;
+      if (this.mode === 'current' || this.mode === 'loop') this.every('pulse', 3.4 / Math.max(1, Math.min(2, this.E.length / 40)), t, () => this.pulse(t, false));
+      // loop: today's walking light stays as the idle state (amber where the page already had it; ink on Home, data-walk="ink"); it steps aside while a real event plays
+      if ((this.mode === 'loop' || this.mode === 'tideloop') && this.svg.getAttribute('data-walk') === 'ink') this.every('walk', 3.8, t, () => { if (!this.busy) this.pulse(t, false, null, null, true); });
+      if (this.working) this.every('work', this.workAmber ? 0.55 : 0.7, t, () => {
+        const V = this.workClear ? this.visible(this.workClear) : null;
+        if (!V) return this.pulse(t, false, null, null, true);
+        const from = this.N.map((p, i) => i).filter((i) => V.n[i] && this.adj[i].some(([j]) => V.e(i, j))); if (!from.length) return;
+        // toward: the work flows into the thing that is working (the checkout panel), arriving from different sides
+        const el = this.workToward && document.querySelector(this.workToward), r = el && el.getBoundingClientRect(), sr = this.svg.getBoundingClientRect();
+        if (r && r.width && sr.width) {
+          const k = this.vb[2] / sr.width, bx = [this.vb[0] + (r.left - sr.left) * k, this.vb[0] + (r.right - sr.left) * k], by = [this.vb[1] + (r.top - sr.top) * k, this.vb[1] + (r.bottom - sr.top) * k];
+          const dist = (i) => { const p = this.N[i], dx = Math.max(bx[0] - p.x, 0, p.x - bx[1]), dy = Math.max(by[0] - p.y, 0, p.y - by[1]); return Math.hypot(dx, dy); };
+          const ends = from.slice().sort((a, b) => dist(a) - dist(b)).slice(0, 6).filter((i) => i !== this.lastWork), target = pick(ends.length ? ends : from); this.lastWork = target;
+          const d = new Map([[target, 0]]), q = [target]; while (q.length) { const u = q.shift(); for (const [v] of this.adj[u]) if (!d.has(v) && V.n[v] && V.e(u, v)) { d.set(v, d.get(u) + 1); q.push(v); } }
+          const far = [...d].filter(([i, n]) => n >= 2 && n <= 4).map((x) => x[0]);
+          if (far.length) { const path = this.route(pick(far), target, (i) => V.n[i], V.e); if (path && path.length > 1) return this.workAmber ? this.pulse(t, true, path, () => this.glow(target, true), false, { a0: 0.7, w: 1.4, speed: 140 }) : this.pulse(t, false, path, () => this.glow(target), true); }
+        }
+        this.pulse(t, false, this.walk(pick(from), Math.floor(rnd(2, 5)), V.e), null, true);
+      });
+      if (this.mode === 'grow') { this.every('cand', 3.4, t, () => this.candidate(t)); if (this.svg.getAttribute('data-births') !== 'off') this.every('birth', 16, t, () => this.birth(t, false)); }   // Home: a new dot at rest would contradict the real note count
+      if ((this.mode === 'tide' || this.mode === 'tideloop') && (this.fr = (this.fr || 0) + 1) % 2) this.tideStep(t);   // 30 fps is plenty for a slow front
+    }
+    // ---- current: faint ink pulses chain across two to five links — the system carrying, not recalling
+    glow(i, am) { const p = this.N[i]; if (!p || this.reduced) return; const a = am ? 0.85 : this.par(0.55), g = this.dot(p, p.r + (am ? 1.4 : 2.2), { fill: am ? this.amber : this.ink, opacity: a }, am ? this.evt : this.amb), g0 = performance.now();
+      this.items.push({ el: g, step: () => { const k = (performance.now() - g0) / 700; if (k >= 1) { g.remove(); return false; } g.setAttribute('opacity', (a * (1 - k)).toFixed(3)); } }); }
+    walk(from, hops, eok) { const path = [from]; let k = 0; while (path.length <= hops && k++ < 20) { const u = path[path.length - 1], nb = this.adj[u].filter(([j]) => !path.includes(j) && (!eok || eok(u, j))); if (!nb.length) break; path.push(pick(nb)[0]); } return path; }
+    // which notes and links can actually be seen: on screen, and not under the page's own text or panels (sel: the content to keep clear of).
+    // Empty layout boxes don't count; text, controls, pictures and anything with a fill or border does.
+    visible(sel) {
+      const now = performance.now(); if (this.visC && this.visC.sel === sel && now - this.visC.at < 900) return this.visC;
+      const r = this.svg.getBoundingClientRect(), vb = this.vb; if (!r.width) return null;
+      const sx = r.width / vb[2], sy = r.height / vb[3], memo = new Map();
+      const solid = (el) => { if (memo.has(el)) return memo.get(el); let v = false;
+        if (/^(svg|img|input|button|select|textarea|iframe|canvas|video)$/i.test(el.tagName) || el.closest('svg') && !el.closest('svg[data-alive]')) v = true;
+        else if ([...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) v = true;
+        else { const cs = getComputedStyle(el), bg = cs.backgroundColor.match(/[\d.]+/g); v = (bg && (bg.length < 4 || +bg[3] > 0.02)) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none' || parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderLeftWidth) > 0; }
+        memo.set(el, v); return v; };
+      const free = (x, y) => { if (x < 2 || y < 2 || x > innerWidth - 2 || y > innerHeight - 2) return false; let el = document.elementFromPoint(x, y); if (!el) return false;
+        for (; el && el.matches && el.matches(sel + ' *'); el = el.parentElement) if (solid(el)) return false; return true; };
+      const at = (x, y) => free(r.left + (x - vb[0]) * sx, r.top + (y - vb[1]) * sy);
+      const n = this.N.map((p) => at(p.x, p.y)), ec = new Map();
+      const e = (i, j) => { const key = i < j ? i + '-' + j : j + '-' + i; if (ec.has(key)) return ec.get(key); let v = n[i] && n[j];
+        for (let k = 1; v && k < 5; k++) { const t = k / 5; v = at(this.N[i].x + (this.N[j].x - this.N[i].x) * t, this.N[i].y + (this.N[j].y - this.N[i].y) * t); }
+        ec.set(key, v); return v; };
+      return (this.visC = { sel, at: now, n, e });
+    }
+    pulse(t, amber, path, onArrive, bright, st) {
+      path = path || this.walk(Math.floor(Math.random() * this.N.length), Math.floor(rnd(2, bright ? 5 : 4)));
+      if (path.length < 2) return;
+      const pts = path.map((i) => (typeof i === 'number' ? this.N[i] : i));
+      const col = amber ? this.amber : this.ink, layer = amber ? this.evt : this.amb;
+      const speed = (st && st.speed) || (amber ? 170 : bright ? 80 : 55), a0 = (st && st.a0) || (amber ? 0.8 : this.par(bright ? 0.5 : 0.34)), fade = amber ? 0.9 : 0.8;
+      const segs = []; let acc = 0;
+      for (let h = 0; h < pts.length - 1; h++) {
+        let a = pts[h], b = pts[h + 1];
+        if (typeof path[h] === 'number' && typeof path[h + 1] === 'number') [a, b] = this.trim(path[h], path[h + 1]);
+        const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        segs.push({ a, b, el: this.line(a, a, { stroke: col, 'stroke-width': (st && st.w) || (amber ? 1.6 : 1.1), opacity: 0 }, layer), t0: acc, dur: L / speed, node: path[h + 1] }); acc += L / speed;
+      }
+      const glint = (i) => { const p = this.N[i]; if (!p) return; const ga = amber ? 0.9 : this.par(bright ? 0.5 : 0.28), g = this.dot(p, p.r + 1, { fill: col, opacity: ga }, layer), g0 = performance.now();
+        this.items.push({ el: g, step: () => { const k = (performance.now() - g0) / (amber ? 900 : 800); if (k >= 1) { g.remove(); return false; } g.setAttribute('opacity', (ga * (1 - k)).toFixed(3)); } }); };
+      const start = performance.now();
+      this.items.push({ el: segs[0].el, step: () => {
+        const s = (performance.now() - start) / 1000; let live = false;
+        segs.forEach((g, n) => {
+          const k = (s - g.t0) / g.dur;
+          if (k < 0) { live = true; return; }
+          if (k <= 1) { const e = ease(k); g.el.setAttribute('x2', (g.a.x + (g.b.x - g.a.x) * e).toFixed(1)); g.el.setAttribute('y2', (g.a.y + (g.b.y - g.a.y) * e).toFixed(1)); g.el.setAttribute('opacity', a0.toFixed(3)); live = true; return; }
+          if (!g.done) { g.done = true; g.el.setAttribute('x2', g.b.x); g.el.setAttribute('y2', g.b.y); if (typeof g.node === 'number') glint(g.node); if (n === segs.length - 1 && onArrive) onArrive(); }
+          const f = (s - g.t0 - g.dur) / fade;
+          if (f < 1) { g.el.setAttribute('opacity', (a0 * (1 - f)).toFixed(3)); live = true; } else if (g.el.isConnected) g.el.remove();
+        });
+        if (!live) { segs.forEach((g) => g.el.remove()); return false; }
+      } });
+    }
+    // ---- grow: a link is proposed between two near notes; most are kept, some let go. Now and then a note joins.
+    candidate(t) {
+      const linked = new Set(this.E.map(([i, j]) => i < j ? i + '-' + j : j + '-' + i));
+      for (let tries = 0; tries < 30; tries++) {
+        const i = Math.floor(Math.random() * this.N.length), a = this.N[i];
+        const near = this.N.map((b, j) => [j, Math.hypot(a.x - b.x, a.y - b.y)]).filter(([j, d]) => j !== i && d < this.lenMed * 1.7 && !linked.has(i < j ? i + '-' + j : j + '-' + i)).sort((p, q) => p[1] - q[1]);
+        if (!near.length) continue;
+        const j = near[0][0], b = this.N[j], keep = Math.random() < 0.65, L = Math.hypot(b.x - a.x, b.y - a.y);
+        const el = this.line(a, b, { stroke: this.ink, 'stroke-width': 1, 'stroke-dasharray': '2 4', opacity: 0.45 });
+        const t0 = performance.now(); let solid = false;
+        this.items.push({ el, step: () => {
+          const s = (performance.now() - t0) / 1000;
+          if (s < 1.3) { const k = ease(s / 1.3); el.setAttribute('x2', (a.x + (b.x - a.x) * k).toFixed(1)); el.setAttribute('y2', (a.y + (b.y - a.y) * k).toFixed(1)); return; }
+          if (s < 3.2) return;
+          if (keep && !solid) { solid = true; el.setAttribute('stroke-dasharray', 'none'); el.setAttribute('opacity', '0.24'); this.E.push([i, j]); this.adj[i].push([j, this.E.length - 1]); this.adj[j].push([i, this.E.length - 1]); this.born.push(el); if (this.born.length > 16) { const old = this.born.shift(); old.remove(); } return false; }
+          const k = Math.min(1, (s - 3.2) / 1.2); el.setAttribute('opacity', (0.45 * (1 - k)).toFixed(3)); if (k >= 1) { el.remove(); return false; }
+        } });
+        return;
+      }
+    }
+    birth(t, amber, near) {
+      const base = near !== undefined ? this.N[near] : pick(this.N), ang = rnd(0, 6.283), d = this.lenMed * rnd(0.55, 0.9);
+      const p = { x: Math.max(this.vb[0] + 8, Math.min(this.vb[0] + this.vb[2] - 8, base.x + Math.cos(ang) * d)), y: Math.max(this.vb[1] + 8, Math.min(this.vb[1] + this.vb[3] - 8, base.y + Math.sin(ang) * d)), r: 2.6 };
+      const idx = this.N.push(p) - 1; this.adj.push([]);
+      const nbrs = this.N.slice(0, idx).map((b, j) => [j, Math.hypot(p.x - b.x, p.y - b.y)]).sort((x, y) => x[1] - y[1]).slice(0, 2).map((x) => x[0]);
+      const col = amber ? this.amber : this.ink, layer = amber ? this.evt : this.amb;
+      const ring = amber ? this.dot(p, 4, { fill: 'none', stroke: col, 'stroke-width': 1.2, 'vector-effect': 'non-scaling-stroke', opacity: 0.8 }, layer) : null;
+      const dotEl = this.dot(p, 0, { fill: col, opacity: amber ? 1 : 0.35 }, layer);
+      const links = nbrs.map((j) => this.line(p, p, { stroke: col, 'stroke-width': 1, opacity: amber ? 0.6 : 0.24 }, layer));
+      const t0 = performance.now();
+      this.items.push({ el: dotEl, step: () => {
+        const s = (performance.now() - t0) / 1000;
+        dotEl.setAttribute('r', (p.r * ease(Math.min(1, s / 0.6))).toFixed(2));
+        if (ring) { const k = Math.min(1, s / 1.4); ring.setAttribute('r', (4 + 14 * k).toFixed(1)); ring.setAttribute('opacity', (0.8 * (1 - k)).toFixed(2)); if (k >= 1) ring.remove(); }
+        links.forEach((el, n) => { const q = this.N[nbrs[n]], k = ease(Math.max(0, Math.min(1, (s - 0.4) / 1.0))); el.setAttribute('x2', (p.x + (q.x - p.x) * k).toFixed(1)); el.setAttribute('y2', (p.y + (q.y - p.y) * k).toFixed(1)); });
+        if (amber && s > 3.5) { const k = Math.min(1, (s - 3.5) / 1.5); dotEl.setAttribute('fill', k < 1 ? this.amber : this.ink); dotEl.setAttribute('opacity', (1 - 0.65 * k).toFixed(2)); links.forEach((el) => { el.setAttribute('opacity', (0.6 - 0.36 * k).toFixed(2)); if (k >= 1) el.setAttribute('stroke', this.ink); }); if (k < 1) return; }
+        else if (s < 1.6 || (amber && s <= 3.5)) return;
+        nbrs.forEach((j) => { this.E.push([idx, j]); this.adj[idx].push([j, this.E.length - 1]); this.adj[j].push([idx, this.E.length - 1]); });
+        this.born.push(dotEl, ...links); while (this.born.length > 40) this.born.shift().remove();
+        return false;
+      } });
+      return idx;
+    }
+    // ---- tide: a slow front of light crosses the whole web, ink only — the web is on, nothing more
+    buildCopies() {
+      this.cl = this.E.map(([i, j]) => this.line(...this.trim(i, j), { stroke: this.ink, 'stroke-width': 1, opacity: 0 }));
+      this.cn = this.N.map((p) => this.dot(p, p.r + 0.4, { fill: this.ink, opacity: 0 }));
+      this.tideAt = -99; this.tideDir = 1;
+    }
+    tideStep(t) {
+      const W = this.vb[2], x0 = this.vb[0], period = 9, dur = 4.2;
+      if (t - this.tideAt > period) { this.tideAt = t; this.tideDir = Math.random() < 0.5 ? 1 : -1; }
+      const k = (t - this.tideAt) / dur;
+      const sig = W * 0.09, front = this.tideDir > 0 ? x0 - sig * 2 + (W + sig * 4) * k : x0 + W + sig * 2 - (W + sig * 4) * k;
+      const boost = (x) => (k > 1 ? 0 : Math.exp(-((x - front) ** 2) / (2 * sig * sig)));
+      this.cn.forEach((el, i) => el.setAttribute('opacity', (0.42 * this.k * boost(this.N[i].x)).toFixed(3)));
+      this.cl.forEach((el, n) => { const [i, j] = this.E[n]; el.setAttribute('opacity', (0.3 * this.k * boost((this.N[i].x + this.N[j].x) / 2)).toFixed(3)); });
+    }
+    ripple(p) {
+      const el = this.dot(p, 3, { fill: 'none', stroke: this.amber, 'stroke-width': 1.2, 'vector-effect': 'non-scaling-stroke', opacity: 0.7 }, this.evt), t0 = performance.now(), R = this.lenMed * 1.8;
+      this.items.push({ el, step: () => { const k = Math.min(1, (performance.now() - t0) / 1600); el.setAttribute('r', (3 + R * ease(k)).toFixed(1)); el.setAttribute('opacity', (0.7 * (1 - k)).toFixed(2)); if (k >= 1) { el.remove(); return false; } } });
+    }
+    light(i, ms) {
+      const p = this.N[i]; if (!p) return;
+      const halo = this.dot(p, p.r + 6, { fill: this.k < 1 ? '#FFB000' : this.amber, opacity: 0 }, this.evt), core = this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.evt), t0 = performance.now();
+      this.items.push({ el: core, step: () => { const s = (performance.now() - t0) / ms, a = s < 0.15 ? s / 0.15 : s > 0.7 ? Math.max(0, (1 - s) / 0.3) : 1; core.setAttribute('opacity', a.toFixed(2)); halo.setAttribute('opacity', ((this.k < 1 ? 0.3 : 0.16) * a).toFixed(3)); if (s >= 1) { core.remove(); halo.remove(); return false; } } });
+    }
+    nearest(p, ok) { let b = 0, bd = 1e9; this.N.forEach((q, i) => { if (ok && !ok(i)) return; const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2; if (d < bd) { bd = d; b = i; } }); return b; }
+    route(a, b, ok, eok) { const prev = new Map([[a, -1]]), q = [a]; while (q.length) { const u = q.shift(); if (u === b) break; for (const [v] of this.adj[u]) if (!prev.has(v) && (!ok || ok(v) || v === b) && (!eok || eok(u, v))) { prev.set(v, u); q.push(v); } } if (!prev.has(b)) return eok ? null : ok ? this.route(a, b) : [a, b]; const out = []; for (let u = b; u !== -1; u = prev.get(u)) out.unshift(u); return out; }
+    // ---- events: only when something happened. kind: recall | save | connect
+    event(ev) {
+      const kind = (ev && ev.kind) || 'recall';
+      // work: something is in progress (a payment): the web runs a little faster, in ink, until it is told to stop. The amber comes when it lands.
+      if (kind === 'work') { this.working = !!ev.on && !this.reduced; this.workClear = ev.clear || null; this.workToward = ev.toward || null; this.workAmber = !!ev.amber; delete this.next.work; return; }
+      // data-avoid="x,y,w,h": where the page's own text sits over the graph; events never light notes there
+      const V = ev && ev.clear ? this.visible(ev.clear) : null;
+      const av = (this.svg.getAttribute('data-avoid') || '').split(',').map(Number), out0 = (i) => av.length !== 4 || isNaN(av[0]) || !(this.N[i].x > av[0] && this.N[i].x < av[0] + av[2] && this.N[i].y > av[1] && this.N[i].y < av[1] + av[3]);
+      const out = V ? (i) => out0(i) && V.n[i] && this.adj[i].some(([j]) => V.e(i, j)) : out0;
+      if (V && !this.N.some((p, i) => out(i))) return;
+      const hubs = this.N.map((p, i) => [i, this.adj[i].length]).filter(([i]) => out(i)).sort((a, b) => b[1] - a[1]).slice(0, 8).map((x) => x[0]);
+      const target = ev && ev.target !== undefined ? ev.target : pick(hubs.length ? hubs : [0]);
+      const group = [target, ...this.adj[target].map(([j]) => j).filter((j) => out(j) && (!V || V.e(target, j))).slice(0, kind === 'recall' ? 3 : 0)];
+      if (this.reduced) { group.forEach((i) => this.lightStill(i)); return; }
+      const inAv = (p) => av.length === 4 && !isNaN(av[0]) && p.x > av[0] && p.x < av[0] + av[2] && p.y > av[1] && p.y < av[1] + av[3];
+      const W = this.vb[2], anchor = ev && ev.of ? { x: this.vb[0] + W * ((ev.from || 0) + 0.5) / ev.of, y: this.entry.y } : this.entry;
+      const near = this.N.map((q, i) => [i, (q.x - anchor.x) ** 2 + (q.y - anchor.y) ** 2]).filter(([i]) => out(i) && i !== this.lastStart).sort((a, b) => a[1] - b[1]).slice(0, 4);
+      let start = near.length ? pick(near)[0] : this.nearest(this.entry, out);
+      if (V) { const d = new Map([[target, 0]]), q = [target]; while (q.length) { const u = q.shift(); for (const [v] of this.adj[u]) if (!d.has(v) && out(v) && V.e(u, v)) { d.set(v, d.get(u) + 1); q.push(v); } }
+        const far = [...d].filter(([i, k]) => k >= 2 && k <= 4).map((x) => x[0]), one = [...d].filter(([i, k]) => k === 1).map((x) => x[0]); start = far.length ? pick(far) : one.length ? pick(one) : target; }
+      this.lastStart = start;
+      let path = this.route(start, target, out, V ? V.e : undefined);
+      if (!path) path = [start];   // starts on a note, so it reads as coming out of the web, not out of one fixed point
+      const arrive = () => {
+        if (kind === 'save') { this.birth(0, true, target); }
+        else group.forEach((i, n) => setTimeout(() => this.light(i, 2600), n * 120));
+        if (this.mode === 'tide' || this.mode === 'tideloop') this.ripple(this.N[target]);
+      };
+      if (path.length < 2) { if (V) { arrive(); return; } path.unshift(this.adj[start][0] ? this.adj[start][0][0] : start); }
+      this.busy = true; clearTimeout(this.busyT);
+      this.pulse((performance.now() - this.t0) / 1000, true, path, () => { arrive(); this.busyT = setTimeout(() => { this.busy = false; }, 2800); });
+    }
+    hoverStep() {
+      const P = Exo.ptr, r = this.svg.getBoundingClientRect(); let want = -1;
+      if (P && r.width && P.x >= r.left && P.x <= r.right && P.y >= r.top && P.y <= r.bottom) {
+        const m = this.svg.getScreenCTM(); if (m) { const q = new DOMPoint(P.x, P.y).matrixTransform(m.inverse()); let bd = (this.lenMed * 0.7) ** 2; this.N.forEach((n, i) => { const d = (n.x - q.x) ** 2 + (n.y - q.y) ** 2; if (d < bd) { bd = d; want = i; } }); }
+      }
+      if (want !== this.hovI) {
+        this.hovI = want; this.hovK = this.reduced ? 1 : 0; while (this.hov.firstChild) this.hov.firstChild.remove();
+        if (want >= 0) {
+          const p = this.N[want], nb = this.adj[want].map(([j]) => j);
+          this.hovEls = { links: nb.map((j) => this.line(...this.trim(want, j), { stroke: this.amber, 'stroke-width': 1, opacity: 0 }, this.hov)), wake: nb.map((j) => this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)), halo: this.dot(p, p.r + 6, { fill: this.k < 1 ? '#FFB000' : this.amber, opacity: 0 }, this.hov), core: this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.hov) };
+        }
+      }
+      if (this.hovI >= 0 && this.hovEls) {
+        this.hovK = this.reduced ? 1 : this.hovK + (1 - this.hovK) * 0.16; const k = this.hovK, E = this.hovEls;
+        E.core.setAttribute('opacity', k.toFixed(2)); E.halo.setAttribute('opacity', ((this.k < 1 ? 0.3 : 0.16) * k).toFixed(3));
+        E.links.forEach((el) => el.setAttribute('opacity', ((this.k < 1 ? 0.8 : 0.45) * k).toFixed(3))); E.wake.forEach((el) => el.setAttribute('opacity', (0.62 * this.k * k).toFixed(3)));
+      }
+    }
+    lightStill(i) { const p = this.N[i]; const c = this.dot(p, p.r + 0.8, { fill: this.amber }, this.evt); setTimeout(() => c.remove(), 4000); }
+  }
+  const Exo = { ptr: null };
+  addEventListener('pointermove', (e) => { Exo.ptr = { x: e.clientX, y: e.clientY }; }, { passive: true });
+  addEventListener('pointerleave', () => { Exo.ptr = null; });
+  // phones: a tap lights the closest note for a moment (no hover on touch); it never blocks scrolling
+  addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse') return; Exo.ptr = { x: e.clientX, y: e.clientY }; clearTimeout(Exo.tapT); Exo.tapT = setTimeout(() => { Exo.ptr = null; }, 1800); }, { passive: true });
+  document.addEventListener('mouseleave', () => { Exo.ptr = null; });
+  // Links stop at a note's edge, on the page's own drawing too: every line that ends on a note's centre is trimmed to
+  // just outside the note (and its ring), so no line shows through a faint or hollow note. Runs once per line element.
+  const trimSvg = (svg) => {
+    try {
+      const ls = svg.querySelectorAll('line:not([data-exo-t])'); if (!ls.length) return;
+      const cs = []; svg.querySelectorAll('circle').forEach((c) => { if (c.closest('.exo-alive,.exo-alive-amb')) return; const r = +c.getAttribute('r') || 0; if (r >= 1.5) cs.push({ x: +c.getAttribute('cx'), y: +c.getAttribute('cy'), r: r + (parseFloat(c.getAttribute('stroke-width')) || 0) / 2 }); });
+      const near = (x, y) => { let b = null; for (const c of cs) if (Math.abs(c.x - x) < 0.8 && Math.abs(c.y - y) < 0.8 && (!b || c.r < b.r)) b = c; return b; };   // the note itself: the smallest circle there (halos and hit areas are larger)
+      ls.forEach((el) => {
+        if (el.closest('.exo-alive,.exo-alive-amb')) return; el.setAttribute('data-exo-t', '');
+        const x1 = +el.getAttribute('x1'), y1 = +el.getAttribute('y1'), x2 = +el.getAttribute('x2'), y2 = +el.getAttribute('y2');
+        const a = near(x1, y1), b = near(x2, y2); if (!a && !b) return;
+        const L = Math.hypot(x2 - x1, y2 - y1) || 1, ux = (x2 - x1) / L, uy = (y2 - y1) / L, ra = a ? a.r + 1.2 : 0, rb = b ? b.r + 1.2 : 0;
+        if (L <= ra + rb + 1) return;
+        if (a) { el.setAttribute('x1', (x1 + ux * ra).toFixed(2)); el.setAttribute('y1', (y1 + uy * ra).toFixed(2)); }
+        if (b) { el.setAttribute('x2', (x2 - ux * rb).toFixed(2)); el.setAttribute('y2', (y2 - uy * rb).toFixed(2)); }
+      });
+    } catch (e) {}
+  };
+  const M = window.__exoAlive = {
+    trim: trimSvg,
+    scan() { document.querySelectorAll('svg[data-alive],svg[data-graph],svg[data-exo-graph]').forEach(trimSvg); document.querySelectorAll('svg[data-alive]').forEach((svg) => { const m = svg.getAttribute('data-alive'); if (svg.__alive && (svg.__alive.mode !== m || svg.__alive.dead)) { svg.__alive.root.remove(); svg.__alive.amb.remove(); cancelAnimationFrame(svg.__alive.raf); svg.__alive = null; } if (!svg.__alive && m && m !== 'off' && m !== 'shipped') svg.__alive = new Alive(svg); }); },
+    fire(sel, ev) { document.querySelectorAll(sel).forEach((svg) => { try { if (svg.__alive) svg.__alive.event(ev); } catch (e) {} }); },
+  };
+  setInterval(() => M.scan(), 400); M.scan();
+})();
 
 class Component extends DCLogic {
   constructor(props) {
@@ -375,7 +696,8 @@ class Component extends DCLogic {
   kindOf(step) {
     if (['ended', 'paused', 'suspended', 'expired'].includes(step)) return 'stop';
     // Before anything is connected there is no memory yet: the light walks, nothing grows.
-    if (['signedout', 'sent', 'reviewer', 'reviewerfail', 'subscribe', 'choose', 'waiting', 'other', 'invite', 'invitebad', 'inviteexisting', 'invitekept', 'declined'].includes(step)) return 'quiet';
+    if (step === 'unreachable') return 'stop';
+    if (['signedout', 'sent', 'linkexpired', 'linkused', 'ratelimited', 'waitlist', 'reviewer', 'reviewerfail', 'subscribe', 'choose', 'waiting', 'other', 'invite', 'invitebad', 'inviteexisting', 'invitekept', 'declined'].includes(step)) return 'quiet';
     if (step === 'connecterror') return 'stop';
     if (step === 'inviteapplied') return 'done';
     // Paying: the page holds still behind the checkout.
@@ -484,21 +806,25 @@ class Component extends DCLogic {
       const cn = c0 >= 0 && (e.i === c0 || e.j === c0); if (g.classList.contains('cn') !== cn) g.classList.toggle('cn', cn);
       if (rest) { g.style.left = e.x + 'px'; g.style.top = e.y + 'px'; g.style.width = e.w + 'px'; g.style.transform = `rotate(${e.a}deg)`; return; }
       const ni = f.nodes[e.i], fromI = Math.hypot(+ni.x + ni.s / 2 - +e.x, +ni.y + ni.s / 2 - +e.y) < 2;
-      const [p, q] = fromI ? [ctr(e.i), ctr(e.j)] : [ctr(e.j), ctr(e.i)];
-      const dx = q[0] - p[0], dy = q[1] - p[1];
+      let [p, q] = fromI ? [ctr(e.i), ctr(e.j)] : [ctr(e.j), ctr(e.i)];
+      // R45: links stop at a note's edge while the field moves, too
+      const np = f.nodes[fromI ? e.i : e.j], nq = f.nodes[fromI ? e.j : e.i], rp = (+np.s || 0) / 2 + 1.5, rq = (+nq.s || 0) / 2 + 1.5;
+      let dx = q[0] - p[0], dy = q[1] - p[1]; const L0 = Math.hypot(dx, dy) || 1;
+      if (L0 > rp + rq + 1) { const ux = dx / L0, uy = dy / L0; p = [p[0] + ux * rp, p[1] + uy * rp]; dx -= ux * (rp + rq); dy -= uy * (rp + rq); }
       g.style.left = p[0].toFixed(1) + 'px'; g.style.top = p[1].toFixed(1) + 'px'; g.style.width = Math.hypot(dx, dy).toFixed(1) + 'px'; g.style.transform = `rotate(${(Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2)}deg)`;
     });
     // keep watching while the pointer is here (a re-render can drop the light); stop once everything has settled
     if (rest) return;
     this.webGo();
   }
+  trimSeg(a, b, ra, rb) { const L = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / L, uy = (b.y - a.y) / L; if (L <= ra + rb + 1) return [a, b]; return [{ x: a.x + ux * ra, y: a.y + uy * ra }, { x: b.x - ux * rb, y: b.y - uy * rb }]; }
   seg(a, b) {
     const dx = b.x - a.x, dy = b.y - a.y;
     return { x: a.x.toFixed(1), y: a.y.toFixed(1), w: Math.hypot(dx, dy).toFixed(1), a: (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2) };
   }
   field() {
     const { vw, vh, phone } = this.dims();
-    const key = this.mode() + vw + 'x' + vh + (this.webStart() ? 'w' : 'a');
+    const key = this.mode() + vw + 'x' + vh + (this.webStart() ? 'w' : 'a') + 't';
     this._f = this._f || {};
     if (this._f[key]) return this._f[key];
     const m = this.mode();
@@ -587,9 +913,11 @@ class Component extends DCLogic {
       const s = p.rail ? 2.4 : web ? Math.min(9, 2.6 + deg[i] * 0.95) : 2.4 + rnd() * 1.8;
       return { x: (p.x - s / 2).toFixed(1), y: (p.y - s / 2).toFixed(1), s: s.toFixed(1), nd: (depth[i] * stepT + 0.22).toFixed(2), hub: hubs.has(i) && !p.rail };
     });
+    // Round 41: with a direction on, a link stops at each note's edge, so no line shows through a note
+    const trim = true, rad = nodes.map((n) => +n.s / 2 + 1);
     const edges = E.map(([i, j], k) => {
       const [a, b] = depth[i] <= depth[j] ? [i, j] : [j, i];
-      return { ...this.seg(pts[a], pts[b]), dd: (depth[a] * stepT + (web ? rnd() * 0.25 : 0)).toFixed(2), i, j, base: base[k] };
+      return { ...(trim ? this.seg(...this.trimSeg(pts[a], pts[b], rad[a], rad[b])) : this.seg(pts[a], pts[b])), dd: (depth[a] * stepT + (web ? rnd() * 0.25 : 0)).toFixed(2), i, j, base: base[k] };
     });
     const walkable = pts.map((_, i) => i).filter((i) => (web ? adjBase[i].length : adj[i].length) > 0);
     return { dots: [], lines: [], nodes, edges, adj, adjBase, walkable };
@@ -640,7 +968,7 @@ class Component extends DCLogic {
   }
   webStart() { return (this.props.app ?? 'Claude Code') === 'web'; }
   copy(step, app, a) {
-    const email = this.state.reviewerIn ? 'reviewer (sample account)' : this.inviteInfo().on ? (this.props.inviteEmail ?? 'maria@example.com') : (this.props.email ?? 'you@example.com');
+    const email = this.state.reviewerIn ? 'reviewer (sample account)' : this.inviteInfo().on ? (this.props.inviteEmail ?? 'maria@example.com') : (this.props.email ?? 'reader@example.com');
     const price = (this.props.price ?? '').trim();
     const day = 86400000;
     const fmt = (d) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' }).format(d);
@@ -652,8 +980,8 @@ class Component extends DCLogic {
       case 'signedout':
         if (this.state.switched) c.notice = `Signed out of ${email}. Enter the email you want to use.`, c.noticeEdge = this.pal().muted;
         Object.assign(c, a.web
-          ? { title: 'Start with your email', lede: 'New or returning, it’s the same step. No password.', form: true, primary: 'Email me a link', primaryStep: 'sent', invite: true }
-          : { title: `Connect ${app} to your memory`, lede: 'Sign in with your email. You’ll come straight back here.', form: true, primary: 'Email me a sign-in link', primaryStep: 'sent', invite: true });
+          ? { title: 'Start with your email', lede: 'Your Exomem is tied to this email. New or returning, it’s the same step. No password.', form: true, primary: 'Email me a link', primaryStep: 'sent', invite: true }
+          : { title: `Connect ${app} to your memory`, lede: 'Sign in with the email your Exomem is tied to. You’ll come straight back here.', form: true, primary: 'Email me a sign-in link', primaryStep: 'sent', invite: true });
         break;
       case 'invite': {
         const inv = this.inviteInfo();
@@ -690,29 +1018,45 @@ class Component extends DCLogic {
         break;
       case 'waiting': {
         const w = this.state.joinedApp || 'Claude';
-        const where = w === 'Claude' ? 'In Claude, open Settings, then Connectors. Find Exomem and press Connect.' : 'In ChatGPT, open the plugin directory. Find Exomem and press Connect.';
-        Object.assign(c, { title: `Finish in ${w}`, lede: `${where} ${w} then opens a page here to confirm.`, signedIn: true, primary: `Open ${w} ↗`, primaryStep: '', secondary: 'Pick another app', secondaryStep: 'choose', waitingFor: w });
+        const where = w === 'Claude' ? 'Claude opened in a new tab, at Settings, then Connectors. Find Exomem and press Connect.' : 'ChatGPT opened in a new tab, at its plugin directory. Find Exomem and press Connect.';
+        Object.assign(c, { title: `Finish in ${w}`, lede: `${where} ${w} then opens a page here to confirm.`, signedIn: true, primary: `Open ${w} again ↗`, primaryStep: '', secondary: 'Pick another app', secondaryStep: 'choose', waitingFor: w });
         break;
       }
       case 'other':
         Object.assign(c, { title: 'Add Exomem to your app', lede: 'Paste this address into the app’s connector or MCP settings. The app then opens a page here to confirm.', signedIn: true, secondary: 'Pick another app', secondaryStep: 'choose', url: true });
         break;
       case 'choose':
-        Object.assign(c, { title: 'Add Exomem to your assistant', lede: 'Your Exomem is ready. Pick where you’ll use it first; you can add more any time.', signedIn: true, choose: true });
+        Object.assign(c, { title: 'Add Exomem to your assistant', lede: 'Your Exomem is ready. Pick where you’ll use it first; you can add more any time.', signedIn: true, choose: true, secondary: 'Go to Home', secondaryStep: 'home' });
         break;
       case 'joined':
         { const j = this.state.joinedApp || this.props.joined || 'Claude';
         const other = j === 'Claude' ? 'ChatGPT' : 'Claude'; const both = (this.state.connected || []).includes(other);
         const jt = (APPS[j] && APPS[j].title) || j;
         const bare = j === 'other';
-        Object.assign(c, { title: `${jt} is connected.`, lede: bare ? 'Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.' : 'Try it: ask it to remember something today, then ask again tomorrow.', tune: bare, signedIn: true, primary: 'Go to Home', primaryStep: 'home', secondary: both ? 'Connect another app' : `Add ${other} too`, secondaryStep: 'choose', done: bare ? '' : `${jt} · memory on` }); }
+        Object.assign(c, { title: `${jt} is connected.`, lede: bare ? 'Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.' : 'Try it: ask it to remember something today, then ask again tomorrow.', tune: bare, signedIn: true, primary: 'Go to Home', primaryStep: 'home', secondary: 'Add another app', secondaryStep: 'choose', done: bare ? '' : `${jt} · memory on` }); }
+        break;
+      case 'linkexpired':
+        Object.assign(c, { title: 'This link has expired', lede: `Sign-in links work once, for ${Math.round(LINK_MS / 60000)} minutes.`, primary: 'Email me a new link', primaryStep: 'sent' });
+        break;
+      case 'linkused':
+        Object.assign(c, { title: 'This link was already used', lede: 'Each link works once. If you opened it on another device, you’re signed in there. To sign in here, ask for a new one.', primary: 'Email me a new link', primaryStep: 'sent' });
+        break;
+      case 'ratelimited':
+        Object.assign(c, { title: 'That’s enough links for now', lede: `We sent a few to ${email} already. The newest one works; older ones don’t.`, notice: `You can ask for another in ${this.props.waitMinutes ?? 5} minutes. Not there? Look in spam.`, noticeEdge: this.pal().muted, primary: `Send another in ${this.props.waitMinutes ?? 5} min`, primaryStep: '', secondary: 'Use a different email', secondaryStep: 'signedout' });
+        break;
+      case 'waitlist':
+        Object.assign(c, { title: 'You’re on the list', lede: `Exomem is open by invitation for now. We’ll email ${email} when there’s a place for you. You don’t need to do anything until then.`, notice: 'Have an invitation? Open the link in it. It brings you straight in.', noticeEdge: this.pal().muted, secondary: 'Wrong address? Change it', secondaryStep: 'signedout' });
+        break;
+      case 'unreachable':
+        Object.assign(c, { title: 'We can’t reach Exomem', lede: 'Your connection or our server stopped answering. Nothing you did is lost.', notice: `Trying again in ${this.props.retrySeconds ?? 8}\u00a0s. If it keeps happening, our status page says why.`, noticeEdge: this.pal().muted, primary: 'Try now', primaryStep: '', secondary: 'Status page ↗', secondaryStep: '' });
         break;
       case 'sent':
-        Object.assign(c, { title: 'Check your email', lede: 'We sent you a link. Open it to continue. You can close this tab.', sent: true, primary: 'Send another link', primaryStep: 'sent', secondary: 'Use a different email', secondaryStep: 'signedout' });
+        const pr = (this.props.sentCopy ?? 'shipped') === 'proposed';
+        Object.assign(c, { title: 'Check your email', lede: pr ? `We sent an email to ${email}. It says what happens next. You can close this tab.` : 'We emailed a sign-in link to the address your Exomem is tied to. No password needed.', sent: true, primary: pr ? 'Send it again' : 'Send another link', primaryStep: 'sent', secondary: 'Use a different email', secondaryStep: 'signedout' });
         break;
       case 'connect':
         Object.assign(c, this.state.again
-          ? { title: `${app} is already connected`, lede: 'Connect again only if it stopped working. Its old access is replaced.', scopes: true, signedIn: true, primary: 'Connect again', primaryStep: 'connecting', secondary: 'Keep it as it is', secondaryStep: this.webStart() ? 'joined' : 'kept' }
+          ? { title: `${app} is already connected`, lede: 'Connect again only if it stopped working. Its old access is replaced.', scopes: true, signedIn: true, primary: 'Connect again', primaryStep: 'connecting', secondary: 'Keep it as it is', secondaryStep: this.webStart() ? 'choose' : 'kept' }
           : { title: `Connect ${app} to your memory`, lede: 'Everything you’ve kept, available in every session.', scopes: true, signedIn: true, primary: 'Connect', primaryStep: 'connecting', secondary: 'Not now', secondaryStep: this.webStart() ? 'choose' : 'declined' });
         break;
       case 'preparing':
@@ -773,6 +1117,13 @@ class Component extends DCLogic {
     const kind = this.kindOf(step);
     const mode = this.mode();
     const f = this.field();
+    // Round 41: with a direction on, the field's ambient motion is ink only; amber is kept for real state (connecting, connected).
+    const __alive = (this.props.alive ?? 'loop') !== 'shipped', __noWalk = __alive && !/loop$/.test(this.props.alive ?? 'loop');
+    const __aliveAttr = !__alive || kind === 'hold' || kind === 'stop' ? 'off' : (this.props.alive ?? 'loop');
+    if (!f.__ag) f.__ag = JSON.stringify({ n: (f.nodes || []).map((q) => [+(+q.x + q.s / 2).toFixed(1), +(+q.y + q.s / 2).toFixed(1), +(q.s / 2).toFixed(1)]), e: (f.edges || []).filter((e) => e.base).map((e) => [e.i, e.j]) });
+    const __aliveGraph = f.__ag, __aliveEntry = `${Math.round(this.dims().vw / 2)},${Math.round(this.dims().vh * 0.4)}`;
+    if (__alive && kind === 'done' && this.__lastKind !== 'done') setTimeout(() => window.__exoAlive && window.__exoAlive.fire(`svg[data-alive-key="${this.__uid}"]`, { kind: 'connect' }), 500);
+    this.__lastKind = kind;
     const live = !this.reduced && kind !== 'stop' && kind !== 'go' && kind !== 'hold';
     const focus = live ? this.state.focus : -1;
     const grown = new Set(this.state.grown);
@@ -780,15 +1131,15 @@ class Component extends DCLogic {
     if (mode !== 'stars') {
       const adj = mode === 'web' ? f.adjBase : f.adj;
       const near = new Set(focus >= 0 ? adj[focus] : []);
-      nodes = f.nodes.map((n, i) => ({ ...n, c: (i === focus ? 'on' : near.has(i) ? 'near' : '') + (n.hub ? ' hub' : '') }));
+      nodes = f.nodes.map((n, i) => ({ ...n, c: (i === focus && !__noWalk ? 'on' : near.has(i) ? 'near' : '') + (n.hub ? ' hub' : '') }));
       const sig = new Set(kind === 'done' ? (this.state.sig || []) : []);
-      edges = f.edges.map((e, k) => ({ ...e, c: ((e.i === focus || e.j === focus) && e.base ? 'on' : '') + (e.base ? '' : ' nw') + (grown.has(k) ? ' gr' : '') + (sig.has(k) ? ' sg' : '') }));
+      edges = f.edges.map((e, k) => ({ ...e, c: ((e.i === focus || e.j === focus) && e.base && !__noWalk ? 'on' : '') + (e.base ? '' : ' nw') + (grown.has(k) ? ' gr' : '') + (sig.has(k) ? ' sg' : '') }));
     }
     const { c, email } = this.copy(step, a.label || app, a);
     const left = LINK_MS - (this.state.now - this.state.sentAt);
     const resendLeft = RESEND_MS - (this.state.now - this.state.sentAt);
-    let primary = c.primary, primaryDisabled = step === 'connecting';
-    if (step === 'sent' && resendLeft > 0) { primary = `Send another link in ${this.mmss(resendLeft)}`; primaryDisabled = true; }
+    let primary = c.primary, primaryDisabled = step === 'connecting' || step === 'ratelimited';
+    if (step === 'sent' && resendLeft > 0) { primary = `${(this.props.sentCopy ?? 'shipped') === 'proposed' ? 'Send it again' : 'Send another link'} in ${this.mmss(resendLeft)}`; primaryDisabled = true; }
     const scopes = [
       { mark: '✓', text: 'Recall what you’ve kept', note: '', color: fg, deco: 'none' },
       { mark: c.readOnly ? '–' : '✓', text: 'Save new things, with their source', note: c.readOnly ? 'paused' : '', color: c.readOnly ? (this.pal().muted) : fg, deco: c.readOnly ? 'line-through' : 'none' },
@@ -800,9 +1151,9 @@ class Component extends DCLogic {
       accent, fg,
       bg: this.pal().bg, panel: this.pal().panel, muted: this.pal().muted,
       line: this.hexA(fg, 0.1), lineStrong: this.hexA(fg, 0.22), tint: this.hexA(accent, 0.08), glow: this.hexA(accent, 0.42),
-      vw, vh, colW, gutter: phone ? 16 : 40, h1: phone ? 22 : 24, pairW, pairEnd: pairW - 4, pw: pairW - 8,
+      vw, vh, colW, gutter: phone ? 16 : 40, colPad: phone ? '84px 16px 150px' : '0 40px', h1: phone ? 22 : 24, pairW, pairEnd: pairW - 4, pw: pairW - 8,
       markDot: (this.props.mark ?? 'dot') === 'dot', markHeld: this.props.mark === 'held', markCut: this.props.mark === 'cut',
-      phase, kind, mode, rmCls: (this.props.still ?? false) ? 'rm' : '',
+      lbCls: this.props.legacyLight ? 'lb' : '', aliveCls: (this.props.alive ?? 'loop') !== 'shipped' ? 'al' : '', phase, kind, mode, rmCls: (this.props.still ?? false) ? 'rm' : '',
       dots: f.dots, lines: f.lines, nodes, edges,
       appName: app, appGlyph: a.glyph, appGlyphSize: a.size, hasApp: !a.web,
       showChoose: c.choose,
@@ -810,7 +1161,7 @@ class Component extends DCLogic {
         const on = (this.state.connected || []).includes(ch.app);
         const any = ch.app === 'other';
         return { ...ch, cta: on && !any ? 'connected ✓' : ch.cta, ctaColor: on && !any ? accent : (this.pal().muted),
-          pick: () => { if (any) { this.setState({ joinedApp: 'other', again: false }); this.go('other'); return; } this.setState({ joinedApp: ch.app, again: on }); this.go(on ? 'connect' : 'waiting'); if (on) this.setState({ appOver: ch.app }); } };
+          pick: () => { if (any) { this.setState({ joinedApp: 'other', again: false }); this.go('other'); return; } this.setState({ joinedApp: ch.app, again: on }); if (!on) openApp(ch.app); this.go(on ? 'connect' : 'waiting'); if (on) this.setState({ appOver: ch.app }); } };
       }),
       email,
       showHeaderEmail: !phone && c.signedIn,
@@ -818,10 +1169,11 @@ class Component extends DCLogic {
       hasNotice: !!c.notice, notice: c.notice, noticeEdge: c.noticeEdge,
       showEmailForm: c.form, showSent: c.sent, showPaddle: c.paddle, showWorking: c.working, paddleW: phone ? 358 : 420, showScopes: c.scopes, scopes,
       linkLeft: this.mmss(left), linkPct: Math.max(0, Math.min(100, (left / LINK_MS) * 100)).toFixed(1),
-      hasPrimary: !!c.primary, primary, primaryDisabled, primaryOpacity: primaryDisabled && step === 'sent' ? 0.55 : 1,
-      primaryAct: () => { if (c.primaryStep === 'home') { this.props.exitTo && this.props.exitTo('home', { reviewer: !!this.state.reviewerIn, connected: this.state.connected || [], friend: this.inviteInfo().on && !this.inviteInfo().covered ? this.inviteInfo().by : '', coding: (this.state.connected || []).includes('other') ? (this.state.level || 'balanced') : '', price: this.inviteInfo().now ? `${this.inviteInfo().now} a month` : '' }); return; } if (c.primaryStep && !primaryDisabled) this.go(c.primaryStep); },
+      hasPrimary: !!c.primary, primary, primaryDisabled, primaryOpacity: primaryDisabled && (step === 'sent' || step === 'ratelimited') ? 0.55 : 1, soloSecondary: !c.primary && !!c.secondary,
+      homeAct: (this.__home = () => { if (!c.signedIn) return; this.props.exitTo && this.props.exitTo('home', { reviewer: !!this.state.reviewerIn, connected: this.state.connected || [], friend: this.inviteInfo().on && !this.inviteInfo().covered ? this.inviteInfo().by : '', coding: (this.state.connected || []).includes('other') ? (this.state.level || 'balanced') : '', price: this.inviteInfo().now ? `${this.inviteInfo().now} a month` : '' }); }), homeOff: !c.signedIn || typeof this.props.exitTo !== 'function', homeLabel: c.signedIn ? 'Exomem, go to Home' : 'Exomem', homeTitle: c.signedIn ? 'Home' : '',
+      primaryAct: () => { if (step === 'waiting') { openApp(this.state.joinedApp || 'Claude'); return; } if (c.primaryStep === 'home') { this.props.exitTo && this.props.exitTo('home', { reviewer: !!this.state.reviewerIn, connected: this.state.connected || [], friend: this.inviteInfo().on && !this.inviteInfo().covered ? this.inviteInfo().by : '', coding: (this.state.connected || []).includes('other') ? (this.state.level || 'balanced') : '', price: this.inviteInfo().now ? `${this.inviteInfo().now} a month` : '' }); return; } if (c.primaryStep && !primaryDisabled) this.go(c.primaryStep); },
       hasSecondary: !!c.secondary, secondary: c.secondary,
-      secondaryAct: () => { if (c.secondaryStep) this.go(c.secondaryStep); },
+      secondaryAct: () => { if (c.secondaryStep === 'home') { if (c.signedIn && this.props.exitTo) { const h = this.__home; if (h) h(); } return; } if (c.secondaryStep) this.go(c.secondaryStep); },
       showSignedIn: c.signedIn && (phone || ['connect', 'preparing', 'readonly', 'subscribe', 'choose', 'waiting', 'joined', 'invite', 'other', 'inviteexisting', 'inviteapplied', 'invitekept', 'connecterror'].includes(step)),
       showInvite: c.invite, inviteOnly: this.props.inviteOnly === true || this.props.inviteOnly === 'true',
       showOpenMail: step === 'sent' && typeof this.props.exitTo === 'function',
@@ -856,13 +1208,36 @@ class Component extends DCLogic {
       ...(() => { const L = this.pal().light; return { theme: L ? 'light' : 'dark', pTheme: L ? 'light' : 'dark', pBg: L ? '#FFFFFF' : '#14120F', pFg: L ? '#1A1814' : '#ECE9E2', pMuted: L ? '#6B665C' : '#858075', pField: L ? '#F6F4EF' : '#0E0C0B', pRgb: L ? '26,24,20' : '236,233,226', pBtnFg: L ? '#FFFFFF' : '#0A0908', pBtnBg: L ? '#1A1814' : '#ECE9E2', scrim: L ? 'rgba(26,24,20,0.28)' : 'rgba(0,0,0,0.62)' }; })(),
       // The field is a web: notes near the pointer ease aside, their neighbours follow a little, and all of it settles back. Quiet on phones, while paying, and with reduced motion.
       onMove: (e) => {
-        if (this.reduced || phone || kind === 'hold' || kind === 'stop' || mode === 'stars') { this.mouse = null; return; }
+        if (Date.now() - (this.__tapAt || 0) < 2000) return;
+        if (this.reduced || kind === 'hold' || kind === 'stop' || mode === 'stars') { this.mouse = null; return; }
         const r = e.currentTarget.getBoundingClientRect(); if (!r.width) return;
         this.webEl = e.currentTarget; this.webHost = e.currentTarget.parentNode; this.webScale = [vw / r.width, vh / r.height];
-        this.mouse = [(e.clientX - r.left) * vw / r.width, (e.clientY - r.top) * vh / r.height];
+        this.mouse = [(e.clientX - r.left) * vw / r.width, (e.clientY - r.top) * vh / r.height + e.currentTarget.scrollTop];
         this.webGo();
       },
-      onLeave: () => { this.mouse = null; },
+      onLeave: () => { if (Date.now() - (this.__tapAt || 0) < 2000) return; this.mouse = null; },
+      onTap: (e) => {
+        if (e.pointerType === 'mouse' || this.reduced || kind === 'hold' || kind === 'stop' || mode === 'stars') return;
+        const r = e.currentTarget.getBoundingClientRect(); if (!r.width) return;
+        this.webEl = e.currentTarget; this.webHost = e.currentTarget.parentNode; this.webScale = [vw / r.width, vh / r.height];
+        this.mouse = [(e.clientX - r.left) * vw / r.width, (e.clientY - r.top) * vh / r.height + e.currentTarget.scrollTop];
+        this.__tapAt = Date.now(); this.webGo(); clearTimeout(this.__tapT); this.__tapT = setTimeout(() => { this.mouse = null; }, 1800);
+      },
+      offCls: (['unreachable', 'ended', 'paused', 'suspended', 'expired'].includes(this.state.step) ? 'off' : '') + (this.state.step === 'unreachable' ? ' cut' : ''),
+      aliveKey: (this.__uid = this.__uid || 'k' + Math.random().toString(36).slice(2, 8)), aliveMode: __aliveAttr, aliveGraph: __aliveGraph, aliveEntry: __aliveEntry,
+      sentLink: (this.props.sentCopy ?? 'shipped') !== 'proposed', sentHint: (this.props.sentCopy ?? 'shipped') === 'proposed' ? 'Not there in a few minutes? Look in spam, or send it again.' : 'Open it on this device. It brings you back here.',
+      ...(() => {
+        // Round 42: inline checkout. Our summary and Paddle's frame on one surface; the overlay is not opened.
+        const inl = (this.props.checkout ?? 'inline') === 'inline' && ['subscribe', 'paying', 'confirming'].includes(this.state.step);
+        const inv2 = this.inviteInfo(), cs = this.props.checkoutState ?? 'auto';
+        return { isInline: inl, ckCls: inl ? 'ck' : '', ckPrice: inv2.on && !inv2.covered ? 'friend' : 'standard',
+          ckState: cs !== 'auto' ? cs : this.state.step === 'paying' ? 'paying' : this.state.step === 'confirming' ? 'paid' : 'auto',
+          ckDevice: this.dims().phone ? 'phone' : 'desktop', ckScroll: this.props.ckScroll ?? 'top', ckSummary: this.props.ckSummary ?? 'hero', ckSample: this.props.ckSample ?? true, ckFields: this.props.ckFields ?? 'exomem', ckBuyer: this.props.ckBuyer ?? 'person', ckCountry: this.props.ckCountry ?? 'EE', ckPaddle: this.props.ckPaddle ?? 'ok', ckPayMs: this.props.ckPayMs ?? 3600, ckDone: () => { const sv = document.querySelector(`svg[data-alive-key="${this.__uid}"]`), m = sv && sv.closest('main'); if (m) m.scrollTop = 0; this.go('choose'); },
+          // paid is a real event: the web answers once, gently (lighter than connecting: you're in, not connected yet)
+          ckPaying: () => window.__exoAlive && window.__exoAlive.fire(`svg[data-alive-key="${this.__uid}"]`, { kind: 'work', on: true, amber: true, clear: 'div[data-ck]', toward: 'div[data-ck] [data-panel]' }),
+          ckPaid: () => { const A = window.__exoAlive, sel = `svg[data-alive-key="${this.__uid}"]`; if (!A) return; A.fire(sel, { kind: 'work', on: false }); setTimeout(() => A.fire(sel, { kind: 'recall', clear: 'div[data-ck]' }), 300); },
+          ...(inl ? { showPaddle: false } : {}) };
+      })(),
       switchAccount: () => { this.setState({ switched: true, appOver: this.state.appOver }); this.go('signedout'); },
       isDone: !!c.done, doneLine: c.done, hasFooter: !this.webStart(),
       footer: this.webStart() ? '' : `exomem · request from ${a.loopback ? app + ' on this computer' : a.host}`,

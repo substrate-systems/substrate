@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Living map · A + loop, dark</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="r41-map-loop" style="width: 1280px; height: 820px; overflow: hidden; background: #050505"><dc-import name="Landing-Page" alive="loop" theme="dark" hint-size="1280px,820px"></dc-import></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+  componentDidMount() { this.__fit = setInterval(() => { const t = document.querySelector('.r41-map-loop #lp-viewer'); if (!t || this.__done) return; const s = [...document.querySelectorAll('.r41-map-loop *')].find((el) => el.scrollHeight > el.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(el).overflowY)); if (!s) return; const k = s.getBoundingClientRect().height / s.clientHeight || 1; s.scrollTop += (t.getBoundingClientRect().top - s.getBoundingClientRect().top) / k - 60; this.__done = true; }, 500); }
+  componentWillUnmount() { clearInterval(this.__fit); }
+}
+</script>
+</body>
+</html>

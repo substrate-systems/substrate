@@ -279,7 +279,7 @@ export function createSqlExomemPaddleEventStore(
           RETURNING id
         ),
         -- Paddle is the source of truth for the friend price. The newest
-        -- applied subscription event that carries the friend discount gives a
+        -- applied subscription event that carries a friend price gives a
         -- tenant without a friend offer the offer of a friend invitation
         -- addressed to its owner, in this transaction: an older event is
         -- stale and records nothing, and no later step can lose the write.
@@ -300,7 +300,7 @@ export function createSqlExomemPaddleEventStore(
                 invite.consumed_by_user_id = owner.id
                 OR (invite.consumed_at IS NULL AND invite.expires_at > now())
               )
-            -- Every friend invitation carries the same discount; the newest
+            -- Every friend invitation carries the same price; the newest
             -- names the inviter the owner heard from last.
             ORDER BY invite.created_at DESC
             LIMIT 1
@@ -308,7 +308,7 @@ export function createSqlExomemPaddleEventStore(
           WHERE tenant.id = decision.tenant_id
             AND decision.outcome = 'applied'
             AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
-            AND ${isSubscriptionEvent && application.subscriptionCarriesFriendDiscount}::boolean
+            AND ${isSubscriptionEvent && application.subscriptionCarriesFriendPrice}::boolean
             AND tenant.friend_offer_invite_id IS NULL
             AND EXISTS (SELECT 1 FROM claimed)
           RETURNING tenant.id

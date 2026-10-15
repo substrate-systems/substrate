@@ -12,7 +12,6 @@ import {
   chooseCopy,
   claimCopy,
   consentCopy,
-  failureCopy,
   handbackCopy,
   inviteCopy,
   joinedCopy,
@@ -89,7 +88,12 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await page.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
   // The page took the token out of the address bar before anything else.
   expect(new URL(page.url()).hash).toBe("");
-  await expect(page.getByText(failureCopy.linkUnusable)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "This sign-in link was already used" })
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Email me a new link", exact: true })).toBeVisible();
+  await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
+  await page.getByRole("button", { name: "Use a different email", exact: true }).click();
   await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
 });
 
@@ -118,26 +122,51 @@ test("Not now tells a web app no, and nothing is shared", async ({ page, context
   expect(await grantCount(client)).toBe(0);
 });
 
-test("Connect hands a web app its code", async ({ page, context }) => {
-  const owner = await seedOwner("ready");
-  await context.addCookies(owner.cookies);
-  const client = await seedClient({
-    name: "Journey Web App",
-    redirectUri: "https://web-app.example.test/callback",
-    platform: null,
+for (const reducedMotion of ["no-preference", "reduce"] as const)
+  test(`Connect preserves its full completion before handing back (${reducedMotion})`, async ({
+    page,
+    context,
+  }) => {
+    await page.emulateMedia({ reducedMotion });
+    const owner = await seedOwner("ready");
+    await context.addCookies(owner.cookies);
+    const client = await seedClient({
+      name: "Journey Web App",
+      redirectUri: "https://web-app.example.test/callback",
+      platform: null,
+    });
+    const reached = await appCallback(page, "https://web-app.example.test");
+    const request = authorizeRequest(client);
+
+    await page.goto(request.url);
+    const completed = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/exomem/oauth/authorize/complete"
+    );
+    await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
+    expect((await completed).status()).toBe(200);
+    expect(await grantCount(client)).toBe(1);
+    if (reducedMotion === "no-preference")
+      await expect(
+        page.getByRole("button", { name: consentCopy.connecting, exact: true })
+      ).toBeVisible();
+
+    await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
+    // Wait for the visible mark's finite completion animations, not a guessed wall-clock delay.
+    await page
+      .getByRole("img", { name: "Exomem", exact: true })
+      .last()
+      .evaluate(async (element) => {
+        const finite = element
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+        await Promise.allSettled(finite.map((animation) => animation.finished));
+      });
+    expect(reached).toHaveLength(0);
+    await page.waitForURL("https://web-app.example.test/**");
+    expect(reached[0]!.searchParams.get("code")).toBeTruthy();
+    expect(reached[0]!.searchParams.get("state")).toBe(request.state);
+    expect(await grantCount(client)).toBe(1);
   });
-  const reached = await appCallback(page, "https://web-app.example.test");
-  const request = authorizeRequest(client);
-
-  await page.goto(request.url);
-  await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
-
-  await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
-  await page.waitForURL("https://web-app.example.test/**");
-  expect(reached[0]!.searchParams.get("code")).toBeTruthy();
-  expect(reached[0]!.searchParams.get("state")).toBe(request.state);
-  expect(await grantCount(client)).toBe(1);
-});
 
 // The answer to Connect can be lost after the server has already connected the app.
 // The page must then say it could not confirm, never that nothing changed.
@@ -182,6 +211,7 @@ test("a 500 from Connect is not reported as nothing changed", async ({ page, con
   const served: number[] = [];
   await page.route("**/api/exomem/oauth/authorize/complete", async (route) => {
     served.push((await route.fetch()).status());
+    await new Promise((resolve) => setTimeout(resolve, 2100));
     await route.fulfill({
       status: 500,
       contentType: "application/json",
@@ -307,7 +337,7 @@ test("a level the cell cannot take yet stays picked and is not called saved", as
   await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
   await page.getByRole("button", { name: "Light", exact: true }).click();
 
-  await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+  await expect(page.getByText(joinedCopy.notSaved, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Light", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true"
@@ -351,7 +381,7 @@ test("a level save whose answer is lost reports what the cell holds", async ({ p
 
   writeLands = false;
   await page.getByRole("button", { name: "Maximal", exact: true }).click();
-  await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+  await expect(page.getByText(joinedCopy.notSaved, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Maximal", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true"
@@ -372,9 +402,8 @@ test("a friend's invitation leads to checkout at the friend price", async ({ pag
   await page.getByRole("button", { name: inviteCopy.accept }).click();
 
   await expect(page).toHaveURL(/\/exomem\/setup$/);
-  await expect(page.getByText(subscribeCopy.friendLede("Alex"))).toBeVisible();
-  await expect(page.getByText(inviteCopy.price.friend("Alex"))).toBeVisible();
-  await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+  await expect(page.getByText("Alex’s friend price", { exact: true })).toBeVisible();
+  await expect(page.getByText("Due today", { exact: true })).toBeVisible();
 });
 
 // An owner on a paid plan answers a friend's invitation. Paddle cannot confirm the plan
@@ -397,7 +426,7 @@ test("an owner's answer that Paddle cannot confirm stays open to try again", asy
   await page.goto(invitation.link);
   await page.getByRole("button", { name: inviteCopy.existing.keep }).click();
 
-  await expect(page.getByText(inviteCopy.existing.notFinished)).toBeVisible();
+  await expect(page.getByText(inviteCopy.existing.notFinished, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: inviteCopy.existing.keep })).toBeEnabled();
   expect(await invitationConsumed(invitation.id)).toBe(false);
 });

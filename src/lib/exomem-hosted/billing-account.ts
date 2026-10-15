@@ -12,7 +12,7 @@ import {
   createExomemCustomerPortal,
   ExomemBillingError,
   resumeExomemCheckout,
-  verifyExomemFriendDiscount,
+  selectExomemCheckoutPrice,
   type ExomemCheckoutOptions,
 } from "./paddle-billing";
 import {
@@ -39,7 +39,7 @@ export type OwnerBillingAccount = {
   /** The Paddle event that last changed it. */
   sourceRevision: string | null;
   manuallySuspended: boolean;
-  /** The tenant accepted a friend invitation, so its checkouts carry the friend discount. */
+  /** The tenant accepted a friend invitation, so its checkouts use the friend price. */
   friendOffer: boolean;
   /** The owner confirmed the account's deletion, so nothing may be bought any more. */
   deleting: boolean;
@@ -250,7 +250,7 @@ type CheckoutRecoveryDependencies = {
 };
 
 type BoundCheckoutRecovery =
-  | { state: "open"; checkoutUrl: string; discountId: string | null }
+  | { state: "open"; checkoutUrl: string; priceId: string; discountId: string | null }
   | { state: "canceled" }
   | { state: "completed" };
 
@@ -347,15 +347,14 @@ export type OwnerCheckoutDependencies = {
   checkout?: typeof createExomemCheckout;
   cancelTransaction?: typeof cancelExomemCheckoutTransaction;
   recordResubscribe?: typeof recordExomemResubscribeTransaction;
-  /** Checks the configured friend discount at Paddle and returns its id. */
-  verifyFriendDiscount?: () => Promise<string>;
+  selectCheckoutPrice?: typeof selectExomemCheckoutPrice;
   now?: () => Date;
 } & CheckoutRecoveryDependencies &
   CloudCheckoutGateDependencies;
 
 /**
- * Whether an open checkout may be handed back. It must carry exactly the
- * discount the tenant is owed, and a friend discount is checked at Paddle
+ * Whether an open checkout may be handed back. Its actual price and discount must match
+ * the server selection. A legacy discount is checked at Paddle
  * for each reuse as for each new checkout: a friend offer whose discount is
  * missing or changed never reopens a checkout. The account is then read
  * again, so an owner who confirmed deletion, or whose binding or offer
@@ -363,17 +362,14 @@ export type OwnerCheckoutDependencies = {
  */
 async function reusableOpenCheckout(
   account: OwnerBillingAccount,
-  open: { discountId: string | null },
+  open: { priceId: string; discountId: string | null },
   dependencies: OwnerCheckoutDependencies,
   now: Date
 ): Promise<boolean> {
-  const owed = account.friendOffer
-    ? await (
-        dependencies.verifyFriendDiscount ??
-        (() => verifyExomemFriendDiscount(loadExomemPaddleConfig()))
-      )()
-    : null;
-  if (open.discountId !== owed) return false;
+  const owed = await (dependencies.selectCheckoutPrice ?? selectExomemCheckoutPrice)(
+    account.friendOffer
+  );
+  if (open.priceId !== owed.priceId || open.discountId !== owed.discountId) return false;
   const current = await (dependencies.load ?? loadOwnerBillingAccount)(
     account.userId,
     account.tenantId

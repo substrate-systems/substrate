@@ -29,6 +29,7 @@ export const metadata: Metadata = {
 };
 
 const NOT_SIGNED_IN: AccountFacts = {
+  tenantId: null,
   readOnlyUntil: unknown("not_signed_in"),
   keptUntil: unknown("not_signed_in"),
   supportReference: unknown("not_signed_in"),
@@ -49,6 +50,7 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
       ownerBillingSummary(session.userId, session.tenantId),
     ]);
     return {
+      tenantId: session.tenantId,
       readOnlyUntil: account.readOnlyUntil,
       keptUntil: account.keptUntil,
       supportReference: known(account.supportReference),
@@ -58,6 +60,7 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
   } catch {
     // A storage failure is a visible unknown, never a guessed date.
     return {
+      tenantId: null,
       readOnlyUntil: unknown("unavailable"),
       keptUntil: unknown("unavailable"),
       supportReference: unknown("unavailable"),

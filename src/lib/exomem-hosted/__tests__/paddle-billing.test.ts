@@ -184,6 +184,7 @@ describe("Exomem Paddle billing adapters", () => {
     assert.deepEqual(result, {
       state: "open",
       checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${transactionId}`,
+      priceId: "pri_server_selected",
       discountId: null,
     });
   });
@@ -477,6 +478,7 @@ describe("Exomem Paddle billing adapters", () => {
     assert.deepEqual(runtimeOpen, {
       state: "open",
       checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${transactionId}`,
+      priceId: "pri_server_selected",
       discountId: null,
     });
   });

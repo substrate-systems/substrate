@@ -15,11 +15,32 @@ Goals:
 
 Non-goals:
 
-- Storage add-ons, email change, vault import and the graph viewer. The launch cut defers them.
+- Email change, vault import, Why, Review and listening remain deferred.
+- The approved graph viewer and storage add-ons have separate capability contracts; this integrated web batch does not implement them.
 - A generic proxy from the web to the cell.
 - A second specification tree. The deltas in this change are the durable contract.
 
 ## Decisions
+
+### Design update rounds 41–47
+
+The update in `docs/exomem-design/UPDATE-2026-10-13.md` supplies the current visual reference. Later review rounds supersede earlier rules. Frozen examples are illustrative; the product reads prices, dates, counts and states from their actual sources.
+
+One integrated batch ports the shared components and motion engine, then subscription checkout, start and connect flows, Home and accessibility. The product adapts the supplied source for React lifecycle and keyboard focus. It does not embed the prototype runtime. Existing approved AA contrast corrections remain.
+
+The writing E replaces the earlier row scan and supports the process's actual step count. Hidden and outgoing panes are inert. Transitions cannot duplicate payment frames or session effects. Each page has one polite status region, and each new step follows the reference's focus rules.
+An immediate successful connection still completes the writing sequence and completion seal before returning to the app. Reduced motion uses the static treatment.
+The clean email form has a 20 px field-to-button gap. Hint and error rows appear only when they contain guidance.
+
+Journey columns center in the viewport on desktop and phone, with equal clearance above and below normal-height steps. Header and origin clearance take priority when a tall step needs more room. Short windows may scroll; normal phone flows fit except checkout. Signed-in flow wordmarks go to Home; signed-out wordmarks remain still. The first-party keep action returns to the app list. An external OAuth request retains its denial callback without a second celebration.
+
+Subscription checkout uses Paddle's inline one-page frame. Events remain bound to the current transaction. The provider supplies prices and tax facts; account facts supply renewal dates when available. Unknown tax semantics use honest wording. Backend lifecycle readiness controls the final ready state. Other products retain their overlay checkout.
+
+Owner sign-in authentication remains single-use for 15 minutes. Access-start invitations remain separate and last 48 hours. A separate opaque recovery receipt binds a request to its browser. Its configured window defaults to one hour. It survives authentication expiry but cannot create a session or disclose an address. It permits only a uniform resend. Missing or mismatched proof shows the generic form.
+
+Visible waits derive only from the common browser or network limiter. Address-specific suppression remains invisible. Anonymous requests retain the uniform acknowledgement and response floor. The sent state does not promise a sign-in link for suppressed or waitlisted requests. Current provider prices remain until catalog changes are supplied.
+
+The product review covers the whole integrated batch. Its independent UI pass compares enabled drawn states at desktop 1440 and phone 390×844 in both themes. It checks normal spacing, navigation, recovery, focus, reduced motion, forced colours, zoom, landscape and keyboard use. Missing operational support remains an explicit dependency rather than simulated success.
 
 ### Admission, Turnstile, waitlist and outbox
 
@@ -148,11 +169,11 @@ This is the single list of places the build departs from the boards. Each is del
 | (ai) | The journey hides the paired tiles and tightens its spacing on a phone that is too short for them: under 800 px tall below 390 px wide, and under 740 px tall from 390 px wide. Everywhere else it shows the tiles as the board draws them. On every phone, the request's origin sits in the page's flow under the step. "Signed in as {email} · Switch account" takes at most two lines at any email length. It breaks only before "Switch account", and an address too long for the first line shrinks with an ellipsis, its local part first, then its domain. A local part of up to six characters never shrinks, and a longer one keeps a width of six Latin characters, which shows five and an ellipsis, so a long domain cannot hide which account is signed in. An address that fits is never cut. "Signed in as", "·" and "Switch account" never shrink. The line keeps the full address as its text and its title; a phone shows no title, so there the address stays cut. Every step then fits without scrolling down to 360 × 640, for any email length. The handoff README's QA list still names 375 × 667; the CI projects are 360 × 640, 360 × 720, 390 × 740, 390 × 844 and 1440. | With the tiles, the tallest step needs 780 px at 360 px wide (the consent step with a long app name) and 735 px from 375 to 430 px wide (the read-only consent step). Without them, the tallest step needs 635 px at 360 px wide. The heights were measured with the signed-in line on two lines, which is its most at any email length. The read-only and preparing steps were checked with addresses of 27, 40, 80, 128 and 254 characters at 360 × 640, 390 × 740, 390 × 750 and 430 × 932: none scrolls, and no control reaches the request's origin. The board itself overflows its frame at 360 × 720. README rule 4 asks that flow pages never scroll from 640 to 932 px. An origin in the page's flow cannot cover a control. | Decided 2026-10-12 under the standing rule |
 
 
-| (aj) | Home reserves a billing error row next to the control that failed: the plan row, state banner or subscribe step. | The owner must see the error where they clicked, without moving the rest of Home. | Decided 2026-10-13 under the standing rule |
+| (aj) | Home shows a billing error next to the control that failed: the plan row, state banner or subscribe step. Error text takes space only when present. | The owner sees the error where they clicked. An empty text row is absent from the normal state. | Corrected 2026-10-15 after the Home spacing audit |
 | (ak) | Every journey step centres its column in the viewport. Equal flexible space above and below the step keeps short states in the middle. Header and origin clearance take priority when the tallest phone states cannot leave equal space. The column and origin text use the page ground to keep graph ink behind their actual bounds. | A fixed top anchor pushed short forms and terminal messages into the decorative field. One layout restores the board's centred column while keeping controls clear of the wordmark and origin. The graph's fixed clear area cannot cover every tall step on a short phone. | Corrected 2026-10-13 after the mobile flow audit |
 | (al) | Email 09 names the inviter in its subject through 40 Unicode characters; longer names use “You’re invited to Exomem”. | The threshold preserves short names and gives long names a readable generic subject. It permits named subjects beyond the usual 45-character total. | Decided 2026-10-13 under the standing rule |
 | (am) | Email fact labels stack above values below 480 px. Phone text links use a 44 px block; the footer and note author use 13 px. | One shared fact layout keeps long values readable, and larger targets and small text work on phones. | Decided 2026-10-13 under the standing rule |
-| (an) | Email sign-in draws its error only after a failed attempt. The clean form keeps the board's gap between the input and button. Other transient flow errors use a reserved text row. Save statuses reserve a row. Home reserves export status space. | A hidden email error card created an empty gap absent from the board. A failed attempt adds its visible error and the complete step stays centred. Repeated failures keep the controls in place. | Corrected 2026-10-13 after the sign-in spacing audit |
+| (an) | Email sign-in draws its error only after a failed attempt. The clean form keeps the board's gap between the input and button. Other transient flow errors use a reserved text row. Save statuses reserve a row. Home expands export messages only when present. | A hidden email error card created an empty gap absent from the board. A failed attempt adds its visible error and the complete step stays centred. Repeated failures keep the controls in place. | Corrected 2026-10-15 after the spacing audit |
 | (ao) | A user step swap focuses its heading without a visible ring. Inline Cancel returns focus to its opener; successful disconnect focuses the app title. | A disconnected row has no action to receive focus. The app title identifies the result without adding a dead control. | Decided 2026-10-13 under the standing rule |
 | (ap) | Without a retry end date, read-only consent says “Your last payment failed. Exomem is read-only while Paddle retries. We don’t know when retries will end; the subscription ends after that.” Its footer uses 12 px. | The copy states the unknown date plainly and the footer stays readable. | Decided 2026-10-13 under the standing rule |
 

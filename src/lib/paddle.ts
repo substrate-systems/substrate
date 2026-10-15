@@ -8,6 +8,7 @@ import {
   type Environments,
   type Paddle,
   type PricePreviewResponse,
+  type PaddleEventData,
 } from "@paddle/paddle-js";
 import { AnalyticsEvent, capture, currentDistinctId } from "@/lib/analytics";
 import type { ExomemMoney } from "@/lib/exomem/money";
@@ -54,7 +55,9 @@ function checkoutCustomData(): { ph_distinct_id: string } | undefined {
 
 let paddlePromise: Promise<Paddle | null> | null = null;
 const completionListeners = new Set<CompletionListener>();
+const checkoutEventListeners = new Set<(event: PaddleEventData) => void>();
 let activeCheckoutProduct: CheckoutProduct | null = null;
+let inlineOwner: symbol | null = null;
 
 export function completionMatchesProduct(
   completed: CheckoutProduct | null,
@@ -83,6 +86,9 @@ function loadPaddle(): Promise<Paddle | null> {
     token,
     environment: resolveEnvironment(),
     eventCallback: (event) => {
+      checkoutEventListeners.forEach((listener) => listener(event));
+      // Inline checkout owns its transaction events; it never completes an overlay consumer.
+      if (inlineOwner !== null) return;
       if (event.name === CheckoutEventNames.CHECKOUT_COMPLETED) {
         // Paddle's own callback is the only completion signal the browser gets;
         // the authoritative record is the webhook, captured server-side.
@@ -109,6 +115,58 @@ function loadPaddle(): Promise<Paddle | null> {
     });
 
   return paddlePromise;
+}
+
+/** Subscribe only to the owner-bound transaction; unbound SDK errors fall back to the load deadline. */
+export async function openInlineTransactionCheckout(input: {
+  transactionId: string;
+  customerEmail: string;
+  frameTarget: string;
+  onEvent: (event: PaddleEventData) => void;
+  isCurrent: () => boolean;
+}): Promise<(() => void) | null> {
+  const paddle = await loadPaddle();
+  if (!paddle || !input.isCurrent()) return null;
+  const owner = Symbol("inline checkout");
+  const listener = (event: PaddleEventData) => {
+    if (
+      inlineOwner === owner &&
+      input.isCurrent() &&
+      event.data?.transaction_id === input.transactionId
+    ) {
+      input.onEvent(event);
+    }
+  };
+  inlineOwner = owner;
+  checkoutEventListeners.add(listener);
+  try {
+    paddle.Checkout.open({
+      transactionId: input.transactionId,
+      customer: { email: input.customerEmail },
+      settings: {
+        displayMode: "inline",
+        variant: "one-page",
+        theme: document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark",
+        frameTarget: input.frameTarget,
+        frameInitialHeight: 450,
+        frameStyle: "width:100%;background-color:transparent;border:none",
+        showAddDiscounts: false,
+        showAddTaxId: true,
+        allowLogout: false,
+      },
+    });
+  } catch {
+    checkoutEventListeners.delete(listener);
+    if (inlineOwner === owner) inlineOwner = null;
+    return null;
+  }
+  return () => {
+    checkoutEventListeners.delete(listener);
+    if (inlineOwner === owner) {
+      paddle.Checkout.close();
+      inlineOwner = null;
+    }
+  };
 }
 
 type PreviewLineItem = PricePreviewResponse["data"]["details"]["lineItems"][number];

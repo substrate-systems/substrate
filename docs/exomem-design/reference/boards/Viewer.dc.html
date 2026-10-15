@@ -10,6 +10,10 @@
 <helmet>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
 <style>
+/* Exomem text selection (R45) */.vw ::selection{background:color-mix(in srgb,var(--v1) 30%,transparent);color:rgb(var(--v12))}
+
+.vw .r43h{display:none !important}
+@media (forced-colors: active){button,[role=button]{border:1px solid ButtonText !important}input{border:1px solid FieldText !important}}
 body{margin:0}
 .vw button{font-family:inherit}
 .vw button:focus-visible,.vw input:focus-visible{outline:2px solid var(--v1);outline-offset:2px}
@@ -173,6 +177,11 @@ body{margin:0}
 .mpop button{height:36px;border:0;border-radius:7px;background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:12px;text-align:left;padding:0 10px;cursor:pointer}
 .mpop button:hover{background:var(--v6)}
 @media (prefers-reduced-motion: reduce){.vw *{animation:none !important;transition:none !important}}
+
+/* R45: a note is solid, never see-through: its strength is mixed into its colour, so links stop under it */
+.vw .nd:not(.gone){opacity:1 !important}
+.vw .nd:not(.pairn):not(.trailn):not(.hit):not(.born):not(.focus):not(.old){--o:.24;background:color-mix(in srgb,var(--v0) calc(var(--o) * 100%),var(--v4))}
+.vw .nd.hub{--o:.5}.vw .nd.nb,.vw .nd.lensn{--o:.85}.vw .nd.dim{--o:.1}.vw .nd.hvn{--o:.6}.vw .nd.hov{--o:1}
 </style>
 </helmet>
 <main class="vw {{ muCls }} {{ dragCls }} {{ stillCls }}" style="{{ vwVars }} width: {{ mw }}px; height: {{ mh }}px; background: var(--v4); color: var(--v0); font-family: Inter, system-ui, sans-serif; position: relative; overflow: hidden">
@@ -271,6 +280,7 @@ body{margin:0}
         <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
           <div style="position: absolute; left: 0; right: 0; top: 42px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); border-radius: 10px; padding: 6px 0; box-shadow: 0 20px 50px var(--v15)">
             <div class="mono" style="font-size: 10.5px; color: var(--v3); padding: 4px 12px 6px; letter-spacing: .12em">{{ resultsHead }}</div>
+            <sc-if value="{{ noMatch }}" hint-placeholder-val="{{ false }}"><div style="padding: 2px 12px 10px; font-size: 13px; line-height: 1.5; color: var(--v2)">{{ noMatchText }}</div></sc-if>
             <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
               <button type="button" class="res" onClick="{{ r.pick }}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span><span style="color: var(--v2); flex: none">{{ r.k }}</span></button>
             </sc-for>
@@ -281,14 +291,14 @@ body{margin:0}
           </div>
         </sc-if>
       </div>
-      <div style="display: flex; gap: 6px">
+      <div class="{{ r43Hide }}" style="display: flex; gap: 6px">
         <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
           <button type="button" class="chip {{ c.cls }}" onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}" title="{{ c.tip }}"><svg width="22" height="6" aria-hidden="true"><line x1="1" y1="3" x2="21" y2="3" stroke="{{ c.col }}" stroke-width="{{ c.w }}" stroke-dasharray="{{ c.dash }}" stroke-opacity="{{ c.op }}"></line></svg>{{ c.label }}</button>
         </sc-for>
         <button type="button" class="chip {{ moreCls }}" onClick="{{ toggleMore }}" aria-expanded="{{ moreOpen }}" style="color: var(--v2)">{{ moreLabel }}</button>
       </div>
       <div style="margin-left: auto; display: flex; align-items: center; gap: 14px">
-        <button type="button" class="chip {{ lensCls }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
+        <button type="button" class="chip {{ lensCls }} {{ r43Hide }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
         <span class="mono" style="font-size: 11px; color: var(--v3); padding: 3px 7px; border: 1px dashed rgba(var(--v12),.14); border-radius: 4px">sample vault</span>
         <button type="button" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}" title="{{ themeLabel }}" style="width: 28px; height: 28px; border-radius: 14px; border: 0; background: transparent; color: var(--v2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M8 1.8 A6.2 6.2 0 0 1 8 14.2 Z" fill="currentColor"></path></svg></button>
         <button type="button" onClick="{{ goHome }}" style="height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(var(--v12),.14); background: transparent; color: var(--v0); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; cursor: pointer">Home</button>
@@ -310,8 +320,8 @@ body{margin:0}
         <button type="button" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}" style="width: 36px; height: 36px; flex: none; border: 0; background: transparent; color: var(--v2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M8 1.8 A6.2 6.2 0 0 1 8 14.2 Z" fill="currentColor"></path></svg></button>
         <button type="button" onClick="{{ goHome }}" style="height: 36px; flex: none; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(var(--v12),.14); background: transparent; color: var(--v0); font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">Home</button>
       </div>
-      <div class="hscroll" style="height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 14px">
-        <button type="button" class="chip {{ lensCls }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
+      <div class="hscroll {{ r43Hide }}" style="height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 14px">
+        <button type="button" class="chip {{ lensCls }} {{ r43Hide }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
         <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
           <button type="button" class="chip {{ c.cls }}" onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}"><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" stroke="{{ c.col }}" stroke-width="{{ c.w }}" stroke-dasharray="{{ c.dash }}" stroke-opacity="{{ c.op }}"></line></svg>{{ c.label }}</button>
         </sc-for>
@@ -321,6 +331,7 @@ body{margin:0}
       <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
         <div style="position: absolute; left: 10px; right: 10px; top: 50px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); border-radius: 10px; padding: 6px 0; box-shadow: 0 20px 50px var(--v15); z-index: 7">
           <div class="mono" style="font-size: 10.5px; color: var(--v3); padding: 4px 12px 6px; letter-spacing: .12em">{{ resultsHead }}</div>
+          <sc-if value="{{ noMatch }}" hint-placeholder-val="{{ false }}"><div style="padding: 2px 12px 10px; font-size: 13px; line-height: 1.5; color: var(--v2)">{{ noMatchText }}</div></sc-if>
           <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
             <button type="button" class="res" onClick="{{ r.pick }}" style="padding: 11px 12px"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span><span style="color: var(--v2); flex: none">{{ r.k }}</span></button>
           </sc-for>
@@ -695,9 +706,31 @@ body{margin:0}
       </article>
     </div>
   </sc-if>
+
+  <!-- ===== round 43: cases the viewer must hold ===== -->
+  <sc-if value="{{ r43Empty }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 0; right: 0; top: {{ gTop }}px; bottom: 0; z-index: 5; background: var(--v4); display: flex; align-items: center; justify-content: center; padding: 0 24px">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; max-width: 420px">
+        <svg width="120" height="64" viewBox="0 0 120 64" aria-hidden="true"><g fill="var(--v3)"><circle cx="14" cy="40" r="2.2"/><circle cx="44" cy="14" r="2.2"/><circle cx="66" cy="46" r="2.2"/><circle cx="98" cy="22" r="2.2"/><circle cx="108" cy="52" r="2.2"/></g></svg>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 500; color: var(--v0)">Nothing here yet</span>
+        <span style="font-size: 14px; line-height: 1.55; color: var(--v2)">When an assistant saves its first note, it appears here, with lines to what it relates to. Try asking it to remember something today.</span>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ r43Large }}" hint-placeholder-val="{{ false }}">
+    <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: {{ gTop }}px; bottom: 0; z-index: 2; pointer-events: none; opacity: .22"><sc-for list="{{ r43Dust }}" as="d" hint-placeholder-count="0"><i style="position: absolute; left: {{ d.x }}%; top: {{ d.y }}%; width: {{ d.s }}px; height: {{ d.s }}px; border-radius: 50%; background: var(--v2)"></i></sc-for></div>
+    <div style="position: absolute; left: 50%; transform: translateX(-50%); top: calc({{ gTop }}px + 14px); z-index: 6; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 999px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); font-size: 12.5px; color: var(--v0); white-space: nowrap; box-shadow: 0 10px 30px var(--v15)">
+      <span class="mono" style="color: var(--v2)">{{ r43Shown }} of {{ r43Total }}</span><span>The most-linked notes. Zoom in or search to see the rest.</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{ r43Lost }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 50%; transform: translateX(-50%); top: calc({{ gTop }}px + 14px); z-index: 7; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 10px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); border-left: 2px solid var(--v2); font-size: 12.5px; color: var(--v0); max-width: calc(100% - 32px); box-sizing: border-box; box-shadow: 0 10px 30px var(--v15)">
+      <span>Can’t reach Exomem. Showing your graph as of {{ r43Seen }}. Trying again in {{ r43Retry }}&nbsp;s.</span><button type="button" class="btn" style="height: 28px; flex: none">Try now</button>
+    </div>
+  </sc-if>
 </main>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"live":{"editor":"boolean","default":true},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"start":{"editor":"enum","default":"overview","options":["overview","note","why","read","review","types","reviewed"]},"screenH":{"editor":"number","default":844},"$preview":{"width":1440,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"live":{"editor":"boolean","default":true},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"start":{"editor":"enum","default":"overview","options":["overview","note","why","read","review","types","reviewed","noresults"]},"vault":{"editor":"enum","default":"sample","options":["sample","empty","large"]},"reach":{"editor":"enum","default":"ok","options":["ok","lost"]},"screenH":{"editor":"number","default":844},"$preview":{"width":1440,"height":900}}'>
 // Exomem's graph viewer over a sample vault. One colour: amber lights only what is live, retrieved or current.
 // Overview first; zoom and filter; details on demand. Click a note and the camera moves to it, its links gather
 // around it, labelled by type. Ask why, and the trail that backs it lights up. Disagreements wait for review.
@@ -767,6 +800,7 @@ class Component extends DCLogic {
     this.state = { focus: mode === 'note' || mode === 'why' || mode === 'read' ? g.hubs[0] : -1, mode, off: {}, asOf: 11, q: '', searchOpen: false, moreOpen: s === 'types', playing: false, speed: 1,
       ev: [], evN: 0, now: 0, cam: null, drag: false, hist: [], hover: -1, paused: props.live === false, rv: 0, resolved: {}, over: {}, rvLast: null,
       sheet: mode === 'why' || mode === 'review' ? 'open' : 'peek' };
+    if (s === 'noresults') this.state = { ...this.state, q: this.props.query ?? 'kubernetes', searchOpen: true };
     if (s === 'reviewed') { const q = this.queue(this.state); if (q.length) { const [a, b] = q[0]; this.state = { ...this.state, ...this.resolveState(this.state, q[0], 'keepB') }; } }
   }
   componentDidMount() {
@@ -1315,6 +1349,10 @@ class Component extends DCLogic {
       searchOpen: st.searchOpen, searchBorder: st.searchOpen ? 'rgba(var(--v13),.5)' : 'rgba(var(--v12),.14)',
       searchPlaceholder: focused ? (phone ? base(g.pts[focus].title) : g.pts[focus].title) : 'Search your notes',
       resultsHead: q ? `${matches.length ? 'MATCHES' : 'NO MATCHES'}` : 'START FROM',
+      noMatch: !!q && !matches.length, noMatchText: `Nothing matches “${q}” in titles or text, by words or by meaning. Try other words, or a broader one.`,
+      ...(() => { const v = this.props.vault ?? 'sample', lost = (this.props.reach ?? 'ok') === 'lost';
+        const dust = []; if (v === 'large') { let s = 7; const r = () => (s = (s * 9301 + 49297) % 233280) / 233280; for (let i = 0; i < 700; i++) dust.push({ x: (r() * 100).toFixed(2), y: (r() * 100).toFixed(2), s: (1.6 + r() * 2.2).toFixed(1) }); }
+        return { r43Empty: v === 'empty', r43Hide: v === 'empty' ? 'r43h' : '', r43Large: v === 'large', r43Lost: lost, r43Dust: dust, r43Shown: new Intl.NumberFormat('en-GB').format(this.props.shown ?? 400), r43Total: new Intl.NumberFormat('en-GB').format(this.props.total ?? 4213), r43Seen: this.props.lastSeen ?? '14:02', r43Retry: this.props.retrySeconds ?? 8 }; })(),
       results: matches.map(([i, p]) => ({ t: p.title, k: kindOf(p), pick: (e) => { stopEv(e); this.focusOn(i); } })),
       openSearch: () => this.setState({ searchOpen: true, moreOpen: false }),
       typeSearch: (e) => this.setState({ q: (e && e.target && e.target.value) || '', searchOpen: true }),

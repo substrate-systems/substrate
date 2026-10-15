@@ -11,8 +11,13 @@ import { executeExomemSql, type ExomemSessionRow } from "./db";
 import { exomemErrors } from "./errors";
 import { known, unknown, type Known } from "./known";
 import type { ExomemMoney } from "@/lib/exomem/money";
+import { carriesFriendPrice } from "./paddle-friend-price";
 import { readExomemNextPaymentAmount } from "./paddle-billing";
-import { exomemPaddleFriendDiscountId, loadExomemPaddleConfig } from "./paddle-config";
+import {
+  exomemPaddleFriendDiscountId,
+  exomemPaddleFriendPriceId,
+  loadExomemPaddleConfig,
+} from "./paddle-config";
 
 export type ExomemAccountView = {
   kind: "owner" | "reviewer";
@@ -115,11 +120,15 @@ function planFact(
 
 // The friend price shows on the same subscription the plan facts describe,
 // and only while that subscription has not ended.
-function friendPriceApplied(row: ExomemAccountRow, friendDiscountId: string | null): boolean {
+function friendPriceApplied(
+  row: ExomemAccountRow,
+  config: { friendPriceId: string | null; friendDiscountId: string | null }
+): boolean {
   return (
-    planFact(row, row.discountId).value !== null &&
+    row.source === "paddle" &&
+    row.subscriptionRef !== null &&
     row.sourceState !== "cancelled" &&
-    row.discountId === friendDiscountId
+    carriesFriendPrice({ priceId: row.priceId, discountId: row.discountId }, config)
   );
 }
 
@@ -199,7 +208,10 @@ export function buildExomemAccountView(
   }
 ): ExomemAccountView {
   const environment = options.environment ?? process.env;
-  const friendDiscountId = exomemPaddleFriendDiscountId(environment);
+  const friendConfig = {
+    friendPriceId: exomemPaddleFriendPriceId(environment),
+    friendDiscountId: exomemPaddleFriendDiscountId(environment),
+  };
   const none = noNextPayment(row);
   return {
     kind: options.reviewer ? "reviewer" : "owner",
@@ -213,7 +225,7 @@ export function buildExomemAccountView(
       priceId: planFact(row, row.priceId),
       friendPrice: {
         offered: row.friendOffered,
-        applied: friendPriceApplied(row, friendDiscountId),
+        applied: friendPriceApplied(row, friendConfig),
         inviterName: row.friendInviterName,
       },
     },

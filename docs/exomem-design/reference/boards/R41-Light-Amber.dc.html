@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Light mode amber</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 2540px; box-sizing: border-box; padding: 56px 64px 72px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 40px">
+  <div style="display: flex; flex-direction: column; gap: 10px; max-width: 1500px">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 41 · light mode, before and after · every frame is the real flow page, hover them</div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 40px; letter-spacing: -0.02em">Light mode amber, judged</div>
+    <div style="font-size: 16px; color: #A39E93; line-height: 1.6">The light-mode amber hasn’t changed since round 40: deep amber on paper. What made it look dull was a bug (A). B is the fix alone; C is the fix with the Round 41 glow; D shows the bright amber on paper so you can see why it isn’t used for text.</div>
+  </div>
+  <div style="display: flex; gap: 36px; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 10px; width: 576px">
+    <div style="display: flex; flex-direction: column; gap: 6px; min-height: 96px; padding-top: 12px; border-top: 2px solid rgba(236,233,226,0.12)">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500">A · As shipped</span><span style="font-size: 13px; color: #A39E93; line-height: 1.5">Deep amber, but the lit note shows at 30% because a later light-mode rule overrode it. This is the dull, beige look.</span></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Start · live, hover it</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="choose" app="web" legacy-light="true" alive="shipped" hint-size="1280px,820px"></dc-import></div></div><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Connected · held still</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="handback" app="Claude" still="true" legacy-light="true" alive="shipped" hint-size="1280px,820px"></dc-import></div></div>
+  </div><div style="display: flex; flex-direction: column; gap: 10px; width: 576px">
+    <div style="display: flex; flex-direction: column; gap: 6px; min-height: 96px; padding-top: 12px; border-top: 2px solid rgba(236,233,226,0.12)">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500">B · Fixed</span><span style="font-size: 13px; color: #A39E93; line-height: 1.5">Same deep amber (#A86E00), lit note at full strength. The only change is the bug fix. Nothing about the colour changed.</span></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Start · live, hover it</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="choose" app="web" alive="shipped" hint-size="1280px,820px"></dc-import></div></div><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Connected · held still</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="handback" app="Claude" still="true" alive="shipped" hint-size="1280px,820px"></dc-import></div></div>
+  </div><div style="display: flex; flex-direction: column; gap: 10px; width: 576px">
+    <div style="display: flex; flex-direction: column; gap: 6px; min-height: 96px; padding-top: 12px; border-top: 2px solid #FFB000">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500">C · Fixed + Round 41 glow</span><span style="font-size: 13px; color: #A39E93; line-height: 1.5">B plus the A + loop treatment: a bright amber halo around the deep note, lit links nearly solid, links stop at each note.</span></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Start · live, hover it</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="choose" app="web" alive="loop" hint-size="1280px,820px"></dc-import></div></div><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Connected · held still</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="handback" app="Claude" still="true" alive="loop" hint-size="1280px,820px"></dc-import></div></div>
+  </div><div style="display: flex; flex-direction: column; gap: 10px; width: 576px">
+    <div style="display: flex; flex-direction: column; gap: 6px; min-height: 96px; padding-top: 12px; border-top: 2px solid rgba(236,233,226,0.12)">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500">D · Bright amber everywhere</span><span style="font-size: 13px; color: #A39E93; line-height: 1.5">The dark-mode amber (#FFB000) used on paper too, for comparison. Brightest, but see its contrast below.</span></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Start · live, hover it</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="choose" app="web" alive="shipped" accent="#FFB001" hint-size="1280px,820px"></dc-import></div></div><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #858075">Connected · held still</span><div style="width: 576px; height: 369px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.12)"><div style="zoom: 0.45"><dc-import name="Journey-Page" device="desktop" theme="light" step="handback" app="Claude" still="true" alive="shipped" accent="#FFB001" hint-size="1280px,820px"></dc-import></div></div>
+  </div></div>
+  <div style="display: flex; flex-direction: column; max-width: 1500px">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 24px; margin-bottom: 6px">Contrast on paper (#FAF8F4), computed</div>
+    <div style="font-size: 14px; color: #A39E93; line-height: 1.6; margin-bottom: 12px">WCAG 2.1: small text needs 4.5:1; large text, and lines or dots someone needs to understand, need 3:1. A purely decorative glow has no minimum. For reference, the bright amber on the dark ground is 10.86:1.</div>
+    <div style="display: grid; grid-template-columns: 300px 360px 140px 1fr; gap: 24px; align-items: center; padding: 16px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+    <div style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 6px; background: #FFB000; flex: none"></span><span style="display: flex; flex-direction: column"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#FFB000</span><span style="font-size: 12px; color: #858075">bright · dark mode’s amber</span></span></div>
+    <div style="background: #FAF8F4; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 16px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFB000">supports · current</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: #FFB000">Aa</span>
+      <svg width="90" height="20" viewBox="0 0 90 20" aria-hidden="true"><line x1="4" y1="10" x2="70" y2="10" stroke="#FFB000" stroke-width="1"/><circle cx="78" cy="10" r="5" fill="#FFB000"/></svg></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500">1.73:1</span>
+    <span style="font-size: 13px; color: #A39E93; line-height: 1.6">small text (4.5:1) <span style="color: #E5806B">fails</span> · large text (3:1) <span style="color: #E5806B">fails</span> · lines and dots that carry meaning (3:1) <span style="color: #E5806B">fails</span></span>
+  </div><div style="display: grid; grid-template-columns: 300px 360px 140px 1fr; gap: 24px; align-items: center; padding: 16px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+    <div style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 6px; background: #C98500; flex: none"></span><span style="display: flex; flex-direction: column"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#C98500</span><span style="font-size: 12px; color: #858075">a middle step</span></span></div>
+    <div style="background: #FAF8F4; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 16px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #C98500">supports · current</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: #C98500">Aa</span>
+      <svg width="90" height="20" viewBox="0 0 90 20" aria-hidden="true"><line x1="4" y1="10" x2="70" y2="10" stroke="#C98500" stroke-width="1"/><circle cx="78" cy="10" r="5" fill="#C98500"/></svg></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500">2.90:1</span>
+    <span style="font-size: 13px; color: #A39E93; line-height: 1.6">small text (4.5:1) <span style="color: #E5806B">fails</span> · large text (3:1) <span style="color: #E5806B">fails</span> · lines and dots that carry meaning (3:1) <span style="color: #E5806B">fails</span></span>
+  </div><div style="display: grid; grid-template-columns: 300px 360px 140px 1fr; gap: 24px; align-items: center; padding: 16px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+    <div style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 6px; background: #A86E00; flex: none"></span><span style="display: flex; flex-direction: column"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#A86E00</span><span style="font-size: 12px; color: #858075">deep · light-mode lines, dots, glow (locked)</span></span></div>
+    <div style="background: #FAF8F4; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 16px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A86E00">supports · current</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: #A86E00">Aa</span>
+      <svg width="90" height="20" viewBox="0 0 90 20" aria-hidden="true"><line x1="4" y1="10" x2="70" y2="10" stroke="#A86E00" stroke-width="1"/><circle cx="78" cy="10" r="5" fill="#A86E00"/></svg></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500">4.04:1</span>
+    <span style="font-size: 13px; color: #A39E93; line-height: 1.6">small text (4.5:1) <span style="color: #E5806B">fails</span> · large text (3:1) <span style="color: #7BC47F">passes</span> · lines and dots that carry meaning (3:1) <span style="color: #7BC47F">passes</span></span>
+  </div><div style="display: grid; grid-template-columns: 300px 360px 140px 1fr; gap: 24px; align-items: center; padding: 16px 0; border-top: 1px solid rgba(236,233,226,0.12)">
+    <div style="display: flex; align-items: center; gap: 12px"><span style="width: 28px; height: 28px; border-radius: 6px; background: #A06600; flex: none"></span><span style="display: flex; flex-direction: column"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">#A06600</span><span style="font-size: 12px; color: #858075">deep · light-mode amber text (you picked it, round 40)</span></span></div>
+    <div style="background: #FAF8F4; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 16px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A06600">supports · current</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; color: #A06600">Aa</span>
+      <svg width="90" height="20" viewBox="0 0 90 20" aria-hidden="true"><line x1="4" y1="10" x2="70" y2="10" stroke="#A06600" stroke-width="1"/><circle cx="78" cy="10" r="5" fill="#A06600"/></svg></div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500">4.50:1</span>
+    <span style="font-size: 13px; color: #A39E93; line-height: 1.6">small text (4.5:1) <span style="color: #7BC47F">passes</span> · large text (3:1) <span style="color: #7BC47F">passes</span> · lines and dots that carry meaning (3:1) <span style="color: #7BC47F">passes</span></span>
+  </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2540,"height":1900}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

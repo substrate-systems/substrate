@@ -1,0 +1,1044 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Accent-Afterglow.dc.html": {
+      "h": 920,
+      "title": "B \u00b7 Afterglow",
+      "w": 560,
+      "x": 640,
+      "y": 1100
+    },
+    "Accent-Amber.dc.html": {
+      "h": 920,
+      "title": "A \u00b7 Phosphor amber (today)",
+      "w": 560,
+      "x": 0,
+      "y": 1100
+    },
+    "Accent-Cathode.dc.html": {
+      "h": 920,
+      "title": "C \u00b7 Cathode",
+      "w": 560,
+      "x": 1280,
+      "y": 1100
+    },
+    "Accent-Signal.dc.html": {
+      "h": 920,
+      "title": "D \u00b7 Signal",
+      "w": 560,
+      "x": 1920,
+      "y": 1100
+    },
+    "Artboard-lekf.dc.html": {
+      "h": 600,
+      "page": "page-lw2wjy",
+      "title": "Artboard 1",
+      "w": 800,
+      "x": 0,
+      "y": 0
+    },
+    "Connect-Page.dc.html": {
+      "h": 820,
+      "is_interactive": true,
+      "title": "Connect page \u00b7 single, try field + theme",
+      "w": 1280,
+      "x": 5848,
+      "y": 14480
+    },
+    "Hero-Graph.dc.html": {
+      "h": 660,
+      "title": "Hero graph (from memory-graph.tsx) \u00b7 try any accent",
+      "w": 620,
+      "x": 2148,
+      "y": 6500
+    },
+    "Home-Page.dc.html": {
+      "h": 1760,
+      "title": "Home \u00b7 single, try state + device",
+      "w": 1280,
+      "x": 5138,
+      "y": 23460
+    },
+    "Journey-Page.dc.html": {
+      "h": 820,
+      "is_interactive": true,
+      "title": "The one page \u00b7 plays the journey, or pick a step and a mark \u00b7 now with the web start (app = web) and \"Add Exomem to your",
+      "w": 1280,
+      "x": 0,
+      "y": 18560
+    },
+    "Landing-Page.dc.html": {
+      "h": 820,
+      "is_interactive": true,
+      "title": "Landing \u00b7 the real page: scroll it, then click through email, inbox, Paddle, Claude, Home",
+      "w": 1280,
+      "x": 1480,
+      "y": 41050
+    },
+    "Landing-Phone.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Landing \u00b7 phone, live",
+      "w": 390,
+      "x": 1520,
+      "y": 260,
+      "page": "page-phone"
+    },
+    "Main.dc.html": {
+      "h": 760,
+      "title": "01 \u00b7 The collision: Q, Q Ink, Exomem today",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "Mark-Studies.dc.html": {
+      "h": 1000,
+      "title": "Mark studies",
+      "w": 1280,
+      "x": 0,
+      "y": 2360
+    },
+    "R10-Connect.dc.html": {
+      "h": 2060,
+      "is_interactive": true,
+      "title": "R10 \u00b7 More of the graph: four fields",
+      "w": 2748,
+      "x": 0,
+      "y": 16040
+    },
+    "R10-Marks.dc.html": {
+      "h": 1120,
+      "is_interactive": true,
+      "title": "R10 \u00b7 Marks beyond the E",
+      "w": 1600,
+      "x": 2828,
+      "y": 16040
+    },
+    "R10-Themes.dc.html": {
+      "h": 2060,
+      "is_interactive": true,
+      "title": "R10 \u00b7 Six lights on the real page",
+      "w": 4088,
+      "x": 4508,
+      "y": 16040
+    },
+    "R11-Flow.dc.html": {
+      "h": 1160,
+      "title": "For us, not a user screen \u00b7 how someone gets connected (plugin route)",
+      "w": 2600,
+      "x": 1360,
+      "y": 18560
+    },
+    "R11-Marks.dc.html": {
+      "h": 1310,
+      "is_interactive": true,
+      "title": "R11 \u00b7 Marks you'd recognise",
+      "w": 1600,
+      "x": 0,
+      "y": 19900
+    },
+    "R11-States.dc.html": {
+      "h": 3060,
+      "is_interactive": true,
+      "title": "R11 \u00b7 Every state, 1280 + 390 + reduced motion",
+      "w": 2784,
+      "x": 4040,
+      "y": 18560
+    },
+    "R12-Home.dc.html": {
+      "h": 1320,
+      "title": "R12\u219213 \u00b7 Home \u00b7 only the logo lights; ended keeps apps, switched off",
+      "w": 2330,
+      "x": 2728,
+      "y": 22100
+    },
+    "R12-Lifecycle.dc.html": {
+      "h": 1880,
+      "title": "R12\u219213 \u00b7 Lifecycle and all 8 emails \u00b7 the web band follows the account",
+      "w": 2648,
+      "x": 0,
+      "y": 22100
+    },
+    "R12-Marks.dc.html": {
+      "h": 1310,
+      "is_interactive": true,
+      "title": "R12 \u00b7 Held, explored, next to the dot E",
+      "w": 1600,
+      "x": 5138,
+      "y": 22100
+    },
+    "R13-Marks.dc.html": {
+      "h": 1420,
+      "is_interactive": true,
+      "title": "R13 \u00b7 Beyond the letter: Versions, Shard, Source, Kept",
+      "w": 1600,
+      "x": 0,
+      "y": 24840
+    },
+    "R14-Marks.dc.html": {
+      "h": 1420,
+      "is_interactive": true,
+      "title": "R14 \u00b7 Cut from light: Shard, Cut E, Cluster, Dot shard",
+      "w": 1600,
+      "x": 1680,
+      "y": 24840
+    },
+    "R15-CutE.dc.html": {
+      "h": 1420,
+      "is_interactive": true,
+      "title": "R15 \u00b7 Cut E, five ways: Block, Crystal, Sharp, Wire",
+      "w": 1600,
+      "x": 0,
+      "y": 28420
+    },
+    "R15-OnPage.dc.html": {
+      "h": 1600,
+      "is_interactive": true,
+      "title": "R15 \u00b7 Dot E, Held or Cut E on the real connect page",
+      "w": 4088,
+      "x": 0,
+      "y": 26740
+    },
+    "R15-Scrollbar.dc.html": {
+      "h": 680,
+      "is_interactive": true,
+      "title": "R15 \u00b7 Scrollbar \u00b7 quiet until used (scroll it)",
+      "w": 1240,
+      "x": 1680,
+      "y": 28420
+    },
+    "R16-Graph.dc.html": {
+      "h": 1090,
+      "title": "R16 \u00b7 Your real graph on Home, and a milestone email",
+      "w": 1600,
+      "x": 3360,
+      "y": 30180
+    },
+    "R16-Logo-DotE.dc.html": {
+      "h": 1560,
+      "is_interactive": true,
+      "title": "R16 \u00b7 Logo system \u00b7 Dot E",
+      "w": 1600,
+      "x": 0,
+      "y": 30180
+    },
+    "R16-Logo-Held.dc.html": {
+      "h": 1560,
+      "is_interactive": true,
+      "title": "R16 \u00b7 Logo system \u00b7 Held",
+      "w": 1600,
+      "x": 1680,
+      "y": 30180
+    },
+    "R17-Kit.dc.html": {
+      "h": 1820,
+      "title": "R17 \u00b7 The Dot E kit: every file, why four dots, the light tile",
+      "w": 1600,
+      "x": 0,
+      "y": 32060
+    },
+    "R17-Marketing.dc.html": {
+      "h": 1600,
+      "is_interactive": true,
+      "title": "R17 \u00b7 Dot E in marketing",
+      "w": 1600,
+      "x": 1680,
+      "y": 32060
+    },
+    "R17-Milestones.dc.html": {
+      "h": 1140,
+      "title": "R17 \u00b7 Milestone emails, and relationships on the graph",
+      "w": 1800,
+      "x": 3360,
+      "y": 32060
+    },
+    "R18-Landing.dc.html": {
+      "h": 2980,
+      "title": "R18 \u00b7 The landing, evolved",
+      "w": 1776,
+      "x": 3200,
+      "y": 34120
+    },
+    "R18-Wordmark.dc.html": {
+      "h": 1300,
+      "is_interactive": true,
+      "title": "R18 \u00b7 The wordmark: the Dot E is the capital E",
+      "w": 1600,
+      "x": 0,
+      "y": 34120
+    },
+    "R19-Landing.dc.html": {
+      "h": 3410,
+      "is_interactive": true,
+      "title": "R19\u219220 \u00b7 The landing, sharper \u00b7 faster recall loop, current benchmarks, developer details folded away",
+      "w": 1776,
+      "x": 1680,
+      "y": 37360
+    },
+    "R19-SmallCut.dc.html": {
+      "h": 900,
+      "title": "R19 \u00b7 The small cut, evenly spaced (mark-small.svg, favicons)",
+      "w": 1600,
+      "x": 0,
+      "y": 37360
+    },
+    "R19-Start.dc.html": {
+      "h": 2000,
+      "title": "R19\u219220 \u00b7 Start with your email, on the pages we already made (frames play live)",
+      "w": 2112,
+      "x": 3536,
+      "y": 37360
+    },
+    "R2-Amber-Light.dc.html": {
+      "h": 1000,
+      "is_interactive": true,
+      "title": "R2 \u00b7 Amber as light, not paint",
+      "w": 1280,
+      "x": 0,
+      "y": 3700
+    },
+    "R2-Marks.dc.html": {
+      "h": 1060,
+      "is_interactive": true,
+      "title": "R2 \u00b7 Marks about connection",
+      "w": 1280,
+      "x": 1360,
+      "y": 3700
+    },
+    "R20-Mobile.dc.html": {
+      "h": 4724,
+      "is_interactive": true,
+      "title": "R20\u219221 \u00b7 The landing on a phone (390 px) \u00b7 the graph, re-laid for a portrait screen",
+      "w": 1400,
+      "x": 0,
+      "y": 260,
+      "page": "page-phone"
+    },
+    "R28-Emails.dc.html": {
+      "h": 6180,
+      "title": "R28 \u00b7 One Exomem email \u00b7 template, invitations, catalogue",
+      "w": 2640,
+      "x": 0,
+      "y": 260,
+      "page": "page-emails"
+    },
+    "R3-Family.dc.html": {
+      "h": 860,
+      "title": "R3 \u00b7 Who keeps amber",
+      "w": 1280,
+      "x": 1360,
+      "y": 5100
+    },
+    "R3-Marks.dc.html": {
+      "h": 1060,
+      "is_interactive": true,
+      "title": "R3 \u00b7 Marks from what Exomem does",
+      "w": 1280,
+      "x": 0,
+      "y": 5100
+    },
+    "R30-Screens.dc.html": {
+      "h": 8000,
+      "title": "R30 \u00b7 Every new screen \u00b7 invitations, reviewer, any app, Home states and flows, light",
+      "w": 2680,
+      "x": 0,
+      "y": 260,
+      "page": "page-screens"
+    },
+    "R36-Viewer.dc.html": {
+      "h": 3180,
+      "title": "R36 \u00b7 The graph viewer \u00b7 overview, zoom and filter, details, why, review, phone",
+      "w": 3200,
+      "x": 0,
+      "y": 1300,
+      "page": "page-viewer"
+    },
+    "R37-Hover.dc.html": {
+      "h": 1500,
+      "is_interactive": true,
+      "title": "R37 \u00b7 Hover, three ways \u00b7 C (glow only) chosen",
+      "w": 2560,
+      "x": 3300,
+      "y": 1300,
+      "page": "page-viewer"
+    },
+    "R4-Graph-Marks.dc.html": {
+      "h": 1060,
+      "is_interactive": true,
+      "title": "R4 \u00b7 Marks that are the graph",
+      "w": 1280,
+      "x": 2848,
+      "y": 6500
+    },
+    "R4-Palette.dc.html": {
+      "h": 1760,
+      "title": "R4 \u00b7 Colour on the landing hero",
+      "w": 2068,
+      "x": 0,
+      "y": 6500
+    },
+    "R40-Design-System.dc.html": {
+      "h": 5220,
+      "is_interactive": true,
+      "title": "R40 \u00b7 The Exomem design system \u00b7 locked, dark and light, rendered from tokens.css",
+      "w": 2560,
+      "x": 0,
+      "y": 260,
+      "page": "page-system"
+    },
+    "R41-Alive.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Alive \u00b7 switcher: one live board, pick page and direction",
+      "w": 1840,
+      "x": 0,
+      "y": 760,
+      "page": "page-lw2wjy"
+    },
+    "R41-Icons-Copy.dc.html": {
+      "h": 2900,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Assistant marks (slots), the sent step, OLED softness",
+      "w": 2200,
+      "x": 0,
+      "y": 4250,
+      "page": "page-lw2wjy"
+    },
+    "R5-Icons.dc.html": {
+      "h": 900,
+      "title": "R5 \u00b7 Icons, not diagrams",
+      "w": 1568,
+      "x": 1488,
+      "y": 8600
+    },
+    "R5-Temperature.dc.html": {
+      "h": 1120,
+      "title": "R5 \u00b7 A temperature, not a colour",
+      "w": 1408,
+      "x": 0,
+      "y": 8600
+    },
+    "R6-Vault-Marks.dc.html": {
+      "h": 1180,
+      "is_interactive": true,
+      "title": "R6 \u00b7 Marks from your vault",
+      "w": 1660,
+      "x": 0,
+      "y": 10060
+    },
+    "R7-Scope.dc.html": {
+      "h": 1120,
+      "is_interactive": true,
+      "title": "R7 \u00b7 Scoping: eight simple marks, every state",
+      "w": 1560,
+      "x": 0,
+      "y": 11560
+    },
+    "R8-Living.dc.html": {
+      "h": 1080,
+      "is_interactive": true,
+      "title": "R8 \u00b7 Living marks: A, B, C in every state",
+      "w": 1600,
+      "x": -20,
+      "y": 13112
+    },
+    "R8-Themes.dc.html": {
+      "h": 1150,
+      "title": "R8 \u00b7 Themes to pick from",
+      "w": 1392,
+      "x": 1680,
+      "y": 13020
+    },
+    "R9-Connect.dc.html": {
+      "h": 1100,
+      "is_interactive": true,
+      "title": "R9 \u00b7 The connect page in three lights",
+      "w": 4088,
+      "x": 1680,
+      "y": 14480
+    },
+    "R9-Marks.dc.html": {
+      "h": 1000,
+      "is_interactive": true,
+      "title": "R9 \u00b7 The motion: A, C and A\u00d7C, alive at rest",
+      "w": 1600,
+      "x": 0,
+      "y": 14480
+    },
+    "Signature-Moment.dc.html": {
+      "h": 760,
+      "is_interactive": true,
+      "title": "Signature moment \u00b7 connect hand-back",
+      "w": 1120,
+      "x": 1381,
+      "y": 2415
+    },
+    "Theme-Card.dc.html": {
+      "h": 440,
+      "title": "Theme card \u00b7 try your own colours",
+      "w": 400,
+      "x": 3152,
+      "y": 13020
+    },
+    "Viewer.dc.html": {
+      "h": 900,
+      "is_interactive": true,
+      "title": "R36 \u00b7 The graph viewer, live \u00b7 scroll to zoom, drag, filter, click a note, ask why, review",
+      "w": 1440,
+      "x": 0,
+      "y": 260,
+      "page": "page-viewer"
+    },
+    "R41-Start-Loop.dc.html": {
+      "h": 820,
+      "w": 1280,
+      "x": 0,
+      "y": 2000,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Start \u00b7 A + loop, dark",
+      "page": "page-lw2wjy"
+    },
+    "R41-Home-Live.dc.html": {
+      "h": 820,
+      "w": 1280,
+      "x": 1400,
+      "y": 2000,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Home \u00b7 A + loop, activity on (hover the band)",
+      "page": "page-lw2wjy"
+    },
+    "R41-Map-Loop.dc.html": {
+      "h": 820,
+      "w": 1280,
+      "x": 2800,
+      "y": 2000,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Living map \u00b7 A + loop, dark",
+      "page": "page-lw2wjy"
+    },
+    "R41-Start-Tide-Light.dc.html": {
+      "h": 820,
+      "w": 1280,
+      "x": 0,
+      "y": 3004,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Start \u00b7 C + loop, light",
+      "page": "page-lw2wjy"
+    },
+    "R41-Home-Phone.dc.html": {
+      "h": 844,
+      "w": 390,
+      "x": 1400,
+      "y": 3004,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Home \u00b7 phone, light, A + loop, activity on",
+      "page": "page-lw2wjy"
+    },
+    "R41-Emails-Phone.dc.html": {
+      "h": 1980,
+      "w": 2238,
+      "x": 2840,
+      "y": 260,
+      "title": "R41 \u00b7 Emails on a phone, dark and light \u00b7 and the new waitlist email",
+      "page": "page-emails"
+    },
+    "R41-How-Loop.dc.html": {
+      "h": 820,
+      "w": 1280,
+      "x": 1910,
+      "y": 3004,
+      "is_interactive": true,
+      "title": "R41 \u00b7 01 \u00b7 How it stays true \u00b7 A + loop, dark",
+      "page": "page-lw2wjy"
+    },
+    "R41-Light-Amber.dc.html": {
+      "h": 1900,
+      "w": 2540,
+      "x": 2400,
+      "y": 4250,
+      "is_interactive": true,
+      "title": "R41 \u00b7 Light mode amber, before and after, with the contrast numbers",
+      "page": "page-lw2wjy"
+    },
+    "R42-Checkout-Live.dc.html": {
+      "h": 1060,
+      "w": 1838,
+      "x": 0,
+      "y": 0,
+      "is_interactive": true,
+      "title": "R42 \u00b7 Subscribe with the inline checkout, live",
+      "page": "page-r42"
+    },
+    "R42-Checkout-States.dc.html": {
+      "h": 4900,
+      "w": 2400,
+      "x": 0,
+      "y": 1200,
+      "is_interactive": true,
+      "title": "R42 \u00b7 Subscribe, every state \u00d7 device \u00d7 theme \u00d7 price",
+      "page": "page-r42"
+    },
+    "Checkout-Inline.dc.html": {
+      "h": 820,
+      "w": 1280,
+      "x": 2038,
+      "y": 0,
+      "is_interactive": true,
+      "title": "Checkout-Inline \u00b7 the component (try state, price, theme, device)",
+      "page": "page-r42"
+    },
+    "R42-Summary-Layouts.dc.html": {
+      "h": 1500,
+      "w": 1832,
+      "x": 0,
+      "y": 6300,
+      "is_interactive": true,
+      "title": "R42 \u00b7 The left side, three ways",
+      "page": "page-r42"
+    },
+    "R42-Inputs-Focus.dc.html": {
+      "h": 3300,
+      "w": 1894,
+      "x": 0,
+      "y": 8100,
+      "is_interactive": true,
+      "title": "R42 \u00b7 Fields and focus, current vs proposed (proposal)",
+      "page": "page-r42"
+    },
+    "Coverage.dc.html": {
+      "h": 1800,
+      "w": 2160,
+      "x": 0,
+      "y": 0,
+      "is_interactive": false,
+      "title": "Coverage \u00b7 what is drawn, and what isn\u2019t yet",
+      "page": "page-coverage"
+    },
+    "R43-Getting-In.dc.html": {
+      "h": 2120,
+      "w": 1144,
+      "x": 0,
+      "y": 0,
+      "is_interactive": true,
+      "title": "R43 \u00b7 Getting in: expired, used, too many links, waitlist",
+      "page": "page-r43"
+    },
+    "R43-Unreachable.dc.html": {
+      "h": 1850,
+      "w": 1150,
+      "x": 1344,
+      "y": 0,
+      "is_interactive": true,
+      "title": "R43 \u00b7 Can\u2019t reach Exomem: one pattern on Start, Home and the viewer",
+      "page": "page-r43"
+    },
+    "R43-Data-Cases.dc.html": {
+      "h": 2480,
+      "w": 1150,
+      "x": 2694,
+      "y": 0,
+      "is_interactive": true,
+      "title": "R43 \u00b7 First day, and the viewer with nothing, no matches, and a lot",
+      "page": "page-r43"
+    },
+    "R43-Accessibility.dc.html": {
+      "h": 2240,
+      "w": 1504,
+      "x": 4044,
+      "y": 0,
+      "is_interactive": true,
+      "title": "R43 \u00b7 Accessibility pass: forced colours, 200% zoom, sideways, screen readers",
+      "page": "page-r43"
+    },
+    "R44-Writing-E.dc.html": {
+      "h": 2020,
+      "w": 1440,
+      "x": 0,
+      "y": 0,
+      "is_interactive": true,
+      "title": "The writing E \u00b7 dark",
+      "page": "page-r44"
+    },
+    "R44-Writing-E-Light.dc.html": {
+      "h": 2020,
+      "w": 1440,
+      "x": 1520,
+      "y": 0,
+      "is_interactive": true,
+      "title": "The writing E \u00b7 light",
+      "page": "page-r44"
+    },
+    "R45-Review.dc.html": {
+      "h": 3740,
+      "w": 1440,
+      "x": 0,
+      "y": 0,
+      "is_interactive": false,
+      "title": "Round 45 \u00b7 what changed, where to check",
+      "page": "page-r45"
+    },
+    "R46-Review.dc.html": {
+      "h": 2370,
+      "w": 1440,
+      "x": 0,
+      "y": 0,
+      "is_interactive": false,
+      "title": "Round 46 \u00b7 what changed, where to check",
+      "page": "page-r46"
+    },
+    "R47-Review.dc.html": {
+      "h": 3330,
+      "w": 1440,
+      "x": 0,
+      "y": 0,
+      "is_interactive": false,
+      "title": "Round 47 \u00b7 what changed, where to check",
+      "page": "page-r47"
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-09T17:20:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "t10": {
+      "kind": "title1",
+      "maxW": 3552,
+      "text": "Round 8 \u00b7 after your recordings",
+      "w": 240,
+      "x": 0,
+      "y": 12780
+    },
+    "t11": {
+      "kind": "title1",
+      "maxW": 7128,
+      "text": "Round 9 \u00b7 the motion, and the connect page",
+      "w": 240,
+      "x": 0,
+      "y": 14260
+    },
+    "t12": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Round 10 \u00b7 more graph, marks beyond the E, six lights",
+      "w": 240,
+      "x": 0,
+      "y": 15800
+    },
+    "t13": {
+      "kind": "title1",
+      "maxW": 6824,
+      "text": "Round 11 \u00b7 the whole journey on one page, and marks you'd recognise",
+      "w": 240,
+      "x": 0,
+      "y": 18320
+    },
+    "t14": {
+      "kind": "title1",
+      "maxW": 6738,
+      "text": "Round 12 \u00b7 billing that's fair, emails, Home, and Held",
+      "w": 240,
+      "x": 0,
+      "y": 21860
+    },
+    "t15": {
+      "kind": "title1",
+      "maxW": 3280,
+      "text": "Rounds 13\u201314 \u00b7 marks from what Exomem is, then pushing the shard",
+      "w": 240,
+      "x": 0,
+      "y": 24600
+    },
+    "t16": {
+      "kind": "title1",
+      "maxW": 4088,
+      "text": "Round 15 \u00b7 pick the mark on the real page, Cut E five ways, scrollbar",
+      "w": 240,
+      "x": 0,
+      "y": 26500
+    },
+    "t17": {
+      "kind": "title1",
+      "maxW": 4960,
+      "text": "Round 16 \u00b7 the logo as a system, and your real graph",
+      "w": 240,
+      "x": 0,
+      "y": 29940
+    },
+    "t18": {
+      "kind": "title1",
+      "maxW": 5160,
+      "text": "Round 17 \u00b7 Dot E is the logo: the kit, marketing, milestones",
+      "w": 240,
+      "x": 0,
+      "y": 31820
+    },
+    "t19": {
+      "kind": "title1",
+      "maxW": 4976,
+      "text": "Round 18 \u00b7 the wordmark, the viewer, the landing evolved",
+      "w": 240,
+      "x": 0,
+      "y": 33880
+    },
+    "t2": {
+      "kind": "title1",
+      "maxW": 2480,
+      "text": "Four lights \u00b7 same scene, one accent each",
+      "w": 240,
+      "x": 0,
+      "y": 840
+    },
+    "t20": {
+      "kind": "title1",
+      "maxW": 5536,
+      "text": "Round 19 \u00b7 small cut, a viewer that lives, a sharper landing, start with your email",
+      "w": 240,
+      "x": 0,
+      "y": 37120
+    },
+    "t21": {
+      "kind": "title1",
+      "maxW": 3230,
+      "text": "Round 20 \u00b7 the landing on a phone, and the landing as a real page",
+      "w": 240,
+      "x": 0,
+      "y": 40810
+    },
+    "t22": {
+      "kind": "title1",
+      "maxW": 2640,
+      "text": "Round 28\u201330 \u00b7 friends, one email, every new screen",
+      "w": 240,
+      "x": 0,
+      "y": 0,
+      "page": "page-emails"
+    },
+    "t3": {
+      "kind": "title1",
+      "maxW": 2480,
+      "text": "A mark, and the one moment it plays",
+      "w": 240,
+      "x": 0,
+      "y": 2100
+    },
+    "t36": {
+      "kind": "title1",
+      "maxW": 3200,
+      "text": "Round 36 \u00b7 the graph viewer, everywhere",
+      "w": 240,
+      "x": 0,
+      "y": 0,
+      "page": "page-viewer"
+    },
+    "t4": {
+      "kind": "title1",
+      "maxW": 2640,
+      "text": "Round 2 \u00b7 keep the amber, make it energy",
+      "w": 240,
+      "x": 0,
+      "y": 3440
+    },
+    "t40": {
+      "kind": "title1",
+      "maxW": 2560,
+      "text": "Round 40 \u00b7 the design system, locked",
+      "w": 240,
+      "x": 0,
+      "y": 0,
+      "page": "page-system"
+    },
+    "t5": {
+      "kind": "title1",
+      "maxW": 2640,
+      "text": "Round 3 \u00b7 no letter, and who keeps amber",
+      "w": 240,
+      "x": 0,
+      "y": 4840
+    },
+    "t6": {
+      "kind": "title1",
+      "maxW": 4128,
+      "text": "Round 4 \u00b7 the graph is the brand",
+      "w": 240,
+      "x": 0,
+      "y": 6240
+    },
+    "t7": {
+      "kind": "title1",
+      "maxW": 3056,
+      "text": "Round 5 \u00b7 a temperature, and icons that hold up small",
+      "w": 240,
+      "x": 0,
+      "y": 8340
+    },
+    "t8": {
+      "kind": "title1",
+      "maxW": 1660,
+      "text": "Round 6 \u00b7 from your vault",
+      "w": 240,
+      "x": 0,
+      "y": 9800
+    },
+    "t9": {
+      "kind": "title1",
+      "maxW": 1560,
+      "text": "Round 7 \u00b7 simple, and alive",
+      "w": 240,
+      "x": 0,
+      "y": 11320
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Accent-Amber.dc.html",
+    "Accent-Afterglow.dc.html",
+    "Accent-Cathode.dc.html",
+    "Accent-Signal.dc.html",
+    "Mark-Studies.dc.html",
+    "Signature-Moment.dc.html",
+    "R2-Amber-Light.dc.html",
+    "R2-Marks.dc.html",
+    "R3-Marks.dc.html",
+    "R3-Family.dc.html",
+    "R4-Palette.dc.html",
+    "Hero-Graph.dc.html",
+    "R4-Graph-Marks.dc.html",
+    "R5-Temperature.dc.html",
+    "R5-Icons.dc.html",
+    "R6-Vault-Marks.dc.html",
+    "R7-Scope.dc.html",
+    "R8-Living.dc.html",
+    "R8-Themes.dc.html",
+    "Theme-Card.dc.html",
+    "R9-Marks.dc.html",
+    "R9-Connect.dc.html",
+    "Connect-Page.dc.html",
+    "R10-Connect.dc.html",
+    "R10-Marks.dc.html",
+    "R10-Themes.dc.html",
+    "Journey-Page.dc.html",
+    "R11-Flow.dc.html",
+    "R11-States.dc.html",
+    "R11-Marks.dc.html",
+    "R12-Lifecycle.dc.html",
+    "R12-Home.dc.html",
+    "Home-Page.dc.html",
+    "R12-Marks.dc.html",
+    "R13-Marks.dc.html",
+    "R14-Marks.dc.html",
+    "R15-OnPage.dc.html",
+    "R15-CutE.dc.html",
+    "R15-Scrollbar.dc.html",
+    "R16-Logo-DotE.dc.html",
+    "R16-Logo-Held.dc.html",
+    "R16-Graph.dc.html",
+    "R17-Kit.dc.html",
+    "R17-Marketing.dc.html",
+    "R17-Milestones.dc.html",
+    "R18-Wordmark.dc.html",
+    "Viewer.dc.html",
+    "R18-Landing.dc.html",
+    "R19-SmallCut.dc.html",
+    "R19-Landing.dc.html",
+    "R19-Start.dc.html",
+    "R20-Mobile.dc.html",
+    "Landing-Page.dc.html",
+    "Landing-Phone.dc.html",
+    "R28-Emails.dc.html",
+    "R30-Screens.dc.html",
+    "R36-Viewer.dc.html",
+    "R37-Hover.dc.html",
+    "R40-Design-System.dc.html",
+    "R41-Alive.dc.html",
+    "R41-Icons-Copy.dc.html",
+    "Artboard-lekf.dc.html",
+    "R41-Start-Loop.dc.html",
+    "R41-Home-Live.dc.html",
+    "R41-Map-Loop.dc.html",
+    "R41-Start-Tide-Light.dc.html",
+    "R41-Home-Phone.dc.html",
+    "R41-Emails-Phone.dc.html",
+    "R41-How-Loop.dc.html",
+    "R41-Light-Amber.dc.html",
+    "R42-Checkout-Live.dc.html",
+    "R42-Checkout-States.dc.html",
+    "Checkout-Inline.dc.html",
+    "R42-Summary-Layouts.dc.html",
+    "R42-Inputs-Focus.dc.html",
+    "Coverage.dc.html",
+    "R43-Getting-In.dc.html",
+    "R43-Unreachable.dc.html",
+    "R43-Data-Cases.dc.html",
+    "R43-Accessibility.dc.html",
+    "R44-Writing-E.dc.html",
+    "R44-Writing-E-Light.dc.html",
+    "R45-Review.dc.html",
+    "R46-Review.dc.html",
+    "R47-Review.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1"
+    },
+    {
+      "id": "page-emails",
+      "name": "Emails"
+    },
+    {
+      "id": "page-phone",
+      "name": "Landing on a phone"
+    },
+    {
+      "id": "page-screens",
+      "name": "Every screen (R30)"
+    },
+    {
+      "id": "page-viewer",
+      "name": "Graph viewer (R36\u201337)"
+    },
+    {
+      "id": "page-system",
+      "name": "Design system (R40)"
+    },
+    {
+      "id": "page-lw2wjy",
+      "name": "Round 41 \u00b7 Alive"
+    },
+    {
+      "id": "page-r42",
+      "name": "Round 42 \u00b7 Checkout"
+    },
+    {
+      "id": "page-coverage",
+      "name": "Coverage"
+    },
+    {
+      "id": "page-r43",
+      "name": "Round 43 \u00b7 Every case"
+    },
+    {
+      "id": "page-r44",
+      "name": "Round 44 \u00b7 The writing E"
+    },
+    {
+      "id": "page-r45",
+      "name": "Round 45 \u00b7 Check these"
+    },
+    {
+      "id": "page-r46",
+      "name": "Round 46 \u00b7 Check these"
+    },
+    {
+      "id": "page-r47",
+      "name": "Round 47 \u00b7 Check these"
+    }
+  ],
+  "title": "Exomem Identity & Journey"
+}

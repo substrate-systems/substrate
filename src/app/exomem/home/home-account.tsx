@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 import { Button } from "@/components/exomem/Button";
+import { Collapse } from "@/components/exomem/Transitions";
 import type { ExportView, PlanView, StorageView } from "./home-view";
 import { Section } from "./home-chrome";
 import styles from "./home.module.css";
@@ -34,11 +35,11 @@ export function PlanAndAccount({
           </Button>
         )}
       </div>
-      {plan.action && (
+      <Collapse open={Boolean(plan.action && billingMessage)}>
         <div className={styles.billingStatus} role="alert">
           {billingMessage}
         </div>
-      )}
+      </Collapse>
       <div className={styles.storage}>
         <div className={styles.storageLine}>
           <span className={styles.muted}>Storage</span>
@@ -120,10 +121,12 @@ export function YourData({
               {exportBusy || exportRow.busy ? "Preparing…" : "Export"}
             </Button>
           </div>
-          <div className={`${styles.inlineStatus} ${styles.exportMessage}`} role="alert">
-            {exportMessage}
-          </div>
-          <div className={styles.exportDetail}>
+          <Collapse open={Boolean(exportMessage)}>
+            <div className={styles.inlineStatus} role="alert">
+              {exportMessage}
+            </div>
+          </Collapse>
+          <Collapse open={detail !== null} className={styles.exportDetail}>
             {detail?.kind === "packing" && (
               <div className={`${styles.detail} ${styles.detailColumn}`} role="status">
                 <span className={styles.detailText}>{detail.text}</span>
@@ -175,7 +178,7 @@ export function YourData({
                 </span>
               </div>
             )}
-          </div>
+          </Collapse>
         </>
       )}
       {deletion && (

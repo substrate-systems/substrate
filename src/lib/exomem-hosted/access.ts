@@ -1,4 +1,5 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
+import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
   createMagicAccessToken,
   redeemMagicAccessTokenAtomic,
@@ -25,7 +26,6 @@ import {
 } from "./security";
 
 const EMAIL = /^[^\s<>"'`&]+@[^\s<>"'`&]+\.[^\s<>"'`&]+$/;
-const MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Every start request that passed the bot check takes at least this long,
@@ -121,7 +121,7 @@ async function queueOwnerSignInLink(
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
-  const expiresAt = new Date(deps.now().getTime() + MAGIC_LINK_TTL_MS);
+  const expiresAt = new Date(deps.now().getTime() + OWNER_SIGN_IN_TTL_MS);
   const deliverySecretCiphertext = deps.encryptDeliverySecret(
     JSON.stringify({
       version: 1,
@@ -169,6 +169,7 @@ export async function requestStart(
     networkKey: string;
     browserChallengeDigest: Buffer;
     timeZone: string | null;
+    browserKey?: string;
   },
   dependencies?: Partial<AccessDependencies>
 ): Promise<{ accepted: true }> {
@@ -177,6 +178,11 @@ export async function requestStart(
   try {
     const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startIp, input.networkKey);
     if (!networkAllowed) return { accepted: true };
+    if (
+      input.browserKey &&
+      !(await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startBrowser, input.browserKey))
+    )
+      return { accepted: true };
     const addressAllowed = await deps.takeRateLimit(
       EXOMEM_RATE_LIMITS.startEmail,
       normalizedEmailRateLimitKey(input.email)

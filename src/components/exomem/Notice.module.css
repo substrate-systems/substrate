@@ -34,7 +34,7 @@
 }
 
 /* Home's desktop notice: the text left, its one action right. Phones keep the column. */
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 481px) {
   .row {
     flex-direction: row;
     align-items: center;

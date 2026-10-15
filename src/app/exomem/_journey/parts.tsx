@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
+import { FadeIn, Swap } from "@/components/exomem/Transitions";
 import { SegmentedSwitch } from "@/components/exomem/SegmentedSwitch";
 import {
   INVOLVEMENT_LEVELS,
@@ -17,7 +18,7 @@ export function StepHeading({ title, lede }: { title: string; lede: ReactNode })
   return (
     <div className={styles.heading}>
       <h1 className={styles.title} tabIndex={-1}>
-        {title}
+        <Swap k={title}>{title}</Swap>
       </h1>
       <p className={styles.lede}>{lede}</p>
     </div>
@@ -36,28 +37,29 @@ export function StepNotice({
   visible = true,
 }: {
   children: ReactNode;
-  /** Keep the message's space before an attempt, and while it retries. */
+  /** A hidden notice takes no space. */
   visible?: boolean;
   attention?: boolean;
   alert?: boolean;
   id?: string;
 }) {
+  if (!visible) return null;
   return (
-    <div
-      className={alert ? `${styles.notice} ${styles.errorNotice}` : styles.notice}
-      id={id}
-      role={alert && visible ? "alert" : undefined}
-      style={visible ? undefined : { visibility: "hidden" }}
-      aria-hidden={!visible || undefined}
-    >
-      {alert ? (
-        children
-      ) : (
-        <Notice attention={attention} size="flow">
-          {children}
-        </Notice>
-      )}
-    </div>
+    <FadeIn className={alert ? `${styles.notice} ${styles.errorNotice}` : styles.notice}>
+      <div
+        className={alert ? `${styles.notice} ${styles.errorNotice}` : styles.notice}
+        id={id}
+        data-step-status={alert || undefined}
+      >
+        {alert ? (
+          children
+        ) : (
+          <Notice attention={attention} size="flow">
+            {children}
+          </Notice>
+        )}
+      </div>
+    </FadeIn>
   );
 }
 
@@ -259,7 +261,7 @@ export function SignedInLine({
 /** Something live is happening elsewhere and this page waits for it: a blinking amber dot. */
 export function WaitNote({ children }: { children: ReactNode }) {
   return (
-    <div className={`${styles.statusLine} ${styles.waiting}`} role="status">
+    <div className={`${styles.statusLine} ${styles.waiting}`} data-step-status>
       <span className={styles.dot} aria-hidden="true" />
       {children}
     </div>
@@ -279,7 +281,7 @@ export function DoneLine({ children }: { children: ReactNode }) {
 /** The board's working bar, for a step with nothing to press while the server works. */
 export function WorkingBar({ label }: { label: string }) {
   return (
-    <div className={styles.working} role="status">
+    <div className={styles.working} data-step-status>
       <div className={styles.workingBar} />
       <span className={styles.status}>{label}</span>
     </div>
@@ -426,7 +428,7 @@ export function LevelTune({
         }}
         description={current.description}
       />
-      <p className={styles.saveNote} role="status">
+      <p className={styles.saveNote} data-step-status>
         {saveNote ?? "\u00a0"}
       </p>
       <div className={styles.blockHead}>

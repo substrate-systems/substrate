@@ -3,6 +3,7 @@ import {
   ExomemPaddleConfigurationError,
   loadExomemPaddleConfig,
 } from "./paddle-config";
+import { carriesFriendPrice } from "./paddle-friend-price";
 import {
   EXOMEM_ALPHA_BUNDLE,
   type ExomemCapability,
@@ -41,11 +42,11 @@ export type ExomemPaddleEventApplication = Readonly<{
   /** Stored only for `subscription.*` events; null when Paddle reports no value. */
   subscriptionFacts: PaddleSubscriptionFacts;
   /**
-   * The subscription carries the configured friend discount. The store then
+   * The subscription carries a configured friend price or legacy discount. The store then
    * gives the tenant a friend offer in the same transaction, when this event
    * is the newest it applied.
    */
-  subscriptionCarriesFriendDiscount: boolean;
+  subscriptionCarriesFriendPrice: boolean;
 }>;
 
 export type PaddleSubscriptionFacts = Readonly<{
@@ -186,21 +187,22 @@ function itemReferences(data: Record<string, unknown>): PaddleItemReference[] {
   });
 }
 
-/** Whether a subscription's facts show the configured friend discount; unconfigured, never. */
-export function carriesFriendDiscount(
-  facts: PaddleSubscriptionFacts,
-  friendDiscountId: string | null
-): boolean {
-  return friendDiscountId !== null && facts.discountId === friendDiscountId;
-}
-
 /** The Exomem item of a Paddle payload: the configured product, else the first item. */
 export function paddleExomemItem(
   data: Record<string, unknown>,
-  productId: string | null
+  productId: string | null,
+  priceIds: readonly (string | null)[] = []
 ): PaddleItemReference | null {
   const references = itemReferences(data);
-  return references.find((item) => item.productId === productId) ?? references[0] ?? null;
+  return (
+    references.find(
+      (item) =>
+        item.productId === productId && item.priceId !== null && priceIds.includes(item.priceId)
+    ) ??
+    references.find((item) => item.productId === productId) ??
+    references[0] ??
+    null
+  );
 }
 
 function providerTimestamp(value: unknown): string | null {
@@ -378,7 +380,10 @@ export async function dispatchVerifiedExomemPaddleEvent(
   }
 
   const isSubscriptionEvent = eventType.startsWith("subscription.");
-  const matchingReference = paddleExomemItem(data, config.productId);
+  const matchingReference = paddleExomemItem(data, config.productId, [
+    config.priceId,
+    config.friendPriceId,
+  ]);
   const subscriptionFacts = isSubscriptionEvent
     ? paddleSubscriptionFacts(data, matchingReference)
     : NO_SUBSCRIPTION_FACTS;
@@ -411,10 +416,12 @@ export async function dispatchVerifiedExomemPaddleEvent(
       priceId: matchingReference?.priceId ?? null,
     },
     subscriptionFacts,
-    subscriptionCarriesFriendDiscount: carriesFriendDiscount(
-      subscriptionFacts,
-      config.friendDiscountId
-    ),
+    subscriptionCarriesFriendPrice:
+      isSubscriptionEvent &&
+      carriesFriendPrice(
+        { priceId: matchingReference?.priceId ?? null, discountId: subscriptionFacts.discountId },
+        config
+      ),
   };
 
   try {

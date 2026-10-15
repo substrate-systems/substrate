@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, type InputHTMLAttributes, type ReactNode } from "react";
+import { useId, useState, type InputHTMLAttributes, type ReactNode } from "react";
+import { Collapse, Swap } from "./Transitions";
 import styles from "./TextField.module.css";
 
 type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "id"> & {
@@ -15,13 +16,35 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | 
    * the form: the field draws the error border without a message of its own.
    */
   invalid?: boolean;
+  hint?: string;
 };
 
 /** A labelled text input. */
-export function TextField({ label, error, invalid = false, ...input }: TextFieldProps) {
+export function TextField({
+  label,
+  error,
+  invalid = false,
+  hint,
+  onChange,
+  onBlur,
+  onInvalid,
+  ...input
+}: TextFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
-  const hasError = error !== undefined && error !== null && error !== false;
+  const [localError, setLocalError] = useState<string | null>(null);
+  const message = error ?? localError;
+  const hasError = message !== undefined && message !== null && message !== false && message !== "";
+  const hasLine = hasError || Boolean(hint);
+  const judge = (field: HTMLInputElement) => {
+    setLocalError(
+      field.validity.valid
+        ? null
+        : field.type === "email"
+          ? "Enter a valid email address."
+          : `Enter ${label.toLowerCase()}.`
+    );
+  };
   return (
     <div className={styles.field}>
       <label className={styles.label} htmlFor={id}>
@@ -32,13 +55,33 @@ export function TextField({ label, error, invalid = false, ...input }: TextField
         id={id}
         className={styles.input}
         aria-invalid={hasError || invalid || undefined}
-        aria-describedby={hasError ? errorId : input["aria-describedby"]}
+        aria-describedby={
+          [hasLine ? errorId : undefined, input["aria-describedby"]].filter(Boolean).join(" ") ||
+          undefined
+        }
+        onChange={(event) => {
+          if (localError) judge(event.currentTarget);
+          onChange?.(event);
+        }}
+        onBlur={(event) => {
+          judge(event.currentTarget);
+          onBlur?.(event);
+        }}
+        onInvalid={(event) => {
+          event.preventDefault();
+          judge(event.currentTarget);
+          onInvalid?.(event);
+        }}
       />
-      {hasError && (
-        <div id={errorId} className={styles.error} role="alert">
-          {error}
+      <Collapse open={hasLine}>
+        <div
+          id={errorId}
+          className={`${styles.line} ${hasError ? styles.error : ""}`}
+          data-step-status={hasError || undefined}
+        >
+          <Swap k={hasError ? String(message) : "hint"}>{message ?? hint ?? ""}</Swap>
         </div>
-      )}
+      </Collapse>
     </div>
   );
 }

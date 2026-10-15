@@ -39,13 +39,14 @@ const FORWARDED_REQUEST_HEADERS = [
   "mcp-name",
 ];
 const MCP_PARAMETER_HEADER_PREFIX = "mcp-param-";
-// The two headers that name the authenticated client to the cell. A cloud cell
+// These headers identify the authenticated app to the cell. A cloud cell
 // trusts them because its bearer proves the request came from here, so the
 // gateway sets them itself: a caller's `x-exomem-*` header is refused by
 // hasForbiddenGatewayHeaders, and neither name is on the forwarding allowlist
 // or starts with MCP_PARAMETER_HEADER_PREFIX.
 const CELL_CLIENT_NAME_HEADER = "x-exomem-oauth-client";
 const CELL_CLIENT_CONTEXT_HEADER = "x-exomem-client-context";
+const CELL_APP_ID_HEADER = "x-exomem-app-id";
 // RFC 9110 section 5.5: a field value this gateway sends is visible ASCII and spaces.
 const HEADER_SAFE_VALUE = /^[\x20-\x7e]+$/;
 // Security review finding 12: only these three response headers are ever
@@ -369,6 +370,7 @@ async function proxyToCell(
   if (clientName === null) forwardHeaders.delete(CELL_CLIENT_NAME_HEADER);
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
+  forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
 
   let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
   if (

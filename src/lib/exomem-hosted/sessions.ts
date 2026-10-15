@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
   findExomemSessionByDigest,
   revokeExomemSession,
@@ -18,8 +19,8 @@ export const EXOMEM_SESSION_COOKIE = "exomem_session";
 export const EXOMEM_CSRF_COOKIE = "exomem_csrf";
 export const EXOMEM_CSRF_HEADER = "x-exomem-csrf";
 export const EXOMEM_MAGIC_CHALLENGE_COOKIE = "exomem_magic_challenge";
+export const EXOMEM_ACCESS_RECOVERY_COOKIE = "exomem_access_recovery";
 export const EXOMEM_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-export const EXOMEM_MAGIC_CHALLENGE_TTL_MS = 15 * 60 * 1000;
 
 export type SessionMaterial = {
   sessionToken: string;
@@ -43,7 +44,7 @@ export function mintMagicLinkChallenge(
   return {
     challengeToken,
     challengeDigest: digestSecret(challengeToken),
-    expiresAt: new Date(now.getTime() + EXOMEM_MAGIC_CHALLENGE_TTL_MS),
+    expiresAt: new Date(now.getTime() + OWNER_SIGN_IN_TTL_MS),
   };
 }
 
@@ -65,7 +66,7 @@ export function mintSessionMaterial(
   };
 }
 
-function cookieValue(request: Request, name: string): string | null {
+export function cookieValue(request: Request, name: string): string | null {
   const header = request.headers.get("cookie");
   if (!header) return null;
   for (const part of header.split(";")) {
@@ -91,7 +92,7 @@ export function applyMagicLinkChallengeCookie(
     sameSite: "lax",
     path: "/api/exomem/access/magic-link",
     expires: material.expiresAt,
-    maxAge: Math.floor(EXOMEM_MAGIC_CHALLENGE_TTL_MS / 1000),
+    maxAge: Math.floor(OWNER_SIGN_IN_TTL_MS / 1000),
     httpOnly: true,
   });
 }

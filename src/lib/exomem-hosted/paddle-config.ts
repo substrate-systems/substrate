@@ -17,6 +17,8 @@ export type ExomemPaddleConfig = Readonly<{
   productKey: typeof EXOMEM_PADDLE_PRODUCT_KEY;
   productId: string | null;
   priceId: string | null;
+  /** The regional friend price; existing friend subscriptions may still carry the legacy discount. */
+  friendPriceId: string | null;
   /** The one recurring Paddle discount that carries the friend price, if configured. */
   friendDiscountId: string | null;
   checkoutUrl: string | null;
@@ -76,6 +78,10 @@ function checkoutUrl(env: EnvironmentSource): string | null {
  */
 export function exomemPaddleFriendDiscountId(env: EnvironmentSource = process.env): string | null {
   return optionalValue(env, "EXOMEM_PADDLE_FRIEND_DISCOUNT_ID");
+}
+
+export function exomemPaddleFriendPriceId(env: EnvironmentSource = process.env): string | null {
+  return optionalValue(env, "EXOMEM_PADDLE_FRIEND_PRICE_ID");
 }
 
 /**
@@ -140,6 +146,7 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
   }
   const productId = optionalValue(env, "EXOMEM_PADDLE_PRODUCT_ID");
   const priceId = exomemPaddleBasePriceId(env);
+  const friendPriceId = exomemPaddleFriendPriceId(env);
   const friendDiscountId = exomemPaddleFriendDiscountId(env);
   const checkoutReturnUrl = checkoutUrl(env);
   const catalogEnvironment = optionalValue(env, "EXOMEM_PADDLE_CATALOG_ENVIRONMENT");
@@ -152,7 +159,7 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
   if (catalogEnvironment && catalogEnvironment !== environment) {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH");
   }
-  if (priceId && !productId) {
+  if (((priceId || friendPriceId) && !productId) || (friendPriceId && friendPriceId === priceId)) {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }
 
@@ -162,6 +169,7 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
     productKey: EXOMEM_PADDLE_PRODUCT_KEY,
     productId,
     priceId,
+    friendPriceId,
     friendDiscountId,
     checkoutUrl: checkoutReturnUrl,
     apiKey,
@@ -191,6 +199,7 @@ export function loadExomemPaddleTransactionConfig(
     productKey: EXOMEM_PADDLE_PRODUCT_KEY,
     productId: null,
     priceId: null,
+    friendPriceId: null,
     friendDiscountId: null,
     checkoutUrl: null,
     apiKey,

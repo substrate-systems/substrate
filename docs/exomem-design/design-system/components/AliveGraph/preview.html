@@ -1,0 +1,36 @@
+<!-- @dsCard group="Live" height=380 subtitle="The graph: ink at rest, amber only when something happened" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>AliveGraph — preview</title>
+<style>html,body{margin:0;background:var(--bg-base);color:var(--fg-primary);font-family:var(--font-sans)}
+.pv{padding:20px 24px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box}
+.row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
+.cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:96px}
+.k{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
+.t{font-size:13px;line-height:1.45;color:var(--fg-secondary)}
+.n{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.panel{padding:18px;border:1px solid var(--exo-border-card);border-radius:var(--r-card);background:var(--bg-panel)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+const h = React.createElement, X = window.Exomem;
+const useTick = (ms) => { const [t, setT] = React.useState(0); React.useEffect(() => { const i = setInterval(() => setT((x) => x + 1), ms); return () => clearInterval(i); }, []); return t; };
+
+let s = 11; const r = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+const N = Array.from({ length: 26 }, () => [20 + r() * 560, 16 + r() * 168, 2.4 + r() * 3]);
+const E = []; N.forEach((a, i) => { const d = N.map((b, j) => [j, Math.hypot(a[0] - b[0], a[1] - b[1])]).filter(([j]) => j !== i).sort((x, y) => x[1] - y[1]); d.slice(0, 2).forEach(([j]) => { if (!E.some(([p, q]) => (p === j && q === i))) E.push([i, j]); }); });
+function App() {
+  const [cut, setCut] = React.useState(false), [work, setWork] = React.useState(false);
+  return h('div', { className: 'pv' },
+    h(X.AliveGraph, { id: 'pv-graph', nodes: N, edges: E, viewBox: '0 0 600 200', state: cut ? 'cut' : 'live', style: { width: '100%', height: 220 } }),
+    h('div', { className: 'row', style: { gap: 8 } },
+      h(X.Button, { onClick: () => X.fireAlive('pv-graph', { kind: 'recall' }) }, 'Recall'),
+      h(X.Button, { onClick: () => X.fireAlive('pv-graph', { kind: 'save' }) }, 'Save'),
+      h(X.Button, { variant: work ? 'amber' : 'secondary', onClick: () => { X.fireAlive('pv-graph', { kind: 'work', on: !work, amber: true }); setWork(!work); } }, work ? 'Stop work' : 'Work'),
+      h(X.Button, { variant: 'ghost', onClick: () => setCut(!cut) }, cut ? 'Reconnect' : 'Can’t reach Exomem')));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

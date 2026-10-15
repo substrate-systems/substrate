@@ -1,0 +1,42 @@
+<!-- @dsCard group="Brand" height=420 subtitle="The Dot E: press any state; it moves there from wherever it is" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Mark — preview</title>
+<style>html,body{margin:0;background:var(--bg-base);color:var(--fg-primary);font-family:var(--font-sans)}
+.pv{padding:20px 24px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box}
+.row{display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end}
+.cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:96px}
+.k{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
+.t{font-size:13px;line-height:1.45;color:var(--fg-secondary)}
+.n{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.panel{padding:18px;border:1px solid var(--exo-border-card);border-radius:var(--r-card);background:var(--bg-panel)}
+</style></head>
+<body>
+<div id="root"></div>
+<script>
+const h = React.createElement, X = window.Exomem;
+const useTick = (ms) => { const [t, setT] = React.useState(0); React.useEffect(() => { const i = setInterval(() => setT((x) => x + 1), ms); return () => clearInterval(i); }, []); return t; };
+
+const SAY = { rest: 'Rest: what was written dissolves together while the frame returns to ink. The middle row breathes.', recall: 'Recall: the middle row starts a wave, left to right.', save: 'Save: the middle row writes in once, dot by dot.', working: 'Working, no count: the frame dims and a light runs the whole stroke.', progress: 'Progress: what was written stays; the pen moves on and its wave runs along the next stroke.', done: 'Done: the rest of the stroke writes itself, the whole E lights, a seal ripples along it once.', failed: 'Failed: the stroke runs backwards to nothing, then the logo comes back.', off: 'Off: amber fades to ink. Nothing moves until it is live again.' };
+function Cycle({ n, label }) {
+  const t = useTick(1500), len = n + 3, ph = t % len, rest = ph === len - 1, i = Math.min(ph, n);
+  return h('div', { className: 'cell' }, h('div', { className: 'row', style: { gap: 10 } },
+      h(X.Mark, { size: 48, state: rest ? 'rest' : 'progress', steps: n, step: i, label: null }), h(X.Mark, { size: 22, state: rest ? 'rest' : 'progress', steps: n, step: i, label: null })),
+    h('span', { className: 'n' }, label));
+}
+function App() {
+  const [st, setSt] = React.useState({ s: 'rest', from: null, step: 0 });
+  const pick = (s) => () => setSt((o) => s === 'progress' ? { s, from: o.s, step: o.s === 'progress' ? Math.min(4, o.step + 1) : 0 } : { s, from: o.s, step: o.step });
+  const shown = st.s === 'failed' ? 'failed' : st.s;
+  return h('div', { className: 'pv' },
+    h('div', { className: 'row', style: { alignItems: 'flex-end', gap: 28 } }, h(X.Mark, { size: 112, state: shown, steps: 4, step: st.step }), h(X.Wordmark, { height: 36, state: shown, steps: 4, step: st.step }), h(X.Mark, { size: 24, state: shown, steps: 4, step: st.step, label: null })),
+    h('div', { className: 'row', style: { gap: 8 } }, ...[['rest', 'Rest'], ['recall', 'Recall'], ['save', 'Save'], ['working', 'Working'], ['progress', st.s === 'progress' && st.step < 4 ? 'Next step' : 'Step 1 of 4'], ['done', 'Done'], ['failed', 'Failed'], ['off', 'Off']].map(([s, l]) =>
+      h(X.Button, { key: s, variant: st.s === s ? 'primary' : 'secondary', onClick: pick(s) }, l))),
+    h('div', { className: 't', style: { color: 'var(--fg-primary)', minHeight: 20 } }, h(X.Swap, { k: st.s + st.step + (st.from || '') }, (st.from && st.from !== st.s ? `From ${st.from}. ` : '') + SAY[st.s])),
+    h('span', { className: 'k' }, 'Any number of steps (each loops: steps, done, rest)'),
+    h('div', { className: 'row' }, h(Cycle, { n: 2, label: 'steps={2}' }), h(Cycle, { n: 3, label: 'steps={3}' }), h(Cycle, { n: 4, label: 'steps={4}' }), h(Cycle, { n: 5, label: 'steps={5}' }), h(Cycle, { n: 7, label: 'steps={7}' })));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

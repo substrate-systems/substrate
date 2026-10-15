@@ -6,7 +6,7 @@ import { usePaddle } from "@/lib/paddle";
 import { AnalyticsEvent, capture } from "@/lib/analytics";
 
 const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
-const PENDING_TRANSACTION_KEY = "exomem:paddle-return-transaction";
+export const PENDING_TRANSACTION_KEY = "exomem:paddle-return-transaction";
 // Optional email prefill must not block a validated checkout during an account-read outage.
 const EMAIL_PREFILL_WAIT_MS = 2_000;
 

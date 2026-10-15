@@ -1,0 +1,22 @@
+.graph {
+  display: block;
+  overflow: visible;
+}
+.edge {
+  stroke: var(--fg-primary);
+  stroke-width: 1;
+  stroke-opacity: var(--graph-link);
+}
+/* Solid mixed ink hides every link inside a note. */
+.node {
+  fill: color-mix(in srgb, var(--fg-primary) calc(var(--graph-node) * 100%), var(--bg-base));
+}
+.cut {
+  pointer-events: none;
+}
+.cut .edge {
+  stroke-opacity: 0.06;
+}
+.cut .node {
+  fill: color-mix(in srgb, var(--fg-primary) 14%, var(--bg-base));
+}
