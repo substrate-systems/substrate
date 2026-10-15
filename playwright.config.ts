@@ -21,10 +21,6 @@ const journeyEnabled = Boolean(process.env.EXOMEM_E2E_DATABASE_URL);
 // `next dev` compiles each route on its first visit, which can take most of the default
 // 30 s on a CI runner; a journey test gets twice that.
 const JOURNEY_TEST_TIMEOUT_MS = 60_000;
-// The journey pages animate their whole field, and these headless browsers draw it without a
-// GPU: two workers' pages then starve the server and each other. The specs check flows, not
-// motion, so they run with reduced motion; a test of motion asks for it (flows.spec.ts).
-const journeyUse = { baseURL: journeyBaseUrl, reducedMotion: "reduce" as const };
 const journeyProjects = journeyEnabled
   ? [
       {
@@ -34,7 +30,7 @@ const journeyProjects = journeyEnabled
         use: {
           ...devices["Desktop Chrome"],
           viewport: { width: 1440, height: 900 },
-          ...journeyUse,
+          baseURL: journeyBaseUrl,
         },
       },
       {
@@ -46,7 +42,7 @@ const journeyProjects = journeyEnabled
         use: {
           ...devices["Pixel 7"],
           viewport: { width: 390, height: 844 },
-          ...journeyUse,
+          baseURL: journeyBaseUrl,
         },
       },
       // The small phones: only the no-scroll check, on each side of the compact layout's
@@ -60,7 +56,7 @@ const journeyProjects = journeyEnabled
         use: {
           ...devices["Pixel 7"],
           viewport: { width: 360, height: 640 },
-          ...journeyUse,
+          baseURL: journeyBaseUrl,
         },
       },
       {
@@ -70,7 +66,7 @@ const journeyProjects = journeyEnabled
         use: {
           ...devices["Pixel 7"],
           viewport: { width: 360, height: 720 },
-          ...journeyUse,
+          baseURL: journeyBaseUrl,
         },
       },
       {
@@ -80,7 +76,7 @@ const journeyProjects = journeyEnabled
         use: {
           ...devices["Pixel 7"],
           viewport: { width: 390, height: 740 },
-          ...journeyUse,
+          baseURL: journeyBaseUrl,
         },
       },
     ]
