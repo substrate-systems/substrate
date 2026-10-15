@@ -115,6 +115,8 @@ async function consentFor(
 async function connectFromApp(context: BrowserContext, where: "web" | "computer") {
   const client = await app(where);
   const consent = await context.newPage();
+  // Like the step's own page, the app's page holds still: these checks are about layout.
+  await consent.emulateMedia({ reducedMotion: "reduce" });
   await consent.goto(authorizeRequest(client).url);
   await consent.getByRole("button", { name: consentCopy.connect, exact: true }).click();
   await expect(consent.getByRole("heading", { name: handbackCopy.title })).toBeVisible({
