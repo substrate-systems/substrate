@@ -26,6 +26,7 @@ const PRIVATE_EXOMEM_PATHS = [
   "/exomem/setup",
   "/exomem/sign-in",
   "/exomem/home",
+  "/exomem/viewer",
   "/exomem/adopt",
   "/exomem/operator",
   "/exomem/account",
