@@ -833,17 +833,22 @@ describe("Exomem Cloud gateway handler", () => {
           const received = cell.requests[0]!.headers;
           assert.equal(received["x-exomem-oauth-client"], name);
           assert.equal(received["x-exomem-client-context"], context);
+          assert.equal(received["x-exomem-app-id"], VALID_ACCESS.grantId);
         } finally {
           await cell.close();
         }
       });
     }
 
-    it("never lets a caller's copy of either client header reach the cell", async () => {
+    it("never lets a caller's copy of a client header reach the cell", async () => {
       const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
       const savedIngressHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
       try {
-        for (const header of ["x-exomem-oauth-client", "x-exomem-client-context"]) {
+        for (const header of [
+          "x-exomem-oauth-client",
+          "x-exomem-client-context",
+          "x-exomem-app-id",
+        ]) {
           const refused = await handleCloudMcpRequest(
             postRequest({ bearer: CLIENT_BEARER, headers: { [header]: "coding" }, body: "{}" }),
             baseDeps({ fetchCell: fetchCellAt(cell.port) })

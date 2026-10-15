@@ -615,7 +615,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       );
     });
 
-    it("passes on only the content-free activity fields, and keeps a zero note count", async () => {
+    it("passes only content-free activity and valid actor IDs, and keeps a zero note count", async () => {
       const alice = await owner();
       const cell = fakeCell(() => ({
         contract_version: "1",
@@ -626,6 +626,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           note_count: 0,
           events: [
             {
+              app_id: "00000000-0000-4000-8000-000000000001",
               client: "claude-ai",
               action: "recalled",
               items: 5,
@@ -633,11 +634,13 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
               query: "a private question",
             },
             {
+              app_id: "a private actor label",
               client: "private note: an example recovery phrase",
               action: "saved",
               items: 1,
               at: "2026-10-12T08:59:00Z",
             },
+            { client: "codex", action: "recalled", items: 1, at: "2026-10-12T08:58:00Z" },
           ],
         },
       }));
@@ -651,9 +654,16 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         as_of: "2026-10-12T09:00:00Z",
         note_count: 0,
         events: [
-          { client: "claude-ai", action: "recalled", items: 5, at: "2026-10-12T08:59:30Z" },
+          {
+            app_id: "00000000-0000-4000-8000-000000000001",
+            client: "claude-ai",
+            action: "recalled",
+            items: 5,
+            at: "2026-10-12T08:59:30Z",
+          },
           // Not a client family, so possibly content: it arrives as an unknown client.
-          { client: null, action: "saved", items: 1, at: "2026-10-12T08:59:00Z" },
+          { app_id: null, client: null, action: "saved", items: 1, at: "2026-10-12T08:59:00Z" },
+          { client: "codex", action: "recalled", items: 1, at: "2026-10-12T08:58:00Z" },
         ],
       });
       assert.deepEqual(cell.calls[0]!.arguments, { profile: "compact", section: "activity" });

@@ -73,6 +73,8 @@ const ActivityPayload = z.object({
   events: z
     .array(
       z.object({
+        // Older cells and malformed actor metadata remain unknown; no name-based join.
+        app_id: z.uuid().nullable().optional().catch(null),
         // Any other value could be text from the cell, so it reaches Home as
         // an unknown client, never as itself.
         client: z.enum(ACTIVITY_CLIENT_FAMILIES).nullable().catch(null),

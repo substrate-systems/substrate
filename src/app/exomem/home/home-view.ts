@@ -5,6 +5,7 @@
 
 import { subscribeLine } from "@/components/exomem/subscribe-line";
 import { formatMoney } from "@/lib/exomem/money";
+import { activityEventKey, type ActivityEvent } from "./home-activity";
 import {
   CLIENT_FAMILY_NAMES,
   CLIENT_PLATFORM_GLYPHS,
@@ -152,8 +153,6 @@ export function isLive(variant: HomeVariant): boolean {
 
 // --- Live activity ---
 
-type ActivityEvent = Extract<HomeActivity, { state: "live" }>["events"][number];
-
 export type ActivityFacts = {
   noteCount: number | null;
   newest: ActivityEvent | null;
@@ -240,9 +239,12 @@ export function liveLine(
   }
   if (facts.newest) {
     const event = facts.newest;
+    const actor = event.app_id ? apps.find((app) => app.id === event.app_id) : null;
+    const name =
+      actor && !disconnected.has(actor.id) ? actor.displayName : clientName(event.client);
     return {
-      text: `${clientName(event.client)} ${eventVerb(event)} · ${secondsAgo(event.at, cellNow(facts, clock))}`,
-      key: `${event.at}|${event.client}|${event.action}|${event.items}`,
+      text: `${name} ${eventVerb(event)} · ${secondsAgo(event.at, cellNow(facts, clock))}`,
+      key: activityEventKey(event),
       client: event.client,
     };
   }

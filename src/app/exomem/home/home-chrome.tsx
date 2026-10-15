@@ -39,7 +39,8 @@ function WebSvg({
   const lastEvent = useRef<string | null>(null);
   useEffect(() => {
     if (live && activity && activity.key !== lastEvent.current) {
-      if (lastEvent.current !== null) fireAlive(id, activity);
+      // Home supplies only newly observed events, after its initial history read.
+      fireAlive(id, activity);
       lastEvent.current = activity.key;
     }
   }, [activity, id, live]);

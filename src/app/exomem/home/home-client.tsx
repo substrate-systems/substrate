@@ -60,6 +60,7 @@ import {
   subscribeView,
 } from "./home-view";
 import styles from "./home.module.css";
+import { activityEventKey, createActivityObserver, type ActivityEvent } from "./home-activity";
 
 /** Home reads activity, and the status poll, this often while the tab is visible. */
 const REFRESH_MS = 30_000;
@@ -112,6 +113,13 @@ export default function HomeClient({
   );
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
+  const [activityPulse, setActivityPulse] = useState<ActivityEvent | null>(null);
+  const observeActivity = useRef(createActivityObserver());
+  useEffect(() => {
+    if (!activityPulse) return;
+    const timer = window.setTimeout(() => setActivityPulse(null), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [activityPulse]);
   const [now, setNow] = useState(() => Date.now());
 
   const [disconnected, setDisconnected] = useState<ReadonlySet<string>>(new Set());
@@ -241,6 +249,10 @@ export default function HomeClient({
       const next = await readActivity();
       if (!mounted.current) return;
       setActivity(next);
+      if (next !== NOT_RELEASED) {
+        const fresh = observeActivity.current(next);
+        if (fresh) setActivityPulse(fresh);
+      }
       setActivityAt(Date.now());
       setActivityReadFailed(false);
     } catch (error) {
@@ -539,6 +551,17 @@ export default function HomeClient({
   const variant = mode.variant;
   const live = isLive(variant) && lostAt === null;
   const facts = activityReadFailed && lostAt === null ? null : activityFacts(activity, activityAt);
+  const pulseAppIndex = activityPulse?.app_id
+    ? (apps?.findIndex((app) => app.id === activityPulse.app_id) ?? -1)
+    : -1;
+  const pulseApp =
+    live &&
+    !activityReadFailed &&
+    pulseAppIndex >= 0 &&
+    apps &&
+    !disconnected.has(apps[pulseAppIndex].id)
+      ? apps[pulseAppIndex]
+      : null;
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
   const homeNotices = notices(variant, account, storage, exportOffered, statusPageUrl !== null);
@@ -563,10 +586,11 @@ export default function HomeClient({
       <HomeWeb
         live={live}
         activity={
-          !activityReadFailed && facts?.newest
+          !activityReadFailed && activityPulse
             ? {
-                kind: facts.newest.action === "saved" ? "save" : "recall",
-                key: `${facts.newest.at}|${facts.newest.client}|${facts.newest.action}|${facts.newest.items}`,
+                kind: activityPulse.action === "saved" ? "save" : "recall",
+                key: activityEventKey(activityPulse),
+                ...(pulseApp ? { from: pulseAppIndex, of: apps!.length } : {}),
               }
             : undefined
         }
@@ -704,6 +728,7 @@ export default function HomeClient({
           startLevel={codingLevel}
           reviewer={reviewer}
           clock={clock}
+          activeAppId={pulseApp?.id ?? null}
         />
         <InvolvementLevels
           view={levelState}

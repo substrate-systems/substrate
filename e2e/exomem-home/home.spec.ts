@@ -116,6 +116,68 @@ test("Home shows the account's own values and calls only routes a Cloud account 
   );
 });
 
+test("new activity highlights only its authenticated app for three seconds", async ({ page }) => {
+  const owner = await createOwner();
+  const first = await connectApp(owner, { platform: "claude", name: "First connection" });
+  const second = await connectApp(owner, { platform: "claude", name: "Second connection" });
+  await setCell(owner, {
+    noteCount: 2,
+    events: [
+      {
+        app_id: first,
+        client: "claude-ai",
+        action: "recalled",
+        items: 2,
+        at: new Date(Date.now() - 60_000).toISOString(),
+      },
+    ],
+  });
+  await page.clock.install();
+  await openHome(page, owner);
+  await expect(page.getByText(/First connection recalled 2 notes/)).toBeVisible();
+  const firstRow = page.locator(`[data-app-id="${first}"]`);
+  const secondRow = page.locator(`[data-app-id="${second}"]`);
+  const firstGlyph = firstRow.locator('[aria-hidden="true"]');
+  const secondGlyph = secondRow.locator('[aria-hidden="true"]');
+  const restingBorder = await secondGlyph.evaluate(
+    (element) => getComputedStyle(element).borderBottomColor
+  );
+  await expect(firstGlyph).toHaveCSS("border-bottom-color", restingBorder);
+  await setCell(owner, {
+    events: [
+      {
+        app_id: second,
+        client: "claude-ai",
+        action: "saved",
+        items: 1,
+        at: new Date().toISOString(),
+      },
+    ],
+  });
+  await page.clock.fastForward(30_000);
+  await expect(page.getByText(/Second connection saved a note/)).toBeVisible();
+  await expect(secondGlyph).not.toHaveCSS("border-bottom-color", restingBorder);
+  await expect(secondGlyph).toHaveCSS("color", "rgb(255, 176, 0)");
+  await expect(firstGlyph).toHaveCSS("border-bottom-color", restingBorder);
+  await page.clock.fastForward(3_001);
+  await expect(secondGlyph).toHaveCSS("border-bottom-color", restingBorder);
+  await setCell(owner, {
+    events: [
+      {
+        app_id: null,
+        client: "claude-ai",
+        action: "saved",
+        items: 1,
+        at: new Date(Date.now() + 1).toISOString(),
+      },
+    ],
+  });
+  await page.clock.fastForward(30_000);
+  await expect(page.getByText(/Claude saved a note/)).toBeVisible();
+  await expect(firstGlyph).toHaveCSS("border-bottom-color", restingBorder);
+  await expect(secondGlyph).toHaveCSS("border-bottom-color", restingBorder);
+});
+
 test("disconnecting an app revokes its grant, and the app stays gone after a reload", async ({
   page,
 }) => {

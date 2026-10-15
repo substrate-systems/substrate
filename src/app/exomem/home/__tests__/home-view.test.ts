@@ -237,6 +237,37 @@ describe("the live line and the note count", () => {
     assert.equal(statusCopy("on", false, facts, clock).statusLine, "Last saved 1 minute ago");
   });
 
+  it("names the exact grant when two apps share a provider, without guessing a disconnected actor", () => {
+    const one = app({ displayName: "First connection" });
+    const two = app({
+      id: "00000000-0000-4000-8000-000000000002",
+      displayName: "Second connection",
+    });
+    const facts = activityFacts(
+      activity({
+        events: [
+          {
+            app_id: two.id,
+            client: "claude-ai",
+            action: "recalled",
+            items: 2,
+            at: "2026-10-12T09:59:48Z",
+          },
+        ],
+      }),
+      NOW
+    );
+    assert.equal(
+      liveLine(facts, [one, two], NONE, clock)?.text,
+      "Second connection recalled 2 notes · 12 s ago"
+    );
+    assert.equal(
+      liveLine(facts, [one, two], new Set([two.id]), clock)?.text,
+      "Claude recalled 2 notes · 12 s ago"
+    );
+    assert.equal(liveLine(facts, [one], NONE, clock)?.text, "Claude recalled 2 notes · 12 s ago");
+  });
+
   it("does not name an app the owner has just disconnected", () => {
     const claude = app();
     const chatgpt = app({
