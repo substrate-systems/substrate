@@ -21,8 +21,7 @@ export function createActivityObserver() {
       seen.clear();
     }
     const fresh = newest && at >= through && !seen.has(activityEventKey(newest));
-    // Only the bounded current feed is retained, including equal-time app events.
-    seen.clear();
+    // Keep equal-time observations when a late poll returns an older or smaller feed.
     for (const event of feed.events)
       if (Date.parse(event.at) >= through) seen.add(activityEventKey(event));
     return first || !fresh ? null : newest;
