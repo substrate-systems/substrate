@@ -41,3 +41,9 @@
   font-weight: 500;
   font-size: 18px;
 }
+
+@media (max-width: 640px) {
+  .phoneFullWidth {
+    max-width: 100%;
+  }
+}

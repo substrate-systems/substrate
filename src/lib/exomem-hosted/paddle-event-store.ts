@@ -195,7 +195,11 @@ export function createSqlExomemPaddleEventStore(
                   entitlement.capabilities
                 )
               END,
-              resource_limits = ${JSON.stringify(application.resourceLimits)}::jsonb,
+              resource_limits = jsonb_set(
+                ${JSON.stringify(application.resourceLimits)}::jsonb,
+                '{storageBytes}',
+                to_jsonb(${application.resourceLimits.storageBytes}::bigint + entitlement.paid_storage_bytes)
+              ),
               source_revision = ${application.revision.eventId},
               source_occurred_at = ${application.revision.occurredAt},
               provider_environment = ${application.environment},

@@ -729,3 +729,26 @@ Migration0070 creates `exomem_record_memory_health_proof(uuid, timestamptz, time
 The deployment owner provisions roles and grants through the normal platform release. The runner role gets CONNECT on the database, USAGE on the application schema and EXECUTE on that exact function. It gets no proof table grant. The public gateway reader gets SELECT on `exomem_health_proofs` and no execution grant on the function. The existing control writer retains its ordinary application authority.
 
 The platform packet must provide the runner's synthetic-only network allowance, minute schedule and command. It must synchronize the two HTTP jobs from `ops/exomem-hosted-schedules.json`. An actual scheduled proof remains a separate rollout check; source verification does not certify deployed health.
+
+### Manual storage additions
+
+Owners can add storage from Home when `EXOMEM_CLOUD_STORAGE_ENABLED=true`.
+The default is off. `EXOMEM_PADDLE_STORAGE_PRICE_ID` identifies the recurring storage price in the configured Paddle environment.
+The price's structured `custom_data.exomem_storage_bytes` gives bytes per unit.
+Its `custom_data.exomem_storage_packs` array gives the offered quantities. Paddle supplies quantity limits, prices and tax.
+
+1. Apply migration 0071 through the normal web deployment, to create paid operations and capacity fields.
+2. Deploy the companion controller observation change, to report the bound claim's actual capacity.
+3. Check the price metadata and controller receipts, to confirm that the environment supports the purchase.
+4. Enable the feature through the normal release process, to expose the storage panel on Home.
+
+The panel previews the immediate charge and recurring total before one confirmation.
+A declined card uses the subscription's payment-method form. The owner then checks and confirms a fresh price.
+An unknown provider result stays pending. Reopening the panel checks the existing operation; it does not repeat the charge.
+Paid storage becomes complete only after the original claim reports sufficient capacity for the requested generation.
+The desired-size change also changes the rendered cell template and restarts its serving pod during reconciliation.
+Include that brief interruption in the controller rollout and feature-enablement window.
+
+The application preserves paid allowance through later subscription events.
+This flow does not buy storage automatically, reduce a volume or remove an add-on.
+Those actions remain outside this capability.

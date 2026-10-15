@@ -135,7 +135,7 @@ function safeConfigurationError(error: unknown): ExomemBillingError {
  * A Paddle API call whose failure says nothing about the provider's answer.
  * paddleFetch gives every call a deadline.
  */
-async function safePaddleJson(
+export async function safePaddleJson(
   transport: PaddleTransport,
   path: string,
   init: RequestInit

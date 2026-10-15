@@ -595,6 +595,13 @@
   font-size: 12px;
 }
 
+.storageActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .muted {
   color: var(--fg-secondary);
 }

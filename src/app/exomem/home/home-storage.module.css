@@ -1,0 +1,46 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.text {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.packs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.totals {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 0;
+  border-top: 1px solid rgba(var(--ink-rgb), 0.12);
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.12);
+}
+.totals div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.totals dt {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.totals dd {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+}
+.frame {
+  width: 100%;
+  min-height: 450px;
+}

@@ -29,7 +29,7 @@ export function isExomemMoney(value: unknown): value is ExomemMoney {
  * A price as Exomem writes it, always in en-GB: "€10", or "€10.50" when the amount
  * has cents. Amounts are at most 12 digits, so they stay exact as numbers.
  */
-export function formatMoney(price: ExomemMoney): string {
+export function formatMoney(price: ExomemMoney, options: { ledger?: boolean } = {}): string {
   const fractionDigits =
     new Intl.NumberFormat("en-GB", {
       style: "currency",
@@ -40,7 +40,7 @@ export function formatMoney(price: ExomemMoney): string {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
     currency: price.currencyCode,
-    minimumFractionDigits: minor % scale === 0 ? 0 : fractionDigits,
+    minimumFractionDigits: options.ledger || minor % scale !== 0 ? fractionDigits : 0,
     maximumFractionDigits: fractionDigits,
   }).format(minor / scale);
 }

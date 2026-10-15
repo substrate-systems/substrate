@@ -14,6 +14,7 @@ export function PlanAndAccount({
   onBilling,
   billingBusy,
   billingMessage,
+  onStorage,
 }: {
   plan: PlanView;
   storage: StorageView;
@@ -21,6 +22,7 @@ export function PlanAndAccount({
   onBilling: (kind: "portal" | "checkout") => void;
   billingBusy: boolean;
   billingMessage: string | null;
+  onStorage?: () => void;
 }) {
   return (
     <Section title="Plan and account">
@@ -43,7 +45,14 @@ export function PlanAndAccount({
       <div className={styles.storage}>
         <div className={styles.storageLine}>
           <span className={styles.muted}>Storage</span>
-          <span>{storage.state === "known" ? storage.line : "not measured yet"}</span>
+          <span className={styles.storageActions}>
+            <span>{storage.state === "known" ? storage.line : "not measured yet"}</span>
+            {onStorage && (
+              <Button size="panel" onClick={onStorage}>
+                Add storage
+              </Button>
+            )}
+          </span>
         </div>
         {storage.state === "known" && (
           <>

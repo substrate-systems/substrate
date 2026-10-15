@@ -7,7 +7,17 @@ globalThis.fetch = (input, init) => {
   const url = new URL(
     typeof input === "string" ? input : input instanceof URL ? input.href : input.url
   );
+  // The dummy key has authority only at the owned stand-in, never at Paddle.
+  if (
+    url.origin === "https://sandbox-api.paddle.com" &&
+    process.env.PADDLE_ENVIRONMENT === "sandbox" &&
+    process.env.PADDLE_API_KEY === "pdl_sdbx_apikey_home_fixture"
+  )
+    return nativeFetch(
+      `http://127.0.0.1:${cellPort + 1}/__paddle-api${url.pathname}${url.search}`,
+      init
+    );
   if (["127.0.0.1", "localhost"].includes(url.hostname) && ports.has(url.port))
     return nativeFetch(input, init);
-  throw new Error("External effects are blocked in the Home and viewer tests");
+  throw new Error("External effects are blocked in the Home tests");
 };

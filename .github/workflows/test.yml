@@ -139,7 +139,7 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
           CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
         run: npm run migrate
-      - name: Exomem Home and viewer end-to-end
+      - name: Exomem Home, viewer and storage end-to-end
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
           HOME_E2E_PORT: "3461"

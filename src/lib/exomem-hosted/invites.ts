@@ -44,6 +44,7 @@ import {
   exomemPaddleFriendPriceId,
 } from "./paddle-config";
 import { carriesFriendPrice } from "./paddle-friend-price";
+import { lockExomemSubscriptionUpdate } from "./subscription-update-lock";
 import { EXOMEM_INVITE_CAPABILITIES, EXOMEM_INVITE_LIMITS } from "./self-serve-admission";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
@@ -684,16 +685,9 @@ export async function decideInvitation(
         | undefined;
       if (!invite) throw invitationUnusable();
       if (!invite.same_address) throw invitationForAnotherAddress();
-      // One friend price per Exomem: answers to two invitations at once take
-      // turns on a lock that only these answers take, because the answer
-      // holds it while Paddle answers, and no reconcile, Paddle event or sweep
-      // must wait on Paddle. The lock is its own statement, so the read below
-      // takes a fresh snapshot and sees the friend offer the first answer
-      // recorded.
-      await tx`
-        /* exomem:lock-invitation-decision-tenant */
-        SELECT pg_advisory_xact_lock(hashtext('exomem-friend-decision:' || ${input.session.tenantId}::text))
-      `;
+      // Storage additions and friend conversion replace all items, so they take turns.
+      // This lock is separate from webhook, reconciliation and lifecycle projection.
+      await lockExomemSubscriptionUpdate(tx, input.session.tenantId);
       const facts = await tx`
         /* exomem:invitation-decision-billing */
         SELECT entitlement.source, entitlement.source_state, entitlement.provider_environment,
