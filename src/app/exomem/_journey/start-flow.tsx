@@ -256,7 +256,7 @@ export function StartFlow({
             }
           />
           <div className={styles.group}>
-            <SentCard email={email} />
+            <SentCard email={email} app={context.kind === "app" ? context.app : undefined} />
             {challenge}
           </div>
           <StepNotice alert visible={!!failure}>

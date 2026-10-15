@@ -595,9 +595,12 @@ export async function releaseMagicLinkDelivery(input: {
   return "lost";
 }
 
+export type RedeemedMagicAccess = RedeemedAccess & { browserChallengeMatched: boolean };
+
 export type RedeemMagicAccessTokenInput = {
   tokenDigest: Buffer;
-  browserChallengeDigest: Buffer;
+  browserChallengeDigest: Buffer | null;
+  expectedEmailNormalized?: string | null;
   sessionDigest: Buffer;
   csrfDigest: Buffer;
   sessionExpiresAt: Date;
@@ -607,13 +610,14 @@ export type RedeemMagicAccessTokenInput = {
 
 export async function redeemMagicAccessTokenAtomic(
   input: RedeemMagicAccessTokenInput
-): Promise<RedeemedAccess | null> {
+): Promise<RedeemedMagicAccess | null> {
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
     const { rows } = await tx`
     /* exomem:redeem-magic-access-token */
     WITH locked_token AS (
-      SELECT token.id, token.user_id, token.tenant_id
+      SELECT token.id, token.user_id, token.tenant_id,
+             COALESCE(token.browser_challenge_digest = ${input.browserChallengeDigest}, false) AS browser_challenge_matched
       FROM exomem_access_tokens AS token
       JOIN users ON users.id = token.user_id AND users.deleted_at IS NULL
       JOIN exomem_tenants AS tenant
@@ -623,7 +627,10 @@ export async function redeemMagicAccessTokenAtomic(
        AND tenant.deleted_at IS NULL
        AND token.magic_link_generation = tenant.magic_link_generation
       WHERE token.token_digest = ${input.tokenDigest}
-        AND token.browser_challenge_digest = ${input.browserChallengeDigest}
+        AND CASE WHEN ${input.expectedEmailNormalized ?? null}::text IS NOT NULL
+          THEN users.email = ${input.expectedEmailNormalized ?? null}
+          ELSE token.browser_challenge_digest = ${input.browserChallengeDigest}
+        END
         AND token.purpose = 'magic_link'
         AND token.delivery_state = 'sent'
         AND token.consumed_at IS NULL
@@ -650,7 +657,8 @@ export async function redeemMagicAccessTokenAtomic(
       WHERE token.id = locked_token.id
       RETURNING product_session.user_id,
                 product_session.tenant_id,
-                product_session.id AS session_id
+                product_session.id AS session_id,
+                locked_token.browser_challenge_matched
     ),
     time_zone_recorded AS (
       UPDATE exomem_tenants AS tenant
@@ -660,14 +668,22 @@ export async function redeemMagicAccessTokenAtomic(
         AND ${input.timeZone ?? null}::text IS NOT NULL
       RETURNING tenant.id
     )
-    SELECT user_id, tenant_id, session_id FROM consumed
+    SELECT user_id, tenant_id, session_id, browser_challenge_matched FROM consumed
   `;
-    const row = rows[0] as { user_id: string; tenant_id: string; session_id: string } | undefined;
+    const row = rows[0] as
+      | {
+          user_id: string;
+          tenant_id: string;
+          session_id: string;
+          browser_challenge_matched: boolean;
+        }
+      | undefined;
     return row
       ? {
           userId: row.user_id,
           tenantId: row.tenant_id,
           sessionId: row.session_id,
+          browserChallengeMatched: row.browser_challenge_matched,
         }
       : null;
   });

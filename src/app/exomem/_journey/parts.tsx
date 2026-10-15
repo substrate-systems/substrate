@@ -288,14 +288,16 @@ export function WorkingBar({ label }: { label: string }) {
   );
 }
 
-export function SentCard({ email }: { email: string }) {
+export function SentCard({ email, app }: { email: string; app?: string }) {
   return (
     <div className={`${styles.panel} ${styles.sent}`}>
       <div className={styles.factRow}>
         <span className={styles.factLabel}>{sentCopy.sentTo}</span>
         <span className={styles.factValue}>{email}</span>
       </div>
-      <div className={styles.panelNote}>{sentCopy.openHere}</div>
+      <div className={styles.panelNote}>
+        {app ? sentCopy.openHereForApp(app) : sentCopy.openHere}
+      </div>
     </div>
   );
 }

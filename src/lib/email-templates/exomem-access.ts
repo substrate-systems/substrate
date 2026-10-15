@@ -40,9 +40,7 @@ export function renderExomemMagicLinkEmail(input: {
     preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
     band: "arrive",
     headline: "Your sign-in link",
-    body: [
-      "Open it on the device where you asked for it. It brings you straight back to where you were.",
-    ],
+    body: ["Open it in any browser. We may ask you to confirm your email address."],
     action: { label: "Sign in to Exomem", url: input.accessUrl },
     smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. If you didn’t ask for this, ignore it: nothing happens.`,
   });

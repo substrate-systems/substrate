@@ -361,6 +361,7 @@ before(() => {
         throw new Error("the OAuth continuation path must use atomic admission");
       },
       redeemMagicLink: async () => ({
+        browserChallengeMatched: true,
         sessionToken: SESSION_TOKEN,
         csrfToken: Buffer.alloc(32, 0x32).toString("base64url"),
         expiresAt: new Date("2026-08-01T00:00:00.000Z"),

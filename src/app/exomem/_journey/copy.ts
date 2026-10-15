@@ -34,7 +34,9 @@ export const sentCopy = {
    */
   lede: "If this address can get an email from us, it’s on its way. You can close this tab.",
   sentTo: "To",
-  openHere: "Open it on this device.",
+  openHere: "Open it in any browser. We may ask you to confirm your email.",
+  /** Only the requesting browser can resume an app's consent, so the app journey says so. */
+  openHereForApp: (app: string) => `Open it in this browser to finish connecting ${app}.`,
   resend: TRY_AGAIN,
   resendIn: (clock: string) => `${TRY_AGAIN} in ${clock}`,
   differentEmail: "Use a different email",

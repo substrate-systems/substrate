@@ -762,6 +762,132 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
   });
 
+  it("checks the authoritative email before consumption and admits only one completing browser", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    const tokenDigest = randomBytes(32);
+    const challenge = randomBytes(32);
+    await pool.query(
+      `INSERT INTO exomem_access_tokens
+       (purpose, token_digest, browser_challenge_digest, magic_link_generation, user_id, tenant_id, expires_at, delivery_state)
+       VALUES ('magic_link', $1, $2, 0, $3, $4, now() + interval '15 minutes', 'sent')`,
+      [tokenDigest, challenge, USER, TENANT]
+    );
+    const attempt = (expectedEmailNormalized: string, browserChallengeDigest: Buffer | null) =>
+      redeemMagicAccessTokenAtomic({
+        tokenDigest,
+        expectedEmailNormalized,
+        browserChallengeDigest,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      });
+    // A matching cookie cannot override an explicitly supplied wrong account.
+    assert.equal(await attempt("other@example.com", challenge), null);
+    assert.equal(await attempt("other@example.com", null), null);
+    assert.equal(
+      (await pool.query("SELECT count(*)::int AS count FROM exomem_sessions")).rows[0].count,
+      0
+    );
+    assert.equal(
+      (await pool.query("SELECT consumed_at FROM exomem_access_tokens")).rows[0].consumed_at,
+      null
+    );
+    const results = await Promise.all([
+      attempt("owner@example.com", null),
+      attempt("owner@example.com", randomBytes(32)),
+    ]);
+    assert.equal(results.filter(Boolean).length, 1);
+    assert.equal(results.find(Boolean)?.browserChallengeMatched, false);
+    assert.equal(
+      (await pool.query("SELECT count(*)::int AS count FROM exomem_sessions")).rows[0].count,
+      1
+    );
+    assert.ok(
+      (await pool.query("SELECT consumed_at FROM exomem_access_tokens")).rows[0].consumed_at
+    );
+    assert.equal(await attempt("owner@example.com", null), null);
+    const anotherDigest = randomBytes(32);
+    await pool.query(
+      `INSERT INTO exomem_access_tokens
+       (purpose, token_digest, browser_challenge_digest, magic_link_generation, user_id, tenant_id, expires_at, delivery_state)
+       SELECT purpose, $1, browser_challenge_digest, magic_link_generation, user_id, tenant_id, expires_at, delivery_state
+       FROM exomem_access_tokens WHERE token_digest = $2`,
+      [anotherDigest, tokenDigest]
+    );
+    const mismatched = await redeemMagicAccessTokenAtomic({
+      tokenDigest: anotherDigest,
+      expectedEmailNormalized: "owner@example.com",
+      browserChallengeDigest: randomBytes(32),
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.equal(mismatched?.tenantId, TENANT);
+    assert.equal(mismatched?.browserChallengeMatched, false);
+  });
+
+  for (const unavailable of ["expired", "revoked", "generation", "tenant", "pending"] as const) {
+    it(`email confirmation cannot redeem a link with ${unavailable} authority`, async () => {
+      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+        USER,
+        "owner@example.com",
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+         VALUES ($1, $2, 'active', 'running')`,
+        [TENANT, USER]
+      );
+      const tokenDigest = randomBytes(32);
+      await pool.query(
+        `INSERT INTO exomem_access_tokens
+         (purpose, token_digest, browser_challenge_digest, magic_link_generation, user_id, tenant_id, created_at, expires_at, delivery_state)
+         VALUES ('magic_link', $1, $2, 0, $3, $4, now() - interval '16 minutes', now() + interval '15 minutes', 'sent')`,
+        [tokenDigest, randomBytes(32), USER, TENANT]
+      );
+      if (unavailable === "expired")
+        await pool.query(
+          "UPDATE exomem_access_tokens SET expires_at = now() - interval '1 minute'"
+        );
+      if (unavailable === "revoked")
+        await pool.query("UPDATE exomem_access_tokens SET revoked_at = now()");
+      if (unavailable === "generation")
+        await pool.query("UPDATE exomem_tenants SET magic_link_generation = 1");
+      if (unavailable === "tenant") {
+        const other = randomUUID();
+        await pool.query("INSERT INTO users (id, email) VALUES ($1, 'another@example.com')", [
+          other,
+        ]);
+        await pool.query("UPDATE exomem_tenants SET owner_user_id = $1", [other]);
+      }
+      if (unavailable === "pending")
+        await pool.query("UPDATE exomem_access_tokens SET delivery_state = 'pending'");
+      assert.equal(
+        await redeemMagicAccessTokenAtomic({
+          tokenDigest,
+          browserChallengeDigest: null,
+          expectedEmailNormalized: "owner@example.com",
+          sessionDigest: randomBytes(32),
+          csrfDigest: randomBytes(32),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+        }),
+        null
+      );
+      assert.equal(
+        (await pool.query("SELECT count(*)::int AS count FROM exomem_sessions")).rows[0].count,
+        0
+      );
+      assert.equal(
+        (await pool.query("SELECT consumed_at FROM exomem_access_tokens")).rows[0].consumed_at,
+        null
+      );
+    });
+  }
+
   it("invalidates an older unconsumed magic link when a newer request is queued", async () => {
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(

@@ -18,11 +18,15 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
     now: () => new Date("2026-07-12T12:00:00.000Z"),
     randomBytes: (size) => Buffer.alloc(size, 0x61),
     redeemMagicAccessTokenAtomic: async (input) =>
-      input.browserChallengeDigest.equals(tokenDigest(CHALLENGE)!)
+      input.expectedEmailNormalized === "person@example.com" ||
+      (!input.expectedEmailNormalized &&
+        input.browserChallengeDigest?.equals(tokenDigest(CHALLENGE)!))
         ? {
             userId: "user-1",
             tenantId: "tenant-1",
             sessionId: "session-1",
+            browserChallengeMatched:
+              input.browserChallengeDigest?.equals(tokenDigest(CHALLENGE)!) ?? false,
           }
         : null,
     admissionMode: () => "waitlist",
@@ -54,10 +58,11 @@ describe("Exomem hosted access", () => {
     assert.throws(() => normalizeAccessEmail("bad\n@example.com"));
   });
 
-  it("requires the matching browser challenge to redeem a magic link", async () => {
+  it("keeps the matching browser challenge fast path", async () => {
     const deps = dependencies();
     const redeemed = await redeemMagicLink({ token: TOKEN, browserChallenge: CHALLENGE }, deps);
     assert.equal(redeemed.tenantId, "tenant-1");
+    assert.equal(redeemed.browserChallengeMatched, true);
 
     await assert.rejects(
       () =>
@@ -66,16 +71,37 @@ describe("Exomem hosted access", () => {
           deps
         ),
       (error: unknown) =>
-        error instanceof Error && "code" in error && error.code === "ACCESS_TOKEN_INVALID"
+        error instanceof Error && "code" in error && error.code === "EMAIL_CONFIRMATION_REQUIRED"
     );
   });
 
-  it("maps missing, expired, consumed, and wrong-browser magic links to one failure", async () => {
+  it("asks for email without revealing whether a well-formed link is usable", async () => {
     const deps = dependencies({
       redeemMagicAccessTokenAtomic: async () => null,
     });
     await assert.rejects(
-      () => redeemMagicLink({ token: TOKEN, browserChallenge: "" }, deps),
+      () => redeemMagicLink({ token: TOKEN, browserChallenge: CHALLENGE }, deps),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EMAIL_CONFIRMATION_REQUIRED"
+    );
+  });
+
+  it("normalizes expected email and authenticates without the requesting browser", async () => {
+    const redeemed = await redeemMagicLink(
+      { token: TOKEN, expectedEmail: "  PERSON@EXAMPLE.COM " },
+      dependencies()
+    );
+    assert.equal(redeemed.tenantId, "tenant-1");
+    assert.equal(redeemed.browserChallengeMatched, false);
+  });
+
+  it("checks a supplied email even when the challenge matches", async () => {
+    await assert.rejects(
+      () =>
+        redeemMagicLink(
+          { token: TOKEN, browserChallenge: CHALLENGE, expectedEmail: "other@example.com" },
+          dependencies()
+        ),
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "ACCESS_TOKEN_INVALID"
     );
