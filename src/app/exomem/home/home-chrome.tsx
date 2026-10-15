@@ -92,11 +92,13 @@ export function HomeHeader({
   onSignOut,
   signingOut,
   live = true,
+  viewerOffered = false,
 }: {
   email: string | null;
   onSignOut: () => void;
   signingOut: boolean;
   live?: boolean;
+  viewerOffered?: boolean;
 }) {
   return (
     <header className={styles.header}>
@@ -108,6 +110,7 @@ export function HomeHeader({
           <span aria-current="page" className={styles.navCurrent}>
             Home
           </span>
+          {viewerOffered && <a href="/exomem/viewer">The map</a>}
         </nav>
       </span>
       <span className={styles.headerEnd}>

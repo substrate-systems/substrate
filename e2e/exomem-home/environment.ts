@@ -28,6 +28,7 @@ export function homeE2eEnvironment() {
       EXOMEM_CLOUD_MCP_URL: mcpUrl,
       EXOMEM_CLOUD_MCP_PATH: "/mcp/v1",
       EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: "true",
+      EXOMEM_CLOUD_VIEWER_ENABLED: "true",
       EXOMEM_CLOUD_EXPORTS_ENABLED: "true",
       EXOMEM_EXPORT_TTL_HOURS: "24",
       EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true",

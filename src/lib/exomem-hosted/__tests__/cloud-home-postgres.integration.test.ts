@@ -9,6 +9,7 @@ import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest, handleCloudHomeLiveRequest } from "../cloud-home-mcp";
+import { handleCloudViewerRequest } from "../cloud-viewer";
 import { findCloudOAuthAccessToken, resolveApprovedCloudOAuthClient } from "../cloud-oauth";
 import { getOwnerCloudHomeStatus } from "../cloud-status";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
@@ -789,6 +790,323 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         { env: { ...ENV, EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: undefined } }
       );
       assert.equal(response.status, 404);
+    });
+  });
+
+  describe("viewer", () => {
+    const viewerEnv = { ...ENV, EXOMEM_CLOUD_VIEWER_ENABLED: "true" };
+    const emptyMap = {
+      state: "complete",
+      available: true,
+      reason: null,
+      snapshot: null,
+      observed_at: "2026-10-15T00:00:00Z",
+      nodes: [],
+      edges: [],
+      vocabulary: [],
+      counts: {
+        eligible_nodes: 0,
+        eligible_edges: 0,
+        observed_nodes: 0,
+        observed_edges: 0,
+        drawn_nodes: 0,
+        drawn_edges: 0,
+      },
+      ranking_complete: true,
+      truncation: [],
+    };
+
+    it("binds the fixed map operation to the session's actual tenant", async () => {
+      const alice = await owner();
+      const bob = await owner();
+      const relation = { instance: "registry-a", definition_key: "vault.checks" };
+      const populatedMap = {
+        ...emptyMap,
+        nodes: ["source", "target"].map((key) => ({
+          node_key: `file:${key}.md`,
+          kind: "file",
+          path: `${key}.md`,
+          title: key,
+          source_hash: key,
+          incoming_edges: key === "target" ? 1 : 0,
+          memory_ref: null,
+          page_type: "insight",
+          origin_date: "2026-09-01",
+          updated_date: null,
+        })),
+        edges: [
+          {
+            edge_key: "edge-a",
+            src_key: "file:source.md",
+            dst_key: "file:target.md",
+            relation_type: "vault.checks",
+            source_path: "source.md",
+            relation_identity: relation,
+          },
+        ],
+        vocabulary: [
+          {
+            ...relation,
+            description: "Checks the target",
+            family: "testing",
+            direction: "directed",
+            presentation_role: "future_renderer_role",
+          },
+        ],
+        counts: {
+          eligible_nodes: 2,
+          eligible_edges: 1,
+          observed_nodes: 2,
+          observed_edges: 1,
+          drawn_nodes: 2,
+          drawn_edges: 1,
+        },
+      };
+      const cell = fakeCell(() => populatedMap);
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/map", {}),
+        "map",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("cache-control")!, /no-store/);
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+      assert.deepEqual(await json(response), {
+        tenantId: alice.tenantId,
+        state: "live",
+        value: populatedMap,
+      });
+      assert.equal(cell.calls[0]!.routedTenantId, alice.tenantId);
+      assert.notEqual(cell.calls[0]!.routedTenantId, bob.tenantId);
+      assert.equal(cell.calls[0]!.firstParty, true);
+      assert.equal(cell.calls[0]!.tool, "viewer_map");
+      assert.deepEqual(cell.calls[0]!.arguments, { max_nodes: 200, max_edges: 400 });
+    });
+
+    it("refuses a changed tenant binding before minting a token or contacting a cell", async () => {
+      const alice = await owner();
+      const bob = await owner();
+      const cell = fakeCell(() => emptyMap);
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/map", { tenantId: bob.tenantId }),
+        "map",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 403);
+      assert.equal(cell.calls.length, 0);
+      const tokens = await pool.query(
+        "SELECT count(*)::int AS total FROM exomem_oauth_access_tokens AS token JOIN exomem_oauth_grants AS grant_row ON grant_row.id=token.grant_id WHERE grant_row.tenant_id=$1",
+        [alice.tenantId]
+      );
+      assert.equal(tokens.rows[0].total, 0);
+    });
+
+    it("retains Origin and CSRF checks and refuses browser-selected tools", async () => {
+      const alice = await owner();
+      const cell = fakeCell(() => emptyMap);
+      for (const kind of ["origin", "csrf", "tool"] as const) {
+        const request = browserRequest(
+          alice,
+          "POST",
+          "/api/exomem/cloud/viewer/map",
+          kind === "tool" ? { tool: "remember" } : {}
+        );
+        if (kind === "origin") request.headers.set("origin", "https://foreign.example.test");
+        if (kind === "csrf") request.headers.delete("x-exomem-csrf");
+        const response = await handleCloudViewerRequest(request, "map", {
+          fetchCell: cell.fetchCell,
+          env: viewerEnv,
+        });
+        assert.equal(response.status, kind === "tool" ? 400 : 403);
+      }
+      assert.equal(cell.calls.length, 0);
+    });
+
+    it("uses assistant retrieval and returns only the declared search fields", async () => {
+      const alice = await owner();
+      const hit = {
+        path: "Knowledge Base/Notes/example.md",
+        title: "Example",
+        ref: "exomem://memory/00000000-0000-4000-8000-000000000001",
+      };
+      const cell = fakeCell(() => ({
+        result: {
+          hits: [hit],
+          continuation: "next-page",
+          warming: { components: ["vector"], since_s: null },
+          due_state: { unrelated: "not a search result" },
+        },
+      }));
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/search", {
+          tenantId: alice.tenantId,
+          query: "release plan",
+          continuation: "previous-page",
+        }),
+        "search",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual((await json(response)).value, {
+        hits: [hit],
+        continuation: "next-page",
+        partial: true,
+      });
+      assert.equal(cell.calls[0]!.tool, "ask_memory");
+      assert.deepEqual(cell.calls[0]!.arguments, {
+        query: "release plan",
+        limit: 20,
+        detail: "compact",
+        deep: false,
+        graph_enrich: false,
+        continuation: "previous-page",
+      });
+    });
+
+    it("opens page and semantic-unit results from the actual MCP list shape", async () => {
+      const alice = await owner();
+      const cell = fakeCell(() => ({
+        result: [
+          { path: "Notes/example.md", title: "Example" },
+          {
+            result_type: "semantic_unit",
+            parent_path: "Notes/other.md",
+            parent_title: "Other note",
+            parent_ref: "exomem://memory/00000000-0000-4000-8000-000000000002",
+            excerpt: "A specific finding.",
+          },
+        ],
+      }));
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/search", {
+          tenantId: alice.tenantId,
+          query: "finding",
+        }),
+        "search",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual((await json(response)).value, {
+        hits: [
+          { path: "Notes/example.md", title: "Example" },
+          {
+            path: "Notes/other.md",
+            title: "Other note",
+            ref: "exomem://memory/00000000-0000-4000-8000-000000000002",
+            excerpt: "A specific finding.",
+          },
+        ],
+        continuation: null,
+        partial: false,
+      });
+    });
+
+    it("reads the chosen reference through the same owner-bound channel", async () => {
+      const alice = await owner();
+      const note = {
+        path: "Knowledge Base/Notes/example.md",
+        body: "# Example\n\nA note.",
+        frontmatter: { title: "Example" },
+        content_hash: "example-hash",
+        ref: null,
+      };
+      const cell = fakeCell(() => note);
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/read", {
+          tenantId: alice.tenantId,
+          ref: note.path,
+        }),
+        "read",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual((await json(response)).value, note);
+      assert.equal(cell.calls[0]!.routedTenantId, alice.tenantId);
+      assert.equal(cell.calls[0]!.tool, "read_memory");
+      assert.deepEqual(cell.calls[0]!.arguments, {
+        path: note.path,
+        links: true,
+        include_raw: false,
+      });
+    });
+
+    it("preserves partial totals and never reports an unavailable map as empty", async () => {
+      const alice = await owner();
+      let answer = {
+        ...emptyMap,
+        state: "partial",
+        ranking_complete: false,
+        counts: { ...emptyMap.counts, eligible_nodes: null, eligible_edges: null },
+      };
+      const cell = fakeCell(() => answer);
+      const call = () =>
+        handleCloudViewerRequest(
+          browserRequest(alice, "POST", "/api/exomem/cloud/viewer/map", {}),
+          "map",
+          { fetchCell: cell.fetchCell, env: viewerEnv }
+        );
+      const partial = await call();
+      assert.equal(partial.status, 200);
+      assert.deepEqual((await json(partial)).value, answer);
+      answer = { ...answer, state: "unavailable", available: false };
+      const unavailable = await call();
+      assert.equal(unavailable.status, 503);
+      assert.deepEqual(await json(unavailable), { tenantId: alice.tenantId, state: "unavailable" });
+    });
+
+    it("rejects a dangling edge before it can crash graph placement", async () => {
+      const alice = await owner();
+      const cell = fakeCell(() => ({
+        ...emptyMap,
+        edges: [
+          {
+            edge_key: "edge-a",
+            src_key: "file:missing.md",
+            dst_key: "file:other.md",
+            relation_type: "links_to",
+            source_path: "missing.md",
+            relation_identity: { instance: "core", definition_key: "links_to" },
+          },
+        ],
+        counts: { ...emptyMap.counts, eligible_edges: 1, observed_edges: 1, drawn_edges: 1 },
+      }));
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/map", {}),
+        "map",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 503);
+      assert.deepEqual(await json(response), { tenantId: alice.tenantId, state: "unavailable" });
+    });
+
+    it("cancels an oversized cell answer instead of returning truncated content", async () => {
+      const alice = await owner();
+      let cancelled = false;
+      const cell = fakeCell(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new Uint8Array(1024 * 1024 + 1));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { headers: { "content-type": "application/json" } }
+          )
+      );
+      const response = await handleCloudViewerRequest(
+        browserRequest(alice, "POST", "/api/exomem/cloud/viewer/read", {
+          tenantId: alice.tenantId,
+          ref: "Knowledge Base/Notes/example.md",
+        }),
+        "read",
+        { fetchCell: cell.fetchCell, env: viewerEnv }
+      );
+      assert.equal(response.status, 503);
+      assert.equal(cancelled, true);
+      assert.deepEqual(await json(response), { tenantId: alice.tenantId, state: "unavailable" });
     });
   });
 

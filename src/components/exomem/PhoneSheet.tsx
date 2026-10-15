@@ -6,13 +6,19 @@ type PhoneSheetProps = {
   /** Open (56% of the screen) or peeking (188 px). */
   open: boolean;
   onToggle: () => void;
+  /** Reuse the same content as the viewer's fixed desktop panel. */
+  desktopPanel?: boolean;
   children: ReactNode;
 };
 
 /** The phone's bottom sheet: details rise in it, first peeking, then open. */
-export function PhoneSheet({ open, onToggle, children }: PhoneSheetProps) {
+export function PhoneSheet({ open, onToggle, desktopPanel = false, children }: PhoneSheetProps) {
   return (
-    <div className={open ? `${styles.sheet} ${styles.open}` : styles.sheet}>
+    <div
+      className={[styles.sheet, open && styles.open, desktopPanel && styles.desktopPanel]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <button
         type="button"
         className={`${styles.handle} ${phone.hitArea}`}
