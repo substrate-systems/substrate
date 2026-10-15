@@ -110,9 +110,13 @@ export function FlowField({
     });
     return links;
   }, [layout]);
-  // The engine runs on the resting web only; the page holds still while it waits on a
-  // payment or a confirmation, unless that wait has its own activity (the checkout's).
-  const engine = kind === "stop" ? "cut" : kind === "hold" && !activity ? "still" : "live";
+  // The engine runs on the resting web only. A page holds still while it waits on a
+  // confirmation; behind the checkout the web keeps working until the payment lands.
+  const engine = kind === "stop" ? "cut" : kind === "hold" && !checkout ? "still" : "live";
+  const event = useMemo<AliveEvent | undefined>(
+    () => activity ?? (kind === "hold" && checkout ? { kind: "work", on: true } : undefined),
+    [activity, kind, checkout]
+  );
   const graph = useMemo(
     () =>
       layout
@@ -123,7 +127,7 @@ export function FlowField({
         : "",
     [layout]
   );
-  const svg = useAliveGraph(id, engine, graph, activity);
+  const svg = useAliveGraph(id, engine, graph, event);
   const grown = useRef(new Set<number>());
   const walk = useRef({ focus: -1, prev: -1, sig: [-1, -1, -1], sigI: 0 });
   useEffect(() => {
