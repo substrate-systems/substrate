@@ -247,7 +247,7 @@ export type CreateMagicAccessTokenInput = {
 
 export async function createMagicAccessToken(
   input: CreateMagicAccessTokenInput
-): Promise<{ tokenId: string; emailNormalized: string } | null> {
+): Promise<{ tokenId: string; deliveryId: string; emailNormalized: string } | null> {
   const { rows } = await sql`
     /* exomem:create-magic-access-token */
     WITH owner AS (
@@ -316,14 +316,16 @@ export async function createMagicAccessToken(
              ${input.expiresAt.toISOString()},
              now()
       FROM token
-      RETURNING token_id
+      RETURNING id, token_id
     )
-    SELECT token.id, ${input.emailNormalized}::text AS email_normalized
+    SELECT token.id, queued.id AS delivery_id, ${input.emailNormalized}::text AS email_normalized
     FROM token
     JOIN queued ON queued.token_id = token.id
   `;
-  const row = rows[0] as { id: string; email_normalized: string } | undefined;
-  return row ? { tokenId: row.id, emailNormalized: row.email_normalized } : null;
+  const row = rows[0] as { id: string; delivery_id: string; email_normalized: string } | undefined;
+  return row
+    ? { tokenId: row.id, deliveryId: row.delivery_id, emailNormalized: row.email_normalized }
+    : null;
 }
 
 export async function markAccessTokenDelivered(tokenId: string): Promise<void> {
@@ -419,6 +421,7 @@ export async function expireInvalidMagicLinkDeliveries(limit = 100): Promise<num
 export async function claimMagicLinkDelivery(input: {
   leaseOwner: string;
   leaseSeconds?: number;
+  deliveryId?: string;
 }): Promise<ClaimedMagicLinkDelivery | null> {
   const leaseSeconds = input.leaseSeconds ?? 60;
   const { rows } = await sql`
@@ -445,6 +448,7 @@ export async function claimMagicLinkDelivery(input: {
         AND token.consumed_at IS NULL
         AND token.revoked_at IS NULL
         AND token.expires_at > now()
+        AND (${input.deliveryId ?? null}::uuid IS NULL OR outbox.id = ${input.deliveryId ?? null}::uuid)
       ORDER BY outbox.next_attempt_at, outbox.created_at
       FOR UPDATE OF outbox SKIP LOCKED
       LIMIT 1

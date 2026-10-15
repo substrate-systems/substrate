@@ -681,14 +681,23 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       "SELECT count(*)::text AS count FROM exomem_access_delivery_outbox"
     );
     assert.equal(queued.rows[0]?.count, "1");
+    assert.equal(
+      await claimMagicLinkDelivery({ leaseOwner: randomUUID(), deliveryId: randomUUID() }),
+      null,
+      "a targeted claim must never fall back to an unrelated eligible row"
+    );
 
     const claims = await Promise.all([
-      claimMagicLinkDelivery({ leaseOwner: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+      claimMagicLinkDelivery({
+        leaseOwner: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        deliveryId: created.deliveryId,
+      }),
       claimMagicLinkDelivery({ leaseOwner: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }),
     ]);
     assert.equal(claims.filter(Boolean).length, 1);
     const claim = claims.find(Boolean);
     assert.ok(claim);
+    assert.equal(claim.deliveryId, created.deliveryId);
 
     assert.equal(
       await releaseMagicLinkDelivery({

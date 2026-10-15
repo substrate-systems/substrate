@@ -30,6 +30,7 @@ export type MagicLinkDeliveryDependencies = {
   claim: (input: {
     leaseOwner: string;
     leaseSeconds?: number;
+    deliveryId?: string;
   }) => Promise<ClaimedMagicLinkDelivery | null>;
   markSent: (input: { deliveryId: string; leaseOwner: string }) => Promise<boolean>;
   release: (input: {
@@ -90,6 +91,66 @@ function parseDeliveryPayload(
   }
 }
 
+async function deliverClaimedMagicLink(
+  record: ClaimedMagicLinkDelivery,
+  leaseOwner: string,
+  publicBaseUrl: ReturnType<typeof parseExomemPublicBaseUrl>,
+  deps: MagicLinkDeliveryDependencies
+): Promise<"sent" | "retry" | "failed" | "lost"> {
+  const payload = parseDeliveryPayload(record, deps.decrypt, deps.now());
+  if (!payload) {
+    const state = await deps.release({
+      deliveryId: record.deliveryId,
+      leaseOwner,
+      errorCode: "DELIVERY_PAYLOAD_INVALID",
+      terminal: true,
+    });
+    return state;
+  }
+
+  const rendered = renderExomemMagicLinkEmail({
+    accessUrl: exomemPublicFragmentUrl(publicBaseUrl, "/exomem/sign-in", payload.token),
+    expiresAt: payload.expiresAt,
+    timeZone: record.recipientTimeZone ?? payload.timeZone,
+  });
+  let delivered = false;
+  try {
+    delivered = (
+      await deps.sendEmail({
+        to: record.emailNormalized,
+        ...EXOMEM_SENDER,
+        subject: rendered.subject,
+        htmlContent: rendered.htmlContent,
+        textContent: rendered.textContent,
+      })
+    ).success;
+  } catch {
+    delivered = false;
+  }
+  if (delivered) {
+    return (await deps.markSent({ deliveryId: record.deliveryId, leaseOwner })) ? "sent" : "lost";
+  }
+  const state = await deps.release({
+    deliveryId: record.deliveryId,
+    leaseOwner,
+    errorCode: "EMAIL_DELIVERY_UNAVAILABLE",
+    terminal: false,
+  });
+  return state;
+}
+
+/** Claim only this request's durable row; the scheduled drain owns backlog maintenance. */
+export async function dispatchMagicLinkDelivery(
+  deliveryId: string,
+  dependencies?: Partial<MagicLinkDeliveryDependencies>
+): Promise<void> {
+  const deps = { ...defaults(), ...dependencies };
+  const leaseOwner = deps.newLeaseOwner();
+  const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
+  const record = await deps.claim({ deliveryId, leaseOwner, leaseSeconds: 60 });
+  if (record) await deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps);
+}
+
 export async function drainMagicLinkDeliveries(
   options: { maxMessages?: number; timeBudgetMs?: number } = {},
   dependencies?: Partial<MagicLinkDeliveryDependencies>
@@ -122,56 +183,9 @@ export async function drainMagicLinkDeliveries(
     const record = await deps.claim({ leaseOwner, leaseSeconds: 60 });
     if (!record) break;
     result.claimed += 1;
-    const payload = parseDeliveryPayload(record, deps.decrypt, deps.now());
-    if (!payload) {
-      const state = await deps.release({
-        deliveryId: record.deliveryId,
-        leaseOwner,
-        errorCode: "DELIVERY_PAYLOAD_INVALID",
-        terminal: true,
-      });
-      if (state === "failed") result.failed += 1;
-      else if (state === "retry") result.retryScheduled += 1;
-      else result.lost += 1;
-      continue;
-    }
-
-    const rendered = renderExomemMagicLinkEmail({
-      accessUrl: exomemPublicFragmentUrl(publicBaseUrl, "/exomem/sign-in", payload.token),
-      expiresAt: payload.expiresAt,
-      timeZone: record.recipientTimeZone ?? payload.timeZone,
-    });
-    let delivered = false;
-    try {
-      delivered = (
-        await deps.sendEmail({
-          to: record.emailNormalized,
-          ...EXOMEM_SENDER,
-          subject: rendered.subject,
-          htmlContent: rendered.htmlContent,
-          textContent: rendered.textContent,
-        })
-      ).success;
-    } catch {
-      delivered = false;
-    }
-    if (delivered) {
-      if (await deps.markSent({ deliveryId: record.deliveryId, leaseOwner })) {
-        result.sent += 1;
-      } else {
-        result.lost += 1;
-      }
-      continue;
-    }
-    const state = await deps.release({
-      deliveryId: record.deliveryId,
-      leaseOwner,
-      errorCode: "EMAIL_DELIVERY_UNAVAILABLE",
-      terminal: false,
-    });
+    const state = await deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps);
     if (state === "retry") result.retryScheduled += 1;
-    else if (state === "failed") result.failed += 1;
-    else result.lost += 1;
+    else result[state] += 1;
   }
   return result;
 }

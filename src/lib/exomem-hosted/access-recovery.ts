@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { requestStart } from "./access";
+import { dispatchMagicLinkDelivery } from "./access-delivery";
 import { executeExomemSql } from "./db";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, hashRateLimitKey } from "./rate-limit";
 import {
   cookieValue,
@@ -174,13 +176,14 @@ export async function uniformAccessStartResponse(
     if (existing && digest?.toString("hex") === prior.challengeDigest)
       challenge = { ...challenge, challengeToken: existing, challengeDigest: digest };
   }
-  await requestStart({
+  const { deliveryId } = await requestStart({
     email: recovery.receipt.email,
     timeZone: recovery.receipt.timeZone,
     browserChallengeDigest: challenge.challengeDigest,
     browserKey: recovery.receipt.browserKey,
     networkKey,
   });
+  if (deliveryId) scheduleMagicLinkDelivery(deliveryId);
   const retryAfterSeconds = await accessStartRetryAfterSeconds(
     recovery.receipt.browserKey,
     networkKey
@@ -198,4 +201,31 @@ export async function uniformAccessStartResponse(
   applyMagicLinkChallengeCookie(response, challenge);
   applyAccessRecoveryCookie(response, recovery);
   return response;
+}
+
+/** The row is durable before registration; cron recovers a failed hook or invocation. */
+function scheduleMagicLinkDelivery(deliveryId: string): void {
+  try {
+    after(async () => {
+      try {
+        await dispatchMagicLinkDelivery(deliveryId);
+      } catch {
+        emitOperationalEvent(
+          buildOperationalEvent({
+            event: "access.magic_link.delivery_failed",
+            outcome: "failed",
+            errorCode: "INTERNAL_ERROR",
+          })
+        );
+      }
+    });
+  } catch {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.magic_link.delivery_failed",
+        outcome: "failed",
+        errorCode: "NOTIFICATION_NOT_SCHEDULED",
+      })
+    );
+  }
 }
