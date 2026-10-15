@@ -11,6 +11,7 @@ import {
   type CSSProperties,
 } from "react";
 import { fireAlive, useAliveGraph, type AliveEvent } from "./AliveGraph";
+import { TAP_MOUSE_QUIET_MS, TAP_MS } from "./alive-engine";
 import { buildFieldLayout } from "./flow-field-layout";
 import phoneStyles from "./phone.module.css";
 import styles from "./FlowField.module.css";
@@ -22,8 +23,6 @@ const WALK_MS = 1150;
 const GROWN_MAX = 14;
 const LIT_REACH = 70; // viewBox units: the closest note within reach takes the light
 const WAKE_REACH = 120; // the notes within reach wake
-const TAP_MS = 1800;
-const TAP_MOUSE_QUIET_MS = 2000; // the browser's own mouse events follow a tap
 const CONNECT_EVENT_MS = 500;
 
 const REDUCED = "(prefers-reduced-motion: reduce)";

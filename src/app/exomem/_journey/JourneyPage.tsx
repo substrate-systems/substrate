@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { FlowField, type FieldKind } from "@/components/exomem/FlowField";
 import { PairedTiles } from "@/components/exomem/PairedTiles";
 import { Wordmark } from "@/components/exomem/Wordmark";
@@ -76,9 +76,10 @@ export function JourneyPage({
   const previousStep = useRef<string | null>(null);
   const status = useRef<HTMLDivElement>(null);
   // Connecting ends once the tiles' cycle and the whole field have both played, however
-  // fast the answer came; the seal that follows is the tiles' own.
+  // fast the answer came; the seal that follows is the tiles' own. A layout effect resets
+  // the step before the parts' own effects run, so it never erases a part's report.
   const played = useRef({ tiles: false, field: false });
-  useEffect(() => {
+  useLayoutEffect(() => {
     played.current = { tiles: false, field: false };
   }, [kind]);
   const settle = useCallback(

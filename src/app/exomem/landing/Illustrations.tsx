@@ -188,8 +188,11 @@ function MapDrawing({
   const graph = JSON.stringify({ n: MAP_NODES, e: MAP_EDGES });
   const svg = useAliveGraph(id, "live", graph);
   // Every few seconds the map recalls a note and what it links to (the board's 6.5 s).
+  // A hidden tab skips its recalls: the engine would replay them all at once on return.
   useEffect(() => {
-    const timer = window.setInterval(() => fireAlive(id, { kind: "recall" }), 6500);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) fireAlive(id, { kind: "recall" });
+    }, 6500);
     return () => window.clearInterval(timer);
   }, [id]);
   return (

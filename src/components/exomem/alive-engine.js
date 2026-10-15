@@ -751,6 +751,11 @@ export const trimSvg = (svg) => {
   } catch {}
 };
 
+/** How long a tap lights the graph. */
+export const TAP_MS = 1800;
+/** How long after a tap the browser's own mouse events, which follow it, are ignored. */
+export const TAP_MOUSE_QUIET_MS = 2000;
+
 export function attachAlive(svg) {
   trimSvg(svg);
   const pointer = { current: null };
@@ -767,10 +772,10 @@ export function attachAlive(svg) {
   };
   const tap = (event) => {
     if (event.pointerType === "mouse") return;
-    ignoreMouseUntil = performance.now() + 2000;
+    ignoreMouseUntil = performance.now() + TAP_MOUSE_QUIET_MS;
     pointer.current = { x: event.clientX, y: event.clientY };
     clearTimeout(tapTimer);
-    tapTimer = setTimeout(leave, 1800);
+    tapTimer = setTimeout(leave, TAP_MS);
   };
   page.addEventListener("pointermove", move, { passive: true });
   page.addEventListener("pointerleave", leave);

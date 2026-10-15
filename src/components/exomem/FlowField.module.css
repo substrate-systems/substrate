@@ -139,7 +139,7 @@
 
 /* Glow hover (R37 C): the closest note lights, its links warm, the ones nearby wake.
    It shows over a connection's settled light too, so it is important against animation fill. */
-.canvas .node[data-hover="near"] {
+.canvas .node[data-hover="near"]:not([data-walker="on"]) {
   fill: var(--wake);
   transition-duration: 0.3s;
 }

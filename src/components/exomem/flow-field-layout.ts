@@ -2,6 +2,8 @@
 // to their nearest neighbours. A port of graph() in the Journey board (field "web"),
 // with the board's seed, so the same screen size draws the same web.
 
+import { trimEdge } from "./alive-engine";
+
 type FieldNode = { x: number; y: number; s: number; nd: number; hub: boolean };
 type FieldEdge = {
   x: number;
@@ -48,17 +50,6 @@ function seg(a: Point, b: Point) {
     w: round(Math.hypot(dx, dy), 1),
     a: round((Math.atan2(dy, dx) * 180) / Math.PI, 2),
   };
-}
-
-function trimSeg(a: Point, b: Point, ra: number, rb: number): [Point, Point] {
-  const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-  const ux = (b.x - a.x) / length;
-  const uy = (b.y - a.y) / length;
-  if (length <= ra + rb + 1) return [a, b];
-  return [
-    { x: a.x + ux * ra, y: a.y + uy * ra },
-    { x: b.x - ux * rb, y: b.y - uy * rb },
-  ];
 }
 
 /**
@@ -168,11 +159,12 @@ export function buildFieldLayout(
     };
   });
   // Round 41: a link stops at each note's edge, so no line shows through a note.
-  const rad = nodes.map((n) => n.s / 2 + 1);
+  const edgeOf = (i: number) => ({ ...pts[i], r: nodes[i].s / 2 });
   const edges = links.map(([i, j], k) => {
     const [a, b] = depth[i] <= depth[j] ? [i, j] : [j, i];
+    const [start, end] = trimEdge(edgeOf(a), edgeOf(b));
     return {
-      ...seg(...trimSeg(pts[a], pts[b], rad[a], rad[b])),
+      ...seg(start, end),
       dd: round(depth[a] * stepT + rnd() * 0.25, 2),
       i,
       j,
