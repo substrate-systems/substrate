@@ -12,5 +12,5 @@
 
 ## 3. Delivery evidence
 
-- [ ] 3.1 Run the full corpus, typecheck, lint, build, privacy and strict OpenSpec validation; record results and unrelated baseline failures.
-- [ ] 3.2 Complete independent review, merge and ordinary release, then synchronize and archive the delivered contract.
+- [x] 3.1 Run the full corpus, typecheck, lint, build, privacy and strict OpenSpec validation; record results and unrelated baseline failures.
+- [x] 3.2 Complete independent review, merge and ordinary release, then synchronize and archive the delivered contract.
