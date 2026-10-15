@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
+import { StorageDialog } from "./home-storage";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 import {
@@ -87,6 +88,7 @@ export default function HomeClient({
   exportOffered,
   channelOn,
   statusPageUrl,
+  storageOffered = false,
 }: {
   priceId: string | null;
   /** Whether Home offers an export: the export flag (design.md deviation (s)). */
@@ -98,6 +100,7 @@ export default function HomeClient({
   channelOn: boolean;
   /** "Status page ↗" on the trouble notice; null when none is configured. */
   statusPageUrl: string | null;
+  storageOffered?: boolean;
 }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
   const [account, setAccount] = useState<HomeAccount | null>(null);
@@ -137,6 +140,7 @@ export default function HomeClient({
   const [signingOut, setSigningOut] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [deleteStep, setDeleteStep] = useState<DeleteStep | null>(null);
+  const [storageOpen, setStorageOpen] = useState(false);
   const [deleteMinutes, setDeleteMinutes] = useState<number | null>(null);
   const [referenceCopied, setReferenceCopied] = useState(false);
 
@@ -743,6 +747,11 @@ export default function HomeClient({
           onBilling={(kind) => void onBilling(kind, "plan")}
           billingBusy={billingBusy}
           billingMessage={billingError?.control === "plan" ? billingError.text : null}
+          onStorage={
+            storageOffered && !reviewer && variant === "on" && billing?.source === "paddle"
+              ? () => setStorageOpen(true)
+              : undefined
+          }
         />
         <YourData
           exportRow={exportRow}
@@ -757,6 +766,18 @@ export default function HomeClient({
         <div className={styles.footer}>Everything else happens in your assistant.</div>
       </div>
       {dialogs}
+      {storageOpen && account?.kind === "owner" && (
+        <StorageDialog
+          key={account.email}
+          email={account.email}
+          onClose={() => {
+            setStorageOpen(false);
+            void refreshStatus();
+            void refreshAccount();
+          }}
+          onAccountLost={goToSignIn}
+        />
+      )}
     </>
   );
 }

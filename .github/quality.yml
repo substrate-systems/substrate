@@ -77,6 +77,8 @@ javascript:
       # its webServer command starts serve.ts.
       - "e2e/exomem-home/playwright.config.ts"
       - "e2e/exomem-home/serve.ts"
+      # The workflow preloads this boundary through NODE_OPTIONS, outside static imports.
+      - "e2e/exomem-home/deny-external.mjs"
       # The root config names the journey's warm-up only when the journey database is set.
       - "e2e/exomem-journey/warm-up.ts"
     # Design references (boards, prototypes, locked CSS); never built or imported.

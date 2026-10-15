@@ -110,6 +110,14 @@ BEGIN
     GRANT INSERT (cell_id, tenant_id, storage_gib, rollout_priority, desired_state, desired_image)
       ON exomem_cloud_cells TO substrate_app;
     GRANT UPDATE (desired_state, desired_image) ON exomem_cloud_cells TO substrate_app;
+    -- Migration 0071 establishes desired-size changes and their capacity receipts.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'observed_storage_pvc_uid'
+    ) THEN
+      GRANT UPDATE (storage_gib) ON exomem_cloud_cells TO substrate_app;
+    END IF;
     -- Migration 0057 (item 5 / task 3.7): the cancellation-notice-sent claim
     -- column, now reflected in the design's C1 privilege table above. Guarded
     -- on the COLUMN's own existence, not just the table's: 0057 lands one
@@ -162,6 +170,16 @@ BEGIN
         AND column_name = 'used_bytes'
     ) THEN
       GRANT UPDATE (used_bytes, filesystem_bytes, usage_observed_at) ON exomem_cloud_cells TO exomem_cellctl;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'observed_storage_pvc_uid'
+    ) THEN
+      GRANT UPDATE (
+        observed_storage_pvc_uid, observed_storage_pvc_version, observed_storage_capacity_bytes,
+        observed_storage_generation, observed_storage_at
+      ) ON exomem_cloud_cells TO exomem_cellctl;
     END IF;
     GRANT INSERT, UPDATE ON exomem_cloud_capacity TO exomem_cellctl;
     GRANT UPDATE (paused, error_code, held_cell_id, last_good_image, updated_at)

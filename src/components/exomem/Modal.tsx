@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import styles from "./Modal.module.css";
+import { Swap } from "./Transitions";
 
 type ModalProps = {
   open: boolean;
@@ -16,6 +17,8 @@ type ModalProps = {
    * out, billing), 400 (delete) or 420 (storage, import, restore, email).
    */
   width?: 360 | 400 | 420;
+  /** Home's storage board uses the whole phone width. */
+  phoneFullWidth?: boolean;
 };
 
 const WIDTH_CLASS = { 360: styles.w360, 400: styles.w400, 420: styles.w420 };
@@ -24,7 +27,14 @@ const WIDTH_CLASS = { 360: styles.w360, 400: styles.w400, 420: styles.w420 };
  * A modal dialog over a scrim. The native <dialog> in modal mode makes the page
  * behind it inert, so focus stays inside, and turns Esc into `cancel`.
  */
-export function Modal({ open, onClose, title, children, width = 420 }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  width = 420,
+  phoneFullWidth = false,
+}: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -38,7 +48,7 @@ export function Modal({ open, onClose, title, children, width = 420 }: ModalProp
   return (
     <dialog
       ref={ref}
-      className={`${styles.modal} ${WIDTH_CLASS[width]}`}
+      className={`${styles.modal} ${WIDTH_CLASS[width]} ${phoneFullWidth ? styles.phoneFullWidth : ""}`}
       aria-labelledby={titleId}
       onCancel={(event) => {
         // Esc: the caller decides what closing means for its current step.
@@ -47,7 +57,7 @@ export function Modal({ open, onClose, title, children, width = 420 }: ModalProp
       }}
     >
       <h2 id={titleId} className={styles.title}>
-        {title}
+        <Swap k={title}>{title}</Swap>
       </h2>
       {children}
     </dialog>

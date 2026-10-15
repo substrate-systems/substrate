@@ -280,19 +280,19 @@ test("an export packs, becomes ready, and Download follows a fresh link", async 
   expect((await download).url()).toBe(downloadUrl);
 });
 
-test("a checkout return that cannot be checked stays recoverable, and Not now returns Home", async ({
-  page,
-}) => {
+test("a checkout from another sign-in offers recovery and a return to Home", async ({ page }) => {
   // An owner who already pays returns from an old checkout link; the server refuses it.
   const owner = await createOwner();
   await signIn(page.context(), owner);
   await page.goto(`/exomem/home?_ptxn=txn_${"a".repeat(26)}`);
 
-  const failure = page.getByRole("heading", { name: "We couldn’t check this checkout" });
+  const failure = page.getByRole("heading", { name: "Sign in again to continue", exact: true });
   await expect(failure).toBeVisible();
   expect(new URL(page.url()).searchParams.has("_ptxn")).toBe(true);
-  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByRole("button", { name: "Sign in again", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Go to Home", exact: true }).click();
   await expect(failure).toBeHidden();
+  expect(new URL(page.url()).searchParams.has("_ptxn")).toBe(false);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Your memory is on" })).toBeVisible();
   await expect(failure).toBeHidden();

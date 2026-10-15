@@ -29,6 +29,7 @@ export default async function ExomemHomePage({
         priceId={exomemCheckoutPriceId()}
         exportOffered={cloudExportsEnabled()}
         channelOn={cloudHomeChannelEnabled()}
+        storageOffered={process.env.EXOMEM_CLOUD_STORAGE_ENABLED === "true"}
         statusPageUrl={statusPageUrl()}
       />
     </main>

@@ -139,6 +139,13 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
           CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
         run: npm run migrate
+      - name: Exomem Home and storage end-to-end
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
+          HOME_E2E_PORT: "3461"
+          HOME_E2E_CELL_PORT: "3462"
+          NODE_OPTIONS: --import=./e2e/exomem-home/deny-external.mjs
+        run: npx playwright test -c e2e/exomem-home/playwright.config.ts --workers=2
       # The journey projects exist only while EXOMEM_E2E_DATABASE_URL is set, so
       # naming them fails this step if the database ever goes missing. Playwright
       # starts `next dev` on localhost for them (playwright.config.ts). Turnstile

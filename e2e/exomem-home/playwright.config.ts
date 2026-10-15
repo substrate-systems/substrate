@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { homeE2eEnvironment } from "./environment";
+import { homeE2eAddress } from "./environment";
 
 // Home's workflows against the production build, a real migrated PostgreSQL and the
 // gateway-and-cell stand-in (serve.ts). Unlike e2e/playwright.config.ts, nothing here
@@ -8,7 +8,8 @@ import { homeE2eEnvironment } from "./environment";
 //
 //   DATABASE_URL=postgresql://… npx playwright test -c e2e/exomem-home/playwright.config.ts
 
-const environment = homeE2eEnvironment();
+// Static tooling can load the configuration; serve.ts still requires the test database.
+const environment = homeE2eAddress();
 
 export default defineConfig({
   testDir: ".",

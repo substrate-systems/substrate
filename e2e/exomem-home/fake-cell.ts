@@ -14,6 +14,7 @@ import {
 import { createServer } from "node:https";
 import { findCloudOAuthAccessToken } from "../../src/lib/exomem-hosted/cloud-oauth";
 import { digestSecret } from "../../src/lib/exomem-hosted/security";
+import { fakePaddle } from "./fake-paddle";
 
 type Level = "off" | "light" | "balanced" | "maximal";
 type ContextLevel = { level: Level; source: string };
@@ -105,7 +106,9 @@ export function startFakeCell(options: {
   }
 
   // Test control: GET or POST /__control/<tenant id> reads or patches that tenant's cell.
+  const paddle = fakePaddle();
   const control = createHttpServer(async (request, response) => {
+    if (await paddle(request, response)) return;
     const url = new URL(request.url ?? "/", "http://control.invalid");
     if (!url.pathname.startsWith("/__control/")) return json(response, 404, { error: "NOT_FOUND" });
     const state = cell(decodeURIComponent(url.pathname.slice("/__control/".length)));

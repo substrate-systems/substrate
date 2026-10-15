@@ -15,6 +15,11 @@ import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql 
 import { revokeOAuthAccountForOwnerTenantAtomic } from "../oauth-store";
 import { digestSecret, generateExternalToken } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
+import { handleCloudStorage } from "../cloud-storage";
+import { loadExomemPaddleConfig } from "../paddle-config";
+import { EXOMEM_ALPHA_BUNDLE } from "../entitlements";
+import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
+import { dispatchVerifiedExomemPaddleEvent } from "../paddle-webhook";
 
 // The Home channel and the export API against real PostgreSQL. The cell's
 // HTTP answer is substituted at the gateway boundary (`fetchCell`); the
@@ -187,6 +192,167 @@ async function markReady(exportId: string, hours = 24): Promise<void> {
   );
 }
 
+/** Substitute only the billing provider; owner, operation and capacity writes use PostgreSQL. */
+async function storageFixture() {
+  const who = await owner();
+  const subscriptionId = `sub_${randomUUID().replaceAll("-", "").slice(0, 26)}`;
+  const customerId = `ctm_${randomUUID().replaceAll("-", "").slice(0, 26)}`;
+  const basePrice = `pri_${"a".repeat(26)}`;
+  const storagePrice = `pri_${"b".repeat(26)}`;
+  const otherPrice = `pri_${"c".repeat(26)}`;
+  const productId = `pro_${"d".repeat(26)}`;
+  const env = {
+    PADDLE_ENVIRONMENT: "sandbox",
+    PADDLE_API_KEY: "pdl_sdbx_apikey_fixture",
+    PADDLE_WEBHOOK_SECRET: "fixture-webhook",
+    EXOMEM_PADDLE_PRODUCT_ID: productId,
+    EXOMEM_PADDLE_PRICE_ID: basePrice,
+  };
+  const current = {
+    id: subscriptionId,
+    customer_id: customerId,
+    status: "active",
+    updated_at: "2026-01-01T00:00:00Z",
+    currency_code: "EUR",
+    billing_cycle: { interval: "month", frequency: 1 },
+    collection_mode: "automatic",
+    scheduled_change: null,
+    custom_data: {
+      user_id: who.userId,
+      tenant_id: who.tenantId,
+      product_key: "exomem-hosted",
+    } as Record<string, unknown>,
+    items: [
+      { price: { id: basePrice, product_id: productId }, quantity: 1 },
+      { price: { id: otherPrice, product_id: "pro_other" }, quantity: 3 },
+    ],
+  };
+  await pool.query(
+    `INSERT INTO exomem_entitlements(tenant_id,source,source_state,effective_state,resource_limits,provider_environment,provider_customer_ref,provider_subscription_ref)
+     VALUES($1,'paddle','active','active',$2,'sandbox',$3,$4)`,
+    [who.tenantId, EXOMEM_ALPHA_BUNDLE.resourceLimits, customerId, subscriptionId]
+  );
+  await pool.query(
+    `UPDATE exomem_cloud_cells SET observed_storage_pvc_uid='claim-original',observed_storage_pvc_version='1',
+     observed_storage_capacity_bytes=10737418240,observed_storage_generation=generation,observed_storage_at=now() WHERE cell_id=$1`,
+    [who.cellId]
+  );
+  const billing = {
+    calls: 0,
+    loseResponse: false,
+    decline: false,
+    paid: true,
+    cardReady: false,
+    due: "198",
+    actualDue: "197",
+  };
+  const cardId = `txn_${"e".repeat(26)}`;
+  const paymentId = `txn_${"f".repeat(26)}`;
+  const transport = async (path: string, init?: RequestInit) => {
+    if (path === `/prices/${storagePrice}`)
+      return Response.json({
+        data: {
+          id: storagePrice,
+          product_id: `pro_${"b".repeat(26)}`,
+          status: "active",
+          billing_cycle: { interval: "month", frequency: 1 },
+          trial_period: null,
+          tax_mode: "location",
+          quantity: { minimum: 1, maximum: 100 },
+          custom_data: { exomem_storage_bytes: 10_000_000_000, exomem_storage_packs: [1, 5, 10] },
+        },
+      });
+    if (path === `/subscriptions/${subscriptionId}/preview`)
+      return Response.json({
+        data: {
+          currency_code: "EUR",
+          next_billed_at: "2026-02-01T00:00:00Z",
+          consent_requirements: [],
+          immediate_transaction: {
+            details: { totals: { grand_total: billing.due, tax: "38", currency_code: "EUR" } },
+          },
+          recurring_transaction_details: { totals: { grand_total: "1200", currency_code: "EUR" } },
+        },
+      });
+    if (path === `/subscriptions/${subscriptionId}/update-payment-method-transaction`)
+      return Response.json({
+        data: {
+          id: cardId,
+          customer_id: customerId,
+          subscription_id: subscriptionId,
+          origin: "subscription_payment_method_change",
+          status: "ready",
+        },
+      });
+    if (path === `/transactions/${cardId}`)
+      return Response.json({
+        data: {
+          id: cardId,
+          customer_id: customerId,
+          subscription_id: subscriptionId,
+          origin: "subscription_payment_method_change",
+          status: billing.cardReady ? "completed" : "ready",
+        },
+      });
+    if (path.startsWith("/transactions?"))
+      return Response.json({
+        data:
+          billing.paid && current.custom_data.exomem_storage_operation
+            ? [
+                {
+                  id: paymentId,
+                  customer_id: customerId,
+                  subscription_id: subscriptionId,
+                  origin: "subscription_update",
+                  status: "completed",
+                  custom_data: current.custom_data,
+                  items: current.items,
+                  details: {
+                    totals: { grand_total: billing.actualDue, tax: "37", currency_code: "EUR" },
+                  },
+                },
+              ]
+            : [],
+        meta: { pagination: { has_more: false } },
+      });
+    if (path === `/subscriptions/${subscriptionId}` && init?.method === "PATCH") {
+      billing.calls += 1;
+      const body = JSON.parse(String(init.body));
+      assert.equal(body.proration_billing_mode, "prorated_immediately");
+      assert.equal(body.on_payment_failure, "prevent_change");
+      if (billing.decline)
+        return Response.json({ error: { code: "subscription_payment_declined" } }, { status: 400 });
+      current.items = body.items.map((item: { price_id: string; quantity: number }) => ({
+        price: {
+          id: item.price_id,
+          product_id: item.price_id === basePrice ? productId : "pro_other",
+        },
+        quantity: item.quantity,
+      }));
+      current.custom_data = body.custom_data;
+      current.updated_at = "2026-01-01T00:01:00Z";
+      if (billing.loseResponse) throw new TypeError("provider response lost");
+      return Response.json({ data: current });
+    }
+    if (path === `/subscriptions/${subscriptionId}`) return Response.json({ data: current });
+    throw new Error(`Unexpected provider endpoint: ${path}`);
+  };
+  const deps = { config: loadExomemPaddleConfig(env), priceId: storagePrice, transport };
+  const call = (
+    request:
+      | { action: "inspect" }
+      | { action: "preview"; quantity: number }
+      | { action: "confirm" | "status" | "payment-method"; operationId: string }
+  ) =>
+    handleCloudStorage(
+      who.userId,
+      who.tenantId,
+      request.action === "inspect" ? request : { ...request, tenantBinding: who.tenantId },
+      deps
+    );
+  return { who, deps, call, billing, current, basePrice, otherPrice, storagePrice, env };
+}
+
 describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !databaseUrl }, () => {
   before(async () => {
     await ensureExomemPostgresTestExtensions(databaseUrl!);
@@ -224,6 +390,159 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       await admin.query(`DROP SCHEMA "${schema}" CASCADE`);
       await admin.end();
     }
+  });
+
+  describe("Manual storage", () => {
+    it("preserves existing items and waits for matching claim capacity and generation after payment", async () => {
+      const f = await storageFixture();
+      const inspected = await f.call({ action: "inspect" });
+      assert.equal(
+        inspected.packs?.find((pack) => pack.quantity === 1)?.targetBytes,
+        20 * 1024 ** 3
+      );
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      const confirmed = (await f.call({ action: "confirm", operationId: preview.id })).operation!;
+      assert.equal(confirmed.state, "paid");
+      assert.equal(confirmed.quote.due.amount, "197");
+      assert.equal(f.billing.calls, 1);
+      assert.equal(f.current.items.find((x) => x.price.id === f.otherPrice)?.quantity, 3);
+      assert.equal(f.current.items.find((x) => x.price.id === f.basePrice)?.quantity, 1);
+      const row = (
+        await pool.query("SELECT * FROM exomem_cloud_cells WHERE cell_id=$1", [f.who.cellId])
+      ).rows[0];
+      assert.equal(row.storage_gib, 20);
+      assert.equal(
+        (await f.call({ action: "status", operationId: preview.id })).operation!.state,
+        "paid"
+      );
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET observed_storage_capacity_bytes=21474836480,observed_storage_generation=generation,observed_storage_pvc_uid='different-claim',observed_storage_at=now() WHERE cell_id=$1",
+        [f.who.cellId]
+      );
+      assert.equal(
+        (await f.call({ action: "status", operationId: preview.id })).operation!.state,
+        "paid"
+      );
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET observed_storage_pvc_uid='claim-original',observed_storage_generation=generation-1 WHERE cell_id=$1",
+        [f.who.cellId]
+      );
+      assert.equal(
+        (await f.call({ action: "status", operationId: preview.id })).operation!.state,
+        "paid"
+      );
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET observed_storage_generation=generation WHERE cell_id=$1",
+        [f.who.cellId]
+      );
+      assert.equal(
+        (await f.call({ action: "status", operationId: preview.id })).operation!.state,
+        "applied"
+      );
+      const event = await dispatchVerifiedExomemPaddleEvent(
+        {
+          event_id: `evt_${"g".repeat(26)}`,
+          event_type: "subscription.updated",
+          occurred_at: new Date().toISOString(),
+          data: f.current,
+        },
+        {
+          env: f.env,
+          store: createSqlExomemPaddleEventStore(taggedSql(pool)),
+          cloudHook: async () => {},
+        }
+      );
+      assert.deepEqual(event, { kind: "handled", outcome: "applied" });
+      const entitlement = (
+        await pool.query(
+          "SELECT paid_storage_bytes,resource_limits FROM exomem_entitlements WHERE tenant_id=$1",
+          [f.who.tenantId]
+        )
+      ).rows[0];
+      assert.equal(Number(entitlement.paid_storage_bytes), 10_000_000_000);
+      assert.equal(
+        entitlement.resource_limits.storageBytes,
+        EXOMEM_ALPHA_BUNDLE.resourceLimits.storageBytes + 10_000_000_000
+      );
+    });
+
+    it("does not repeat a charge after concurrent confirmation and a lost provider response", async () => {
+      const f = await storageFixture();
+      f.billing.loseResponse = true;
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      await Promise.all([
+        f.call({ action: "confirm", operationId: preview.id }),
+        f.call({ action: "confirm", operationId: preview.id }),
+      ]);
+      assert.equal(f.billing.calls, 1);
+      assert.equal(
+        (await f.call({ action: "status", operationId: preview.id })).operation!.state,
+        "paid"
+      );
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT count(*) FROM exomem_cloud_storage_operations WHERE tenant_id=$1",
+            [f.who.tenantId]
+          )
+        ).rows[0].count,
+        "1"
+      );
+    });
+
+    it("refuses a higher quote before submitting a provider update", async () => {
+      const f = await storageFixture();
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      f.billing.due = "250";
+      assert.equal(
+        (await f.call({ action: "confirm", operationId: preview.id })).operation!.state,
+        "failed"
+      );
+      assert.equal(f.billing.calls, 0);
+    });
+
+    it("does not let another owner inspect or confirm an operation", async () => {
+      const f = await storageFixture();
+      const other = await storageFixture();
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      await assert.rejects(other.call({ action: "confirm", operationId: preview.id }), {
+        status: 403,
+      });
+      assert.equal(f.billing.calls + other.billing.calls, 0);
+    });
+
+    it("requires provider card recovery and a fresh priced confirmation after a decline", async () => {
+      const f = await storageFixture();
+      f.billing.decline = true;
+      const preview = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      assert.equal(
+        (await f.call({ action: "confirm", operationId: preview.id })).operation!.state,
+        "payment_required"
+      );
+      const recovery = (await f.call({ action: "payment-method", operationId: preview.id }))
+        .operation!;
+      assert.ok(recovery.recoveryTransactionId);
+      await assert.rejects(f.call({ action: "preview", quantity: 1 }), {
+        code: "STORAGE_CONFLICT",
+      });
+      assert.equal(
+        (
+          await pool.query("SELECT storage_gib FROM exomem_cloud_cells WHERE cell_id=$1", [
+            f.who.cellId,
+          ])
+        ).rows[0].storage_gib,
+        10
+      );
+      f.billing.cardReady = true;
+      f.billing.decline = false;
+      const retry = (await f.call({ action: "preview", quantity: 1 })).operation!;
+      assert.notEqual(retry.id, preview.id);
+      assert.equal(
+        (await f.call({ action: "confirm", operationId: retry.id })).operation!.state,
+        "paid"
+      );
+      assert.equal(f.billing.calls, 2);
+    });
   });
 
   describe("Home channel", () => {
