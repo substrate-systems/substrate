@@ -26,6 +26,17 @@ const LOAD_DEADLINE_MS = 15_000;
 const BANK_WAIT_MS = 8_000;
 const SETUP_WAIT_MS = 30_000;
 const COMPACT_QUERY = "(max-width: 640px), (max-height: 480px)";
+
+function forgetReturnedTransaction(transactionId: string | undefined) {
+  try {
+    // A newer return must survive dismissal of this checkout.
+    if (window.sessionStorage.getItem(PENDING_TRANSACTION_KEY) === transactionId)
+      window.sessionStorage.removeItem(PENDING_TRANSACTION_KEY);
+  } catch {
+    /* URL recovery still works when browser storage is unavailable. */
+  }
+}
+
 function subscribeCompact(notify: () => void) {
   const media = window.matchMedia(COMPACT_QUERY);
   media.addEventListener("change", notify);
@@ -124,11 +135,7 @@ export function CheckoutInline({
         validated = true;
         if (!current || expired) return;
         if (returnedTransactionId) {
-          try {
-            window.sessionStorage.removeItem(PENDING_TRANSACTION_KEY);
-          } catch {
-            /* The validated return no longer needs storage. */
-          }
+          forgetReturnedTransaction(returnedTransactionId);
           const location = new URL(window.location.href);
           location.searchParams.delete("_ptxn");
           window.history.replaceState(
@@ -498,11 +505,7 @@ export function CheckoutInline({
                         variant="ghost"
                         size="page"
                         onClick={() => {
-                          try {
-                            window.sessionStorage.removeItem(PENDING_TRANSACTION_KEY);
-                          } catch {
-                            /* The page can return Home without storage. */
-                          }
+                          forgetReturnedTransaction(returnedTransactionId);
                           window.location.replace("/exomem/home");
                         }}
                       >
@@ -545,7 +548,11 @@ export function CheckoutInline({
             />
           </div>
         </div>
-        <a href="/exomem/home" className={styles.home}>
+        <a
+          href="/exomem/home"
+          className={styles.home}
+          onClick={() => forgetReturnedTransaction(returnedTransactionId)}
+        >
           Go to Home
         </a>
       </section>
