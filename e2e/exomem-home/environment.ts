@@ -1,12 +1,17 @@
 // The one description of the environment Home's end-to-end tests run in, shared by
 // the launcher (serve.ts), the Playwright config and the specs.
 
+export function homeE2eAddress() {
+  const port = Number(process.env.HOME_E2E_PORT ?? 3461);
+  return { port, baseUrl: `http://localhost:${port}` };
+}
+
 export function homeE2eEnvironment() {
   const databaseUrl = process.env.DATABASE_URL ?? process.env.EXOMEM_TEST_DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("Home's end-to-end tests need DATABASE_URL: a migrated test database.");
   }
-  const port = Number(process.env.HOME_E2E_PORT ?? 3461);
+  const { port, baseUrl } = homeE2eAddress();
   const cellPort = Number(process.env.HOME_E2E_CELL_PORT ?? 3462);
   const mcpUrl = `https://127.0.0.1:${cellPort}/mcp/v1`;
   const mailPort = cellPort + 2;
@@ -16,7 +21,7 @@ export function homeE2eEnvironment() {
     databaseUrl,
     port,
     cellPort,
-    baseUrl: `http://localhost:${port}`,
+    baseUrl,
     controlPort: cellPort + 1,
     controlUrl: `http://127.0.0.1:${cellPort + 1}`,
     mcpUrl,
