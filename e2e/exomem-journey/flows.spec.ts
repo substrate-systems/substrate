@@ -91,10 +91,55 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await expect(
     page.getByRole("heading", { name: "This sign-in link was already used" })
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Email me a new link", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Email me a new link", exact: true })
+  ).toBeVisible();
   await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
   await page.getByRole("button", { name: "Use a different email", exact: true }).click();
   await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
+});
+
+test("a link opened in another browser checks email and signs in only that browser", async ({
+  page,
+  browser,
+}) => {
+  const owner = await seedOwner("ready");
+  await startWithEmail(page, owner.email);
+  const link = await signInLinkFor(owner.email);
+  const completing = await browser.newContext({ baseURL: process.env.EXOMEM_E2E_BASE_URL });
+  try {
+    const opened = await completing.newPage();
+    await opened.goto(link);
+    await expect.poll(() => new URL(opened.url()).hash).toBe("");
+    expect((await completing.cookies()).some((cookie) => cookie.name === "exomem_session")).toBe(
+      false
+    );
+    await expect(opened.getByLabel(startCopy.emailLabel)).toHaveCount(0);
+    await opened.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
+    await opened.getByLabel(startCopy.emailLabel).fill("other@example.test");
+    await opened.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
+    await expect(
+      opened.getByText("We couldn’t sign you in. Check your email address or request a new link.", {
+        exact: true,
+      })
+    ).toBeVisible();
+    expect((await completing.cookies()).some((cookie) => cookie.name === "exomem_session")).toBe(
+      false
+    );
+    await opened.getByLabel(startCopy.emailLabel).fill(owner.email);
+    await opened.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
+    await expect(opened).toHaveURL(/\/exomem\/home$/);
+    await opened.reload();
+    await expect(opened).toHaveURL(/\/exomem\/home$/);
+    expect((await completing.cookies()).some((cookie) => cookie.name === "exomem_session")).toBe(
+      true
+    );
+    expect(
+      (await page.context().cookies()).some((cookie) => cookie.name === "exomem_session")
+    ).toBe(false);
+  } finally {
+    await completing.close();
+  }
 });
 
 test("Not now tells a web app no, and nothing is shared", async ({ page, context }) => {

@@ -83,6 +83,12 @@ export const exomemErrors = {
       message: "operator invite access is unavailable",
       retryable: true,
     }),
+  emailConfirmationRequired: () =>
+    new ExomemHostedError({
+      code: "EMAIL_CONFIRMATION_REQUIRED",
+      status: 401,
+      message: "confirm your email to continue sign-in",
+    }),
   accessTokenInvalid: () =>
     new ExomemHostedError({
       code: "ACCESS_TOKEN_INVALID",

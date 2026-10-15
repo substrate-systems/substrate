@@ -5,7 +5,7 @@ import {
   redeemMagicAccessTokenAtomic,
   type CreateMagicAccessTokenInput,
   type RedeemMagicAccessTokenInput,
-  type RedeemedAccess,
+  type RedeemedMagicAccess,
 } from "./db";
 import { exomemErrors } from "./errors";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
@@ -49,7 +49,7 @@ export type AccessDependencies = {
   encryptDeliverySecret: (value: string) => SecretEnvelope;
   redeemMagicAccessTokenAtomic: (
     input: RedeemMagicAccessTokenInput
-  ) => Promise<RedeemedAccess | null>;
+  ) => Promise<RedeemedMagicAccess | null>;
   takeRateLimit: (
     rule: (typeof EXOMEM_RATE_LIMITS)[keyof typeof EXOMEM_RATE_LIMITS],
     value: string
@@ -224,13 +224,24 @@ export async function requestStart(
 }
 
 export async function redeemMagicLink(
-  input: { token: string; browserChallenge: string; timeZone?: string | null },
+  input: {
+    token: string;
+    browserChallenge?: string | null;
+    expectedEmail?: string;
+    timeZone?: string | null;
+  },
   dependencies?: Partial<AccessDependencies>
-): Promise<RedeemedAccess & SessionMaterial> {
+): Promise<RedeemedMagicAccess & SessionMaterial> {
   const deps = withDefaults(dependencies);
   const digest = tokenDigest(input.token);
-  const browserChallengeDigest = tokenDigest(input.browserChallenge);
-  if (!digest || !browserChallengeDigest) throw exomemErrors.accessTokenInvalid();
+  if (!digest) throw exomemErrors.accessTokenInvalid();
+  const browserChallengeDigest = input.browserChallenge
+    ? tokenDigest(input.browserChallenge)
+    : null;
+  const expectedEmailNormalized =
+    input.expectedEmail === undefined ? null : normalizeAccessEmail(input.expectedEmail);
+  if (!browserChallengeDigest && expectedEmailNormalized === null)
+    throw exomemErrors.emailConfirmationRequired();
   const session = mintSessionMaterial({
     now: deps.now(),
     randomBytes: deps.randomBytes,
@@ -238,11 +249,15 @@ export async function redeemMagicLink(
   const row = await deps.redeemMagicAccessTokenAtomic({
     tokenDigest: digest,
     browserChallengeDigest,
+    expectedEmailNormalized,
     sessionDigest: session.sessionDigest,
     csrfDigest: session.csrfDigest,
     sessionExpiresAt: session.expiresAt,
     timeZone: input.timeZone ?? null,
   });
-  if (!row) throw exomemErrors.accessTokenInvalid();
+  if (!row)
+    throw expectedEmailNormalized === null
+      ? exomemErrors.emailConfirmationRequired()
+      : exomemErrors.accessTokenInvalid();
   return { ...row, ...session };
 }

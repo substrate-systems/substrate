@@ -312,7 +312,7 @@ describe(
       const cookie = `${EXOMEM_ACCESS_RECOVERY_COOKIE}=${receipt.token}`;
       // Before: the expired authentication cookie is absent, so the link cannot authenticate.
       const generic = await redeem(request("/api/exomem/access/magic-link/redeem", { token }));
-      assert.equal((await generic.json()).error.code, "ACCESS_TOKEN_INVALID");
+      assert.equal((await generic.json()).error.code, "EMAIL_CONFIRMATION_REQUIRED");
       // After: the longer recovery cookie proves the binding, without granting a session.
       const expired = await redeem(
         request("/api/exomem/access/magic-link/redeem", { token }, cookie)
@@ -428,9 +428,9 @@ describe(
           `${EXOMEM_ACCESS_RECOVERY_COOKIE}=${another.token}`
         )
       );
-      assert.equal((await mismatched.json()).error.code, "ACCESS_TOKEN_INVALID");
+      assert.equal((await mismatched.json()).error.code, "EMAIL_CONFIRMATION_REQUIRED");
       const crossBrowser = await redeem(request("/api/exomem/access/magic-link/redeem", { token }));
-      assert.equal((await crossBrowser.json()).error.code, "ACCESS_TOKEN_INVALID");
+      assert.equal((await crossBrowser.json()).error.code, "EMAIL_CONFIRMATION_REQUIRED");
     });
 
     it("email suppression stays invisible while the common browser bucket supplies retry timing", async () => {

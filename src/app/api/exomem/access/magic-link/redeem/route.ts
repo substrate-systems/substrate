@@ -8,7 +8,10 @@ import {
   newRequestId,
   readBoundedJsonRequest,
 } from "@/lib/exomem-hosted/http";
-import { liveOAuthConsentPath } from "@/lib/exomem-hosted/oauth-continuity";
+import {
+  clearOAuthContinuationCookie,
+  liveOAuthConsentPath,
+} from "@/lib/exomem-hosted/oauth-continuity";
 import {
   applySessionCookies,
   clearMagicLinkChallengeCookie,
@@ -33,28 +36,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       typeof body.token !== "string" ||
       body.token.length === 0 ||
-      Object.keys(body).some((key) => key !== "token" && key !== "timeZone")
+      (body.expectedEmail !== undefined && typeof body.expectedEmail !== "string") ||
+      Object.keys(body).some(
+        (key) => key !== "token" && key !== "timeZone" && key !== "expectedEmail"
+      )
     ) {
       throw exomemErrors.invalidRequest();
     }
     failedToken = body.token;
     const browserChallenge = magicLinkChallengeFromRequest(request);
-    if (!browserChallenge) throw exomemErrors.accessTokenInvalid();
     const redeemed = await redeemMagicLink({
       token: body.token,
       browserChallenge,
+      expectedEmail: body.expectedEmail as string | undefined,
       timeZone: normalizeTimeZone(body.timeZone),
     });
     response = NextResponse.json(
       {
         success: true,
         status: "accepted",
-        destination: (await liveOAuthConsentPath(request)) ?? "/exomem/home",
+        destination: redeemed.browserChallengeMatched
+          ? ((await liveOAuthConsentPath(request)) ?? "/exomem/home")
+          : "/exomem/home",
         requestId,
       },
       { status: 200 }
     );
     applySessionCookies(response, redeemed);
+    if (!redeemed.browserChallengeMatched) clearOAuthContinuationCookie(response);
     emitAccessEvent({
       event: "access.magic_link.redeemed",
       outcome: "succeeded",
@@ -66,7 +75,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       failedToken &&
       error instanceof ExomemHostedError &&
-      error.code === "ACCESS_TOKEN_INVALID"
+      (error.code === "ACCESS_TOKEN_INVALID" || error.code === "EMAIL_CONFIRMATION_REQUIRED")
     ) {
       const receipt = readAccessRecoveryReceipt(request);
       const state = receipt

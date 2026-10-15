@@ -45,11 +45,21 @@ before(() => {
         startRequests += 1;
         return { accepted: true };
       },
-      redeemMagicLink: async (input: { browserChallenge: string }) => {
+      redeemMagicLink: async (input: {
+        browserChallenge: string | null;
+        expectedEmail?: string;
+      }) => {
         magicRedeems += 1;
-        if (input.browserChallenge !== MAGIC_CHALLENGE) {
+        if (
+          input.expectedEmail !== undefined
+            ? input.expectedEmail !== "owner@example.com"
+            : input.browserChallenge !== MAGIC_CHALLENGE
+        ) {
           throw new ExomemHostedError({
-            code: "ACCESS_TOKEN_INVALID",
+            code:
+              input.expectedEmail === undefined
+                ? "EMAIL_CONFIRMATION_REQUIRED"
+                : "ACCESS_TOKEN_INVALID",
             status: 401,
             message: "the access link is invalid or unavailable",
           });
@@ -58,6 +68,7 @@ before(() => {
           userId: "018f2d91-7c42-7000-8000-000000000021",
           tenantId: "018f2d91-7c42-7000-8000-000000000022",
           sessionId: "018f2d91-7c42-7000-8000-000000000023",
+          browserChallengeMatched: input.browserChallenge === MAGIC_CHALLENGE,
           sessionToken: SESSION_TOKEN,
           sessionDigest: Buffer.alloc(32),
           csrfToken: CSRF_TOKEN,
@@ -243,11 +254,11 @@ describe("Exomem access routes", () => {
     assert.equal(body.destination, "/exomem/setup");
   });
 
-  it("requires a browser challenge, creates a session once, and clears the challenge", async () => {
+  it("asks for email without proof, and retains the browser challenge fast path", async () => {
     const { POST } = await import("../magic-link/redeem/route");
     const missing = await POST(post("/api/exomem/access/magic-link/redeem", { token: SENTINEL }));
     assert.equal(missing.status, 401);
-    assert.equal(magicRedeems, 0);
+    assert.equal(magicRedeems, 1);
     assert.match(missing.headers.getSetCookie().join("\n"), /exomem_magic_challenge=.*Max-Age=0/i);
 
     const redeemed = await POST(
@@ -258,10 +269,59 @@ describe("Exomem access routes", () => {
       )
     );
     assert.equal(redeemed.status, 200);
-    assert.equal(magicRedeems, 1);
+    assert.equal(magicRedeems, 2);
     const cookies = redeemed.headers.getSetCookie().join("\n");
     assert.match(cookies, /exomem_session=/);
     assert.match(cookies, /exomem_magic_challenge=.*Max-Age=0/i);
+  });
+
+  it("checks expected email and clears an unrelated OAuth continuation on cross-browser success", async () => {
+    const { POST } = await import("../magic-link/redeem/route");
+    const unrelated = `exomem_oauth_tx=${Buffer.alloc(32, 0x24).toString("base64url")}; exomem_oauth_form_nonce=${MAGIC_CHALLENGE}`;
+    const wrong = await POST(
+      post(
+        "/api/exomem/access/magic-link/redeem",
+        {
+          token: SENTINEL,
+          expectedEmail: "other@example.com",
+        },
+        `exomem_magic_challenge=${MAGIC_CHALLENGE}`
+      )
+    );
+    assert.equal(wrong.status, 401);
+    assert.equal((await wrong.json()).error.code, "ACCESS_TOKEN_INVALID");
+    assert.doesNotMatch(wrong.headers.getSetCookie().join("\n"), /exomem_session=/);
+    const completed = await POST(
+      post(
+        "/api/exomem/access/magic-link/redeem",
+        {
+          token: SENTINEL,
+          expectedEmail: "owner@example.com",
+        },
+        unrelated
+      )
+    );
+    assert.equal(completed.status, 200);
+    const body = await completed.json();
+    assert.equal(body.destination, "/exomem/home");
+    assert.equal(JSON.stringify(body).includes("owner@example.com"), false);
+    const cookies = completed.headers.getSetCookie().join("\n");
+    assert.match(cookies, /exomem_session=/);
+    assert.match(cookies, /exomem_oauth_tx=.*Max-Age=0/i);
+    assert.match(cookies, /exomem_oauth_form_nonce=.*Max-Age=0/i);
+    assert.equal(continuationLookups, 0);
+  });
+
+  it("rejects malformed expected email input before redemption", async () => {
+    const { POST } = await import("../magic-link/redeem/route");
+    for (const expectedEmail of [null, 12, {}]) {
+      const response = await POST(
+        post("/api/exomem/access/magic-link/redeem", { token: SENTINEL, expectedEmail })
+      );
+      assert.equal(response.status, 400);
+      assert.doesNotMatch(response.headers.getSetCookie().join("\n"), /exomem_session=/);
+    }
+    assert.equal(magicRedeems, 0);
   });
 
   it("maps consumed and expired token replays to the same stable failure", async () => {

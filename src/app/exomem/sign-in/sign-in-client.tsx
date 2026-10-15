@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { TextField } from "@/components/exomem/TextField";
 import {
   HostedBrowserError,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import { failureCopy } from "../_journey/copy";
+import styles from "../_journey/journey.module.css";
+import { failureCopy, startCopy } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
 import { StepActions, StepHeading } from "../_journey/parts";
 import { StartFlow } from "../_journey/start-flow";
@@ -15,14 +17,11 @@ import { AccessRecovery } from "./recovery";
 /** Shown to a screen reader while the link from the email signs the browser in. */
 const SIGNING_IN = "Signing you in…";
 
-/**
- * The step before a link from the email signs in. The boards go straight from the email
- * to the next step; this keeps the explicit action of the page the journey replaces,
- * with its words unchanged, until the owner decides (listed as a deviation).
- */
 const CONFIRM = {
   title: "Open your Exomem.",
-  lede: "Continue only if you requested this sign-in link in this browser.",
+  lede: "Continue only if you requested this sign-in link.",
+  emailLede:
+    "Continue only if you requested this sign-in link. Enter the email address you used to request it.",
   primary: "Continue sign-in",
 };
 
@@ -39,18 +38,25 @@ type Mode =
 /**
  * "Start with your email", and the page the email's link opens. The link carries its
  * token in the fragment, which never reaches a server log; the page takes it out of
- * the address bar first, and redeems it in this browser (the one that asked for it)
- * only when the person presses Continue.
+ * the address bar first, and redeems it only when the person presses Continue.
  */
 export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boolean }) {
   const started = useRef(false);
   const token = useRef<string | null>(null);
   const [mode, setMode] = useState<Mode>("checking");
+  const [emailRequired, setEmailRequired] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     const takeLink = () => {
       token.current = takeFragmentToken();
-      if (token.current) setMode("confirm");
+      if (token.current) {
+        setEmailRequired(false);
+        setEmail("");
+        setEmailError(null);
+        setMode("confirm");
+      }
       return token.current !== null;
     };
     if (!started.current) {
@@ -68,6 +74,7 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
     setMode("redeeming");
     postPublicJson("/api/exomem/access/magic-link/redeem", {
       token: token.current,
+      ...(emailRequired ? { expectedEmail: email } : {}),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     })
       .then((result) => {
@@ -76,9 +83,24 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
           typeof result.destination === "string" ? result.destination : "/exomem/home"
         );
       })
-      .catch((error) =>
-        // Links work once, for a limited time, in the browser that asked: a refused
-        // token is nearly always spent or late. Anything else is ours.
+      .catch((error) => {
+        if (error instanceof HostedBrowserError) {
+          if (error.code === "EMAIL_CONFIRMATION_REQUIRED") {
+            setEmailRequired(true);
+            setMode("confirm");
+            return;
+          }
+          if (
+            emailRequired &&
+            (error.code === "ACCESS_TOKEN_INVALID" || error.code === "INVALID_EMAIL")
+          ) {
+            setEmailError(
+              "We couldn’t sign you in. Check your email address or request a new link."
+            );
+            setMode("confirm");
+            return;
+          }
+        }
         setMode(
           error instanceof HostedBrowserError && error.code === "ACCESS_LINK_EXPIRED"
             ? "expired"
@@ -87,9 +109,19 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
               : error instanceof HostedBrowserError && error.code === "ACCESS_TOKEN_INVALID"
                 ? "unusable"
                 : "failed"
-        )
-      );
+        );
+      });
   }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!event.currentTarget.checkValidity()) {
+      event.currentTarget.querySelector<HTMLInputElement>("input:invalid")?.focus();
+      return;
+    }
+    redeem();
+  }
+
   if (mode === "expired" || mode === "used")
     return <AccessRecovery state={mode} onChangeAddress={() => setMode("form")} />;
 
@@ -98,15 +130,57 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
   }
   if (mode === "confirm" || mode === "redeeming") {
     return (
-      <JourneyPage kind={mode === "redeeming" ? "hold" : "quiet"} stepKey="confirm">
-        <StepHeading title={CONFIRM.title} lede={CONFIRM.lede} />
-        <StepActions
-          primary={{
-            label: mode === "redeeming" ? SIGNING_IN : CONFIRM.primary,
-            working: mode === "redeeming",
-            onClick: redeem,
-          }}
+      <JourneyPage
+        kind={mode === "redeeming" ? "hold" : "quiet"}
+        stepKey={emailRequired ? "email" : "confirm"}
+        focusHeading={emailRequired}
+      >
+        <StepHeading
+          title={CONFIRM.title}
+          lede={emailRequired ? CONFIRM.emailLede : CONFIRM.lede}
         />
+        {emailRequired ? (
+          <form className={styles.form} onSubmit={submit} noValidate>
+            <TextField
+              label={startCopy.emailLabel}
+              type="email"
+              name="email"
+              autoComplete="email"
+              inputMode="email"
+              required
+              maxLength={254}
+              data-step-focus
+              value={email}
+              disabled={mode === "redeeming"}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setEmailError(null);
+              }}
+              error={emailError ?? undefined}
+            />
+            <StepActions
+              primaryType="submit"
+              primary={{
+                label: mode === "redeeming" ? SIGNING_IN : CONFIRM.primary,
+                working: mode === "redeeming",
+                onClick: () => {},
+              }}
+              secondary={{
+                label: "Request a new link",
+                onClick: () => setMode("form"),
+                disabled: mode === "redeeming",
+              }}
+            />
+          </form>
+        ) : (
+          <StepActions
+            primary={{
+              label: mode === "redeeming" ? SIGNING_IN : CONFIRM.primary,
+              working: mode === "redeeming",
+              onClick: redeem,
+            }}
+          />
+        )}
       </JourneyPage>
     );
   }
