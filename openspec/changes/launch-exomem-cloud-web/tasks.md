@@ -149,11 +149,11 @@ These corrections follow the launch polish merge because both batches change sub
 
 This section tracks the approved integrated web batch. Earlier unchecked tasks remain programme records; they do not prove that existing code is absent. Viewer, add-ons and external status have separate capability and deployment boundaries. Their dependencies do not delay this batch.
 
-- [ ] 11.1 Prepare public-safe design references and served brand assets, preserving the original export separately
-- [ ] 11.2 Port the shared tokens, writing E, scoped motion engine and accessible transitions
-- [ ] 11.3 Build inline subscription checkout with transaction-bound events and server-confirmed readiness
-- [ ] 11.4 Add browser-bound resend recovery without changing authentication lifetime or account privacy
-- [ ] 11.5 Derive visible resend waits from the common server limiter and update invitation-only email copy
+- [x] 11.1 Prepare public-safe design references and served brand assets, preserving the original export separately
+- [x] 11.2 Port the shared tokens, writing E, scoped motion engine and accessible transitions
+- [x] 11.3 Build inline subscription checkout with transaction-bound events and server-confirmed readiness
+- [x] 11.4 Add browser-bound resend recovery without changing authentication lifetime or account privacy
+- [x] 11.5 Derive visible resend waits from the common server limiter and update invitation-only email copy
 - [ ] 11.6 Apply the latest landing, start, connect and Home states over their actual data contracts
 - [ ] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
 - [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification
@@ -164,3 +164,8 @@ The UI cannot infer that join from a family or display name. Home activity remai
 Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
 
 - [ ] 11.10 Deliver regional regular and friend catalogue selection, legacy compatibility and safe subscription conversion with provider acceptance
+
+Tasks 11.1–11.5 have local implementation and browser evidence in PR #246.
+The actual Sandbox subscription passed decline, retry, signed payment delivery and readiness polling.
+These checks do not close independent review, release or production acceptance in task 11.8.
+Tasks 11.6 and 11.9 retain the paired Source activity dependency; task 11.10 retains Live catalogue acceptance.
