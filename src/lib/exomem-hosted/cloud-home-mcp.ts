@@ -8,9 +8,9 @@
  * logged. The gateway's own lookup re-checks revocation, account blocks and
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
- * Exactly two calls leave this module: `configure_memory` and `bootstrap` with
- * the `activity` section. It is not a proxy: no caller chooses a tool, an
- * argument outside those two shapes, a tenant or a cell.
+ * Home calls only `configure_memory` and the `bootstrap` activity section.
+ * The viewer reuses the same transport for three fixed read operations.
+ * Browser callers never choose a tool, tenant, gateway or cell.
  */
 
 import { randomUUID } from "node:crypto";
@@ -169,6 +169,22 @@ type HomeToolCall =
     }
   | { name: "bootstrap"; arguments: { profile: "compact"; section: "activity" } };
 
+// These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
+export type CloudViewerToolCall =
+  | { name: "viewer_map"; arguments: { max_nodes: 200; max_edges: 400 } }
+  | {
+      name: "ask_memory";
+      arguments: {
+        query: string;
+        limit: 20;
+        detail: "compact";
+        deep: false;
+        graph_enrich: false;
+        continuation?: string;
+      };
+    }
+  | { name: "read_memory"; arguments: { path: string; links: true; include_raw: false } };
+
 type CellAnswer =
   | { kind: "result"; value: unknown }
   | { kind: "refused"; code: string }
@@ -185,7 +201,11 @@ function unavailable(reason: CloudHomeUnavailableReason): CloudHomeUnavailable {
   return { state: "unavailable", reason };
 }
 
-function logUnavailable(tool: HomeToolCall["name"], reason: string, detail?: string): void {
+function logUnavailable(
+  tool: HomeToolCall["name"] | CloudViewerToolCall["name"],
+  reason: string,
+  detail?: string
+): void {
   console.warn({ event: "exomem_cloud_home_call_unavailable", tool, reason, detail });
 }
 
@@ -350,7 +370,7 @@ async function mintHomeAccessToken(
 /** One stateless `tools/call` through the gateway, read through a schema. */
 async function callHomeTool(
   principal: CloudHomePrincipal,
-  call: HomeToolCall,
+  call: HomeToolCall | CloudViewerToolCall,
   dependencies: CloudHomeDependencies
 ): Promise<CellAnswer> {
   const { mcpUrl } = loadExomemCloudResource(dependencies.env);
@@ -398,7 +418,12 @@ async function callHomeTool(
 
   let body: unknown;
   try {
-    body = await readBoundedJsonRequest(response, MAX_CELL_ANSWER_BYTES);
+    // Viewer content needs more room; an oversized answer remains unavailable, never truncated JSON.
+    const maxBytes =
+      call.name === "viewer_map" || call.name === "read_memory"
+        ? 1024 * 1024
+        : MAX_CELL_ANSWER_BYTES;
+    body = await readBoundedJsonRequest(response, maxBytes);
   } catch {
     body = undefined;
   }
@@ -433,6 +458,17 @@ async function callHomeTool(
   const refusal = CellRefusal.safeParse(value);
   if (refusal.success) return { kind: "refused", code: refusal.data.error.code };
   return { kind: "result", value };
+}
+
+/** Fixed viewer reads share Home's owner checks, token mint and gateway boundary. */
+export async function callCloudViewerTool(
+  principal: CloudHomePrincipal,
+  call: CloudViewerToolCall,
+  dependencies: CloudHomeDependencies = {}
+): Promise<CellAnswer> {
+  const cell = await servingCell(principal);
+  if (cell.state !== "serving") return { kind: "unavailable", view: cell };
+  return callHomeTool(principal, call, dependencies);
 }
 
 function liveLevels(

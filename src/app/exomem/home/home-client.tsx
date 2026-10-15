@@ -89,6 +89,7 @@ export default function HomeClient({
   channelOn,
   statusPageUrl,
   storageOffered = false,
+  viewerOffered = false,
 }: {
   priceId: string | null;
   /** Whether Home offers an export: the export flag (design.md deviation (s)). */
@@ -101,6 +102,7 @@ export default function HomeClient({
   /** "Status page ↗" on the trouble notice; null when none is configured. */
   statusPageUrl: string | null;
   storageOffered?: boolean;
+  viewerOffered?: boolean;
 }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
   const [account, setAccount] = useState<HomeAccount | null>(null);
@@ -486,6 +488,7 @@ export default function HomeClient({
       onSignOut={() => void onSignOut()}
       signingOut={signingOut}
       live={lostAt === null && mode.kind === "home" && isLive(mode.variant)}
+      viewerOffered={viewerOffered && mode.kind === "home"}
     />
   );
   const dialogs = (

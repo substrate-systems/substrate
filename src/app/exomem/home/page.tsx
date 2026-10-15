@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { cloudHomeChannelEnabled } from "@/lib/exomem-hosted/cloud-home-mcp";
+import { cloudViewerEnabled } from "@/lib/exomem-hosted/cloud-viewer";
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import { statusPageUrl } from "../_journey/status-page";
 import HomeClient from "./home-client";
@@ -31,6 +32,7 @@ export default async function ExomemHomePage({
         channelOn={cloudHomeChannelEnabled()}
         storageOffered={process.env.EXOMEM_CLOUD_STORAGE_ENABLED === "true"}
         statusPageUrl={statusPageUrl()}
+        viewerOffered={cloudViewerEnabled()}
       />
     </main>
   );

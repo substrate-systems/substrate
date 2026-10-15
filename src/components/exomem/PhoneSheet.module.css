@@ -1,6 +1,7 @@
 /* Phone sheet (components.md: Containers). From .sheet in the Viewer board. It sits at the
    bottom of its positioned parent: peek 188 px, open 56% of the parent (the screen). */
 .sheet {
+  pointer-events: auto;
   overflow: hidden;
   position: absolute;
   left: 0;
@@ -63,4 +64,24 @@
 /* Content scrolls only when the sheet is open. */
 .open .body {
   overflow-y: auto;
+}
+
+@media (min-width: 641px) and (min-height: 481px) {
+  .desktopPanel {
+    position: static;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .desktopPanel .handle {
+    display: none;
+  }
+
+  .desktopPanel .body {
+    padding: 24px 28px;
+    overflow-y: auto;
+  }
 }

@@ -39,6 +39,7 @@ export function homeE2eEnvironment() {
       EXOMEM_PADDLE_PRODUCT_ID: "pro_" + "a".repeat(26),
       EXOMEM_PADDLE_PRICE_ID: "pri_" + "a".repeat(26),
       EXOMEM_PADDLE_STORAGE_PRICE_ID: "pri_" + "b".repeat(26),
+      EXOMEM_CLOUD_VIEWER_ENABLED: "true",
       EXOMEM_CLOUD_EXPORTS_ENABLED: "true",
       EXOMEM_EXPORT_TTL_HOURS: "24",
       EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true",
