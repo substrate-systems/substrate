@@ -18,3 +18,10 @@ export const test = base.extend<{ networkAddress: string }>({
 });
 
 export { expect } from "@playwright/test";
+
+/**
+ * How long a step after Connect may take to appear. Connect lights the whole field before it
+ * reports, about 2.5 s by design, and the journey runs on `next dev` with software rendering,
+ * which can slow that animation's frames well past the default 5 s on a busy runner.
+ */
+export const AFTER_CONNECT_MS = 10_000;

@@ -6,7 +6,7 @@
 
 import type { BrowserContext, Page } from "@playwright/test";
 import type { CloudHomeLiveLevels } from "../../src/lib/exomem-hosted/cloud-home-mcp";
-import { expect, test } from "./fixtures";
+import { AFTER_CONNECT_MS, expect, test } from "./fixtures";
 import {
   breakCopy,
   chooseCopy,
@@ -173,7 +173,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
       expect(connectedAt).toBeGreaterThanOrEqual(fieldLit - 50);
     }
 
-    await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
+    await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible({
+      timeout: AFTER_CONNECT_MS,
+    });
     // Wait for the visible mark's finite completion animations, not a guessed wall-clock delay.
     await page
       .getByRole("img", { name: "Exomem", exact: true })
@@ -212,7 +214,7 @@ test("a lost answer to Connect is not reported as nothing changed", async ({ pag
 
   await expect(
     page.getByRole("heading", { name: breakCopy.unconfirmed.title(client.name) })
-  ).toBeVisible();
+  ).toBeVisible({ timeout: AFTER_CONNECT_MS });
   await expect(page.getByText(breakCopy.unconfirmed.lede(client.name))).toBeVisible();
   await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
   // The server answered 200 and connected the app; only the answer was lost.
@@ -247,7 +249,7 @@ test("a 500 from Connect is not reported as nothing changed", async ({ page, con
 
   await expect(
     page.getByRole("heading", { name: breakCopy.unconfirmed.title(client.name) })
-  ).toBeVisible();
+  ).toBeVisible({ timeout: AFTER_CONNECT_MS });
   await expect(page.getByText(breakCopy.unconfirmed.lede(client.name))).toBeVisible();
   await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
   expect(served).toEqual([200]);

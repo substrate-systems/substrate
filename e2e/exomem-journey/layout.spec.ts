@@ -7,7 +7,7 @@
 // design review; nothing compares against them.
 
 import type { BrowserContext, Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { AFTER_CONNECT_MS, expect, test } from "./fixtures";
 import {
   blockingViolations,
   runningAnimations,
@@ -117,7 +117,9 @@ async function connectFromApp(context: BrowserContext, where: "web" | "computer"
   const consent = await context.newPage();
   await consent.goto(authorizeRequest(client).url);
   await consent.getByRole("button", { name: consentCopy.connect, exact: true }).click();
-  await expect(consent.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
+  await expect(consent.getByRole("heading", { name: handbackCopy.title })).toBeVisible({
+    timeout: AFTER_CONNECT_MS,
+  });
   await consent.close();
   return client;
 }
@@ -545,7 +547,9 @@ const STEPS: Step[] = [
       const client = await app("computer");
       await page.goto(authorizeRequest(client).url);
       await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
-      await expect(page.getByText(handbackCopy.loopback.lede(client.name))).toBeVisible();
+      await expect(page.getByText(handbackCopy.loopback.lede(client.name))).toBeVisible({
+        timeout: AFTER_CONNECT_MS,
+      });
     },
   },
   {
