@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { drainMagicLinkDeliveries, type MagicLinkDeliveryDependencies } from "../access-delivery";
+import {
+  dispatchMagicLinkDelivery,
+  drainMagicLinkDeliveries,
+  type MagicLinkDeliveryDependencies,
+} from "../access-delivery";
 import { decryptSecret, encryptSecret, tokenDigest } from "../security";
 
 const KEY = Buffer.alloc(32, 0x44);
@@ -55,6 +59,40 @@ function dependencies(
 }
 
 describe("durable Exomem magic-link delivery", () => {
+  it("dispatches only the queued delivery without running outbox maintenance", async () => {
+    let sent = 0;
+    let claimed = 0;
+    await dispatchMagicLinkDelivery(
+      "delivery-1",
+      dependencies({
+        pruneRateLimits: async () => assert.fail("request dispatch must not prune"),
+        expireInvalid: async () => assert.fail("request dispatch must not expire other rows"),
+        claim: async (input) => {
+          assert.equal(input.deliveryId, "delivery-1");
+          claimed += 1;
+          return record();
+        },
+        sendEmail: async () => {
+          sent += 1;
+          return { success: true };
+        },
+      })
+    );
+    assert.equal(sent, 1);
+    assert.equal(claimed, 1);
+  });
+
+  it("does not send when the queued delivery is already claimed or unavailable", async () => {
+    await dispatchMagicLinkDelivery(
+      "delivery-1",
+      dependencies({
+        claim: async () => null,
+        decrypt: () => assert.fail("an unavailable delivery must not decrypt"),
+        sendEmail: async () => assert.fail("an unavailable delivery must not send"),
+      })
+    );
+  });
+
   it("decrypts a row-bound single-use token only in the leased worker", async () => {
     let email: Record<string, unknown> | undefined;
     let marked: Record<string, unknown> | undefined;

@@ -27,7 +27,7 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
         : null,
     admissionMode: () => "waitlist",
     startSelfServe: async () => "admitted",
-    createMagicAccessToken: async () => ({ tokenId: "access-1" }),
+    createMagicAccessToken: async () => ({ tokenId: "access-1", deliveryId: "delivery-1" }),
     encryptDeliverySecret: () => ({
       version: 1,
       algorithm: "A256GCM",
@@ -92,7 +92,7 @@ describe("Exomem hosted access", () => {
       },
       createMagicAccessToken: async (input) => {
         createInput = input;
-        return { tokenId: "access-1", emailNormalized: SENTINEL };
+        return { tokenId: "access-1", deliveryId: "delivery-1", emailNormalized: SENTINEL };
       },
     });
     const result = await requestStart(
@@ -104,7 +104,7 @@ describe("Exomem hosted access", () => {
       },
       deps
     );
-    assert.deepEqual(result, { accepted: true });
+    assert.deepEqual(result, { accepted: true, deliveryId: "delivery-1" });
     assert.equal(admissions, 0);
     assert.deepEqual(createInput?.deliverySecretCiphertext, {
       version: 1,

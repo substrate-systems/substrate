@@ -45,7 +45,7 @@ export type AccessDependencies = {
   }) => Promise<StartOutcome>;
   createMagicAccessToken: (
     input: CreateMagicAccessTokenInput
-  ) => Promise<{ tokenId: string; emailNormalized?: string } | null>;
+  ) => Promise<{ tokenId: string; deliveryId: string; emailNormalized?: string } | null>;
   encryptDeliverySecret: (value: string) => SecretEnvelope;
   redeemMagicAccessTokenAtomic: (
     input: RedeemMagicAccessTokenInput
@@ -110,14 +110,14 @@ export function normalizeAccessEmail(value: string): string {
 
 /**
  * Queues a sign-in link (email 01) for the owner of an Exomem. Returns
- * `false`, having written nothing, when the address owns none.
+ * the private delivery ID, or `null` when the address owns none.
  */
 async function queueOwnerSignInLink(
   deps: AccessDependencies,
   emailNormalized: string,
   browserChallengeDigest: Buffer,
   timeZone: string | null
-): Promise<boolean> {
+): Promise<string | null> {
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
@@ -140,7 +140,7 @@ async function queueOwnerSignInLink(
     expiresAt,
     deliverySecretCiphertext,
   });
-  return created !== null;
+  return created?.deliveryId ?? null;
 }
 
 /**
@@ -172,7 +172,7 @@ export async function requestStart(
     browserKey?: string;
   },
   dependencies?: Partial<AccessDependencies>
-): Promise<{ accepted: true }> {
+): Promise<{ accepted: true; deliveryId?: string }> {
   const deps = withDefaults(dependencies);
   const startedAtMs = performance.now();
   try {
@@ -197,15 +197,14 @@ export async function requestStart(
     }
 
     try {
-      if (
-        await queueOwnerSignInLink(
-          deps,
-          emailNormalized,
-          input.browserChallengeDigest,
-          input.timeZone
-        )
-      ) {
-        return { accepted: true };
+      const deliveryId = await queueOwnerSignInLink(
+        deps,
+        emailNormalized,
+        input.browserChallengeDigest,
+        input.timeZone
+      );
+      if (deliveryId) {
+        return { accepted: true, deliveryId };
       }
       const mode = deps.admissionMode();
       await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
