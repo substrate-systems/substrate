@@ -12,7 +12,6 @@ import {
   chooseCopy,
   claimCopy,
   consentCopy,
-  failureCopy,
   handbackCopy,
   inviteCopy,
   joinedCopy,
@@ -89,7 +88,12 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await page.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
   // The page took the token out of the address bar before anything else.
   expect(new URL(page.url()).hash).toBe("");
-  await expect(page.getByText(failureCopy.linkUnusable)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "This sign-in link was already used" })
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Email me a new link", exact: true })).toBeVisible();
+  await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
+  await page.getByRole("button", { name: "Use a different email", exact: true }).click();
   await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
 });
 
@@ -333,7 +337,7 @@ test("a level the cell cannot take yet stays picked and is not called saved", as
   await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
   await page.getByRole("button", { name: "Light", exact: true }).click();
 
-  await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+  await expect(page.getByText(joinedCopy.notSaved, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Light", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true"
@@ -377,7 +381,7 @@ test("a level save whose answer is lost reports what the cell holds", async ({ p
 
   writeLands = false;
   await page.getByRole("button", { name: "Maximal", exact: true }).click();
-  await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+  await expect(page.getByText(joinedCopy.notSaved, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Maximal", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true"
@@ -398,9 +402,8 @@ test("a friend's invitation leads to checkout at the friend price", async ({ pag
   await page.getByRole("button", { name: inviteCopy.accept }).click();
 
   await expect(page).toHaveURL(/\/exomem\/setup$/);
-  await expect(page.getByText(subscribeCopy.friendLede("Alex"))).toBeVisible();
-  await expect(page.getByText(inviteCopy.price.friend("Alex"))).toBeVisible();
-  await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+  await expect(page.getByText("Alex’s friend price", { exact: true })).toBeVisible();
+  await expect(page.getByText("Due today", { exact: true })).toBeVisible();
 });
 
 // An owner on a paid plan answers a friend's invitation. Paddle cannot confirm the plan
@@ -423,7 +426,7 @@ test("an owner's answer that Paddle cannot confirm stays open to try again", asy
   await page.goto(invitation.link);
   await page.getByRole("button", { name: inviteCopy.existing.keep }).click();
 
-  await expect(page.getByText(inviteCopy.existing.notFinished)).toBeVisible();
+  await expect(page.getByText(inviteCopy.existing.notFinished, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: inviteCopy.existing.keep })).toBeEnabled();
   expect(await invitationConsumed(invitation.id)).toBe(false);
 });

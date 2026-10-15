@@ -2,7 +2,6 @@ import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 import {
   chooseCopy,
-  failureCopy,
   otherAppCopy,
   sentCopy,
   startCopy,
@@ -17,7 +16,7 @@ async function expectJourneyCentered(page: Page) {
   expect(Math.abs(offset)).toBeLessThanOrEqual(1);
 }
 
-test("email sign-in has no empty error gap, keeps retries focused, then focuses the sent heading", async ({
+test("email sign-in stays centered through an unreachable service and recovery", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -37,33 +36,23 @@ test("email sign-in has no empty error gap, keeps retries focused, then focuses 
   // A lost network connection is the failure this case exercises.
   await page.route("**/api/exomem/access/start", (route) => route.abort("failed"));
   await send.click();
-  await expect(
-    page
-      .getByRole("main")
-      .getByRole("alert")
-      .getByText(failureCopy.generic, { exact: true })
-      .filter({ visible: true })
-  ).toBeVisible();
-  await expect(send).toBeFocused();
+  const unreachable = page.getByRole("heading", { name: "Can’t reach Exomem." });
+  await expect(unreachable).toBeFocused();
+  await expect(page.getByRole("status")).toContainText("Can’t reach Exomem.");
   await expectJourneyCentered(page);
-  const failedButton = await send.boundingBox();
-  await send.click();
-  await expect(
-    page
-      .getByRole("main")
-      .getByRole("alert")
-      .getByText(failureCopy.generic, { exact: true })
-      .filter({ visible: true })
-  ).toBeVisible();
-  await expect(send).toBeFocused();
-  expect(await send.boundingBox()).toEqual(failedButton);
+  const retry = page.getByRole("button", { name: "Try now", exact: true });
+  const failedButton = await retry.boundingBox();
+  await retry.click();
+  await expect(retry).toBeFocused();
+  await expect(retry).toBeEnabled();
+  expect(await retry.boundingBox()).toEqual(failedButton);
   await expectJourneyCentered(page);
 
   await page.unroute("**/api/exomem/access/start");
-  await send.click();
+  await retry.click();
   const sent = page.getByRole("heading", { name: sentCopy.title });
   await expect(sent).toBeFocused();
-  await expect(page.getByRole("main").getByRole("alert")).not.toBeVisible();
+  await expect(unreachable).toHaveCount(0);
   await expectJourneyCentered(page);
   await page.getByRole("button", { name: sentCopy.differentEmail }).click();
   await expect(heading).toBeFocused();

@@ -89,7 +89,7 @@ export function mintAccessRecoveryReceipt(
   };
 }
 
-export function applyAccessRecoveryCookie(
+function applyAccessRecoveryCookie(
   response: NextResponse,
   material: ReturnType<typeof mintAccessRecoveryReceipt>
 ) {

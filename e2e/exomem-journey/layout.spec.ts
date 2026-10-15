@@ -155,7 +155,7 @@ const STEPS: Step[] = [
       await page.getByLabel(reviewerCopy.username).fill("not-a-reviewer");
       await page.getByLabel(reviewerCopy.password).fill("not-a-password");
       await page.getByRole("button", { name: reviewerCopy.primary }).click();
-      await expect(page.getByText(reviewerCopy.failedOnWeb)).toBeVisible();
+      await expect(page.getByText(reviewerCopy.failedOnWeb, { exact: true })).toBeVisible();
     },
   },
   {
@@ -283,7 +283,7 @@ const STEPS: Step[] = [
     },
   },
   {
-    // An account that holds a friend offer: the friend price card, its amount left to checkout.
+    // The inline checkout retains the account's friend offer without inventing a price.
     name: "setup-subscribe-friend",
     open: async (page) => {
       await seedCapacity();
@@ -295,7 +295,7 @@ const STEPS: Step[] = [
       await page.goto(link);
       await page.getByRole("button", { name: inviteCopy.accept }).click();
       await heading(page, subscribeCopy.title);
-      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+      await expect(page.getByText("Alex’s friend price", { exact: true })).toBeVisible();
     },
   },
   {
@@ -312,7 +312,8 @@ const STEPS: Step[] = [
     open: async (page, context) => {
       await signedIn(context, "preparing");
       await page.goto("/exomem/setup");
-      await heading(page, inviteCopy.accepting.title);
+      await heading(page, "You’re subscribed");
+      await expect(page.getByRole("button", { name: "Add it to your assistant →" })).toBeDisabled();
     },
   },
   {
@@ -357,7 +358,7 @@ const STEPS: Step[] = [
       ).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
       await page.getByRole("button", { name: "Light", exact: true }).click();
-      await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+      await expect(page.getByText(joinedCopy.notSaved, { exact: true })).toBeVisible();
     },
   },
   {
@@ -418,7 +419,7 @@ const STEPS: Step[] = [
     },
   },
   {
-    // The same friend offer in an app's context: the board's friend lede and price card.
+    // The app's inline checkout retains the same friend offer.
     name: "consent-subscribe-friend",
     open: async (page, context) => {
       await seedCapacity();
@@ -432,8 +433,7 @@ const STEPS: Step[] = [
       await heading(page, subscribeCopy.title);
       await consentFor(page, context, null);
       await heading(page, subscribeCopy.title);
-      await expect(page.getByText(subscribeCopy.friendLede("Alex"))).toBeVisible();
-      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+      await expect(page.getByText("Alex’s friend price", { exact: true })).toBeVisible();
     },
   },
   {
@@ -575,9 +575,13 @@ for (const step of STEPS) {
     }));
     expect(overflow.across).toBe(0);
     const viewport = page.viewportSize()!;
-    const checkout = step.name.includes("subscribe");
+    const checkout = (await page.locator("[data-checkout-panel]").count()) > 0;
     if (viewport.height >= 844 && !checkout) expect(overflow.down).toBe(0);
-    else await page.getByRole("main").getByRole("button").last().scrollIntoViewIfNeeded();
+    else {
+      const lastControl = page.getByRole("main").getByRole("button").last();
+      // Informational states, such as an expired request, have no action to scroll to.
+      if (await lastControl.count()) await lastControl.scrollIntoViewIfNeeded();
+    }
     // Nothing of the step runs under the wordmark or over the request's origin at the foot,
     // and the title and the origin, which name the app, are whole on the screen: the page
     // hides what overflows its column, so the document's size alone would not show it.

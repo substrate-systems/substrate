@@ -14,7 +14,7 @@ test("an app reviewer signs in with the username and password", async ({ page })
   await page.getByLabel(reviewerCopy.username).fill(reviewer.username);
   await page.getByLabel(reviewerCopy.password).fill(`${reviewer.password}-wrong`);
   await page.getByRole("button", { name: reviewerCopy.primary }).click();
-  await expect(page.getByText(reviewerCopy.failedOnWeb)).toBeVisible();
+  await expect(page.getByText(reviewerCopy.failedOnWeb, { exact: true })).toBeVisible();
 
   await page.getByLabel(reviewerCopy.password).fill(reviewer.password);
   await page.getByRole("button", { name: reviewerCopy.primary }).click();

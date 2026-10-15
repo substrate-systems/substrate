@@ -674,8 +674,6 @@
 @media (max-width: 640px), (max-height: 480px) {
   .page {
     --gutter: 16px;
-    padding-top: 84px;
-    padding-bottom: 150px;
   }
 
   /* A phone takes the reviewer's entry over at least 40 px, as every phone target. */
