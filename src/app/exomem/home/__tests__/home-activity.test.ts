@@ -28,6 +28,7 @@ it("keeps initial history quiet and publishes a new event only once", () => {
   assert.equal(observe(feed([next, first])), next);
   assert.equal(observe(feed([next, first])), null);
   assert.equal(observe(feed([first])), null, "aging rows cannot replay older activity");
+  assert.equal(observe(feed([next, first])), null, "a late older poll cannot erase newer observations");
 });
 
 it("does not confuse equal-time activity from two grants of the same provider", () => {
@@ -37,6 +38,8 @@ it("does not confuse equal-time activity from two grants of the same provider", 
   assert.notEqual(activityEventKey(first), activityEventKey(second));
   assert.equal(observe(feed([second, first])), second);
   assert.equal(observe(feed([first, second])), null);
+  assert.equal(observe(feed([first])), null);
+  assert.equal(observe(feed([second, first])), null, "a subset cannot replay equal-time activity");
 });
 
 it("holds its observation across a failed read without replaying history", () => {
