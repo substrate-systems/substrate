@@ -221,7 +221,7 @@ export function FlowField({
 
   // Glow hover (R37 C, shipped on every flow page): nothing moves. The closest note lights,
   // its links warm, the ones nearby wake. A tap lights it for a moment. Holding and stopped
-  // pages take no hover.
+  // pages take no hover, and neither does the field under reduced motion (the board's onMove).
   // The pointer outlives a change of step, so the light stays under a resting pointer.
   const pointer = useRef<{ at: { x: number; y: number } | null; tapAt: number; tapTimer: number }>({
     at: null,
@@ -232,7 +232,7 @@ export function FlowField({
   useEffect(() => {
     const element = svg.current;
     if (!element || !layout) return;
-    if (kind === "hold" || kind === "stop") {
+    if (kind === "hold" || kind === "stop" || reduced) {
       pointer.current.at = null;
       return;
     }
@@ -270,10 +270,9 @@ export function FlowField({
       }
       // The page can scroll under a still pointer, so the pointer is mapped every frame.
       const p = new DOMPoint(state.at.x, state.at.y).matrixTransform(matrix.inverse());
-      const [ex, ey] =
-        eased && !reduced
-          ? [eased[0] + (p.x - eased[0]) * 0.25, eased[1] + (p.y - eased[1]) * 0.25]
-          : [p.x, p.y];
+      const [ex, ey] = eased
+        ? [eased[0] + (p.x - eased[0]) * 0.25, eased[1] + (p.y - eased[1]) * 0.25]
+        : [p.x, p.y];
       eased = [ex, ey];
       let best = -1;
       let bestDistance = LIT_REACH;
