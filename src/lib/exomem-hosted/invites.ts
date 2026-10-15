@@ -31,7 +31,7 @@ import {
 } from "./invitation-contract";
 import { known, unknown, type Known } from "./known";
 import {
-  applyExomemFriendDiscountToSubscription,
+  applyExomemFriendPriceToSubscription,
   ExomemBillingError,
   previewExomemPrices,
   readExomemSubscription,
@@ -621,7 +621,7 @@ function providerUnavailable(error: ExomemBillingError): ExomemHostedError {
 }
 
 export type DecideInvitationDependencies = {
-  applyFriendDiscount: typeof applyExomemFriendDiscountToSubscription;
+  applyFriendPrice: typeof applyExomemFriendPriceToSubscription;
   readSubscription: typeof readExomemSubscription;
   basePriceId: () => string | null;
   friendDiscountId: () => string | null;
@@ -648,7 +648,7 @@ export async function decideInvitation(
   dependencies?: Partial<DecideInvitationDependencies>
 ): Promise<InvitationDecision> {
   const deps = {
-    applyFriendDiscount: applyExomemFriendDiscountToSubscription,
+    applyFriendPrice: applyExomemFriendPriceToSubscription,
     readSubscription: readExomemSubscription,
     basePriceId: () => exomemPaddleBasePriceId(),
     friendDiscountId: () => exomemPaddleFriendDiscountId(),
@@ -766,7 +766,7 @@ export async function decideInvitation(
         } else if (!offer.offered) {
           throw friendPriceNotOffered(offer.reason);
         } else if (subscription) {
-          const applied = await deps.applyFriendDiscount(subscription);
+          const applied = await deps.applyFriendPrice(subscription);
           decision = { status: "applied", nextPaymentAt: nextPayment(applied.nextBilledAt) };
         } else {
           // Ended, or not yet paid for the first time: the offer is kept on

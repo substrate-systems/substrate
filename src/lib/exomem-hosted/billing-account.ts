@@ -39,7 +39,7 @@ export type OwnerBillingAccount = {
   /** The Paddle event that last changed it. */
   sourceRevision: string | null;
   manuallySuspended: boolean;
-  /** The tenant accepted a friend invitation, so its checkouts carry the friend discount. */
+  /** The tenant accepted a friend invitation, so its checkouts use the friend price. */
   friendOffer: boolean;
   /** The owner confirmed the account's deletion, so nothing may be bought any more. */
   deleting: boolean;
@@ -353,8 +353,8 @@ export type OwnerCheckoutDependencies = {
   CloudCheckoutGateDependencies;
 
 /**
- * Whether an open checkout may be handed back. It must carry exactly the
- * discount the tenant is owed, and a friend discount is checked at Paddle
+ * Whether an open checkout may be handed back. Its actual price and discount must match
+ * the server selection. A legacy discount is checked at Paddle
  * for each reuse as for each new checkout: a friend offer whose discount is
  * missing or changed never reopens a checkout. The account is then read
  * again, so an owner who confirmed deletion, or whose binding or offer

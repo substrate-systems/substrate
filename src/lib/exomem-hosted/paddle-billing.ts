@@ -389,7 +389,7 @@ export async function createExomemCheckout(
  * Changes only the regular base item. Paddle keeps the renewal date, currency
  * and add-ons; do_not_bill leaves this period's payment unchanged.
  */
-export async function applyExomemFriendDiscountToSubscription(
+export async function applyExomemFriendPriceToSubscription(
   input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
   dependencies: BillingDependencies = {}
 ): Promise<{ nextBilledAt: string | null }> {

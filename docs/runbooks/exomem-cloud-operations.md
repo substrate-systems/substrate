@@ -35,10 +35,11 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                                                       |
 | `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                                                        |
 | `EXOMEM_PADDLE_DUNNING_DAYS`                                        | Days that Paddle retries a failed payment, as set in payment recovery. Home shows "read-only until" as the failed-payment start plus these days. Unset or outside 1 to 365, that date is unknown.                                     |
-| `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The recurring Paddle discount that carries the friend price. Home shows the friend price only on a subscription that carries this discount.                                                                                           |
+| `EXOMEM_PADDLE_FRIEND_PRICE_ID`                                     | The dedicated monthly friend price for this Paddle environment. Checkout uses this price without a discount; Paddle supplies localized amounts and tax.                                                                               |
+| `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The legacy recurring friend discount. Existing subscriptions remain recognized; checkout uses it only while the dedicated friend price is unset.                                                                                      |
 | `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level. |
 | `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                                          |
-| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                        |
+| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                      |
 | `EXOMEM_CLOUD_EXPORTS_ENABLED`                                      | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                     |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
@@ -696,11 +697,11 @@ Do not edit the outbox row.
 
 Public health readers certify the latest completed proof, rather than a responding process. Missing, failed, stale or unreadable proof returns HTTP 503 with `{"ok":false}`. Fresh successful proof returns HTTP 200 with `{"ok":true}`. Readers disable caching and perform no sends or writes.
 
-| Public route | Checked scope | Schedule | Default freshness |
-| --- | --- | --- | --- |
-| Control `/healthz` | PostgreSQL temporary-row write/read | Each minute | 180 seconds |
-| Control `/healthz/email` | Transactional provider acceptance with a message identifier | Each 30 minutes | 3,600 seconds |
-| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read | Platform CronJob each minute | 180 seconds |
+| Public route              | Checked scope                                               | Schedule                     | Default freshness |
+| ------------------------- | ----------------------------------------------------------- | ---------------------------- | ----------------- |
+| Control `/healthz`        | PostgreSQL temporary-row write/read                         | Each minute                  | 180 seconds       |
+| Control `/healthz/email`  | Transactional provider acceptance with a message identifier | Each 30 minutes              | 3,600 seconds     |
+| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                | Platform CronJob each minute | 180 seconds       |
 
 These checks do not certify inbox delivery, OAuth issuance, semantic recall or every customer cell. Functional failure does not gate admission or restart pods. Direct gateway `/healthz` and `/readyz` retain their pod probe semantics.
 
@@ -712,14 +713,14 @@ The protected control and email routes are `/api/cron/exomem-health-control` and
 
 The gateway image includes `gateway/memory-health-runner.cjs`. Its one-shot CronJob requires these values:
 
-| Variable | Meaning |
-| --- | --- |
-| `DATABASE_URL` | Dedicated runner role's proof database connection |
-| `EXOMEM_HEALTH_MEMORY_MCP_URL` | Only the dedicated synthetic cell's MCP endpoint |
-| `EXOMEM_HEALTH_MEMORY_BEARER` | Only that cell's bearer; never the shared signing key |
-| `EXOMEM_HEALTH_MEMORY_PAGE` | One mutable synthetic page with a unique `exomem_id` |
+| Variable                             | Meaning                                                                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                       | Dedicated runner role's proof database connection                                                  |
+| `EXOMEM_HEALTH_MEMORY_MCP_URL`       | Only the dedicated synthetic cell's MCP endpoint                                                   |
+| `EXOMEM_HEALTH_MEMORY_BEARER`        | Only that cell's bearer; never the shared signing key                                              |
+| `EXOMEM_HEALTH_MEMORY_PAGE`          | One mutable synthetic page with a unique `exomem_id`                                               |
 | `EXOMEM_HEALTH_MEMORY_BODY_TEMPLATE` | A valid page body containing `{{nonce}}`; its semantic vocabulary follows the cell's configuration |
-| `EXOMEM_HEALTH_MEMORY_TIMEOUT_MS` | Total MCP budget; default 15,000, valid range 100–20,000 |
+| `EXOMEM_HEALTH_MEMORY_TIMEOUT_MS`    | Total MCP budget; default 15,000, valid range 100–20,000                                           |
 
 The runner validates `replace_body`, reuses its transition proof, commits the same body and reads the page. It compares the returned body with the fresh nonce body. It records one final proof per attempt and exits nonzero on failure. Proof storage contains only the component, run identity, start time, check time and success.
 

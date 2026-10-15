@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import {
-  applyExomemFriendDiscountToSubscription,
+  applyExomemFriendPriceToSubscription,
   createExomemCheckout,
   previewExomemPrices,
   type PaddleTransport,
@@ -110,10 +110,10 @@ it("replaces only the base price and preserves add-ons, quantity and the renewal
     return Response.json({ data: current });
   };
   const input = { subscriptionId: subscription, environment: "sandbox" as const };
-  assert.deepEqual(await applyExomemFriendDiscountToSubscription(input, { config, transport }), {
+  assert.deepEqual(await applyExomemFriendPriceToSubscription(input, { config, transport }), {
     nextBilledAt: new Date(nextBilledAt).toISOString(),
   });
   // A lost response can retry after Paddle already changed the price.
-  await applyExomemFriendDiscountToSubscription(input, { config, transport });
+  await applyExomemFriendPriceToSubscription(input, { config, transport });
   assert.equal(updates, 1);
 });
