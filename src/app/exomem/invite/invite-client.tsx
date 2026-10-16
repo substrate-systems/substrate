@@ -10,6 +10,7 @@ import {
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
 import type { InvitationDecision, InvitationInspection } from "@/lib/exomem-hosted/invites";
+import { currentExomemTheme } from "@/lib/exomem/theme";
 import { signOut } from "../_journey/account-actions";
 import { failureCopy, inviteCopy, TRY_AGAIN } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
@@ -158,7 +159,7 @@ export default function InviteClient() {
       const result = await postPublicJson("/api/exomem/access/redeem", {
         token: token.current,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        emailScheme: document.documentElement.getAttribute("data-theme"),
+        emailScheme: currentExomemTheme(document.documentElement),
       });
       token.current = null;
       window.location.replace(

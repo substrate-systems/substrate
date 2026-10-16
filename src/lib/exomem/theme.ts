@@ -47,6 +47,11 @@ export function applyExomemTheme(root: HTMLElement): ExomemTheme {
   return applyStoredTheme(STORAGE_KEY, root);
 }
 
+/** The theme an Exomem page shows now, as the inline script or the switch set it. */
+export function currentExomemTheme(root: HTMLElement): ExomemTheme {
+  return root.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+
 /** Removes the marker and theme when a client-side navigation leaves the Exomem pages. */
 export function clearExomemTheme(root: HTMLElement): void {
   root.removeAttribute("data-exomem");
