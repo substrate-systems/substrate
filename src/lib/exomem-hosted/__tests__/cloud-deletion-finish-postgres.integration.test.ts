@@ -216,12 +216,16 @@ async function admitCloudTenant(input: {
     codeDigest,
     codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
     timeZone: "Europe/Paris",
+    emailScheme: "light",
   });
   assert.ok(admission, "sanity: the Cloud OAuth admission succeeds");
-  const recorded = await pool!.query("SELECT time_zone FROM exomem_tenants WHERE id = $1", [
-    admission!.tenantId,
-  ]);
+  const recorded = await pool!.query(
+    "SELECT time_zone, email_scheme FROM exomem_tenants WHERE id = $1",
+    [admission!.tenantId]
+  );
   assert.equal(recorded.rows[0]!.time_zone, "Europe/Paris", "sanity: the time zone is recorded");
+  // Every lifecycle email reads the scheme the redemption recorded.
+  assert.equal(recorded.rows[0]!.email_scheme, "light", "the email scheme is recorded");
   const issued = await issueOAuthTokensFromCodeAtomic({
     codeDigest,
     clientId,
@@ -588,7 +592,7 @@ async function assertFinishedReceipt(
   assert.deepEqual(await tenantFootprint(tenant.tenantId), d4Receipt(expected));
 
   const tenantRow = await pool!.query(
-    "SELECT status, desired_state, deleted_at, bound_cell_id, time_zone FROM exomem_tenants WHERE id = $1",
+    "SELECT status, desired_state, deleted_at, bound_cell_id, time_zone, email_scheme FROM exomem_tenants WHERE id = $1",
     [tenant.tenantId]
   );
   assert.equal(tenantRow.rows[0]!.status, "deleted");
@@ -596,6 +600,7 @@ async function assertFinishedReceipt(
   assert.notEqual(tenantRow.rows[0]!.deleted_at, null);
   assert.equal(tenantRow.rows[0]!.bound_cell_id, null);
   assert.equal(tenantRow.rows[0]!.time_zone, null);
+  assert.equal(tenantRow.rows[0]!.email_scheme, null);
 
   const entitlement = await pool!.query(
     `SELECT source_state, effective_state, capabilities, provider_environment,
