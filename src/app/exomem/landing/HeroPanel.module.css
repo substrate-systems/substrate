@@ -123,6 +123,7 @@
   }
   .latency {
     grid-area: 1 / 2;
+    white-space: nowrap;
   }
   /* The board types the question on phone too, on its own clipped line. */
   .query .q {
