@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { exomemTokens } from "@/lib/exomem/design-tokens";
 import { renderExomemMagicLinkEmail } from "../exomem-access";
-import { exomemSenderName } from "../exomem-email";
+import { exomemEmailSchemeQuery, exomemSenderName } from "../exomem-email";
 import {
   renderExomemDeletionReminderEmail,
   renderExomemPaymentFailedEmail,
@@ -24,6 +25,31 @@ describe("Exomem emails", () => {
     assert.ok(rendered.htmlContent.includes(`href="${accessUrl}"`));
     assert.ok(rendered.textContent.includes(accessUrl));
     assert.equal(rendered.htmlContent.includes(`?token=${token}`), false);
+  });
+
+  it("builds a light email on light throughout, with dark only in its dark-scheme block", () => {
+    // Gmail on the web reads the inline styles and shows the first image only. A light
+    // base must put every light value there, and the dark values only in the block.
+    const { dark, light } = exomemTokens();
+    const html = renderExomemMagicLinkEmail({
+      accessUrl: "https://substratesystems.io/exomem/sign-in#token",
+      expiresAt: new Date(NOW.getTime() + 15 * 60_000),
+      now: NOW,
+      scheme: "light",
+    }).htmlContent;
+    const [head, body] = html.split("</head>");
+    const block = head.slice(head.indexOf(`@media ${exomemEmailSchemeQuery("dark")}`));
+
+    assert.ok(block.length < head.length, "the email has a dark-scheme block");
+    assert.equal(head.includes(exomemEmailSchemeQuery("light")), false);
+    for (const name of ["--bg-frame", "--bg-base", "--fg-primary", "--fg-body"]) {
+      assert.notEqual(light[name], dark[name], name);
+      assert.ok(body.includes(light[name]), `${name} is light inline`);
+      assert.equal(body.includes(dark[name]), false, `${name} is never dark inline`);
+      assert.ok(block.includes(dark[name]), `${name} is dark in the block`);
+    }
+    // The first image shown is the light one; its dark twin follows, hidden.
+    assert.ok(body.slice(0, body.indexOf('.png"')).endsWith("-light"));
   });
 
   it("renders a person's name as text, never as markup", () => {

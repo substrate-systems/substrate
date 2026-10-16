@@ -12,6 +12,7 @@ import { formatMoney, type ExomemMoney } from "@/lib/exomem/money";
 import {
   renderExomemEmail,
   type ExomemEmailFact,
+  type ExomemEmailScheme,
   type ExomemEmailSlots,
   type RenderedExomemEmail,
 } from "./exomem-email";
@@ -56,6 +57,7 @@ export function renderExomemReadyEmail(input: {
     friendInviterName: string | null;
   } | null;
   timeZone: EmailTimeZone;
+  scheme?: ExomemEmailScheme | null;
 }): RenderedEmail {
   const friend = input.billing?.friendInviterName ?? null;
   const rows: ExomemEmailFact[] = [];
@@ -75,6 +77,7 @@ export function renderExomemReadyEmail(input: {
   const welcome = input.recipientName ? `Welcome, ${input.recipientName}.` : "Welcome.";
   const state = input.connected ? "Exomem is set up and connected." : "Exomem is set up.";
   return renderExomemEmail({
+    base: input.scheme,
     subject: "Your Exomem is ready",
     preheader: friend
       ? `${friend}’s friend price is on your plan.`
@@ -103,11 +106,13 @@ export function renderExomemPaymentFailedEmail(input: {
   billingUrl: string;
   readOnlyUntil: Date | null;
   timeZone: EmailTimeZone;
+  scheme?: ExomemEmailScheme | null;
 }): RenderedEmail {
   const ends = input.readOnlyUntil
     ? `If it still hasn’t worked by ${emailDate(input.readOnlyUntil, input.timeZone)}, your subscription ends.`
     : "If it still doesn’t work, your subscription ends.";
   return renderExomemEmail({
+    base: input.scheme,
     subject: "Your payment didn’t go through",
     preheader: "Exomem is read-only until billing is fixed. Your memory is safe.",
     band: "readonly",
@@ -150,11 +155,13 @@ export function renderExomemSubscriptionEndedEmail(
     /** Whether email 06 is queued for a week before deletion. */
     reminderScheduled: boolean;
     timeZone: EmailTimeZone;
+    scheme?: ExomemEmailScheme | null;
   }
 ): RenderedEmail {
   const kept = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
   const deletes = emailDate(input.keptUntil, input.timeZone);
   return renderExomemEmail({
+    base: input.scheme,
     subject: "Your Exomem subscription has ended",
     preheader: input.exportUrl
       ? `Kept, read-only, for ${kept}. Export it any time.`
@@ -177,11 +184,13 @@ export function renderExomemDeletionReminderEmail(
     keptUntil: Date;
     now: Date;
     timeZone: EmailTimeZone;
+    scheme?: ExomemEmailScheme | null;
   }
 ): RenderedEmail {
   const left = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
   const deleted = `On ${emailDate(input.keptUntil, input.timeZone)} your Exomem and everything in it is permanently deleted, backups included.`;
   return renderExomemEmail({
+    base: input.scheme,
     subject: `${left} until your Exomem is deleted`,
     preheader: input.exportUrl
       ? "Export it now, or resubscribe to keep it."
@@ -203,11 +212,13 @@ export function renderExomemDeletedEmail(input: {
   deletedAt: Date;
   now: Date;
   timeZone: EmailTimeZone;
+  scheme?: ExomemEmailScheme | null;
 }): RenderedEmail {
   const when = emailSameDay(input.deletedAt, input.now, input.timeZone)
     ? "today"
     : `on ${emailDate(input.deletedAt, input.timeZone)}`;
   return renderExomemEmail({
+    base: input.scheme,
     subject: "Your Exomem has been deleted",
     preheader: "Your vault, backups and keys are gone.",
     band: "gone",
