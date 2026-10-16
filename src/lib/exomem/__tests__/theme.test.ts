@@ -5,12 +5,19 @@ import { exomemThemeScript } from "../theme";
 
 // The inline script runs before React, on every page of the site, in whatever
 // browser the visitor has. These run the exact string the root layout ships.
-function runBeforePaint(pathname: string, getItem: (key: string) => string | null) {
+function runBeforePaint(
+  pathname: string,
+  getItem: (key: string) => string | null,
+  device: "dark" | "light" = "dark"
+) {
   const attributes = new Map<string, string>();
   const documentElement = {
     setAttribute: (name: string, value: string) => attributes.set(name, value),
   };
-  const window = { localStorage: { getItem } };
+  const window = {
+    localStorage: { getItem },
+    matchMedia: (query: string) => ({ matches: query === `(prefers-color-scheme: ${device})` }),
+  };
   runInNewContext(exomemThemeScript, {
     location: { pathname },
     window,
@@ -27,6 +34,14 @@ describe("the theme is applied before first paint", () => {
 
     assert.equal(attributes.get("data-theme"), "light");
     assert.equal(attributes.has("data-exomem"), true);
+  });
+
+  it("follows the device until the person picks a theme", () => {
+    assert.equal(runBeforePaint("/exomem", () => null, "light").get("data-theme"), "light");
+    assert.equal(runBeforePaint("/exomem", () => null, "dark").get("data-theme"), "dark");
+    // A stored dark wins over a light device, as a stored light wins over a dark one above.
+    const storedDark = (key: string) => (key === "exomem-theme" ? "dark" : null);
+    assert.equal(runBeforePaint("/exomem", storedDark, "light").get("data-theme"), "dark");
   });
 
   it("falls back to dark when storage is blocked, rather than breaking the page", () => {

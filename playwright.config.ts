@@ -96,6 +96,10 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: "on-first-retry",
+    // The Exomem pages follow the device's colour scheme until a person picks a theme.
+    // The specs start on a dark device, as the pages once started dark; a spec that
+    // checks a light device or a stored theme sets that itself.
+    colorScheme: "dark",
   },
   // With the journey database configured, a run is the journey alone, on its own server;
   // without it, the other projects run against the production build.

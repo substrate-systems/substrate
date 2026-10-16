@@ -1,23 +1,31 @@
-// The Exomem theme: one preference applied before first paint, kept across navigation,
-// and scoped to /exomem. Unit tests cover the inline script's branches; what only a
-// browser shows is whether the real pages get it at the right moment. Theme handling
-// does not depend on the viewport, so this spec runs in the desktop project only.
+// The Exomem theme: the device's colour scheme until a person picks one, applied before
+// first paint, kept across navigation, and scoped to /exomem. Unit tests cover the inline
+// script's branches; what only a browser shows is whether the real pages get it at the
+// right moment. Theme handling does not depend on the viewport, so this spec runs in the
+// desktop project only. The device is dark (playwright.config.ts) unless a test says so.
 
 import { expect, test, type Page } from "@playwright/test";
 import { storeTheme } from "./accessibility";
 
 const root = (page: Page) => page.locator("html");
 
-test("is dark by default, on the Exomem ground", async ({ page }) => {
+test("follows the device until a theme is picked, on the Exomem ground", async ({ page }) => {
   await page.goto("/exomem/sign-in");
 
   await expect(root(page)).toHaveAttribute("data-exomem", "");
   await expect(root(page)).toHaveAttribute("data-theme", "dark");
   // The page itself, not just a panel, takes the Exomem ground.
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(10, 9, 8)");
+
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.reload();
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 248, 244)");
 });
 
-test("applies a stored light preference before any app code runs", async ({ page }) => {
+test("applies a stored light preference over a dark device before any app code runs", async ({
+  page,
+}) => {
   await storeTheme(page, "light");
   // Record the theme the moment <body> exists, before anything has painted.
   await page.addInitScript(() => {

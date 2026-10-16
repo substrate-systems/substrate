@@ -15,7 +15,8 @@ function currentTheme(): ExomemTheme {
   return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
-// The server renders the default; the client corrects it on hydration.
+// The server cannot know the stored or device theme: it renders dark, and the client
+// corrects it on hydration.
 function serverTheme(): ExomemTheme {
   return "dark";
 }

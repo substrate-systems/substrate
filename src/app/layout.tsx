@@ -82,7 +82,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* Before first paint: on /exomem/** only, apply the stored Exomem theme. */}
+        {/* Before first paint: on /exomem/** only, apply the stored or device Exomem theme. */}
         <script dangerouslySetInnerHTML={{ __html: exomemThemeScript }} />
         <script
           type="application/ld+json"
