@@ -6,6 +6,7 @@ import {
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { liveOAuthConsentPath } from "@/lib/exomem-hosted/oauth-continuity";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "@/lib/exomem-hosted/rate-limit";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
@@ -19,6 +20,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     validateMutationRequest(request, session);
     if (session.reviewerCredentialKind === "cloud_provider_review")
       throw exomemErrors.entitlementDenied();
+    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId)))
+      throw exomemErrors.rateLimited();
     let body: unknown;
     try {
       body = await request.json();

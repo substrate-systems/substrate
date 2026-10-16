@@ -19,6 +19,7 @@ import type { EnvironmentSource } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
 import { readBoundedJsonRequest } from "./http";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 import {
   resolveExomemSession,
   validateMutationRequest,
@@ -428,6 +429,8 @@ export async function handleCloudExportLinkRequest(
     if (!cloudExportsEnabled(dependencies.env)) throw notFound();
     const session = await resolveExomemSession(request);
     validateMutationRequest(request, session);
+    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId)))
+      throw exomemErrors.rateLimited();
     const link = await requestCloudExportLink(session, exportId.toLowerCase(), dependencies);
     return link.state === "issued"
       ? respond({ url: link.url, url_expires_at: link.url_expires_at })

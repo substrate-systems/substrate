@@ -71,6 +71,14 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 20,
     windowSeconds: 10 * 60,
   },
+  // Owner actions that wait on Paddle or the cell controller: checkout, an
+  // invitation decision and an export link. One bucket per account covers all
+  // three; a person presses each a few times, never thirty in ten minutes.
+  ownerProviderCallTenant: {
+    scope: "exomem:owner-provider-call:tenant",
+    limit: 30,
+    windowSeconds: 10 * 60,
+  },
   oauthAuthorizeIp: {
     scope: "exomem:oauth-authorize:ip",
     limit: 60,

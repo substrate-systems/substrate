@@ -3,6 +3,7 @@ import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { PRIVATE_NO_STORE_HEADERS } from "@/lib/exomem-hosted/http";
 import { decideInvitation, type InvitationChoice } from "@/lib/exomem-hosted/invites";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "@/lib/exomem-hosted/rate-limit";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
@@ -20,6 +21,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     const session = await resolveExomemSession(request);
     validateMutationRequest(request, session);
     if (session.reviewerCredentialId) throw exomemErrors.entitlementDenied();
+    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId)))
+      throw exomemErrors.rateLimited();
     let body: unknown;
     try {
       body = await request.json();

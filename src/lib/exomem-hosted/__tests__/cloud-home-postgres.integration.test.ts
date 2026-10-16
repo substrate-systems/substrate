@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,9 @@ import { dispatchVerifiedExomemPaddleEvent } from "../paddle-webhook";
 // The Home channel and the export API against real PostgreSQL. The cell's
 // HTTP answer is substituted at the gateway boundary (`fetchCell`); the
 // gateway's own token lookup runs for real on every substituted call.
+
+// The export link's per-account rate limit keys its bucket with this key.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const RESOURCE = "https://cloud.example.test/mcp/v1";
