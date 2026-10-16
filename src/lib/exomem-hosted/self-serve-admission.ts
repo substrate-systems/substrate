@@ -39,7 +39,7 @@ export function selfServeAdmissionMode(
  * unset value, or one that is not a positive whole number, reads as the
  * default in rate-limit.ts.
  */
-export function selfServeAdmissionPace(
+function selfServeAdmissionPace(
   value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR
 ): ExomemRateLimitRule {
   const rule = EXOMEM_RATE_LIMITS.selfServeAdmission;

@@ -22,6 +22,9 @@ import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 // does through DATABASE_MIGRATION_URL); substrate_app, exomem_cellctl and
 // exomem_gateway are plain login roles with no other privilege.
 
+// The export link's per-account rate limit keys its bucket with this key.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
+
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const TEST_PASSWORD = "exomem-cloud-grants-test";
 const CLOUD_ROLES = ["substrate_app", "exomem_cellctl", "exomem_gateway"] as const;
