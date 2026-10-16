@@ -355,7 +355,9 @@ export default function OperatorClient() {
                 </div>
               </fieldset>
 
+              {/* Keyed on the required state, so an "Enter …" error clears when the field turns optional. */}
               <TextField
+                key={inviterNameRequired(kind) ? "inviter-required" : "inviter-optional"}
                 label={inviterNameRequired(kind) ? "Inviter's name" : "Inviter's name (optional)"}
                 type="text"
                 value={inviterName}
@@ -376,6 +378,7 @@ export default function OperatorClient() {
               ) : null}
 
               <TextField
+                key={inviteeNameNeeded ? "invitee-required" : "invitee-optional"}
                 label={inviteeNameNeeded ? "Invitee's name" : "Invitee's name (optional)"}
                 type="text"
                 value={inviteeName}
