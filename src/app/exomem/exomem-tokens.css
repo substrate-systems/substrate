@@ -268,3 +268,10 @@
     transition: none !important;
   }
 }
+
+/* Type renders as Claude Design draws it: the browser's own smoothing, not the site-wide
+   `antialiased` (which thins text on macOS). */
+:root[data-exomem] body {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}

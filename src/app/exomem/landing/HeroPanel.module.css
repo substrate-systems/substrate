@@ -106,8 +106,8 @@
 
   .query {
     align-items: flex-start;
-    gap: 8px;
-    padding: 12px 14px;
+    gap: 5px 8px;
+    padding: 10px 14px 11px;
     font-size: 12px;
   }
 
@@ -124,12 +124,11 @@
   .latency {
     grid-area: 1 / 2;
   }
+  /* The board types the question on phone too, on its own clipped line. */
   .query .q {
     grid-area: 2 / 1 / 3 / 3;
-    width: auto;
     max-width: 100%;
-    animation: none;
-    white-space: normal;
+    min-height: 15px;
   }
 
   .answer {

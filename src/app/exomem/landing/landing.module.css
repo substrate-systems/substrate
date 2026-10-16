@@ -403,6 +403,14 @@
   padding-top: 6px;
 }
 
+/* The board draws this one smaller than the hero's: 12 18 with no border (11 17 inside ours).
+   The phone keeps the full-width block. */
+@media (min-width: 641px) and (min-height: 481px) {
+  .cloudCta a {
+    padding: 11px 17px;
+  }
+}
+
 .promises {
   flex: 1 1 360px;
   display: flex;
@@ -797,6 +805,9 @@
   }
 }
 
+/* The board's quiet pill: any other app is an invitation, not one of the named four. */
 .anyApp {
   border-style: dashed;
+  border-color: rgba(var(--ink-rgb), 0.22);
+  color: var(--fg-muted);
 }
