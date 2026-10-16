@@ -366,9 +366,9 @@ describe("Exomem Cloud gateway handler", () => {
   });
 
   // Home's server calls for every owner from a few shared addresses. Only a
-  // token that the lookup resolved to the first-party client skips the IP
-  // bucket; an unknown or ordinary token from that address still takes it.
-  it("skips the IP bucket only for a first-party token, and keeps its identity limit", async () => {
+  // token that the lookup resolved to the first-party client passes a used-up
+  // IP bucket; an unknown or ordinary token from that address is refused.
+  it("lets only a first-party token past a used-up IP bucket, and keeps its identity limit", async () => {
     const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
     const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
     process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-ingress-trusted";
@@ -395,7 +395,7 @@ describe("Exomem Cloud gateway handler", () => {
 
       const home = await send({ ...VALID_ACCESS, firstParty: true });
       assert.equal(home.status, 200);
-      assert.deepEqual(buckets, ["exomem:mcp:identity"]);
+      assert.deepEqual(buckets, ["exomem:mcp:ip", "exomem:mcp:identity"]);
       assert.equal((await send(VALID_ACCESS)).status, 429);
       assert.equal((await send(null)).status, 429);
       identityAllowed = false;

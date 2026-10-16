@@ -286,7 +286,8 @@ export type CloudGatewayDependencies = {
 /**
  * D3's pass-through. Every branch below is numbered in the order it runs.
  * D3 lists the same steps with the IP limit before the token lookup; the
- * Home channel's first-party exemption (launch-exomem-cloud-web) moved it.
+ * Home channel's first-party exemption (launch-exomem-cloud-web) adds a
+ * lookup to the IP limit's refusal.
  */
 export async function handleCloudMcpRequest(
   request: Request,
@@ -309,26 +310,27 @@ export async function handleCloudMcpRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // 3. Bearer parse and token lookup (exact Cloud-resource match). The IP
-  // decision below needs the lookup's answer, so a refusal waits for it.
+  // 3. IP rate limit, keyed on the ingress-recorded client address, taken
+  // before any token lookup. Home's server calls for every owner from a few
+  // shared addresses, so when the bucket refuses, a token that the lookup
+  // resolves to the first-party client, by its stored row, still passes; the
+  // identity limit below still applies to it. Skipped entirely when there is
+  // no address to key on (security review finding 6) — never collapsed into
+  // one shared bucket.
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  const access = bearer ? await findAccessToken(digestSecret(bearer), config.mcpUrl) : null;
-
-  // 4. IP rate limit, keyed on the ingress-recorded client address. Home's
-  // server calls for every owner from a few shared addresses, so a token
-  // that the lookup resolved to the first-party client, by its stored row,
-  // skips it; the identity limit below still applies to it. Every other
-  // request, valid or not, takes the IP bucket before it is answered. Skipped
-  // entirely when there is no address to key on (security review finding 6)
-  // — never collapsed into one shared bucket.
-  if (!access?.firstParty) {
-    const ipKey = trustedIngressClientAddress(request);
-    if (ipKey === null) {
-      recordIpBucketSkip();
-    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
-      return errorResponse(429, "RATE_LIMITED");
-    }
+  const lookUp = () => (bearer ? findAccessToken(digestSecret(bearer), config.mcpUrl) : null);
+  let access: ActiveCloudOAuthAccessToken | null | undefined;
+  const ipKey = trustedIngressClientAddress(request);
+  if (ipKey === null) {
+    recordIpBucketSkip();
+  } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+    access = await lookUp();
+    if (!access?.firstParty) return errorResponse(429, "RATE_LIMITED");
   }
+
+  // 4. Token lookup (exact Cloud-resource match), unless the refusal above
+  // already made it.
+  if (access === undefined) access = await lookUp();
   if (!access) return unauthorized(config);
 
   // 5. Required scopes (D2), identity rate limit and concurrency guard.
