@@ -132,6 +132,7 @@ function baseDeps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatew
   return {
     config: TEST_CONFIG,
     findAccessToken: async () => VALID_ACCESS,
+    recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
     ...overrides,
   };
@@ -536,6 +537,54 @@ describe("Exomem Cloud gateway handler", () => {
         }
       });
     }
+
+    it("records an app's use without waiting on it, and never Home's own client's", async () => {
+      const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
+      const warn = mock.method(console, "warn", () => undefined);
+      const recorded: string[] = [];
+      const send = (
+        access: ActiveCloudOAuthAccessToken,
+        recordAppUse: (grantId: string) => Promise<void>
+      ) =>
+        handleCloudMcpRequest(
+          postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
+          baseDeps({
+            findAccessToken: async () => access,
+            recordAppUse: (grantId) => {
+              recorded.push(grantId);
+              return recordAppUse(grantId);
+            },
+            fetchCell: fetchCellAt(cell.port),
+          })
+        );
+      try {
+        // A record that never settles holds nothing up; one that fails refuses nothing.
+        const pending = await send(VALID_ACCESS, () => new Promise(() => undefined));
+        const failed = await send({ ...VALID_ACCESS, grantId: "grant-2" }, async () => {
+          throw Object.assign(new Error("permission denied"), { code: "42501" });
+        });
+        const home = await send(
+          { ...VALID_ACCESS, grantId: "grant-home", firstParty: true },
+          async () => undefined
+        );
+        assert.deepEqual(
+          [pending.status, failed.status, home.status, await pending.text(), await failed.text()],
+          [200, 200, 200, '{"ok":true}', '{"ok":true}']
+        );
+        await home.text();
+        assert.deepEqual(recorded, ["grant-1", "grant-2"]);
+        const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments));
+        assert.ok(
+          logged.some(
+            (line) =>
+              line.includes("exomem_cloud_gateway_app_use_unrecorded") && line.includes("42501")
+          )
+        );
+      } finally {
+        warn.mock.restore();
+        await cell.close();
+      }
+    });
 
     it("preserves encoded names and mismatched metadata for validation by the cell", async () => {
       const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });

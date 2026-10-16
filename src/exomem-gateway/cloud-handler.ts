@@ -17,6 +17,7 @@ import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import {
   findCloudOAuthAccessToken,
+  recordCloudAppUse,
   type ActiveCloudOAuthAccessToken,
 } from "../lib/exomem-hosted/cloud-oauth";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
@@ -71,12 +72,14 @@ const REQUIRED_CLOUD_SCOPES = ["exomem.read", "exomem.write"] as const;
 let activeCloudCalls = 0;
 const activeCloudCallsByIdentity = new Map<string, number>();
 let ipBucketSkips = 0;
+let appUseLosses = 0;
 
 /** Test-only: clears the module-level counters between tests. */
 export function resetCloudGatewayConcurrencyForTests(): void {
   activeCloudCalls = 0;
   activeCloudCallsByIdentity.clear();
   ipBucketSkips = 0;
+  appUseLosses = 0;
 }
 
 /** Requests this process served without an IP bucket (D3 step 3). */
@@ -91,9 +94,30 @@ export function cloudGatewayIpBucketSkips(): number {
  */
 function recordIpBucketSkip(): void {
   ipBucketSkips += 1;
-  if ((ipBucketSkips & (ipBucketSkips - 1)) === 0) {
+  if (loggedOccurrence(ipBucketSkips)) {
     console.warn({ event: "exomem_cloud_gateway_ip_bucket_skipped", count: ipBucketSkips });
   }
+}
+
+/**
+ * Logs an app's use that the gateway could not record, with the database's
+ * error code only, on the same schedule as an IP-bucket skip.
+ */
+function recordAppUseLoss(error: unknown): void {
+  appUseLosses += 1;
+  if (loggedOccurrence(appUseLosses)) {
+    const code = (error as { code?: unknown } | null)?.code;
+    console.warn({
+      event: "exomem_cloud_gateway_app_use_unrecorded",
+      count: appUseLosses,
+      code: typeof code === "string" ? code : null,
+    });
+  }
+}
+
+// The 1st, 2nd, 4th, 8th... occurrence: loud for a lasting fault, never one line per request.
+function loggedOccurrence(count: number): boolean {
+  return (count & (count - 1)) === 0;
 }
 
 /**
@@ -233,6 +257,7 @@ export function buildCloudProtectedResourceMetadata(
 export type CloudGatewayDependencies = {
   config?: ExomemCloudConfig;
   findAccessToken?: typeof findCloudOAuthAccessToken;
+  recordAppUse?: typeof recordCloudAppUse;
   takeRateLimit?: typeof takeExomemRateLimit;
   fetchCell?: typeof fetch;
 };
@@ -248,6 +273,7 @@ export async function handleCloudMcpRequest(
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
   const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
+  const recordAppUse = dependencies.recordAppUse ?? recordCloudAppUse;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
 
   // 1. GET is refused before anything else is even parsed.
@@ -299,6 +325,10 @@ export async function handleCloudMcpRequest(
 
   const release = acquireCloudConcurrency(identityKey);
   if (!release) return errorResponse(429, "RATE_LIMITED");
+  // The app reached its Exomem: Home's app row says when. Home's own client is
+  // not an app. The note never delays or refuses the request; a lost one only
+  // leaves that line older, or absent.
+  if (!access.firstParty) recordAppUse(access.grantId).catch(recordAppUseLoss);
   let response: Response;
   try {
     response = await proxyToCell(request, access, config, dependencies.fetchCell ?? fetch);

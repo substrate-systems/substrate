@@ -470,6 +470,7 @@ A signed-in owner SHALL be able to list connected apps and disconnect each one. 
 
 - **WHEN** an owner opens the app list
 - **THEN** each app shows its display name, platform, kind (web or local), context (coding or conversation), first connected time and last authorized time
+- **AND** each app shows the time it last reached its Exomem, or no time before its first call
 - **AND** a client-declared name shows the redirect host beside it, labelled as the client's own claim
 - **AND** the first-party Home client is absent
 

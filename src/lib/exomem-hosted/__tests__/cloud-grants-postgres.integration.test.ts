@@ -7,7 +7,7 @@ import { randomCloudCellId, redeemCloudInviteAtomic } from "../cloud-admission";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest } from "../cloud-home-mcp";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
-import { findCloudOAuthAccessToken } from "../cloud-oauth";
+import { findCloudOAuthAccessToken, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -597,6 +597,14 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         assert.equal(found!.tenantId, tenantId);
         assert.equal(found!.cellDesiredState, "running");
         assert.equal(found!.firstParty, false);
+        // The gateway then records the app's use, twice as a busy app would.
+        await recordCloudAppUse(found!.grantId);
+        await recordCloudAppUse(found!.grantId);
+        const recorded = await ownerPool!.query(
+          "SELECT last_used_at FROM exomem_oauth_grant_usage WHERE grant_id = $1",
+          [found!.grantId],
+        );
+        assert.equal(recorded.rowCount, 1);
         if (reviewerPurpose) {
           await ownerPool!.query(
             "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",

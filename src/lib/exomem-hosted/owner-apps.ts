@@ -35,6 +35,8 @@ export type OwnerApp = {
   redirectHosts: string[];
   connectedAt: string;
   lastAuthorizedAt: string;
+  /** When the app last reached the Exomem, to within five minutes; null before its first call. */
+  lastUsedAt: string | null;
 };
 
 function clientKind(redirectUris: readonly string[]): OwnerApp["kind"] {
@@ -66,6 +68,7 @@ type AppRow = {
   id: string;
   created_at: string | Date;
   updated_at: string | Date;
+  last_used_at: string | Date | null;
   client_name: string | null;
   admission_mode: string;
   client_platform: string | null;
@@ -84,12 +87,13 @@ async function ownerAppRows(
   const resource = loadExomemCloudResource().mcpUrl;
   const { rows } = await sql`
     /* exomem:owner-app-grants */
-    SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at,
+    SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, app_use.last_used_at,
            client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
     JOIN exomem_oauth_clients AS client ON client.id = oauth_grant.client_id
+    LEFT JOIN exomem_oauth_grant_usage AS app_use ON app_use.grant_id = oauth_grant.id
     WHERE oauth_grant.user_id = ${input.userId}::uuid
       AND oauth_grant.tenant_id = ${input.tenantId}::uuid
       AND oauth_grant.resource = ${resource}
@@ -133,6 +137,7 @@ export async function listOwnerApps(owner: {
       redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
       connectedAt: new Date(row.created_at).toISOString(),
       lastAuthorizedAt: new Date(row.updated_at).toISOString(),
+      lastUsedAt: row.last_used_at === null ? null : new Date(row.last_used_at).toISOString(),
     })
   );
   return { serverTime, apps };

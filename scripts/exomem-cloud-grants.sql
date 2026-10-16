@@ -255,6 +255,16 @@ BEGIN
     GRANT SELECT, INSERT, UPDATE ON exomem_rate_limit_buckets TO exomem_gateway;
   END IF;
 
+  -- The gateway records when each app last reached its Exomem
+  -- (recordCloudAppUse, cloud-oauth.ts). Its upsert reads the row's own
+  -- last_used_at in ON CONFLICT DO UPDATE ... WHERE, which needs SELECT. The
+  -- table holds only a grant id and a time, apart from the OAuth tables the
+  -- gateway may only read.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
+     AND to_regclass('exomem_oauth_grant_usage') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE ON exomem_oauth_grant_usage TO exomem_gateway;
+  END IF;
+
   -- 3. Security review finding 3: exomem_gateway also runs
   -- findCloudOAuthAccessToken (cloud-oauth.ts) itself, connecting to
   -- Postgres directly (per the Exomem design, never through PgBouncer).

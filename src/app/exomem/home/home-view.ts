@@ -32,6 +32,7 @@ import {
   count,
   dayMonth,
   dayMonthTime,
+  dayWord,
   gigabytes,
   secondsAgo,
   shortDateTime,
@@ -492,11 +493,20 @@ export function appGlyph(app: HomeApp): string {
 }
 
 /**
- * The row's second line. On a reviewer account it says the app joined during the
- * review; a name Exomem does not vouch for shows where access goes.
+ * The row's second line: when the app connected and when it last reached the
+ * Exomem. On a reviewer account it says the app joined during the review; a name
+ * Exomem does not vouch for shows where access goes.
  */
 export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
-  const parts = [`connected ${dayMonth(app.connectedAt, clock.timeZone)}`];
+  // An app connected within the hour reads "connected just now" or "12 minutes ago",
+  // as the board draws a fresh account; a reviewer's row keeps the date.
+  const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
+  const connected = recent
+    ? ago(app.connectedAt, clock.now)
+    : dayMonth(app.connectedAt, clock.timeZone);
+  const parts = [`connected ${connected}`];
+  // An older server sends no lastUsedAt; the row then says nothing about use.
+  if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
   if (reviewer) parts.push("during review");
   if (!displayNameVouched(app.displayNameSource) && app.displayNameSource !== "redirect_host") {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
