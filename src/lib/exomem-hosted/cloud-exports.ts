@@ -30,8 +30,10 @@ import {
 const CLOUD_EXPORTS_PER_DAY = 3;
 const LINK_WAIT_MS = 8_000;
 const LINK_POLL_MS = 250;
-// The controller issues 5-minute links. A link that outlives that by more than
-// clock skew is refused, so a leaked one never lasts longer than promised.
+// The controller promises 5-minute links. A link whose recorded expiry is
+// further away than that plus clock skew is refused. This bounds the expiry the
+// controller records, not the signed URL's own lifetime, which only the
+// controller sets.
 const LINK_LIFETIME_MS = 5 * 60 * 1000;
 const LINK_CLOCK_SKEW_MS = 60 * 1000;
 
@@ -324,9 +326,11 @@ function httpsLink(url: string): string {
 }
 
 /**
- * The link's expiry, if it is within the controller's promised lifetime. When
- * this fires wrongly, on a controller clock far ahead, the owner's download
- * fails and the log line shows why.
+ * The expiry the controller recorded for the link, if it is within the
+ * promised lifetime. It checks the recorded expiry only: a signed URL that
+ * itself lasts longer than its recorded expiry would still pass. When this
+ * fires wrongly, on a controller clock far ahead, the owner's download fails
+ * and the log line shows why.
  */
 function cappedLinkExpiry(expiresAt: Date, now: Date): string {
   if (expiresAt.getTime() <= now.getTime() + LINK_LIFETIME_MS + LINK_CLOCK_SKEW_MS) {
