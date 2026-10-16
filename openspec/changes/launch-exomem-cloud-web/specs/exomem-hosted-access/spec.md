@@ -219,7 +219,7 @@ When the system reissues a start link for the same person, it SHALL keep the ori
 
 ### Requirement: Invitation and hold emails are sent once
 
-Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease. The system SHALL retry a temporary failure until the email's own expiry, and SHALL fail an email at once when the provider refuses it as invalid. Start and lifecycle emails SHALL be claimed before waitlist confirmations. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
+Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease. The system SHALL retry every email until its own expiry, except that a waitlist confirmation the provider refuses as invalid SHALL fail at once while the person keeps their place. Start and lifecycle emails SHALL be claimed before waitlist confirmations. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
 
 #### Scenario: The same fact is recorded twice
 
@@ -232,10 +232,15 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 - **THEN** the system delivers the start email and the person keeps their place
 - **AND** after the link's own expiry the system stops retrying
 
-#### Scenario: Provider refuses an email
+#### Scenario: Provider refuses a waitlist confirmation
 
-- **WHEN** the email provider refuses an email as invalid
-- **THEN** the row fails at once and the system does not retry it
+- **WHEN** the email provider refuses a waitlist confirmation as invalid
+- **THEN** the row fails at once, the system does not retry it, and the person keeps their place
+
+#### Scenario: Provider refuses a start email
+
+- **WHEN** the email provider refuses a start email as invalid
+- **THEN** the system retries it until the link's own expiry and the person keeps their link
 
 #### Scenario: Precondition no longer holds
 
@@ -444,7 +449,7 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 ### Requirement: The consent page shows where the code goes
 
-The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label an unverified client name as app-supplied beside the requested permissions, for a web app and for a local app. The system MUST store a client name only when the client declares one.
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label a name that the client declares as app-supplied beside the requested permissions, for a web app and for a local app. A name that Exomem supplies, or a host shown in place of a name, SHALL carry no label. The system MUST store a client name only when the client declares one.
 
 #### Scenario: Web client declares a name
 

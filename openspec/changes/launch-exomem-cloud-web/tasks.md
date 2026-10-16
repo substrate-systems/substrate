@@ -11,7 +11,7 @@
 - [x] 1.9 Add the waitlist promotion arm to the reconcile job, oldest first, skipping addresses that own an active account, one transaction per admission
 - [x] 1.10 Keep a waiting person's place and send no second waitlist email on a repeat request; resend a live start link with the same expiry, leaving earlier links valid and revoking siblings on redemption; send a lapsed or used start link to the back of the queue
 - [x] 1.11 Anchor the unpaid hold and the hold reminder on the stopped cell's creation time
-- [x] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick, retrying each row until its own expiry
+- [x] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick, retrying each row until its own expiry (a refused waitlist confirmation fails at once)
 - [x] 1.13 Remove recipient and payload from settled outbox rows after 30 days and delete waitlist entries 180 days after the later of the last request and the last start link's expiry unless the address owns an account
 - [x] 1.14 State the outbox and waitlist retention periods on the privacy page
 - [x] 1.15 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
@@ -66,7 +66,7 @@
 ## 5. Cell home channel, storage and export (migration 0066)
 
 - [x] 5.1 Add migration 0066: first-party Home client with its admission mode, usage columns, export table, `export` hold kind, and grants
-- [x] 5.2 Add `cloud-home-mcp` with the 120-second token mint and exactly two calls
+- [x] 5.2 Add `cloud-home-mcp` with the 120-second token mint and a closed set of server-selected calls (Home's two; the viewer's three)
 - [x] 5.3 Add `GET` and `PUT /api/exomem/cloud/home/levels` with revision checks and the unavailable reasons
 - [x] 5.4 Add `GET /api/exomem/cloud/home/live` for activity and note count
 - [x] 5.5 Add storage to the status poll as known or unknown
