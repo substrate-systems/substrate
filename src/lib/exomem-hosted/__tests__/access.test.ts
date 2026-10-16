@@ -128,6 +128,7 @@ describe("Exomem hosted access", () => {
         networkKey: "ip-hash-input",
         browserChallengeDigest: Buffer.alloc(32, 0x63),
         timeZone: "Europe/Paris",
+        emailScheme: null,
       },
       deps
     );
@@ -152,6 +153,7 @@ describe("Exomem hosted access", () => {
         networkKey: "ip-hash-input",
         browserChallengeDigest: Buffer.alloc(32, 0x63),
         timeZone: null,
+        emailScheme: null,
       },
       dependencies({
         createMagicAccessToken: async () => null,
@@ -177,6 +179,7 @@ describe("Exomem hosted access", () => {
         networkKey: "ip-hash-input",
         browserChallengeDigest: Buffer.alloc(32, 0x63),
         timeZone: null,
+        emailScheme: null,
       },
       dependencies({
         createMagicAccessToken: async () => null,
@@ -206,6 +209,7 @@ describe("Exomem hosted access", () => {
           networkKey: "blocked-network",
           browserChallengeDigest: Buffer.alloc(32, 0x63),
           timeZone: null,
+          emailScheme: null,
         },
         dependencies({
           admissionMode: () => "open",
@@ -237,6 +241,7 @@ describe("Exomem hosted access", () => {
         networkKey: "ip-hash-input",
         browserChallengeDigest: Buffer.alloc(32, 0x63),
         timeZone: null,
+        emailScheme: null,
       },
       dependencies({
         createMagicAccessToken: async () => null,

@@ -158,6 +158,7 @@ export default function InviteClient() {
       const result = await postPublicJson("/api/exomem/access/redeem", {
         token: token.current,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        emailScheme: document.documentElement.getAttribute("data-theme"),
       });
       token.current = null;
       window.location.replace(

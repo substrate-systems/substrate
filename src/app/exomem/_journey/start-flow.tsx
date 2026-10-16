@@ -46,6 +46,8 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
         email,
         turnstileToken,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // The page's theme, which the emails this request causes are built on.
+        emailScheme: document.documentElement.getAttribute("data-theme"),
       }),
       credentials: "same-origin",
       cache: "no-store",

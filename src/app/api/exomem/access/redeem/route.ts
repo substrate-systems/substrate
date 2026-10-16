@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { admitFirstCloudOAuthInviteAtomic, redeemCloudInvite } from "@/lib/exomem-hosted/cloud-admission";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
@@ -53,11 +54,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       typeof body.token !== "string" ||
       body.token.length === 0 ||
-      Object.keys(body).some((key) => key !== "token" && key !== "timeZone")
+      Object.keys(body).some(
+        (key) => key !== "token" && key !== "timeZone" && key !== "emailScheme"
+      )
     ) {
       throw exomemErrors.invalidRequest();
     }
     const timeZone = normalizeTimeZone(body.timeZone);
+    const emailScheme = exomemEmailScheme(body.emailScheme);
     const transaction = oauthContinuationToken(request);
     const formNonce = oauthFormNonceFromRequest(request);
     if (transaction || formNonce) {
@@ -85,6 +89,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         codeDigest: code.codeDigest,
         codeExpiresAt: code.codeExpiresAt,
         timeZone,
+        emailScheme,
       });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       // A paid invite is admitted without a code. The continuation stays open, and
@@ -105,7 +110,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = await redeemCloudInvite(body.token, { timeZone });
+    const redeemed = await redeemCloudInvite(body.token, { timeZone, emailScheme });
     const response = NextResponse.json(
       {
         success: true,

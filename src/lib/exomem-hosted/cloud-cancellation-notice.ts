@@ -13,6 +13,7 @@
  * -- finds the column already set and enqueues nothing.
  */
 
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "./cloud-config";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { executeExomemSql, withExomemTransaction } from "./db";
@@ -60,11 +61,17 @@ export async function sendCloudCancellationNoticeOnce(
         AND entitlement.source_state = 'cancelled'
         AND tenant.id = cell.tenant_id
         AND owner.id = tenant.owner_user_id
-      RETURNING owner.email::text AS email, tenant.time_zone, cell.cell_id,
+      RETURNING owner.email::text AS email, tenant.time_zone, tenant.email_scheme, cell.cell_id,
                 cell.cancellation_notice_sent_at::text AS claimed_at
     `;
     const claimed = rows[0] as
-      | { email: string; time_zone: string | null; cell_id: string; claimed_at: string }
+      | {
+          email: string;
+          time_zone: string | null;
+          email_scheme: ExomemEmailScheme | null;
+          cell_id: string;
+          claimed_at: string;
+        }
       | undefined;
     if (!claimed) return false;
     await enqueueSubscriptionEndedEmails(tx, {
@@ -74,6 +81,7 @@ export async function sendCloudCancellationNoticeOnce(
       keptUntil,
       recipient: claimed.email,
       timeZone: claimed.time_zone,
+      emailScheme: claimed.email_scheme,
       now,
     });
     return true;

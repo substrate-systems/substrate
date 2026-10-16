@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { after, NextResponse } from "next/server";
+import { EXOMEM_EMAIL_SCHEMES, type ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { requestStart } from "./access";
 import { dispatchMagicLinkDelivery, type MagicLinkDeliveryState } from "./access-delivery";
 import { executeExomemSql } from "./db";
@@ -27,6 +28,8 @@ const Receipt = z
     version: z.literal(1),
     email: z.string().max(254),
     timeZone: z.string().max(128).nullable(),
+    // Optional: a receipt minted before the scheme travelled has none.
+    emailScheme: z.enum(EXOMEM_EMAIL_SCHEMES).nullable().optional(),
     browserKey: z.string().length(43),
     expiresAt: z.iso.datetime(),
     // A SHA-256 digest has this fixed hexadecimal field format.
@@ -62,6 +65,7 @@ export function mintAccessRecoveryReceipt(
   input: {
     email: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     challengeDigest: Buffer;
     prior: AccessRecoveryReceipt | null;
     /** A resend passed no bot check, so it keeps the prior expiry: one check never buys resends forever. */
@@ -80,6 +84,7 @@ export function mintAccessRecoveryReceipt(
     version: 1,
     email: input.email.trim().length <= 254 ? input.email.trim() : "",
     timeZone: input.timeZone,
+    emailScheme: input.emailScheme,
     browserKey: input.prior?.browserKey ?? generateExternalToken(),
     challengeDigest: input.challengeDigest.toString("hex"),
     expiresAt:
@@ -160,13 +165,20 @@ export async function accessStartRetryAfterSeconds(
  */
 export async function uniformAccessStartResponse(
   request: Request,
-  input: { email: string; timeZone: string | null; requestId: string; resend: boolean }
+  input: {
+    email: string;
+    timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
+    requestId: string;
+    resend: boolean;
+  }
 ) {
   const prior = readAccessRecoveryReceipt(request);
   let challenge = mintMagicLinkChallenge();
   let recovery = mintAccessRecoveryReceipt({
     email: input.email,
     timeZone: input.timeZone,
+    emailScheme: input.emailScheme,
     challengeDigest: challenge.challengeDigest,
     prior,
     resend: input.resend,
@@ -179,6 +191,7 @@ export async function uniformAccessStartResponse(
     recovery = mintAccessRecoveryReceipt({
       email: prior.email,
       timeZone: prior.timeZone,
+      emailScheme: prior.emailScheme ?? null,
       challengeDigest: Buffer.from(prior.challengeDigest, "hex"),
       prior,
       resend: input.resend,
@@ -191,6 +204,7 @@ export async function uniformAccessStartResponse(
   const { deliveryId } = await requestStart({
     email: recovery.receipt.email,
     timeZone: recovery.receipt.timeZone,
+    emailScheme: recovery.receipt.emailScheme ?? null,
     browserChallengeDigest: challenge.challengeDigest,
     browserKey: recovery.receipt.browserKey,
     networkKey,

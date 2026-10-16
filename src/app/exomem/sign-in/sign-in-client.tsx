@@ -76,6 +76,7 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
       token: token.current,
       ...(emailRequired ? { expectedEmail: email } : {}),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      emailScheme: document.documentElement.getAttribute("data-theme"),
     })
       .then((result) => {
         token.current = null;

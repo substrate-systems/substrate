@@ -23,6 +23,7 @@
  * reused.
  */
 
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { terminateExomemBillingForDeletion, type BillingDeletionTarget } from "./billing-deletion";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
@@ -96,7 +97,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
   const scrubbed = await withExomemTransaction(async (tx) => {
     const locked = await tx`
       /* exomem-cloud:deletion-finish-lock */
-      SELECT tenant.id, tenant.time_zone
+      SELECT tenant.id, tenant.time_zone, tenant.email_scheme
       FROM exomem_tenants AS tenant
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
       WHERE tenant.id = ${proof.tenantId}::uuid
@@ -118,7 +119,9 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
         )
       FOR UPDATE OF tenant, entitlement
     `;
-    const lockedTenant = locked.rows[0] as { time_zone: string | null } | undefined;
+    const lockedTenant = locked.rows[0] as
+      | { time_zone: string | null; email_scheme: ExomemEmailScheme | null }
+      | undefined;
     if (!lockedTenant) return false;
     const tenantId = proof.tenantId;
 
@@ -129,6 +132,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           deleted_at = now(),
           bound_cell_id = NULL,
           time_zone = NULL,
+          email_scheme = NULL,
           friend_offer_invite_id = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
@@ -278,6 +282,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
         deletedAt: deleted.rows[0]!.deleted_at as string,
         recipient: ownerEmail,
         timeZone: lockedTenant.time_zone,
+        emailScheme: lockedTenant.email_scheme,
       });
     }
     await tx`DELETE FROM exomem_sessions WHERE tenant_id = ${tenantId}::uuid`;

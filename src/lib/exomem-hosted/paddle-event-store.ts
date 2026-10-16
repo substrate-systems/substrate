@@ -266,12 +266,14 @@ export function createSqlExomemPaddleEventStore(
         ),
         payment_failed_email AS (
           INSERT INTO exomem_email_outbox (
-            kind, dedupe_key, recipient, recipient_time_zone, tenant_id, payload_ciphertext
+            kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, tenant_id,
+            payload_ciphertext
           )
           SELECT 'payment_failed',
                  'payment-failed:' || decision.tenant_id::text || ':' || ${graceStartedAt}::text,
                  owner.email,
                  tenant.time_zone,
+                 tenant.email_scheme,
                  tenant.id,
                  ${paymentFailedPayload}::jsonb
           FROM projected

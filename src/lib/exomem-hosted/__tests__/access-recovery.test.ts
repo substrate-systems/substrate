@@ -76,6 +76,7 @@ it("the opaque receipt has a distinct purpose, bounded expiry, and no authentica
   const material = recovery.mintAccessRecoveryReceipt({
     email: "owner@example.test",
     timeZone: "Europe/London",
+    emailScheme: null,
     challengeDigest: randomBytes(32),
     prior: null,
   });
@@ -186,6 +187,7 @@ describe(
         const receipt = recovery.mintAccessRecoveryReceipt({
           email,
           timeZone: null,
+          emailScheme: null,
           challengeDigest: randomBytes(32),
           prior: null,
         });
@@ -304,6 +306,7 @@ describe(
       const receipt = recovery.mintAccessRecoveryReceipt({
         email,
         timeZone: "Europe/London",
+        emailScheme: null,
         challengeDigest: challenge,
         prior: null,
       });
@@ -414,6 +417,7 @@ describe(
       const bound = recovery.mintAccessRecoveryReceipt({
         email: "used-owner@example.test",
         timeZone: null,
+        emailScheme: null,
         challengeDigest: challenge,
         prior: null,
       });
@@ -428,6 +432,7 @@ describe(
       const another = recovery.mintAccessRecoveryReceipt({
         email: "another@example.test",
         timeZone: null,
+        emailScheme: null,
         challengeDigest: randomBytes(32),
         prior: null,
       });
@@ -453,6 +458,7 @@ describe(
       const receipt = recovery.mintAccessRecoveryReceipt({
         email,
         timeZone: null,
+        emailScheme: null,
         challengeDigest: randomBytes(32),
         prior: null,
       });

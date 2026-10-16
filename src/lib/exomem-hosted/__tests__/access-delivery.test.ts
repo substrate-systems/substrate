@@ -18,6 +18,7 @@ function record(browserTimeZone?: string) {
     tokenId: "token-1",
     emailNormalized: EMAIL,
     recipientTimeZone: null,
+    recipientEmailScheme: null,
     expiresAt: EXPIRES,
     tokenDigest: tokenDigest(TOKEN)!,
     secretCiphertext: encryptSecret(
