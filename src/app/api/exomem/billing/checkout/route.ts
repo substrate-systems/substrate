@@ -20,8 +20,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     validateMutationRequest(request, session);
     if (session.reviewerCredentialKind === "cloud_provider_review")
       throw exomemErrors.entitlementDenied();
-    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId)))
-      throw exomemErrors.rateLimited();
     let body: unknown;
     try {
       body = await request.json();
@@ -60,6 +58,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ? { ...returned, redirectUrl: (await liveOAuthConsentPath(request)) ?? "/exomem/home" }
           : returned;
     } else {
+      // Only a new checkout is limited: setup confirms a paid one every 2 s until the cell is ready.
+      if (
+        !(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId))
+      )
+        throw exomemErrors.rateLimited();
       result = await startOwnerCheckout(session.userId, session.tenantId);
     }
     return NextResponse.json(

@@ -174,6 +174,23 @@ describe("POST /api/exomem/billing/checkout", () => {
     assert.equal(startCalls, 0);
   });
 
+  it("never rate-limits the setup page's repeated confirmation of a paid checkout", async () => {
+    rateLimitAllowed = false;
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    for (let poll = 0; poll < 40; poll += 1) {
+      const response = await POST(
+        new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tenantId: TENANT_ID, transactionId: TRANSACTION_ID }),
+        })
+      );
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(rateLimitKeys, []);
+  });
+
   it("starts the checkout and returns the transaction id the Paddle overlay opens", async () => {
     const { NextRequest } = await import("next/server");
     const { POST } = await import("../route");
