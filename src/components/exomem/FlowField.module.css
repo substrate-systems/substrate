@@ -4,9 +4,315 @@
   overflow: hidden;
   pointer-events: none;
 }
+
+/* The Journey board's field (.gn notes, .ge links) drawn in SVG. Notes are solid mixed
+   fills (R45), so no link shows through a note. Keyframes and timings are the board's. */
 .canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  display: block;
+  overflow: visible;
+  --rest: color-mix(in srgb, var(--fg-primary) calc(var(--graph-node) * 100%), var(--bg-base));
+  --wake: color-mix(in srgb, var(--fg-primary) calc(var(--graph-wake) * 100%), var(--bg-base));
+  --held: color-mix(in srgb, var(--fg-primary) calc(var(--graph-held-node) * 100%), var(--bg-base));
+  --settled: color-mix(in srgb, var(--fg-primary) 30%, var(--bg-base));
+  --cut: color-mix(in srgb, var(--fg-primary) 14%, var(--bg-base));
+  --amber-75: color-mix(in srgb, var(--exo-amber) 75%, var(--bg-base));
+  --amber-70: color-mix(in srgb, var(--exo-amber) 70%, var(--bg-base));
+  --unlit: drop-shadow(0 0 0 rgba(var(--amber-rgb), 0));
+  /* Connecting's durations; FlowField reads them to know when the whole web has lit. */
+  --hit: 1s;
+  --draw: 1.05s;
+  --glow-in: 1.4s;
+}
+
+.node {
+  fill: var(--rest);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    fill 0.55s ease,
+    transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1),
+    filter 0.55s ease;
+}
+
+.link {
+  stroke: var(--fg-primary);
+  stroke-opacity: var(--graph-link);
+  stroke-width: 1;
+  transform-box: fill-box;
+  transform-origin: left center;
+  transition:
+    stroke 0.55s ease,
+    stroke-opacity 0.55s ease;
+}
+
+.signal {
+  fill: var(--exo-amber);
+  opacity: 0;
+  filter: drop-shadow(0 0 6px var(--graph-lit-halo));
+}
+
+/* A link outside the resting web waits for the web to grow it, or for a connection to draw it. */
+.edge[data-new] .link {
+  stroke-opacity: 0;
+  transform: scaleX(0);
+}
+
+.edge[data-grown] .link {
+  stroke-opacity: 0.09;
+  transform: scaleX(1);
+  animation: grow 1.6s cubic-bezier(0.3, 0, 0.2, 1) both;
+}
+
+/* While you read, a light walks your notes. */
+.node[data-walker="near"] {
+  fill: var(--wake);
+}
+
+.node[data-walker="on"] {
+  fill: var(--exo-amber);
+  transform: scale(1.7);
+  filter: drop-shadow(0 0 9px var(--graph-lit-halo));
+}
+
+.edge[data-walker="on"] .link {
+  stroke: var(--exo-amber);
+  stroke-opacity: var(--graph-on-link);
+}
+
+/* Behind the checkout the walking light is held dim (CHANGES-R41). */
+.checkout .node[data-walker="on"] {
+  fill: var(--held);
+  transform: none;
+  filter: none;
+}
+
+.checkout .edge[data-walker="on"] .link {
+  stroke: var(--fg-primary);
+  stroke-opacity: var(--graph-held-link);
+}
+
+/* Connecting: the whole web lights from the centre outward. */
+.go .node {
+  animation: hit var(--hit) ease-out var(--nd) both;
+}
+
+.go .edge .link {
+  animation: glow-in var(--glow-in) ease-out var(--dd) both;
+}
+
+.go .edge[data-new]:not([data-grown]) .link {
+  animation: draw var(--draw) cubic-bezier(0.3, 0, 0.2, 1) var(--dd) both;
+}
+
+/* Connected: the light settles; the busiest notes keep a slow glow. */
+.done .edge .link {
+  animation: live 2.6s ease-out both;
+}
+
+.done .node {
+  animation: node-rest 2.6s ease-out both;
+}
+
+.done .node[data-hub] {
+  animation:
+    hub-in 1.4s ease-out both,
+    hub 2.8s ease-in-out 1.4s infinite alternate;
+}
+
+.done .edge[data-sig] .signal {
+  animation: signal 1.5s cubic-bezier(0.45, 0, 0.55, 1) both;
+}
+
+/* The stops: the field stays, the light goes out. */
+.stop .link {
+  stroke: var(--fg-primary);
+  stroke-opacity: 0.05;
+}
+
+.stop .node {
+  fill: var(--cut);
+}
+
+/* Glow hover (R37 C): the closest note lights, its links warm, the ones nearby wake.
+   It shows over a connection's settled light too, so it is important against animation fill. */
+.canvas .node[data-hover="near"]:not([data-walker="on"]) {
+  fill: var(--wake);
+  transition-duration: 0.3s;
+}
+
+.canvas .node[data-hover="lit"] {
+  fill: var(--exo-amber) !important;
+  transform: scale(1.55) !important;
+  filter: drop-shadow(0 0 10px var(--graph-hover-halo)) !important;
+  transition-duration: 0.3s;
+}
+
+.canvas .edge[data-hover]:not([data-new]) .link,
+.canvas .edge[data-hover][data-grown] .link {
+  stroke: var(--exo-amber) !important;
+  stroke-opacity: var(--graph-lit-link) !important;
+  transition-duration: 0.3s;
+}
+
+@keyframes hit {
+  0% {
+    fill: var(--rest);
+    transform: scale(1);
+    filter: var(--unlit);
+  }
+  28% {
+    fill: var(--exo-amber);
+    transform: scale(1.9);
+    filter: drop-shadow(0 0 11px var(--graph-lit-halo));
+  }
+  100% {
+    fill: var(--amber-75);
+    transform: scale(1);
+    filter: var(--unlit);
+  }
+}
+
+@keyframes draw {
+  0% {
+    transform: scaleX(0);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.95;
+  }
+  70% {
+    stroke-opacity: 0.6;
+  }
+  100% {
+    transform: scaleX(1);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.34;
+  }
+}
+
+@keyframes glow-in {
+  0% {
+    transform: scaleX(1);
+    stroke: var(--fg-primary);
+    stroke-opacity: var(--graph-link);
+  }
+  35% {
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.5;
+  }
+  100% {
+    transform: scaleX(1);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.3;
+  }
+}
+
+@keyframes live {
+  0% {
+    transform: scaleX(1);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.34;
+  }
+  100% {
+    transform: scaleX(1);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.15;
+  }
+}
+
+@keyframes node-rest {
+  0% {
+    fill: var(--amber-75);
+  }
+  100% {
+    fill: var(--settled);
+  }
+}
+
+@keyframes hub-in {
+  0% {
+    fill: var(--amber-75);
+    filter: var(--unlit);
+  }
+  100% {
+    fill: var(--amber-70);
+    filter: drop-shadow(0 0 5px var(--graph-lit-halo));
+  }
+}
+
+@keyframes hub {
+  0% {
+    fill: var(--amber-70);
+    filter: drop-shadow(0 0 5px var(--graph-lit-halo));
+  }
+  100% {
+    fill: var(--exo-amber);
+    filter: drop-shadow(0 0 11px var(--graph-lit-halo));
+  }
+}
+
+@keyframes grow {
+  0% {
+    transform: scaleX(0);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.9;
+  }
+  55% {
+    transform: scaleX(1);
+    stroke-opacity: 0.55;
+  }
+  100% {
+    transform: scaleX(1);
+    stroke: var(--fg-primary);
+    stroke-opacity: 0.09;
+  }
+}
+
+@keyframes signal {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(var(--w));
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: nothing travels; a connection lights the field in place. */
+@media (prefers-reduced-motion: reduce) {
+  .go .node {
+    fill: var(--amber-75);
+  }
+
+  .go .edge .link {
+    transform: scaleX(1);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.3;
+  }
+
+  .go .edge[data-new]:not([data-grown]) .link {
+    stroke-opacity: 0.34;
+  }
+
+  .done .edge .link {
+    transform: scaleX(1);
+    stroke: var(--exo-amber);
+    stroke-opacity: 0.15;
+  }
+
+  .done .node {
+    fill: var(--settled);
+  }
+
+  .done .node[data-hub] {
+    fill: var(--amber-70);
+    filter: drop-shadow(0 0 5px var(--graph-lit-halo));
+  }
 }

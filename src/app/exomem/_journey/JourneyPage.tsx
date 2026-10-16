@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { FlowField, type FieldKind } from "@/components/exomem/FlowField";
 import { PairedTiles } from "@/components/exomem/PairedTiles";
 import { Wordmark } from "@/components/exomem/Wordmark";
@@ -75,6 +75,26 @@ export function JourneyPage({
   const content = useRef<HTMLDivElement>(null);
   const previousStep = useRef<string | null>(null);
   const status = useRef<HTMLDivElement>(null);
+  // Connecting ends once the tiles' cycle and the whole field have both played, however
+  // fast the answer came; the seal that follows is the tiles' own. A layout effect resets
+  // the step before the parts' own effects run, so it never erases a part's report.
+  const played = useRef({ tiles: false, field: false });
+  useLayoutEffect(() => {
+    played.current = { tiles: false, field: false };
+  }, [kind]);
+  const settle = useCallback(
+    (part: "tiles" | "field", state: "connecting" | "connected") => {
+      played.current[part] = true;
+      const { tiles, field } = played.current;
+      if (tiles && (field || state === "connected")) onPairMotionComplete?.(state);
+    },
+    [onPairMotionComplete]
+  );
+  const tilesPlayed = useCallback(
+    (state: "connecting" | "connected") => settle("tiles", state),
+    [settle]
+  );
+  const fieldLit = useCallback(() => settle("field", "connecting"), [settle]);
   useLayoutEffect(() => {
     const element = content.current;
     if (!element) return;
@@ -114,7 +134,11 @@ export function JourneyPage({
   }, [stepKey, focusHeading]);
   return (
     <main className={`${styles.page} brand-exomem`} data-alive-surface>
-      <FlowField kind={kind} footer={!!footer} />
+      <FlowField
+        kind={kind}
+        footer={!!footer}
+        onLit={onPairMotionComplete ? fieldLit : undefined}
+      />
       {headerEmail ? (
         <a
           className={`${styles.wordmark} ${phone.hitArea}`}
@@ -135,7 +159,7 @@ export function JourneyPage({
             <PairedTiles
               state={tilesIdle ? "idle" : tilesState(kind)}
               app={app}
-              onMotionComplete={onPairMotionComplete}
+              onMotionComplete={onPairMotionComplete ? tilesPlayed : undefined}
             />
           </div>
           <div className={styles.content} ref={content}>

@@ -6,7 +6,7 @@
 
 import type { BrowserContext, Page } from "@playwright/test";
 import type { CloudHomeLiveLevels } from "../../src/lib/exomem-hosted/cloud-home-mcp";
-import { expect, test } from "./fixtures";
+import { AFTER_CONNECT_MS, expect, test } from "./fixtures";
 import {
   breakCopy,
   chooseCopy,
@@ -190,12 +190,35 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
     expect((await completed).status()).toBe(200);
     expect(await grantCount(client)).toBe(1);
-    if (reducedMotion === "no-preference")
+    if (reducedMotion === "no-preference") {
       await expect(
         page.getByRole("button", { name: consentCopy.connecting, exact: true })
       ).toBeVisible();
+      // The answer came at once, yet the page says it connected only after the whole
+      // field has lit: when its last note or link finishes, not when the tiles do.
+      const { lighting, fieldLit, connectedAt } = await page.evaluate(async (title) => {
+        const field = document.querySelector("main svg[data-alive-key]")!;
+        const ends = field.getAnimations({ subtree: true }).map((animation) => {
+          const timing = animation.effect!.getComputedTiming();
+          return Number(timing.endTime) - Number(timing.localTime ?? 0);
+        });
+        const lit = performance.now() + Math.max(...ends);
+        const at = await new Promise<number>((resolve) => {
+          const look = () =>
+            [...document.querySelectorAll("h1")].some((h) => h.textContent?.includes(title))
+              ? resolve(performance.now())
+              : requestAnimationFrame(look);
+          look();
+        });
+        return { lighting: ends.length, fieldLit: lit, connectedAt: at };
+      }, handbackCopy.title);
+      expect(lighting).toBeGreaterThan(0);
+      expect(connectedAt).toBeGreaterThanOrEqual(fieldLit - 50);
+    }
 
-    await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible();
+    await expect(page.getByRole("heading", { name: handbackCopy.title })).toBeVisible({
+      timeout: AFTER_CONNECT_MS,
+    });
     // Wait for the visible mark's finite completion animations, not a guessed wall-clock delay.
     await page
       .getByRole("img", { name: "Exomem", exact: true })
@@ -234,7 +257,7 @@ test("a lost answer to Connect is not reported as nothing changed", async ({ pag
 
   await expect(
     page.getByRole("heading", { name: breakCopy.unconfirmed.title(client.name) })
-  ).toBeVisible();
+  ).toBeVisible({ timeout: AFTER_CONNECT_MS });
   await expect(page.getByText(breakCopy.unconfirmed.lede(client.name))).toBeVisible();
   await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
   // The server answered 200 and connected the app; only the answer was lost.
@@ -269,7 +292,7 @@ test("a 500 from Connect is not reported as nothing changed", async ({ page, con
 
   await expect(
     page.getByRole("heading", { name: breakCopy.unconfirmed.title(client.name) })
-  ).toBeVisible();
+  ).toBeVisible({ timeout: AFTER_CONNECT_MS });
   await expect(page.getByText(breakCopy.unconfirmed.lede(client.name))).toBeVisible();
   await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
   expect(served).toEqual([200]);
@@ -342,7 +365,7 @@ test("setup notices the app that just connected", async ({ page, context }) => {
   await consent.waitForURL("https://claude-app.example.test/**");
 
   await expect(page.getByRole("heading", { name: joinedCopy.title("Claude") })).toBeVisible({
-    timeout: 10_000,
+    timeout: AFTER_CONNECT_MS,
   });
   await expect(page.getByText(joinedCopy.done("Claude"))).toBeVisible();
 });
@@ -367,7 +390,7 @@ async function joinWithoutPlugin(page: Page, context: BrowserContext) {
   await consent.close();
 
   await expect(page.getByRole("heading", { name: joinedCopy.title("Claude Code") })).toBeVisible({
-    timeout: 10_000,
+    timeout: AFTER_CONNECT_MS,
   });
 }
 

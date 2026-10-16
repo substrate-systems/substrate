@@ -2,6 +2,8 @@
 // to their nearest neighbours. A port of graph() in the Journey board (field "web"),
 // with the board's seed, so the same screen size draws the same web.
 
+import { trimEdge } from "./alive-engine";
+
 type FieldNode = { x: number; y: number; s: number; nd: number; hub: boolean };
 type FieldEdge = {
   x: number;
@@ -156,10 +158,13 @@ export function buildFieldLayout(
       hub: hubs.has(i),
     };
   });
+  // Round 41: a link stops at each note's edge, so no line shows through a note.
+  const edgeOf = (i: number) => ({ ...pts[i], r: nodes[i].s / 2 });
   const edges = links.map(([i, j], k) => {
     const [a, b] = depth[i] <= depth[j] ? [i, j] : [j, i];
+    const [start, end] = trimEdge(edgeOf(a), edgeOf(b));
     return {
-      ...seg(pts[a], pts[b]),
+      ...seg(start, end),
       dd: round(depth[a] * stepT + rnd() * 0.25, 2),
       i,
       j,

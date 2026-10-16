@@ -339,7 +339,7 @@ export function CheckoutInline({
 
   return (
     <main className={`brand-exomem ${styles.page}`} data-alive-surface>
-      <FlowField kind={paying || paid ? "hold" : "quiet"} activity={activity} />
+      <FlowField kind={paying || paid ? "hold" : "quiet"} activity={activity} checkout />
       <header className={styles.header}>
         <a href="/exomem/home" className={styles.wordmark} aria-label="Exomem home">
           <Wordmark />

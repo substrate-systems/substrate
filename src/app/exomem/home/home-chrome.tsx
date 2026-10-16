@@ -49,6 +49,7 @@ function WebSvg({
       {...graph}
       id={id}
       state={live ? "live" : "cut"}
+      walk
       viewBox={`0 0 ${layout.width} ${layout.height}`}
     >
       <defs>
