@@ -37,14 +37,16 @@ export function selfServeAdmissionMode(
  * `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`: how many start links `open` mode
  * hands out an hour, to newcomers and promoted waiting people together. An
  * unset value, or one that is not a positive whole number, reads as the
- * default in rate-limit.ts.
+ * default in rate-limit.ts; a larger value than the cap below reads as the cap.
  */
 function selfServeAdmissionPace(
   value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR
 ): ExomemRateLimitRule {
   const rule = EXOMEM_RATE_LIMITS.selfServeAdmission;
   const limit = Number(value);
-  return Number.isSafeInteger(limit) && limit > 0 ? { ...rule, limit } : rule;
+  if (!Number.isSafeInteger(limit) || limit < 1) return rule;
+  // The bucket's admitted_count is a PostgreSQL integer; a larger limit fails every take.
+  return { ...rule, limit: Math.min(limit, 2_147_483_647) };
 }
 
 // The pace counts admissions, not people: every address shares one bucket,
