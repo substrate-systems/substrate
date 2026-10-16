@@ -16,6 +16,9 @@
 --   | exomem_cellctl  | every C1 column, C1b, C1c, C1d   | update C1 observed columns only; insert and update C1c; update C1d paused, error_code, held_cell_id, last_good_image, updated_at |
 --   | exomem_gateway  | C1 cell_id, tenant_id, desired_state | none on C1-C1d; insert and update the rate-limit buckets |
 --
+--    Outside C1, exomem_gateway also writes each app's last-use time in
+--    exomem_oauth_grant_usage (its own block below).
+--
 --    "The script revokes substrate_app's schema-wide grants on those four
 --    tables and then applies the exact table. That makes the script the
 --    single implementation of the C1 table, and a rerun converges to the
