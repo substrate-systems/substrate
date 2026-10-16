@@ -9,8 +9,8 @@ const STORAGE_KEY = "exomem-theme";
 
 /**
  * Reads the stored preference and marks <html> as an Exomem page in that theme.
- * Without a stored "light" or "dark", the device's colour scheme decides, read once:
- * a later change on the device applies on the next page load. Storage or
+ * Without a stored "light" or "dark", the device's colour scheme decides, and
+ * followDeviceTheme runs this rule again when the device changes. Storage or
  * `matchMedia` that throws (blocked, private, very old) gives dark.
  *
  * The root layout also runs this as an inline script before first paint, through
@@ -26,7 +26,8 @@ function applyStoredTheme(storageKey: string, root: HTMLElement): ExomemTheme {
     // Storage or the media query is unavailable: dark.
   }
   root.setAttribute("data-exomem", "");
-  root.setAttribute("data-theme", theme);
+  // An unchanged theme writes nothing, so what watches data-theme (the graph) does not restart.
+  if (root.getAttribute("data-theme") !== theme) root.setAttribute("data-theme", theme);
   return theme;
 }
 
@@ -47,6 +48,29 @@ export function applyExomemTheme(root: HTMLElement): ExomemTheme {
   return applyStoredTheme(STORAGE_KEY, root);
 }
 
+// A pick made with the switch in this tab, which must stay even where storage cannot
+// hold it (a private window): the first-paint rule would read no pick there.
+let pickedInThisTab = false;
+
+/**
+ * Re-applies the theme each time the device's colour scheme changes (an automatic
+ * switch at sunset, say), by the same rule as first paint: a picked theme stays, and
+ * without one the page takes the device's new scheme at once. Returns the unsubscribe.
+ */
+export function followDeviceTheme(root: HTMLElement): () => void {
+  const reapply = () => {
+    if (!pickedInThisTab) applyStoredTheme(STORAGE_KEY, root);
+  };
+  try {
+    const device = window.matchMedia("(prefers-color-scheme: light)");
+    device.addEventListener("change", reapply);
+    return () => device.removeEventListener("change", reapply);
+  } catch {
+    // No media query events (very old browsers): the device is read on the next load.
+    return () => {};
+  }
+}
+
 /** The theme an Exomem page shows now, as the inline script or the switch set it. */
 export function currentExomemTheme(root: HTMLElement): ExomemTheme {
   return root.getAttribute("data-theme") === "light" ? "light" : "dark";
@@ -60,6 +84,7 @@ export function clearExomemTheme(root: HTMLElement): void {
 
 /** Switches the theme now and remembers it for every Exomem page. */
 export function setExomemTheme(root: HTMLElement, theme: ExomemTheme): void {
+  pickedInThisTab = true;
   root.setAttribute("data-theme", theme);
   try {
     window.localStorage.setItem(STORAGE_KEY, theme);

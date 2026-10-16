@@ -12,6 +12,7 @@ function runBeforePaint(
 ) {
   const attributes = new Map<string, string>();
   const documentElement = {
+    getAttribute: (name: string) => attributes.get(name) ?? null,
     setAttribute: (name: string, value: string) => attributes.set(name, value),
   };
   const window = {
