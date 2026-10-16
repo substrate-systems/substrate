@@ -505,9 +505,9 @@ export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
     ? ago(app.connectedAt, clock.now)
     : dayMonth(app.connectedAt, clock.timeZone);
   const parts = [`connected ${connected}`];
+  if (reviewer) parts.push("during review");
   // An older server sends no lastUsedAt; the row then says nothing about use.
   if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
-  if (reviewer) parts.push("during review");
   if (!displayNameVouched(app.displayNameSource) && app.displayNameSource !== "redirect_host") {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
     parts.push("name from the app", `sends access to ${destination}`);
