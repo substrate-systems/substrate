@@ -679,30 +679,37 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
 
     // Once the link expires before the next retry, the email fails and the
-    // place returns.
+    // place returns. The last answer was a refusal, and the link records the
+    // same cause as its email.
     await pool!.query(
       "UPDATE exomem_email_outbox SET not_before = now(), expires_at = now() + interval '30 seconds' WHERE recipient = $1",
       [email]
     );
-    const atDeadline = await drainExomemEmailOutbox({}, { sendEmail: providerDown });
-    assert.equal(atDeadline.failed, 1);
-    assert.equal(
-      await count(
-        "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NOT NULL",
-        [email]
-      ),
-      1
+    const atDeadline = await drainExomemEmailOutbox(
+      {},
+      { sendEmail: async () => ({ success: false, status: 400 }) }
     );
+    assert.equal(atDeadline.failed, 1);
+    const settled = await pool!.query<{ email_code: string; link_code: string }>(
+      `SELECT outbox.last_error_code AS email_code, link.delivery_error_code AS link_code
+       FROM exomem_email_outbox AS outbox
+       JOIN exomem_invites AS link ON link.email_normalized = outbox.recipient
+       WHERE outbox.recipient = $1 AND link.revoked_at IS NOT NULL`,
+      [email]
+    );
+    assert.deepEqual(settled.rows, [{ email_code: "EMAIL_REFUSED", link_code: "EMAIL_REFUSED" }]);
   });
 
-  for (const [status, settles] of [
-    [400, true],
-    [429, false],
-    [503, false],
+  // A refused waitlist email costs nobody their place, so it fails at once. A
+  // refused start link retries: failing it would revoke the link and its place.
+  for (const [kind, status, settles] of [
+    ["waitlist", 400, true],
+    ["waitlist", 503, false],
+    ["start", 400, false],
   ] as const) {
-    it(`${settles ? "fails at once" : "retries"} an email the provider answers ${status}`, async () => {
-      await configureCapacity(1);
-      const email = newAddress(`status-${status}`);
+    it(`${settles ? "fails at once" : "retries"} a ${kind} email the provider answers ${status}`, async () => {
+      await configureCapacity(kind === "start" ? 1 : 0);
+      const email = newAddress(`${kind}-${status}`);
       await startSelfServeAtomic({ emailNormalized: email, timeZone: null, mode: "open" });
 
       const drained = await drainExomemEmailOutbox(
@@ -712,15 +719,24 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
 
       assert.equal(drained.failed, settles ? 1 : 0);
       assert.equal(drained.retryScheduled, settles ? 0 : 1);
-      const row = await pool!.query<{ state: string; last_error_code: string }>(
-        "SELECT state, last_error_code FROM exomem_email_outbox WHERE recipient = $1",
+      const row = await pool!.query<{ kind: string; state: string; last_error_code: string }>(
+        "SELECT kind, state, last_error_code FROM exomem_email_outbox WHERE recipient = $1",
         [email]
       );
-      assert.deepEqual(
-        row.rows[0],
-        settles
-          ? { state: "failed", last_error_code: "EMAIL_REFUSED" }
-          : { state: "pending", last_error_code: "EMAIL_DELIVERY_UNAVAILABLE" }
+      assert.deepEqual(row.rows[0], {
+        kind,
+        state: settles ? "failed" : "pending",
+        last_error_code: status === 400 ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
+      });
+      // The person keeps what they had: a place in the queue, or a live start link.
+      assert.equal(
+        await count(
+          kind === "start"
+            ? "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NULL"
+            : "SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1 AND admitted_at IS NULL",
+          [email]
+        ),
+        1
       );
     });
   }

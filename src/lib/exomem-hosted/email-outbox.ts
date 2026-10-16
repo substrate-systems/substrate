@@ -112,12 +112,19 @@ type EmailDefinition<P, C> = {
     input: EmailRenderInput<P, C>
   ) => RenderedExomemAccessEmail | Promise<RenderedExomemAccessEmail>;
   afterSent?: (tx: ExomemSql, payload: P) => Promise<void>;
-  afterFailed?: (tx: ExomemSql, payload: P) => Promise<void>;
+  /** `errorCode` is the one the row records, so a linked record can name the same cause. */
+  afterFailed?: (tx: ExomemSql, payload: P, errorCode: string) => Promise<void>;
   /**
    * Claimed only while no other kind is ready, for an email that anybody can
    * cause for any address, so a flood of it never delays anyone else's mail.
    */
   claimedLast?: true;
+  /**
+   * A provider refusal fails it at once instead of retrying it until its
+   * deadline. Only for a kind without `afterFailed`, whose failure takes
+   * nothing from anyone; the drain ignores the flag on any other kind.
+   */
+  failsWhenRefused?: true;
 };
 
 function defineEmail<P, C>(definition: EmailDefinition<P, C>): EmailDefinition<P, C> {
@@ -205,12 +212,16 @@ async function markStartLinkDelivered(tx: ExomemSql, payload: StartLinkPayload):
  * A promoted waitlist entry stays admitted: re-queuing it would promote the
  * same unreachable address again and again at the head of the queue.
  */
-async function revokeUndeliveredStartLink(tx: ExomemSql, payload: StartLinkPayload): Promise<void> {
+async function revokeUndeliveredStartLink(
+  tx: ExomemSql,
+  payload: StartLinkPayload,
+  errorCode: string
+): Promise<void> {
   await tx`
     /* exomem:email-start-link-undelivered */
     UPDATE exomem_invites
     SET delivery_state = 'failed',
-        delivery_error_code = 'EMAIL_DELIVERY_UNAVAILABLE',
+        delivery_error_code = ${errorCode},
         revoked_at = COALESCE(revoked_at, now())
     WHERE id = ${payload.inviteId}::uuid AND consumed_at IS NULL
   `;
@@ -514,6 +525,7 @@ const EXOMEM_EMAILS = {
     },
     render: () => renderExomemWaitlistEmail(),
     claimedLast: true,
+    failsWhenRefused: true,
   }),
   /**
    * Email 18: two days before an unpaid hold ends. It holds only while the
@@ -1075,7 +1087,7 @@ async function claimNextEmail(
     }
     if (row.expired) {
       await settleWithoutSending(tx, row.id, "failed", "EMAIL_EXPIRED");
-      await definition.afterFailed?.(tx, payload);
+      await definition.afterFailed?.(tx, payload, "EMAIL_EXPIRED");
       return { outcome: "failed" };
     }
     if (context instanceof NotYet) {
@@ -1170,7 +1182,7 @@ async function releaseEmail(
     const outOfAttempts = row.no_deadline && Number(row.attempts) >= MAX_ATTEMPTS_WITHOUT_DEADLINE;
     if (terminal || row.expires_before_retry || outOfAttempts) {
       await settleWithoutSending(tx, email.id, "failed", errorCode);
-      await email.definition.afterFailed?.(tx, email.payload);
+      await email.definition.afterFailed?.(tx, email.payload, errorCode);
       return "failed";
     }
     await tx`
@@ -1234,14 +1246,16 @@ export async function clearSettledEmailRecipients(limit = 500): Promise<number> 
 }
 
 /**
- * Whether the provider refused this message itself, so sending it again
- * would be refused again: the request-content statuses of RFC 9110 (400, 413,
- * 422). Every other answer is retried until the row's deadline: 429 and 5xx
- * are transient by definition, and 401, 402, 403 and 404 concern our account
- * or endpoint, not the row, so failing every row on them would lose all mail
- * to one configuration mistake. Firing wrongly fails one email early.
+ * Whether the provider refused the request itself: the request-content
+ * statuses of RFC 9110 (400, 413, 422). Such a refusal fails a
+ * `failsWhenRefused` email at once, so a flood of refused waitlist emails
+ * does not retry for a day; every other answer, and every other kind, is
+ * retried until the row's deadline. A refusal can also be our own account's
+ * fault, such as an unvalidated sender: then a waiting person gets no
+ * waitlist email but keeps their place, and no start link or invitation is
+ * revoked.
  */
-function providerRefusedMessage(status: number | undefined): boolean {
+function providerRefusedRequest(status: number | undefined): boolean {
   return status === 400 || status === 413 || status === 422;
 }
 
@@ -1335,12 +1349,14 @@ export async function drainExomemEmailOutbox(
       else result.lost += 1;
       continue;
     }
-    const refused = providerRefusedMessage(answer?.status);
+    const refused = providerRefusedRequest(answer?.status);
+    const finalRefusal =
+      refused && email.definition.failsWhenRefused === true && !email.definition.afterFailed;
     const state = await releaseEmail(
       email,
       leaseOwner,
       refused ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
-      refused
+      finalRefusal
     );
     result[state === "retry" ? "retryScheduled" : state] += 1;
   }
