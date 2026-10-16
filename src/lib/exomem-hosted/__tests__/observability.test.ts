@@ -32,6 +32,7 @@ describe("start request events", () => {
     "access.start.challenge_unavailable",
     "access.start.failed",
     "access.start.floor_overrun",
+    "access.start.ran_before_response",
   ]) {
     it(`accepts ${event}`, () => {
       assert.doesNotThrow(() =>

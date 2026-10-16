@@ -16,6 +16,7 @@ const EVENT_NAMES = new Set([
   "access.start.challenge_unavailable",
   "access.start.failed",
   "access.start.floor_overrun",
+  "access.start.ran_before_response",
   "alerts.transition.accepted",
   "alerts.transition.duplicate",
   "alerts.transition.denied",

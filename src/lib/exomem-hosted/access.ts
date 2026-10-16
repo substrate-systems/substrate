@@ -90,6 +90,10 @@ async function runAfterResponse(work: () => Promise<void>): Promise<void> {
     after(work);
   } catch {
     // Outside a request (a script or a test) no response waits, so the work runs now.
+    // In production this would put the capacity lock wait back into the response time.
+    emitOperationalEvent(
+      buildOperationalEvent({ event: "access.start.ran_before_response", outcome: "succeeded" })
+    );
     await work();
   }
 }
