@@ -1,4 +1,5 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
+import { after } from "next/server";
 import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
   createMagicAccessToken,
@@ -56,6 +57,8 @@ export type AccessDependencies = {
   ) => Promise<boolean>;
   /** Waits out the rest of the response floor, from a `performance.now()` start. */
   completeStartRequest: (startedAtMs: number) => Promise<void>;
+  /** Runs work once the response has been sent. */
+  afterResponse: (work: () => Promise<void>) => Promise<void>;
 };
 
 async function padStartResponse(startedAtMs: number): Promise<void> {
@@ -82,6 +85,25 @@ async function padStartResponse(startedAtMs: number): Promise<void> {
   );
 }
 
+async function runAfterResponse(work: () => Promise<void>): Promise<void> {
+  try {
+    after(work);
+  } catch {
+    // Outside a request (a script or a test) no response waits, so the work runs now.
+    await work();
+  }
+}
+
+function emitStartFailed(): void {
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "access.start.failed",
+      outcome: "failed",
+      errorCode: "INTERNAL_ERROR",
+    })
+  );
+}
+
 function defaults(): AccessDependencies {
   return {
     now: () => new Date(),
@@ -93,6 +115,7 @@ function defaults(): AccessDependencies {
     redeemMagicAccessTokenAtomic,
     takeRateLimit: takeExomemRateLimit,
     completeStartRequest: padStartResponse,
+    afterResponse: runAfterResponse,
   };
 }
 
@@ -156,7 +179,10 @@ async function queueOwnerSignInLink(
  * The two rate limits run before any branch, so a limited request does the
  * same work whoever it names. No branch sends mail itself: each writes an
  * outbox row in the transaction that records its outcome. The response is
- * held to `START_RESPONSE_FLOOR_MS`.
+ * held to `START_RESPONSE_FLOOR_MS`. The self-serve branch runs after the
+ * response: its outcome never changes the answer, and its wait on the Cloud
+ * capacity lock, which the owner branch never takes, would otherwise show in
+ * the response time.
  *
  * A failure inside a branch is logged content-free and still answers
  * "accepted", because a failure status from one branch only would tell the
@@ -207,15 +233,15 @@ export async function requestStart(
         return { accepted: true, deliveryId };
       }
       const mode = deps.admissionMode();
-      await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
+      await deps.afterResponse(async () => {
+        try {
+          await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
+        } catch {
+          emitStartFailed();
+        }
+      });
     } catch {
-      emitOperationalEvent(
-        buildOperationalEvent({
-          event: "access.start.failed",
-          outcome: "failed",
-          errorCode: "INTERNAL_ERROR",
-        })
-      );
+      emitStartFailed();
     }
     return { accepted: true };
   } finally {

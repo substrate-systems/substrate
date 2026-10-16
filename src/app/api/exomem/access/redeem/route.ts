@@ -13,6 +13,11 @@ import {
   resolveOAuthContinuation,
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import {
+  clientAddressKey,
+  EXOMEM_RATE_LIMITS,
+  takeExomemRateLimit,
+} from "@/lib/exomem-hosted/rate-limit";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import {
   applySessionCookies,
@@ -31,6 +36,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     validatePublicAccessRequest(request);
+    if (
+      !(await takeExomemRateLimit(
+        EXOMEM_RATE_LIMITS.inviteRedeemIp,
+        clientAddressKey(request) ?? "unknown"
+      ))
+    ) {
+      throw exomemErrors.rateLimited();
+    }
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;

@@ -4,7 +4,7 @@ import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { redeemCloudInviteAtomic } from "../cloud-admission";
-import { getCloudCapacityStatus } from "../cloud-capacity";
+import { getCloudCapacityStatus, lockCloudCapacity } from "../cloud-capacity";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -495,6 +495,28 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       promoted: 1,
       settled: 0,
     });
+  });
+
+  it("refuses an unknown invitation without waiting on the capacity lock", async () => {
+    await configureCapacity(1);
+    const holder = await pool!.connect();
+    try {
+      await holder.query("BEGIN");
+      await lockCloudCapacity(taggedSql(holder));
+      const answer = await Promise.race([
+        redeemCloudInviteAtomic({
+          tokenDigest: randomBytes(32),
+          sessionDigest: randomBytes(32),
+          csrfDigest: randomBytes(32),
+          sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        }),
+        new Promise((resolve) => setTimeout(resolve, 2_000, "waited on the lock")),
+      ]);
+      assert.equal(answer, null);
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
   });
 
   it("keeps a waiting person's place when they ask again, and sends the back of the queue to one whose link lapsed", async () => {

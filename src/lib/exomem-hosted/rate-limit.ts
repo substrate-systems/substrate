@@ -63,6 +63,14 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 60,
     windowSeconds: 10 * 60,
   },
+  // Invitation redemption, in the browser or through an OAuth continuation,
+  // is public and may wait on the Cloud capacity lock, so each network
+  // address is bounded before the token is looked up. A person redeems once.
+  inviteRedeemIp: {
+    scope: "exomem:invite-redeem:ip",
+    limit: 20,
+    windowSeconds: 10 * 60,
+  },
   oauthAuthorizeIp: {
     scope: "exomem:oauth-authorize:ip",
     limit: 60,

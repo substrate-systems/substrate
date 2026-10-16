@@ -1221,6 +1221,40 @@ describe("Exomem OAuth routes", () => {
     assert.equal(cloudAdmitCalls.length, 2);
   });
 
+  it("answers a network over its redemption limit with the invite route's access denial, before admission", async () => {
+    const { GET } = await import("../authorize/route");
+    const { POST } = await import("../authorize/invite/route");
+    const started = await GET(
+      authorizeRequest("cloud-limited-state", {
+        client_id: CLOUD_CLIENT_ID,
+        redirect_uri: CLOUD_REDIRECT_URI,
+        resource: RESOURCE,
+        scope: "exomem.read exomem.write",
+      })
+    );
+    assert.equal(started.status, 303);
+    rateLimitAllowed = false;
+
+    const response = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/authorize/invite`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: BASE_URL,
+          cookie: `exomem_oauth_tx=${cookie(started, "exomem_oauth_tx")}`,
+        },
+        body: JSON.stringify({
+          token: Buffer.alloc(32, 0x49).toString("base64url"),
+          nonce: cookie(started, "exomem_oauth_form_nonce"),
+        }),
+      })
+    );
+
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error, "access_denied");
+    assert.equal(cloudAdmitCalls.length, 0);
+  });
+
   it("returns a safe retryable capacity envelope from the UI-facing access redeem path", async () => {
     cloudAdmissionError = new (await import("@/lib/exomem-hosted/errors")).ExomemHostedError({
       code: "HOSTED_ADMISSION_CLOSED",

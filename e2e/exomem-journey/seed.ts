@@ -340,19 +340,28 @@ export async function signInLinkFor(email: string): Promise<string> {
   return `${BASE_URL}/exomem/sign-in#${payload.token}`;
 }
 
-/** The start link a new person's "Start with your email" queued (email 01w). */
+/**
+ * The start link a new person's "Start with your email" queued (email 01w). The start
+ * route queues it after it answers, so this waits a few seconds for the row.
+ */
 export async function startLinkFor(email: string): Promise<string> {
-  const { rows } = await pool.query<{ payload: unknown }>(
-    `SELECT payload_ciphertext AS payload FROM exomem_email_outbox
-     WHERE recipient = $1 AND kind = 'start'
-     ORDER BY created_at DESC LIMIT 1`,
-    [email]
-  );
-  if (!rows[0]) throw new Error(`no start link queued for ${email}`);
-  const payload = JSON.parse(
-    decryptSecret(rows[0].payload as Parameters<typeof decryptSecret>[0]).reveal()
-  ) as { token: string };
-  return `${BASE_URL}/exomem/invite#${payload.token}`;
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const { rows } = await pool.query<{ payload: unknown }>(
+      `SELECT payload_ciphertext AS payload FROM exomem_email_outbox
+       WHERE recipient = $1 AND kind = 'start'
+       ORDER BY created_at DESC LIMIT 1`,
+      [email]
+    );
+    if (rows[0]) {
+      const payload = JSON.parse(
+        decryptSecret(rows[0].payload as Parameters<typeof decryptSecret>[0]).reveal()
+      ) as { token: string };
+      return `${BASE_URL}/exomem/invite#${payload.token}`;
+    }
+    if (Date.now() > deadline) throw new Error(`no start link queued for ${email}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { admitFirstCloudOAuthInviteAtomic } from "@/lib/exomem-hosted/cloud-admission";
-import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
+import { ExomemHostedError, exomemErrors } from "@/lib/exomem-hosted/errors";
 import { newRequestId } from "@/lib/exomem-hosted/http";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
@@ -15,6 +15,11 @@ import {
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import {
+  clientAddressKey,
+  EXOMEM_RATE_LIMITS,
+  takeExomemRateLimit,
+} from "@/lib/exomem-hosted/rate-limit";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import {
   applySessionCookies,
@@ -54,6 +59,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!continuation || !transactionDigest || !transaction) return invalidRequest();
   try {
     validatePublicAccessRequest(request);
+    // Over the limit, the answer is the same access denial as any failed invite.
+    if (
+      !(await takeExomemRateLimit(
+        EXOMEM_RATE_LIMITS.inviteRedeemIp,
+        clientAddressKey(request) ?? "unknown"
+      ))
+    ) {
+      throw exomemErrors.rateLimited();
+    }
     const body = await readBoundedJsonRequest(request, 4096);
     if (
       !body ||

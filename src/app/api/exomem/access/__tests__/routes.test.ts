@@ -13,8 +13,14 @@ let magicRedeems = 0;
 let continuationLookups = 0;
 let cloudInviteCalls = 0;
 let cloudOAuthAdmissionCalls = 0;
+let rateLimitAllowed = true;
 
-before(() => {
+before(async () => {
+  // The redemption limit is a database bucket; here it answers as each test sets it.
+  const actualRateLimit = await import("@/lib/exomem-hosted/rate-limit");
+  mock.module("@/lib/exomem-hosted/rate-limit", {
+    namedExports: { ...actualRateLimit, takeExomemRateLimit: async () => rateLimitAllowed },
+  });
   mock.module("@/lib/exomem-hosted/cloud-admission", {
     namedExports: {
       redeemCloudInvite: async () => {
@@ -99,6 +105,7 @@ beforeEach(() => {
   continuationLookups = 0;
   cloudInviteCalls = 0;
   cloudOAuthAdmissionCalls = 0;
+  rateLimitAllowed = true;
 });
 
 function post(
@@ -150,6 +157,14 @@ describe("Exomem access routes", () => {
     assert.equal(response.status, 200);
     assert.equal(cloudInviteCalls, 1);
     assert.equal(cloudOAuthAdmissionCalls, 0);
+  });
+
+  it("answers a network over its redemption limit with 429, before looking up the invite", async () => {
+    rateLimitAllowed = false;
+    const { POST } = await import("../redeem/route");
+    const response = await POST(post("/api/exomem/access/redeem", { token: SENTINEL }));
+    assert.equal(response.status, 429);
+    assert.equal(cloudInviteCalls, 0);
   });
 
   it("rejects attempts to replace an invite's bound email", async () => {
