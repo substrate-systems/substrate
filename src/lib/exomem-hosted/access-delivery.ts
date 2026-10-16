@@ -91,12 +91,15 @@ function parseDeliveryPayload(
   }
 }
 
+/** What became of one claimed sign-in link. "lost": this worker no longer holds the row. */
+export type MagicLinkDeliveryState = "sent" | "retry" | "failed" | "lost";
+
 async function deliverClaimedMagicLink(
   record: ClaimedMagicLinkDelivery,
   leaseOwner: string,
   publicBaseUrl: ReturnType<typeof parseExomemPublicBaseUrl>,
   deps: MagicLinkDeliveryDependencies
-): Promise<"sent" | "retry" | "failed" | "lost"> {
+): Promise<MagicLinkDeliveryState> {
   const payload = parseDeliveryPayload(record, deps.decrypt, deps.now());
   if (!payload) {
     const state = await deps.release({
@@ -139,16 +142,19 @@ async function deliverClaimedMagicLink(
   return state;
 }
 
-/** Claim only this request's durable row; the scheduled drain owns backlog maintenance. */
+/**
+ * Claim only this request's durable row; the scheduled drain owns backlog maintenance.
+ * Null when the row is not this request's to send: the drain holds it or it is settled.
+ */
 export async function dispatchMagicLinkDelivery(
   deliveryId: string,
   dependencies?: Partial<MagicLinkDeliveryDependencies>
-): Promise<void> {
+): Promise<MagicLinkDeliveryState | null> {
   const deps = { ...defaults(), ...dependencies };
   const leaseOwner = deps.newLeaseOwner();
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const record = await deps.claim({ deliveryId, leaseOwner, leaseSeconds: 60 });
-  if (record) await deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps);
+  return record ? deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps) : null;
 }
 
 export async function drainMagicLinkDeliveries(

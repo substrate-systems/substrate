@@ -263,11 +263,9 @@ describe(
         }
         assert.equal(logs.join(" ").includes("private-"), false);
         assert.equal(logs.join(" ").includes(email), false);
-        if (failure !== "provider") {
-          assert.ok(
-            logs.some((line) => JSON.parse(line).event === "access.magic_link.delivery_failed")
-          );
-        }
+        assert.ok(
+          logs.some((line) => JSON.parse(line).event === "access.magic_link.delivery_failed")
+        );
         const pending = await pool.query(
           "SELECT state, attempts, secret_ciphertext IS NOT NULL AS encrypted FROM exomem_access_delivery_outbox"
         );
