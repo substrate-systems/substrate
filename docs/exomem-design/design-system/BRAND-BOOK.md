@@ -20,7 +20,7 @@ Amber (`exo-amber`) lights only what is live, retrieved or current: a note an as
 - Text: headings and primary text `fg-primary`; long reading `fg-body`; descriptions `fg-secondary`; labels and metadata `fg-muted`; placeholders and hint lines `fg-placeholder`. `fg-tertiary` is for disabled and off states only, never for anything that must be read.
 - Small amber text uses `exo-amber-text` (it passes AA in light); `exo-amber` itself is for dots, rings and text 24 px and up in light.
 - Lines: `exo-rule` between rows and sections, `exo-border-input` on controls at rest, `exo-border-strong` on hover.
-- Dark is the default; light is equally canonical (`data-theme="light"` on `<html>`). In light, `exo-phosphor` (the bright amber) appears only as the halo around a lit note or a lit E.
+- The site follows the device's colour scheme until the person picks one, and dark applies when the device says nothing; light is equally canonical (`data-theme="light"` on `<html>`). In light, `exo-phosphor` (the bright amber) appears only as the halo around a lit note or a lit E.
 - Selected text uses `selection-bg` under `selection-fg` (ink) in both themes; never the browser's blue. A selection is current, so it may be amber.
 - Two token notes are flagged where a locked value misses AA: `fg-muted` on `bg-base` in light (4.3:1) and `fg-footer` (3.5–3.7:1). Changing them is the operator's call; until then follow their notes.
 

@@ -47,7 +47,7 @@ How to read a `.dc.html`: markup inside `<x-dc>` uses `{{ holes }}`, `<sc-for li
 These came out of review. Breaking one is a bug, not a style choice.
 
 1. **Amber lights only live, retrieved or current state.** Never decoration, never a brand flourish. (Phosphor `#FFB000` dark, deep `#A86E00` light.)
-2. **Dark is the default; light is equally canonical.** One subtle switch, site-wide (landing, flow, Home, viewer), remembered in `localStorage["exomem-theme"]`, applied as `data-theme` on `<html>` before first paint.
+2. **The site follows the device's colour scheme until the person picks one; dark and light are equally canonical.** One subtle switch, site-wide (landing, flow, Home, viewer), remembered in `localStorage["exomem-theme"]`, applied as `data-theme` on `<html>` before first paint. Dark applies when the device says nothing. Emails use the scheme the person had on the site.
 3. **Model every state.** Every button does something real. No dead buttons (e.g. "Not now" on the consent page leads to a modelled *declined* state).
 4. **Phone flow pages never scroll.** Each step fits one screen (layouts compute against the real screen height, 640–932 px). Home and the reader may scroll.
 5. **Every number is computed at render** — prices, dates, time limits, counts, sizes. Never hard-code "in 24 hours"; compute "kept 24 h, until 13 Oct, 14:20" in the reader's time zone.
