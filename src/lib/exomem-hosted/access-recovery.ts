@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { after, NextResponse } from "next/server";
 import { requestStart } from "./access";
-import { dispatchMagicLinkDelivery } from "./access-delivery";
+import { dispatchMagicLinkDelivery, type MagicLinkDeliveryState } from "./access-delivery";
 import { executeExomemSql } from "./db";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, hashRateLimitKey } from "./rate-limit";
@@ -183,7 +183,7 @@ export async function uniformAccessStartResponse(
     browserKey: recovery.receipt.browserKey,
     networkKey,
   });
-  if (deliveryId) scheduleMagicLinkDelivery(deliveryId);
+  if (deliveryId) scheduleMagicLinkDelivery(deliveryId, input.requestId);
   const retryAfterSeconds = await accessStartRetryAfterSeconds(
     recovery.receipt.browserKey,
     networkKey
@@ -204,14 +204,15 @@ export async function uniformAccessStartResponse(
 }
 
 /**
- * Logs, content-free, what became of the link sent right after the request. A
- * retry waits for the scheduled drain, whose route logs its own counts. "lost"
- * means another worker holds the row now, so its result is that worker's.
+ * Logs, content-free and under the request's id, what became of the link sent
+ * right after the request. A retry waits for the scheduled drain, whose route
+ * logs its own counts. "lost" logs nothing: the lease ran out, so the row is the
+ * drain's again, though a slow provider may still have taken this send.
  */
-function reportMagicLinkDelivery(state: Awaited<ReturnType<typeof dispatchMagicLinkDelivery>>) {
+function reportMagicLinkDelivery(state: MagicLinkDeliveryState | null, requestId: string) {
   if (state === "sent") {
     emitOperationalEvent(
-      buildOperationalEvent({ event: "access.magic_link.sent", outcome: "succeeded" })
+      buildOperationalEvent({ event: "access.magic_link.sent", outcome: "succeeded", requestId })
     );
   } else if (state === "retry" || state === "failed") {
     emitOperationalEvent(
@@ -219,23 +220,25 @@ function reportMagicLinkDelivery(state: Awaited<ReturnType<typeof dispatchMagicL
         event: "access.magic_link.delivery_failed",
         outcome: state === "retry" ? "pending" : "failed",
         errorCode: state === "retry" ? "EMAIL_DELIVERY_UNAVAILABLE" : "EMAIL_DELIVERY_FAILED",
+        requestId,
       })
     );
   }
 }
 
 /** The row is durable before registration; cron recovers a failed hook or invocation. */
-function scheduleMagicLinkDelivery(deliveryId: string): void {
+function scheduleMagicLinkDelivery(deliveryId: string, requestId: string): void {
   try {
     after(async () => {
       try {
-        reportMagicLinkDelivery(await dispatchMagicLinkDelivery(deliveryId));
+        reportMagicLinkDelivery(await dispatchMagicLinkDelivery(deliveryId), requestId);
       } catch {
         emitOperationalEvent(
           buildOperationalEvent({
             event: "access.magic_link.delivery_failed",
             outcome: "failed",
             errorCode: "INTERNAL_ERROR",
+            requestId,
           })
         );
       }
@@ -246,6 +249,7 @@ function scheduleMagicLinkDelivery(deliveryId: string): void {
         event: "access.magic_link.delivery_failed",
         outcome: "failed",
         errorCode: "NOTIFICATION_NOT_SCHEDULED",
+        requestId,
       })
     );
   }

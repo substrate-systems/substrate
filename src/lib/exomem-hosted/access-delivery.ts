@@ -91,12 +91,15 @@ function parseDeliveryPayload(
   }
 }
 
+/** What became of one claimed sign-in link. "lost": this worker no longer holds the row. */
+export type MagicLinkDeliveryState = "sent" | "retry" | "failed" | "lost";
+
 async function deliverClaimedMagicLink(
   record: ClaimedMagicLinkDelivery,
   leaseOwner: string,
   publicBaseUrl: ReturnType<typeof parseExomemPublicBaseUrl>,
   deps: MagicLinkDeliveryDependencies
-): Promise<"sent" | "retry" | "failed" | "lost"> {
+): Promise<MagicLinkDeliveryState> {
   const payload = parseDeliveryPayload(record, deps.decrypt, deps.now());
   if (!payload) {
     const state = await deps.release({
@@ -146,7 +149,7 @@ async function deliverClaimedMagicLink(
 export async function dispatchMagicLinkDelivery(
   deliveryId: string,
   dependencies?: Partial<MagicLinkDeliveryDependencies>
-): Promise<"sent" | "retry" | "failed" | "lost" | null> {
+): Promise<MagicLinkDeliveryState | null> {
   const deps = { ...defaults(), ...dependencies };
   const leaseOwner = deps.newLeaseOwner();
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
