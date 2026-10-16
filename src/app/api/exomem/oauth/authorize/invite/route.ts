@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { admitFirstCloudOAuthInviteAtomic } from "@/lib/exomem-hosted/cloud-admission";
-import { ExomemHostedError, exomemErrors } from "@/lib/exomem-hosted/errors";
+import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
 import { newRequestId } from "@/lib/exomem-hosted/http";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
@@ -59,14 +59,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!continuation || !transactionDigest || !transaction) return invalidRequest();
   try {
     validatePublicAccessRequest(request);
-    // Over the limit, the answer is the same access denial as any failed invite.
+    // Over the limit, the answer is the retryable one this route gives when Cloud has no room.
     if (
       !(await takeExomemRateLimit(
         EXOMEM_RATE_LIMITS.inviteRedeemIp,
         clientAddressKey(request) ?? "unknown"
       ))
     ) {
-      throw exomemErrors.rateLimited();
+      return temporarilyUnavailable(requestId);
     }
     const body = await readBoundedJsonRequest(request, 4096);
     if (

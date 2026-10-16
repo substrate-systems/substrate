@@ -1221,7 +1221,7 @@ describe("Exomem OAuth routes", () => {
     assert.equal(cloudAdmitCalls.length, 2);
   });
 
-  it("answers a network over its redemption limit with the invite route's access denial, before admission", async () => {
+  it("answers a network over its redemption limit with a retryable temporarily_unavailable, before admission", async () => {
     const { GET } = await import("../authorize/route");
     const { POST } = await import("../authorize/invite/route");
     const started = await GET(
@@ -1250,8 +1250,8 @@ describe("Exomem OAuth routes", () => {
       })
     );
 
-    assert.equal(response.status, 403);
-    assert.equal((await response.json()).error, "access_denied");
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, "temporarily_unavailable");
     assert.equal(cloudAdmitCalls.length, 0);
   });
 
