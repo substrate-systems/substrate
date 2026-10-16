@@ -374,7 +374,9 @@ export default function ExomemPage() {
               <div className={`${styles.door} ${styles.cloudDoor}`}>
                 <div className={styles.doorHead}>
                   <h3>In your assistant</h3>
-                  <span className={`${styles.tag} ${styles.cloudTag}`}>hosted</span>
+                  <span className={`${styles.tag} ${styles.cloudTag}`}>
+                    <Copy desk="hosted" phone="Cloud" />
+                  </span>
                 </div>
                 <ol className={styles.steps}>
                   {cloudSteps.map(({ desk, phone: onPhone }, index) => (

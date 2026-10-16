@@ -18,7 +18,7 @@
   fill: var(--fg-muted);
 }
 .svgText.current {
-  fill: var(--exo-amber);
+  fill: var(--exo-amber-text);
 }
 .caption {
   display: flex;

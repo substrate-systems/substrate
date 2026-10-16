@@ -416,7 +416,9 @@ export function HeroPanel({ latency }: { latency: string }) {
     <div className={styles.panel} data-paused={active !== null || undefined}>
       <div className={styles.query}>
         <span className={styles.ask}>
-          <span className={styles.app}>Claude ›</span>{" "}
+          <span className={styles.app}>
+            Claude<span className={responsive.deskOnly}> ›</span>
+          </span>{" "}
           <span className={styles.q}>what is our current release plan?</span>
         </span>
         <span className={`${styles.row} ${styles.r3} ${styles.latency}`}>{latency}</span>
