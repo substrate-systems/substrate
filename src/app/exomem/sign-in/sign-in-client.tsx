@@ -142,6 +142,7 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
         {emailRequired ? (
           <form className={styles.form} onSubmit={submit} noValidate>
             <TextField
+              surface="page"
               label={startCopy.emailLabel}
               type="email"
               name="email"

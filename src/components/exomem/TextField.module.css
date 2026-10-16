@@ -26,6 +26,11 @@
     border-color var(--dur-hover) ease,
     box-shadow var(--dur-hover) ease;
 }
+/* A field straight on a flow page: the flow's panel colour and its stronger line (R47). */
+.onPage {
+  border-color: var(--exo-border-field);
+  background: var(--bg-raised);
+}
 .input::placeholder {
   color: var(--fg-placeholder);
 }

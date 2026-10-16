@@ -91,7 +91,7 @@ Exomem is a sibling brand inside the Substrate system: it inherits Substrate's r
 
 **Decision, 2026-10-12, approved by the product owner (AA text):** light `--fg-muted` is `#736E64` (was `#7A756B`); a new `--exo-amber-text` (dark `#FFB000`, light `#A06600`) colours amber text, and `--exo-amber` stays for lines, dots, fills and the focus ring; switched-off filter chips use `--fg-muted`, and `--fg-tertiary` is for disabled controls and non-text marks only. The table above keeps the handoff values; the code holds the current ones. On the same day, the owner moved light `--exo-amber-text` from `#9A6500` to `#A06600`. It is the smallest step from `--exo-amber` that reaches 4.5:1 on `--bg-base`, so amber text keeps the colour of amber fills.
 
-Borders are ink at low alpha: rule `.07`, card `.10`, input/chip `.14`, hover `.34`. Amber line `.5` for "current" chips and amber buttons. Landing-only extra grounds (hero bands, footer) are in `Landing-Page.dc.html` (`PAL`).
+Borders are ink at low alpha: rule `.07`, card `.10`, input/chip `.14`, a field straight on a flow page `.22`, hover `.34`. Amber line `.5` for "current" chips and amber buttons. Landing-only extra grounds (hero bands, footer) are in `Landing-Page.dc.html` (`PAL`).
 
 ### 2.2 Type
 
@@ -139,7 +139,7 @@ Build these once and use them everywhere. Full specs, states and sources: `syste
 | **Tag chip** | Plex Mono 11, r 4, border input. Status variant "current": amber text + amber line. |
 | **Segmented switch** (levels Off/Light/Balanced/Maximal) | Track with 1 px border; selected segment filled `--fg-primary`. Description underneath reserves its height so nothing jumps. |
 | **Switch** ("Grow automatically") | A switch, not a checkbox; no black borders. |
-| **Field** | h 44, `--bg-panel`, border input; amber border on focus. Address field has Copy inside, right. The MCP address breaks only after `.io/`. |
+| **Field** | h 44, `--bg-panel`, border input; amber border on focus. A field straight on a flow page takes `--bg-raised` and the `.22` field border (R47 flow). Address field has Copy inside, right. The MCP address breaks only after `.io/`. |
 | **Card / notice** | `--bg-panel`, border card, r 9, padding 12–16. Notices (trouble, storage 80%/full) carry one action. |
 | **Modal** | Centered, `--bg-elevated`, r 12, scrim. Steps inside (ask → working → done); Esc closes. |
 | **Popover** | `--bg-raised`, border input, r 10, shadow. |
