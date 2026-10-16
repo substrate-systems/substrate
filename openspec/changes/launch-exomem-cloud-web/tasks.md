@@ -15,7 +15,7 @@
 - [x] 1.13 Remove recipient and payload from settled outbox rows after 30 days and delete waitlist entries 180 days after the later of the last request and the last start link's expiry unless the address owns an account
 - [x] 1.14 State the outbox and waitlist retention periods on the privacy page
 - [x] 1.15 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
-- [ ] 1.16 Run a dedicated security review of admission
+- [x] 1.16 Run a dedicated security review of admission
 
 ## 2. Consent hand-back and owner apps
 
@@ -27,7 +27,7 @@
 - [x] 2.6 Add `GET /api/exomem/apps` with display names and first-party exclusion
 - [x] 2.7 Add `POST /api/exomem/apps/{id}/disconnect` that revokes grant, token families, access tokens and unconsumed codes
 - [x] 2.8 Test against PostgreSQL: no grant or code written on decline, replay and expiry, foreign app id returns 404
-- [ ] 2.9 Run a dedicated security review of decline and disconnect
+- [x] 2.9 Run a dedicated security review of decline and disconnect
 
 ## 3. Account facts and reviewer sign-in (migration 0064)
 
@@ -57,7 +57,7 @@
     3. `POST /transactions` with `customer_id` and `discount_id` but no `address_id` returns a "draft" transaction that echoes `discount_id` and has `checkout.url`. Paddle accepts a cancel of that transaction.
     4. `PATCH /subscriptions/{id}` with a discount accepts the request shape. Paddle refuses it with "discount is not valid for any items in subscription" when the subscription's price is not the price that the discount is restricted to. Task 4.12 keeps such owners to their plan before any Paddle call.
     5. The `subscription.created` event carries `transaction_id` and `custom_data`.
-- [ ] 4.11 Run a dedicated security review of the friend price
+- [x] 4.11 Run a dedicated security review of the friend price
 - [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
 - [x] 4.13 Cancel an open resubscribe checkout at Paddle before a lapsed kept window deletes the cell, and keep the cell read-only while Paddle cannot answer
 - [x] 4.14 Fix the independent review's findings: check the friend discount on every reopened checkout, read Paddle before storing `kept`, settle a lapsed checkout only on proof and within a time budget, recover a paid resubscription without its event, refuse checkout during deletion, scrub the inviter's note and copied name, date invitation emails in the reader's time zone, and share the invitation kinds and limits
@@ -81,6 +81,7 @@
 - [x] 5.14 Test with real PostgreSQL roles: tenant isolation, column grants, token scope, refusal after deletion
 - [ ] 5.15 Rehearse on a local cluster with the real gateway: levels, activity, storage, export on running and stopped cells
 - [ ] 5.16 Run a dedicated security review of the token mint, the export delivery path and the ledger fields
+  - The 2026-10-16 review covers the token mint, the ledger fields and the web side of export. The cell controller's export delivery waits on PR #1708.
 
 Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR #1708, not merged). Exports stay off until it ships, and tasks 6.5 and 10.3 follow it. The web side of export (tasks 5.6 and 8.8) is on main behind `EXOMEM_CLOUD_EXPORTS_ENABLED`.
 
@@ -104,7 +105,7 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 - [x] 7.6 Build the break states: connect error, ended, paused, suspended, expired, read-only
 - [x] 7.7 Build reviewer sign-in on the web
 - [x] 7.8 Check the approved phone placement and short-window scrolling in dark and light
-- [ ] 7.9 Block tasks 7.3 and 8.7 until the product owner approves deviations (h) and (i)
+- [x] 7.9 Block tasks 7.3 and 8.7 until the product owner approves deviations (h) and (i)
 
 ## 8. Frontend Home
 
