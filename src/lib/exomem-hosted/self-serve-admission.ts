@@ -9,8 +9,10 @@
 
 import { createHash } from "node:crypto";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
-import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { executeExomemSql, takeRateLimit, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit, type ExomemRateLimitRule } from "./rate-limit";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
 /**
@@ -29,6 +31,47 @@ export function selfServeAdmissionMode(
   value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSION
 ): SelfServeAdmissionMode {
   return value === "open" ? "open" : "waitlist";
+}
+
+/**
+ * `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`: how many start links `open` mode
+ * hands out an hour, to newcomers and promoted waiting people together. An
+ * unset value, or one that is not a positive whole number, reads as the
+ * default in rate-limit.ts.
+ */
+export function selfServeAdmissionPace(
+  value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR
+): ExomemRateLimitRule {
+  const rule = EXOMEM_RATE_LIMITS.selfServeAdmission;
+  const limit = Number(value);
+  return Number.isSafeInteger(limit) && limit > 0 ? { ...rule, limit } : rule;
+}
+
+// The pace counts admissions, not people: every address shares one bucket,
+// because one person can type any number of addresses.
+const SELF_SERVE_PACE_KEY = "everybody";
+
+/**
+ * Takes one admission from the self-serve pace, in the admission's own
+ * transaction under the capacity lock, so an admission that rolls back takes
+ * nothing. It stops one person from holding Cloud slots with many addresses.
+ * When it fires wrongly, a real person waits in the queue for a later
+ * promotion, and nothing else is lost.
+ */
+async function takeSelfServeAdmission(tx: ExomemSql): Promise<boolean> {
+  const allowed = await takeExomemRateLimit(selfServeAdmissionPace(), SELF_SERVE_PACE_KEY, {
+    take: (input) => takeRateLimit(input, tx),
+  });
+  if (!allowed) {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.start.admission_paced",
+        outcome: "denied",
+        errorCode: "RATE_LIMITED",
+      })
+    );
+  }
+  return allowed;
 }
 
 /**
@@ -141,7 +184,8 @@ async function enqueueStartLinkEmail(
  *    address, so a request must not cancel a link they are about to open.
  *    Using any one of the links revokes the rest (cloud-admission.ts).
  * 2. In `open` mode, a free slot admits them, but only while nobody is
- *    waiting, so a newcomer never overtakes the queue.
+ *    waiting, so a newcomer never overtakes the queue, and only while the
+ *    self-serve pace has room.
  * 3. Otherwise they are queued. A person already waiting keeps their place,
  *    so asking again never costs them it. A person whose earlier start link
  *    lapsed unused goes to the back, because they already had a turn.
@@ -200,7 +244,11 @@ export async function startSelfServeAtomic(input: {
           SELECT 1 FROM exomem_waitlist_entries WHERE admitted_at IS NULL
         ) AS waiting
       `;
-      if (fits && !(waiting.rows[0] as { waiting: boolean }).waiting) {
+      if (
+        fits &&
+        !(waiting.rows[0] as { waiting: boolean }).waiting &&
+        (await takeSelfServeAdmission(tx))
+      ) {
         const invite = await insertStartLink(tx, {
           emailNormalized: input.emailNormalized,
           link,
@@ -272,11 +320,12 @@ export type WaitlistPromotionResult =
   | { status: "ran"; promoted: number; settled: number };
 
 /**
- * Promotes waiting people, oldest first, while Cloud has a free slot. Runs
- * only in `open` mode. Each promotion is its own transaction under the
- * capacity lock: it re-reads the headroom, takes the oldest waiting entry,
- * creates its start link, marks the entry admitted and enqueues the
- * "place opened" email, so a crash between two promotions loses nothing.
+ * Promotes waiting people, oldest first, while Cloud has a free slot and the
+ * self-serve pace has room. Runs only in `open` mode. Each promotion is its
+ * own transaction under the capacity lock: it re-reads the headroom, takes
+ * the oldest waiting entry, creates its start link, marks the entry admitted
+ * and enqueues the "place opened" email, so a crash between two promotions
+ * loses nothing.
  *
  * A waiting address that has since come to own an Exomem (an operator
  * invited it) needs no place. Its entry is settled, by deletion, instead of
@@ -327,6 +376,7 @@ export async function promoteWaitlistedPeople(
         | undefined;
       if (!entry) return false;
       if (!(await cloudAdmissionAllows(tx, { email: entry.email_normalized }))) return false;
+      if (!(await takeSelfServeAdmission(tx))) return false;
       const invite = await insertStartLink(tx, {
         emailNormalized: entry.email_normalized,
         link,

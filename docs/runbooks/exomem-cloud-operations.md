@@ -40,6 +40,7 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level. |
 | `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                                          |
 | `EXOMEM_SELF_SERVE_ADMISSION`                                       | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                      |
+| `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`                             | Start links that `open` mode hands out per hour, to newcomers and promoted people together. Unset or not a positive whole number reads as 5. See "Start admission" below.                                                             |
 | `EXOMEM_CLOUD_EXPORTS_ENABLED`                                      | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                     |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
@@ -526,6 +527,13 @@ Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 - `open`: a start link while Cloud has a free place and nobody is waiting,
   else a waitlist place. Each reconcile tick promotes the oldest waiting
   people into free places.
+
+`open` mode also paces admissions: at most
+`EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR` start links an hour (default 5), for
+newcomers and promotions together, whatever the address. Past it, a newcomer
+gets a waitlist place exactly as when Cloud is full, and promotion waits for
+the next hour. Each refusal logs `access.start.admission_paced`, content-free.
+To admit people faster, raise the pace and redeploy.
 
 A free place is a freshly observed Cloud slot that no live cell and no unused
 invitation holds. Every invitation counts, whatever its kind, and one address

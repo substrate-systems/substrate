@@ -13,6 +13,7 @@ import {
   type ExomemSql,
 } from "../db";
 import { clearSettledEmailRecipients, drainExomemEmailOutbox } from "../email-outbox";
+import { setOperationalEventSinkForTests } from "../observability";
 import {
   EXOMEM_INVITE_CAPABILITIES,
   EXOMEM_INVITE_LIMITS,
@@ -48,6 +49,7 @@ const ENV = {
   EXOMEM_CONTROL_PLANE_KEY: randomBytes(32).toString("base64url"),
   EXOMEM_TURNSTILE_SECRET_KEY: TURNSTILE_ALWAYS_PASSES,
   EXOMEM_SELF_SERVE_ADMISSION: undefined,
+  EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR: undefined,
 } as Record<string, string | undefined>;
 const priorEnv: Record<string, string | undefined> = {};
 const realFetch = globalThis.fetch;
@@ -174,6 +176,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     siteverifyCalls = 0;
     process.env.EXOMEM_TURNSTILE_SECRET_KEY = TURNSTILE_ALWAYS_PASSES;
     delete process.env.EXOMEM_SELF_SERVE_ADMISSION;
+    delete process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR;
     // The waitlist row must go before the invite it names (its admitted-pair
     // CHECK refuses the SET NULL), and tokens before the tenants they name.
     await pool!.query("DELETE FROM exomem_email_outbox");
@@ -330,7 +333,8 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [email]),
       1
     );
-    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 3);
+    // The request's address, browser and network limits, and the admission's pace.
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 4);
   });
 
   it("admits exactly one of many simultaneous starts at the last free slot and queues the rest", async () => {
@@ -431,6 +435,66 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       ),
       1
     );
+  });
+
+  it("queues a newcomer and promotes nobody once the hour's self-serve admissions are used, while places are free", async () => {
+    await configureCapacity(5);
+    process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR = "1";
+    const paced = newAddress("paced");
+    const logs: string[] = [];
+    setOperationalEventSinkForTests((line) => logs.push(line));
+    try {
+      assert.equal(
+        await startSelfServeAtomic({
+          emailNormalized: newAddress("first"),
+          timeZone: null,
+          mode: "open",
+        }),
+        "admitted"
+      );
+      assert.equal(
+        await startSelfServeAtomic({ emailNormalized: paced, timeZone: null, mode: "open" }),
+        "waitlisted"
+      );
+      assert.deepEqual(await promoteWaitlistedPeople({ mode: "open" }), {
+        status: "ran",
+        promoted: 0,
+        settled: 0,
+      });
+    } finally {
+      setOperationalEventSinkForTests(null);
+    }
+
+    // Queued exactly as a full Cloud queues: a waitlist place and its one email.
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_invites WHERE self_serve"), 1);
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1 AND admitted_at IS NULL",
+        [paced]
+      ),
+      1
+    );
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_email_outbox WHERE kind = 'waitlist' AND recipient = $1",
+        [paced]
+      ),
+      1
+    );
+    // Each refusal raises the alert, and the alert names nobody.
+    const alerts = logs.filter((line) => JSON.parse(line).event === "access.start.admission_paced");
+    assert.equal(alerts.length, 2);
+    assert.equal(alerts.join(" ").includes(paced), false);
+
+    // The next hour, the queue moves again.
+    await pool!.query(
+      "UPDATE exomem_rate_limit_buckets SET window_started_at = now() - interval '2 hours'"
+    );
+    assert.deepEqual(await promoteWaitlistedPeople({ mode: "open" }), {
+      status: "ran",
+      promoted: 1,
+      settled: 0,
+    });
   });
 
   it("keeps a waiting person's place when they ask again, and sends the back of the queue to one whose link lapsed", async () => {

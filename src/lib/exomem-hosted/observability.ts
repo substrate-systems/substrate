@@ -11,6 +11,7 @@ const EVENT_NAMES = new Set([
   "access.logout.succeeded",
   "access.request.denied",
   "access.start.accepted",
+  "access.start.admission_paced",
   "access.start.challenge_failed",
   "access.start.challenge_unavailable",
   "access.start.failed",

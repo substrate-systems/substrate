@@ -160,6 +160,8 @@ jobs:
           EXOMEM_E2E_BASE_URL: http://localhost:3100
           EXOMEM_PUBLIC_BASE_URL: http://localhost:3100
           EXOMEM_SELF_SERVE_ADMISSION: open
+          # Every journey that starts a new person is admitted, however many run in the hour.
+          EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR: "100000"
           EXOMEM_TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
           NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
           EXOMEM_CLOUD_MCP_URL: https://cloud.example.test/mcp/v1

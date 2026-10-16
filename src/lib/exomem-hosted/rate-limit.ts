@@ -48,6 +48,14 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 1,
     windowSeconds: 60,
   },
+  // Start links that `open` mode hands out, to newcomers and promoted waiting
+  // people together, under one key for everybody. `limit` is the default;
+  // `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR` sizes it (self-serve-admission.ts).
+  selfServeAdmission: {
+    scope: "exomem:self-serve-admission",
+    limit: 5,
+    windowSeconds: 60 * 60,
+  },
   // Invitation inspect is public and calls Paddle's price preview, so each
   // network address is bounded before the token is looked up.
   inviteInspectIp: {
