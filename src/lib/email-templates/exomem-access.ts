@@ -41,7 +41,7 @@ export function renderExomemMagicLinkEmail(input: {
   const now = input.now ?? new Date();
   const left = emailDuration(now, input.expiresAt);
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "Sign in to Exomem",
     preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
     band: "arrive",
@@ -67,7 +67,7 @@ export function renderExomemWelcomeEmail(input: {
   const now = input.now ?? new Date();
   const left = emailDuration(now, input.expiresAt);
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "Start your Exomem",
     preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
     band: "arrive",
@@ -94,7 +94,7 @@ export function renderExomemInviteEmail(input: {
 }): RenderedExomemAccessEmail {
   const until = emailDate(input.expiresAt, input.timeZone);
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "You’re invited to Exomem",
     preheader: "One memory for every assistant you use.",
     band: "arrive",
@@ -127,7 +127,7 @@ export function renderExomemHoldReminderEmail(input: {
     ? `You accepted ${input.inviterName}’s invitation but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup; the invitation stays used.`
     : `You started setting up Exomem but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "Finish setting up your Exomem",
     preheader: `Finish by ${deadline}.`,
     band: "arrive",
@@ -143,7 +143,7 @@ export function renderExomemWaitlistEmail(
   input: { scheme?: ExomemEmailScheme | null } = {}
 ): RenderedExomemAccessEmail {
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "You’re on the Exomem list",
     preheader: "We’ll email you when there’s a place for you.",
     band: "arrive",
@@ -169,7 +169,7 @@ export function renderExomemPlaceOpenedEmail(input: {
   const zone: EmailTimeZone = input.timeZone;
   const time = emailShortDateTime(input.expiresAt, zone);
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "Your place in Exomem is ready",
     preheader: zone ? `Start before ${time} to keep it.` : `Start before ${time} UTC to keep it.`,
     band: "arrive",
@@ -195,7 +195,7 @@ export function renderExomemDeletionEmail(input: {
 }): RenderedExomemAccessEmail {
   const now = input.now ?? new Date();
   return renderExomemEmail({
-    base: input.scheme,
+    base: input.scheme ?? null,
     subject: "Confirm deletion of your Exomem",
     preheader: "Nothing is deleted until you open the link.",
     band: "fading",

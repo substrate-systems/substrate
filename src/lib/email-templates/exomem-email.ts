@@ -76,9 +76,9 @@ export type ExomemEmailSlots = {
   /**
    * Not a slot: the scheme the inline styles and the first images take, the
    * recipient's on the Exomem site. The other scheme applies through the
-   * media block. `null` or absent is dark: no scheme is recorded.
+   * media block. `null` is dark: no scheme is recorded.
    */
-  base?: ExomemEmailScheme | null;
+  base: ExomemEmailScheme | null;
   /** Slot 1: "Exomem", or "<name> via Exomem" when a person sent it. */
   sentBy?: { personName: string } | null;
   /** Slot 1: 45 characters or fewer, except named friend invitations (design.md). */

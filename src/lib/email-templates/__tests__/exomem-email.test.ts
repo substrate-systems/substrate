@@ -48,12 +48,15 @@ describe("Exomem emails", () => {
       assert.equal(body.includes(dark[name]), false, `${name} is never dark inline`);
       assert.ok(block.includes(dark[name]), `${name} is dark in the block`);
     }
-    // The first image shown is the light one; its dark twin follows, hidden.
+    // The first image shown is the light one; its dark twin follows, hidden until the block.
     assert.ok(body.slice(0, body.indexOf('.png"')).endsWith("-light"));
+    assert.ok(block.includes(".x-img-light { display: none"), "the block hides the light image");
+    assert.ok(head.includes('<meta name="color-scheme" content="light dark">'));
   });
 
   it("renders a person's name as text, never as markup", () => {
     const rendered = renderExomemReadyEmail({
+      scheme: null,
       homeUrl: "https://substratesystems.io/exomem/home",
       recipientName: "<img src=x onerror=alert(1)>",
       connected: true,
@@ -83,6 +86,7 @@ describe("Exomem emails", () => {
   it("says 'connected' only when an app is connected", () => {
     const ready = (connected: boolean) =>
       renderExomemReadyEmail({
+        scheme: null,
         homeUrl: "https://substratesystems.io/exomem/home",
         recipientName: null,
         connected,
@@ -95,12 +99,14 @@ describe("Exomem emails", () => {
 
   it("gives the read-only end date when the dunning window is known, and no invented date when not", () => {
     const known = renderExomemPaymentFailedEmail({
+      scheme: null,
       billingUrl: "https://substratesystems.io/exomem/home",
       readOnlyUntil: new Date(NOW.getTime() + 14 * DAY),
       timeZone: "Europe/Berlin",
     }).textContent;
     assert.match(known, /If it still hasn’t worked by 26 October, your subscription ends\./);
     const unknown = renderExomemPaymentFailedEmail({
+      scheme: null,
       billingUrl: "https://substratesystems.io/exomem/home",
       readOnlyUntil: null,
       timeZone: "Europe/Berlin",
@@ -111,6 +117,7 @@ describe("Exomem emails", () => {
   it("promises the reminder only when it is queued", () => {
     const ended = (reminderScheduled: boolean) =>
       renderExomemSubscriptionEndedEmail({
+        scheme: null,
         exportUrl: "https://substratesystems.io/exomem/home",
         supportUrl: "https://substratesystems.io/exomem/support",
         resubscribeUrl: "https://substratesystems.io/exomem/home",
@@ -125,6 +132,7 @@ describe("Exomem emails", () => {
 
   it("sends an ended owner to support for a copy, and promises no export, while Home offers none", () => {
     const ended = renderExomemSubscriptionEndedEmail({
+      scheme: null,
       exportUrl: null,
       supportUrl: "https://substratesystems.io/exomem/support",
       resubscribeUrl: "https://substratesystems.io/exomem/home",
@@ -141,6 +149,7 @@ describe("Exomem emails", () => {
   it("counts the days left at send, not the days the board drew", () => {
     const reminder = (daysLeft: number) =>
       renderExomemDeletionReminderEmail({
+        scheme: null,
         exportUrl: "https://substratesystems.io/exomem/home",
         supportUrl: "https://substratesystems.io/exomem/support",
         resubscribeUrl: "https://substratesystems.io/exomem/home",

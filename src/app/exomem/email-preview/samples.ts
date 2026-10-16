@@ -101,6 +101,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "03",
       note: "ready, friend's invitation",
       email: renderExomemReadyEmail({
+        scheme: null,
         homeUrl: home,
         recipientName: "Reader",
         connected: true,
@@ -117,6 +118,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "03",
       note: "ready, own plan, nothing connected yet, price unknown",
       email: renderExomemReadyEmail({
+        scheme: null,
         homeUrl: home,
         recipientName: null,
         connected: false,
@@ -129,6 +131,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "04",
       note: "payment failed",
       email: renderExomemPaymentFailedEmail({
+        scheme: null,
         billingUrl: home,
         readOnlyUntil: at(14 * DAY),
         timeZone: ZONE,
@@ -139,6 +142,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "04",
       note: "payment failed, dunning window not configured",
       email: renderExomemPaymentFailedEmail({
+        scheme: null,
         billingUrl: home,
         readOnlyUntil: null,
         timeZone: ZONE,
@@ -150,6 +154,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "05",
       note: exportUrl ? "subscription ended" : "subscription ended, export off",
       email: renderExomemSubscriptionEndedEmail({
+        scheme: null,
         exportUrl,
         supportUrl: support,
         resubscribeUrl: home,
@@ -164,6 +169,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "06",
       note: exportUrl ? "a week before deletion" : "a week before deletion, export off",
       email: renderExomemDeletionReminderEmail({
+        scheme: null,
         exportUrl,
         supportUrl: support,
         resubscribeUrl: home,
@@ -176,7 +182,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       id: "07",
       number: "07",
       note: "deleted",
-      email: renderExomemDeletedEmail({ deletedAt: now, now, timeZone: ZONE }),
+      email: renderExomemDeletedEmail({ deletedAt: now, now, timeZone: ZONE, scheme: null }),
     },
     {
       id: "08",
@@ -194,6 +200,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "09",
       note: "friend invitation, with a note",
       email: renderExomemFriendInvitationEmail({
+        scheme: null,
         acceptUrl: link("/exomem/invite"),
         inviterName: "Alex",
         note: "This is the thing I told you about. It remembers where every note came from.",
@@ -209,6 +216,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "09",
       note: "friend invitation, long name, address and unbroken note",
       email: renderExomemFriendInvitationEmail({
+        scheme: null,
         acceptUrl: link("/exomem/invite"),
         inviterName: "Alexandria".repeat(6),
         note: `A note with a long reference: ${"reference".repeat(16)}.`,
@@ -224,6 +232,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "10",
       note: "covered invitation, no note",
       email: renderExomemCoveredInvitationEmail({
+        scheme: null,
         acceptUrl: link("/exomem/invite"),
         inviterName: "Alex",
         note: null,
@@ -237,6 +246,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "11",
       note: "invitation ends soon",
       email: renderExomemInvitationReminderEmail({
+        scheme: null,
         acceptUrl: link("/exomem/invite"),
         inviterName: "Alex",
         expiresAt: at(3 * DAY),
@@ -249,6 +259,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "12",
       note: "invitation used, to the inviter",
       email: renderExomemInvitationUsedEmail({
+        scheme: null,
         inviteeName: "Reader",
         usedAt: now,
         friendPrice: { amount: "1000", currencyCode: "EUR" },
@@ -260,6 +271,7 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
       number: "13",
       note: "invitation ended unused, to the inviter",
       email: renderExomemInvitationEndedEmail({
+        scheme: null,
         inviteeName: "Reader",
         issuedAt: at(-14 * DAY),
         expiredAt: now,

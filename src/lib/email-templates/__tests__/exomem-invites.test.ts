@@ -10,6 +10,7 @@ describe("Exomem invitation emails", () => {
     it(`uses ${length === 40 ? "the inviter's name" : "the generic subject"} for a ${length}-character inviter`, () => {
       const inviterName = "𐐀".repeat(length);
       const rendered = renderExomemFriendInvitationEmail({
+        scheme: null,
         acceptUrl: "https://substratesystems.io/exomem/invite#token",
         inviterName,
         note: null,
@@ -29,6 +30,7 @@ describe("Exomem invitation emails", () => {
 
   it("renders the inviter's name and note as text, never as markup", () => {
     const rendered = renderExomemCoveredInvitationEmail({
+      scheme: null,
       acceptUrl: "https://substratesystems.io/exomem/invite#token",
       inviterName: "Alex & Co",
       note: '<img src=x onerror="alert(1)"> see you',

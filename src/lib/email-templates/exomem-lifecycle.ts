@@ -57,7 +57,7 @@ export function renderExomemReadyEmail(input: {
     friendInviterName: string | null;
   } | null;
   timeZone: EmailTimeZone;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedEmail {
   const friend = input.billing?.friendInviterName ?? null;
   const rows: ExomemEmailFact[] = [];
@@ -106,7 +106,7 @@ export function renderExomemPaymentFailedEmail(input: {
   billingUrl: string;
   readOnlyUntil: Date | null;
   timeZone: EmailTimeZone;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedEmail {
   const ends = input.readOnlyUntil
     ? `If it still hasn’t worked by ${emailDate(input.readOnlyUntil, input.timeZone)}, your subscription ends.`
@@ -155,7 +155,7 @@ export function renderExomemSubscriptionEndedEmail(
     /** Whether email 06 is queued for a week before deletion. */
     reminderScheduled: boolean;
     timeZone: EmailTimeZone;
-    scheme?: ExomemEmailScheme | null;
+    scheme: ExomemEmailScheme | null;
   }
 ): RenderedEmail {
   const kept = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
@@ -184,7 +184,7 @@ export function renderExomemDeletionReminderEmail(
     keptUntil: Date;
     now: Date;
     timeZone: EmailTimeZone;
-    scheme?: ExomemEmailScheme | null;
+    scheme: ExomemEmailScheme | null;
   }
 ): RenderedEmail {
   const left = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
@@ -212,7 +212,7 @@ export function renderExomemDeletedEmail(input: {
   deletedAt: Date;
   now: Date;
   timeZone: EmailTimeZone;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedEmail {
   const when = emailSameDay(input.deletedAt, input.now, input.timeZone)
     ? "today"
@@ -242,6 +242,7 @@ export function renderExomemExportReadyEmail(input: {
 }): RenderedEmail {
   const kept = emailDuration(input.now, input.keptUntil);
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: "Your Exomem export is ready",
     preheader: kept
       ? `Your whole vault, as Markdown. Kept for ${kept}.`
@@ -267,6 +268,7 @@ export function renderExomemStorageWarningEmail(input: {
   const free = gigabytes(Math.max(0, input.limitGb - input.usedGb));
   const limit = gigabytes(input.limitGb);
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: `Your Exomem is ${percent}% full`,
     preheader: `Everything works. ${free} GB left.`,
     band: "readonly",
@@ -286,6 +288,7 @@ export function renderExomemStorageWarningEmail(input: {
 /** Email 15: storage is full; recall works and saving waits. */
 export function renderExomemStorageFullEmail(input: { homeUrl: string }): RenderedEmail {
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: "Your Exomem is full",
     preheader: "Recall works. Saving waits for room.",
     band: "readonly",
@@ -307,6 +310,7 @@ export function renderExomemStorageAddedEmail(input: {
 }): RenderedEmail {
   const limit = gigabytes(input.newLimitGb);
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: "More storage added",
     preheader: `${limit} GB, and saving carries on.`,
     band: "live",
@@ -330,6 +334,7 @@ export function renderExomemConfirmNewEmailEmail(input: {
   const left = emailDuration(input.now, input.expiresAt);
   const until = emailClock(input.expiresAt, input.timeZone);
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: "Confirm your new email",
     preheader: "Nothing changes until you open it.",
     band: "arrive",
@@ -358,6 +363,7 @@ export function renderExomemEmailChangingEmail(input: {
   newEmail: string;
 }): RenderedEmail {
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: "Your Exomem email is changing",
     preheader: "If this wasn’t you, stop it here.",
     band: "kept",
@@ -377,6 +383,7 @@ export function renderExomemVaultImportedEmail(input: {
   files: number;
 }): RenderedEmail {
   return renderExomemEmail({
+    base: null, // Nothing sends this email yet; its sender passes the scheme.
     subject: "Your vault is in Exomem",
     preheader: "",
     band: "live",

@@ -39,7 +39,7 @@ export function renderExomemFriendInvitationEmail(input: {
   timeZone: EmailTimeZone;
   usualPrice: ExomemMoney;
   friendPrice: ExomemMoney;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const usual = formatMoney(input.usualPrice);
   const friend = formatMoney(input.friendPrice);
@@ -75,7 +75,7 @@ export function renderExomemCoveredInvitationEmail(input: {
   inviteeEmail: string;
   expiresAt: Date;
   timeZone: EmailTimeZone;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   return renderExomemEmail({
     base: input.scheme,
@@ -104,7 +104,7 @@ export function renderExomemInvitationReminderEmail(input: {
   /** How many days before the end this reminder is sent. */
   leadDays: number;
   timeZone: EmailTimeZone;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const ends = emailDate(input.expiresAt, input.timeZone);
   return renderExomemEmail({
@@ -132,7 +132,7 @@ export function renderExomemInvitationUsedEmail(input: {
   usedAt: Date;
   friendPrice: ExomemMoney | null;
   timeZone: EmailTimeZone;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const rows: ExomemEmailFact[] = [
     { label: "Invitation", value: `used ${emailDate(input.usedAt, input.timeZone)}` },
@@ -162,7 +162,7 @@ export function renderExomemInvitationEndedEmail(input: {
   inviteeName: string;
   issuedAt: Date;
   expiredAt: Date;
-  scheme?: ExomemEmailScheme | null;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const days = Math.max(
     1,
