@@ -116,8 +116,15 @@ export function HomeHeader({
       </span>
       <span className={styles.headerEnd}>
         <ThemeToggle />
-        <span>
-          {email && <span className={styles.email}>{email} · </span>}
+        <span className={styles.account}>
+          {email && (
+            <span className={styles.email}>
+              <span className={styles.emailAddress} title={email}>
+                {email}
+              </span>
+              <span aria-hidden="true">·</span>
+            </span>
+          )}
           <button
             type="button"
             className={`${styles.inlineButton} ${phone.hitArea}`}

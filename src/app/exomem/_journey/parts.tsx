@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { FadeIn, Swap } from "@/components/exomem/Transitions";
@@ -184,7 +184,7 @@ export function PriceCard({
 }) {
   return (
     <div className={`${styles.panel} ${styles.price}`}>
-      <span className={styles.priceLabel}>{label}</span>
+      <span className={`${styles.panelLabel} ${styles.priceLabel}`}>{label}</span>
       <div className={styles.priceRow}>
         <span className={styles.priceMain}>{main}</span>
         {was ? <s className={styles.priceWas}>{was}</s> : null}
@@ -289,13 +289,23 @@ export function WorkingBar({ label }: { label: string }) {
 }
 
 export function SentCard({ email, app }: { email: string; app?: string }) {
+  // A long address wraps before a "." or the "@", the separators an address's format fixes,
+  // rather than inside a name.
+  const pieces = email.split(/(?=[.@])/);
   return (
     <div className={`${styles.panel} ${styles.sent}`}>
-      <div className={styles.factRow}>
-        <span className={styles.factLabel}>{sentCopy.sentTo}</span>
-        <span className={styles.factValue}>{email}</span>
+      <div className={styles.sentTo}>
+        <span className={styles.panelLabel}>{sentCopy.sentTo}</span>
+        <span className={styles.sentAddress}>
+          {pieces.map((piece, index) => (
+            <Fragment key={index}>
+              {index > 0 ? <wbr /> : null}
+              {piece}
+            </Fragment>
+          ))}
+        </span>
       </div>
-      <div className={styles.panelNote}>
+      <div className={styles.sentNote}>
         {app ? sentCopy.openHereForApp(app) : sentCopy.openHere}
       </div>
     </div>

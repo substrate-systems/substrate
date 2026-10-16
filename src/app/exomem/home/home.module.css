@@ -76,20 +76,26 @@
 
 /* --- Header --- */
 
+/* The app header's text is 15 px, the type scale's body size, set in the mono face: the
+   board's 12 px read too small. Its labels never wrap; the email gives way first. */
 .header {
+  --header-text: 15px;
   position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 24px;
   height: 75px;
   box-sizing: border-box;
   padding: 0 40px;
+  white-space: nowrap;
 }
 
 .headerStart {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 32px;
 }
 
 .wordmark {
@@ -97,11 +103,17 @@
   color: var(--fg-primary);
 }
 
+/* The board draws the wordmark 17 px tall beside 12 px text; it keeps that proportion. */
+.wordmark svg {
+  width: auto;
+  height: calc(var(--header-text) * 17 / 12);
+}
+
 .nav {
   display: flex;
-  gap: 18px;
+  gap: 22px;
   font-family: var(--font-mono-exo);
-  font-size: 12px;
+  font-size: var(--header-text);
 }
 
 .navCurrent {
@@ -109,12 +121,33 @@
 }
 
 .headerEnd {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-family: var(--font-mono-exo);
-  font-size: 12px;
+  font-size: var(--header-text);
   color: var(--fg-secondary);
+}
+
+.account {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+}
+
+/* The signed-in email and its "·", one space either side; a long address ends in an ellipsis. */
+.email {
+  min-width: 0;
+  display: flex;
+  gap: 1ch;
+  margin-right: 1ch;
+}
+
+.emailAddress {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inlineButton {
@@ -813,7 +846,11 @@
     display: block;
   }
 
+  /* 15 px on a 390 px phone, and smaller in step on a narrower one, so the header keeps
+     one line. A phone hides the email, so nothing gives way and no minimum gap is needed. */
   .header {
+    --header-text: clamp(13px, 100vw * 15 / 390, 15px);
+    gap: 0;
     padding: 0 16px;
   }
 
@@ -823,6 +860,12 @@
 
   .nav {
     gap: 12px;
+  }
+
+  /* The theme switch's own padding spaces it from Sign out, so the account side stays
+     apart from the nav at 15 px. */
+  .headerEnd {
+    gap: 4px;
   }
 
   .email {

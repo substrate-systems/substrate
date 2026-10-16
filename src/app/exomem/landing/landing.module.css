@@ -63,10 +63,11 @@
 /* ---- Hero ---- */
 
 .hero {
+  --hero-gap: 48px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 48px;
+  gap: var(--hero-gap);
   padding: 56px 0 72px;
 }
 
@@ -507,6 +508,16 @@
 .doorCta a:hover,
 .cloudCta a:hover {
   filter: brightness(1.06);
+}
+
+/* The board draws the two calls to action on one row, with a few pixels to spare in the 500 px
+   column. Wider glyphs, such as Windows at 150 %, take the row past the column, so it may run
+   into half the gap before the hero panel rather than wrap. A narrow desktop, whose column is
+   narrower, still wraps it rather than run it under the panel. */
+@media (min-width: 901px) and (min-height: 481px) {
+  .heroCtas {
+    width: calc(100% + var(--hero-gap) / 2);
+  }
 }
 
 /* ---- Between the drawn sizes: the header keeps only what the phone keeps, and rows

@@ -35,7 +35,9 @@
   min-height: 0;
 }
 
-.wordmark {
+/* The wordmark link also takes phone.module.css's hit area, whose position: relative wins or
+   loses by the order the two modules load in; the page's own placement must win either way. */
+.page > .wordmark {
   position: absolute;
   z-index: 1;
   left: var(--gutter);
@@ -244,11 +246,16 @@
   gap: 6px;
 }
 
-.priceLabel {
+/* A panel's small label above its value: the price card's, and the sent card's "To". */
+.panelLabel {
   font-family: var(--font-mono-exo);
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.priceLabel {
   color: var(--exo-amber-text);
 }
 
@@ -279,32 +286,35 @@
   color: var(--fg-secondary);
 }
 
+/* "Check your email": the address the link went to is what the eye lands on, with its label
+   above it as on the price card, and the note under a hairline as on the scopes card. The
+   whole address shows, so a person can check it for a typo. */
 .sent {
-  gap: 10px;
-  font-size: 13.5px;
+  gap: 14px;
 }
 
-.factRow {
+.sentTo {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sentAddress {
   font-family: var(--font-mono-exo);
-  font-size: 12.5px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
 }
 
-.factLabel {
-  color: var(--fg-secondary);
-}
-
-.factValue {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.panelNote {
-  color: var(--fg-secondary);
+.sentNote {
+  padding-top: 12px;
+  border-top: 1px solid var(--exo-border-card);
+  font-size: 13.5px;
   line-height: 1.5;
+  color: var(--fg-secondary);
 }
 
 .scopes {

@@ -7,7 +7,13 @@ import { Wordmark } from "@/components/exomem/Wordmark";
 import { CLIENT_PLATFORM_GLYPHS } from "@/lib/exomem-hosted/client-platforms";
 import { FadeIn } from "@/components/exomem/Transitions";
 import phone from "@/components/exomem/phone.module.css";
+import { wordmarkCopy } from "./copy";
 import styles from "./journey.module.css";
+
+/** Exomem's public landing, where a signed-out wordmark goes. */
+const LANDING = "/exomem";
+/** Where a signed-in wordmark goes. */
+const HOME = "/exomem/home";
 
 /** The app tile: its glyph is a mark, not a logo, and its name is the tile's title. */
 export type AppTile = { name: string; glyph: ReactNode; glyphSize: number };
@@ -41,8 +47,6 @@ type JourneyPageProps = {
   app?: AppTile;
   /** Signed in: the email in the header (desktop). */
   headerEmail?: string | null;
-  /** The signed-in navigation destination can differ from the visible email. */
-  homeHref?: string;
   /** A page an app opened: where the request came from. */
   footer?: string | null;
   /**
@@ -64,7 +68,6 @@ export function JourneyPage({
   kind,
   app,
   headerEmail,
-  homeHref = "/exomem/home",
   footer,
   tilesIdle = false,
   stepKey,
@@ -139,19 +142,14 @@ export function JourneyPage({
         footer={!!footer}
         onLit={onPairMotionComplete ? fieldLit : undefined}
       />
-      {headerEmail ? (
-        <a
-          className={`${styles.wordmark} ${phone.hitArea}`}
-          href={homeHref}
-          aria-label="Exomem home"
-        >
-          <Wordmark state={kind === "stop" ? "off" : "rest"} />
-        </a>
-      ) : (
-        <div className={styles.wordmark}>
-          <Wordmark state={kind === "stop" ? "off" : "rest"} />
-        </div>
-      )}
+      {/* Signed in, the wordmark goes to Home; signed out, to the landing. */}
+      <a
+        className={`${styles.wordmark} ${phone.hitArea}`}
+        href={headerEmail ? HOME : LANDING}
+        aria-label={headerEmail ? wordmarkCopy.home : wordmarkCopy.landing}
+      >
+        <Wordmark state={kind === "stop" ? "off" : "rest"} />
+      </a>
       {headerEmail ? <div className={styles.headerEmail}>{headerEmail}</div> : null}
       <div className={styles.center}>
         <div className={styles.column}>
