@@ -30,6 +30,10 @@ import {
 const CLOUD_EXPORTS_PER_DAY = 3;
 const LINK_WAIT_MS = 8_000;
 const LINK_POLL_MS = 250;
+// The controller issues 5-minute links. A link that outlives that by more than
+// clock skew is refused, so a leaked one never lasts longer than promised.
+const LINK_LIFETIME_MS = 5 * 60 * 1000;
+const LINK_CLOCK_SKEW_MS = 60 * 1000;
 
 export type CloudExportRow = {
   export_id: string;
@@ -319,6 +323,19 @@ function httpsLink(url: string): string {
   throw linkInvalid();
 }
 
+/**
+ * The link's expiry, if it is within the controller's promised lifetime. When
+ * this fires wrongly, on a controller clock far ahead, the owner's download
+ * fails and the log line shows why.
+ */
+function cappedLinkExpiry(expiresAt: Date, now: Date): string {
+  if (expiresAt.getTime() <= now.getTime() + LINK_LIFETIME_MS + LINK_CLOCK_SKEW_MS) {
+    return expiresAt.toISOString();
+  }
+  console.warn({ event: "exomem_cloud_export_link_invalid", reason: "lifetime_too_long" });
+  throw linkInvalid();
+}
+
 export type CloudExportLink =
   | { state: "issued"; url: string; url_expires_at: string }
   | { state: "pending" };
@@ -373,7 +390,7 @@ async function requestCloudExportLink(
       return {
         state: "issued",
         url: httpsLink(row.download_url),
-        url_expires_at: row.download_url_expires_at.toISOString(),
+        url_expires_at: cappedLinkExpiry(row.download_url_expires_at, now),
       };
     }
     if (Date.now() + LINK_POLL_MS > deadline) return { state: "pending" };
