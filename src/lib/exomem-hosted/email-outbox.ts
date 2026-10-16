@@ -430,12 +430,10 @@ async function accountPreferences(
   tx: ExomemSql,
   email: string
 ): Promise<{ timeZone: string | null; emailScheme: ExomemEmailScheme | null }> {
+  // A user owns at most one tenant (exomem_tenants.owner_user_id is UNIQUE).
   const { rows } = await tx`
     /* exomem:email-account-preferences */
-    SELECT (array_agg(tenant.time_zone ORDER BY tenant.updated_at DESC)
-              FILTER (WHERE tenant.time_zone IS NOT NULL))[1] AS time_zone,
-           (array_agg(tenant.email_scheme ORDER BY tenant.updated_at DESC)
-              FILTER (WHERE tenant.email_scheme IS NOT NULL))[1] AS email_scheme
+    SELECT tenant.time_zone, tenant.email_scheme
     FROM users
     JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
     WHERE users.email = ${email}
