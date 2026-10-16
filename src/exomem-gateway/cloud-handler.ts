@@ -434,7 +434,7 @@ async function proxyToCell(
   let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
   if (
     config.artifactSigningKey &&
-    config.artifactCells?.has(access.cellId) &&
+    (config.artifactAllCells || config.artifactCells?.has(access.cellId)) &&
     request.method === "POST"
   ) {
     try {
