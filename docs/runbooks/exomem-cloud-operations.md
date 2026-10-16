@@ -635,6 +635,15 @@ The response contains only an opaque invite ID and request ID. Brevo sends the
 token in the URL fragment, so request logs never contain it. A complimentary
 redemption creates a cell row with `desired_state = running`.
 
+### A first subscription that disagrees with its checkout
+
+Checkout sells the friend price only to a tenant that holds a friend offer.
+When Paddle reports a new subscription whose friend price disagrees with
+that, the web app logs `exomem_paddle_friend_price_mismatch` with the tenant
+ID. It activates the subscription as Paddle reports it and records no friend
+offer from it. Compare the subscription's price and discount in the Paddle
+dashboard with the tenant's checkout, and correct the subscription there.
+
 ### Remove a friend price
 
 A tenant's friend offer makes every later checkout carry the friend discount.
