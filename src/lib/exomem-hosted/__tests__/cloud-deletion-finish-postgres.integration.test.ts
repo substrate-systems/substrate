@@ -234,6 +234,12 @@ async function admitCloudTenant(input: {
     accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });
   assert.ok(issued, "sanity: the admitted tenant holds live Cloud tokens");
+  // The app has reached the Exomem once, as the gateway records it.
+  await pool!.query(
+    `INSERT INTO exomem_oauth_grant_usage (grant_id, last_used_at)
+     SELECT id, now() FROM exomem_oauth_grants WHERE tenant_id = $1`,
+    [admission!.tenantId]
+  );
   if (input.source === "paddle") {
     await pool!.query(
       `UPDATE exomem_entitlements
@@ -718,6 +724,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       "exomem_access_tokens",
       "exomem_invites",
       "exomem_oauth_authorization_codes",
+      "exomem_oauth_grant_usage",
       "exomem_paddle_events",
       "exomem_sessions",
       "exomem_waitlist_entries",
