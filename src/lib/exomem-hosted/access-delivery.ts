@@ -139,16 +139,19 @@ async function deliverClaimedMagicLink(
   return state;
 }
 
-/** Claim only this request's durable row; the scheduled drain owns backlog maintenance. */
+/**
+ * Claim only this request's durable row; the scheduled drain owns backlog maintenance.
+ * Null when the row is not this request's to send: the drain holds it or it is settled.
+ */
 export async function dispatchMagicLinkDelivery(
   deliveryId: string,
   dependencies?: Partial<MagicLinkDeliveryDependencies>
-): Promise<void> {
+): Promise<"sent" | "retry" | "failed" | "lost" | null> {
   const deps = { ...defaults(), ...dependencies };
   const leaseOwner = deps.newLeaseOwner();
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const record = await deps.claim({ deliveryId, leaseOwner, leaseSeconds: 60 });
-  if (record) await deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps);
+  return record ? deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps) : null;
 }
 
 export async function drainMagicLinkDeliveries(

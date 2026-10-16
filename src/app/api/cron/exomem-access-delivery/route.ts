@@ -23,6 +23,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (magicLinks.status === "rejected" || outbox.status === "rejected") {
       throw new Error("EXOMEM_ACCESS_DELIVERY_LANE_FAILED");
     }
+    // The only record of what a pass sent, retried, gave up on or let expire:
+    // counts, no content, and only for a pass that did any of it.
+    if (magicLinks.value.claimed + magicLinks.value.expired + outbox.value.claimed > 0) {
+      console.info(
+        JSON.stringify({
+          event: "exomem.access_delivery.drained",
+          magicLinks: magicLinks.value,
+          outbox: outbox.value,
+        })
+      );
+    }
     return NextResponse.json(
       { success: true, result: magicLinks.value, outbox: outbox.value },
       { headers: { "cache-control": "no-store" } }

@@ -203,12 +203,33 @@ export async function uniformAccessStartResponse(
   return response;
 }
 
+/**
+ * Logs, content-free, what became of the link sent right after the request. A
+ * retry waits for the scheduled drain, whose route logs its own counts. "lost"
+ * means another worker holds the row now, so its result is that worker's.
+ */
+function reportMagicLinkDelivery(state: Awaited<ReturnType<typeof dispatchMagicLinkDelivery>>) {
+  if (state === "sent") {
+    emitOperationalEvent(
+      buildOperationalEvent({ event: "access.magic_link.sent", outcome: "succeeded" })
+    );
+  } else if (state === "retry" || state === "failed") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.magic_link.delivery_failed",
+        outcome: state === "retry" ? "pending" : "failed",
+        errorCode: state === "retry" ? "EMAIL_DELIVERY_UNAVAILABLE" : "EMAIL_DELIVERY_FAILED",
+      })
+    );
+  }
+}
+
 /** The row is durable before registration; cron recovers a failed hook or invocation. */
 function scheduleMagicLinkDelivery(deliveryId: string): void {
   try {
     after(async () => {
       try {
-        await dispatchMagicLinkDelivery(deliveryId);
+        reportMagicLinkDelivery(await dispatchMagicLinkDelivery(deliveryId));
       } catch {
         emitOperationalEvent(
           buildOperationalEvent({
