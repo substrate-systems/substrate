@@ -49,7 +49,7 @@ Why these: they are the same values our own fields use, so the fields inside Pad
 
 - `displayMode: 'inline'`, `variant: 'one-page'`, `frameTarget` our frame element, `frameInitialHeight: 450`.
 - `frameStyle`: `width: 100%; min-width: 312px; background-color: transparent; border: none;`
-- `theme`: the site's current theme (`'dark'` by default, `'light'` when the person picked light). Re-open the checkout if they switch.
+- `theme`: the site's current theme. The site follows the device's colour scheme until the person picks one, and dark applies when the device says nothing. Re-open the checkout if they switch.
 - Prefill the customer email from the Exomem account.
 - `showAddDiscounts: false`. No discount codes. The friend price comes from the invitation.
 - `showAddTaxId: true`, so an EU business can add its VAT number (reverse charge).
