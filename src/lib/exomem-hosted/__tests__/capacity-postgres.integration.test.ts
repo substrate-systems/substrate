@@ -695,6 +695,61 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
   });
 
+  for (const [status, settles] of [
+    [400, true],
+    [429, false],
+    [503, false],
+  ] as const) {
+    it(`${settles ? "fails at once" : "retries"} an email the provider answers ${status}`, async () => {
+      await configureCapacity(1);
+      const email = newAddress(`status-${status}`);
+      await startSelfServeAtomic({ emailNormalized: email, timeZone: null, mode: "open" });
+
+      const drained = await drainExomemEmailOutbox(
+        {},
+        { sendEmail: async () => ({ success: false, status }) }
+      );
+
+      assert.equal(drained.failed, settles ? 1 : 0);
+      assert.equal(drained.retryScheduled, settles ? 0 : 1);
+      const row = await pool!.query<{ state: string; last_error_code: string }>(
+        "SELECT state, last_error_code FROM exomem_email_outbox WHERE recipient = $1",
+        [email]
+      );
+      assert.deepEqual(
+        row.rows[0],
+        settles
+          ? { state: "failed", last_error_code: "EMAIL_REFUSED" }
+          : { state: "pending", last_error_code: "EMAIL_DELIVERY_UNAVAILABLE" }
+      );
+    });
+  }
+
+  it("sends a start link ahead of an older waitlist email", async () => {
+    await configureCapacity(1);
+    const admitted = newAddress("admitted");
+    const waiting = newAddress("waiting");
+    await startSelfServeAtomic({ emailNormalized: admitted, timeZone: null, mode: "open" });
+    await startSelfServeAtomic({ emailNormalized: waiting, timeZone: null, mode: "open" });
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET created_at = now() - interval '1 hour', not_before = now() - interval '1 hour' WHERE recipient = $1",
+      [waiting]
+    );
+    const sentTo: string[] = [];
+
+    await drainExomemEmailOutbox(
+      { maxMessages: 1 },
+      {
+        sendEmail: async (input) => {
+          sentTo.push(input.to);
+          return { success: true };
+        },
+      }
+    );
+
+    assert.deepEqual(sentTo, [admitted]);
+  });
+
   it("clears settled email addresses after 30 days and deletes waitlist entries 180 days after their last activity", async () => {
     await configureCapacity(0);
     const stale = newAddress("stale");

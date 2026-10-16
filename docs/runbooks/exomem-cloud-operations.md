@@ -544,10 +544,12 @@ place and gets no second waitlist email.
 
 Emails for start links, waitlist places, promotions, the unpaid-hold
 reminder and the account lifecycle (emails 03 to 07) go through
-`exomem_email_outbox`. The access-delivery job sends at most 20 per run. It
-retries a failed send after 1, 2, 4 and up to 60 minutes. An email with a
-deadline, such as a start link, retries until that deadline. An email without
-one, such as 07, stops after 10 attempts. Email 07 also waits, with no limit,
+`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
+sends waitlist emails only when no other email is ready. It retries a failed
+send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
+start link, retries until that deadline. An email without one, such as 07,
+stops after 10 attempts. When Brevo refuses the message itself (`400`, `413`
+or `422`), the email fails at once with `EMAIL_REFUSED`. Email 07 also waits, with no limit,
 until cellctl has deleted every cell of the account. A wait counts no attempt.
 To see what is stuck, run:
 
