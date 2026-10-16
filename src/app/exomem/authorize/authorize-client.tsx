@@ -317,7 +317,8 @@ function Consent({
 
   const tile = appTile(app);
   const footer = requestFooter(app);
-  const claimedName = !app.vouched && !app.loopback ? app.displayName : null;
+  // A name nobody vouched for is labelled, a local app's included.
+  const claimedName = app.vouched ? null : app.displayName;
 
   if (current === "signedout" || current === "switched") {
     return (
