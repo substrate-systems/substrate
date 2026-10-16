@@ -1,6 +1,13 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
+import { Button } from "@/components/exomem/Button";
+import { RadioCard } from "@/components/exomem/RadioCard";
+import { Switch } from "@/components/exomem/Switch";
+import { TextField } from "@/components/exomem/TextField";
+import { ThemeToggle } from "@/components/exomem/ThemeToggle";
+import { Wordmark } from "@/components/exomem/Wordmark";
+import phone from "@/components/exomem/phone.module.css";
 import {
   EXOMEM_INVITE_KINDS,
   INVITATION_NAME_MAX,
@@ -10,7 +17,6 @@ import {
   inviterNameRequired,
   type ExomemInviteKind,
 } from "@/lib/exomem-hosted/invitation-contract";
-import styles from "../private-shell.module.css";
 import {
   invitationBlocked,
   invitationRequestBody,
@@ -18,6 +24,8 @@ import {
   requiresComplimentaryConfirmation,
   type OperatorCapacity,
 } from "./operator-state";
+import home from "../home/home.module.css";
+import styles from "./operator.module.css";
 
 const KIND_LABELS: Record<ExomemInviteKind, string> = {
   standard: "Paid",
@@ -96,6 +104,32 @@ async function readCapacity(bearer: string): Promise<OperatorCapacity> {
   const capacity = parseOperatorCapacity(body.capacity);
   if (!capacity) throw new Error("invalid capacity response");
   return capacity;
+}
+
+/** Home's header: the page's name beside the wordmark, and Lock where Home has Sign out. */
+function OperatorHeader({ onLock }: { onLock?: () => void }) {
+  return (
+    <header className={home.header}>
+      <span className={home.headerStart}>
+        <span className={home.wordmark}>
+          <Wordmark />
+        </span>
+        <span className={`${home.nav} ${home.navCurrent}`}>Private operator</span>
+      </span>
+      <span className={home.headerEnd}>
+        <ThemeToggle />
+        {onLock ? (
+          <button
+            type="button"
+            className={`${home.inlineButton} ${phone.hitArea}`}
+            onClick={onLock}
+          >
+            Lock
+          </button>
+        ) : null}
+      </span>
+    </header>
+  );
 }
 
 export default function OperatorClient() {
@@ -197,221 +231,210 @@ export default function OperatorClient() {
 
   if (!capacity) {
     return (
-      <section className={styles.card} aria-labelledby="operator-auth-title">
-        <p className={styles.eyebrow}>Private operator</p>
-        <h1 className={styles.title} id="operator-auth-title">
-          Alpha access.
-        </h1>
-        <p className={styles.lede}>
-          Enter the existing Exomem admin bearer. It stays only in this page and is discarded on
-          refresh.
-        </p>
-        <form className={styles.form} onSubmit={authenticate}>
-          <label className={styles.label} htmlFor="operator-bearer">
-            Admin bearer
-          </label>
-          <input
-            className={styles.input}
-            id="operator-bearer"
-            type="password"
-            value={bearer}
-            onChange={(event) => setBearer(event.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            className={styles.button}
-            type="submit"
-            disabled={!bearer.trim() || authenticating}
-          >
-            {authenticating ? "Checking…" : "Open controls"}
-          </button>
-        </form>
-        <p
-          className={`${styles.status} ${error ? styles.error : ""}`}
-          role={error ? "alert" : "status"}
-          aria-live="polite"
-        >
-          {message}
-        </p>
-      </section>
+      <>
+        <OperatorHeader />
+        <section className={home.column} aria-labelledby="operator-auth-title">
+          <div className={home.statusText}>
+            <h1 className={home.headline} id="operator-auth-title">
+              Alpha access.
+            </h1>
+            <span className={home.statusLine}>
+              Enter the existing Exomem admin bearer. It stays only in this page and is discarded on
+              refresh.
+            </span>
+          </div>
+          <form className={styles.form} onSubmit={authenticate}>
+            <TextField
+              label="Admin bearer"
+              type="password"
+              value={bearer}
+              onChange={(event) => setBearer(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              invalid={error}
+            />
+            <div>
+              <Button
+                variant="primary"
+                size="page"
+                type="submit"
+                disabled={!bearer.trim()}
+                working={authenticating}
+              >
+                {authenticating ? "Checking…" : "Open controls"}
+              </Button>
+              <p
+                className={home.billingStatus}
+                role={error ? "alert" : "status"}
+                aria-live="polite"
+              >
+                {message}
+              </p>
+            </div>
+          </form>
+        </section>
+      </>
     );
   }
 
   const blocked = invitationBlocked(capacity);
+  const figures: Array<[label: string, value: string | number]> = [
+    ["Cloud places free", capacity.freePlaces === null ? "Unknown" : capacity.freePlaces],
+    ["Invitations out", capacity.outstandingInvitations],
+    [
+      "Cells live",
+      capacity.freePlaces === null
+        ? capacity.liveCells
+        : `${capacity.liveCells}/${capacity.observedSlots}`,
+    ],
+    [
+      "Capacity observed",
+      capacity.newestObservationAt
+        ? new Date(capacity.newestObservationAt).toLocaleString([], {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "Never",
+    ],
+  ];
   return (
-    <section className={styles.card} aria-labelledby="operator-title">
-      <div className={styles.workspaceHeader}>
-        <div>
-          <p className={styles.eyebrow}>Private operator</p>
-          <h1 className={styles.title} id="operator-title">
-            Alpha invitations.
-          </h1>
-        </div>
-        <button className={styles.quietButton} type="button" onClick={lock}>
-          Lock
-        </button>
+    <>
+      <OperatorHeader onLock={lock} />
+      <div className={`${home.column} ${styles.column}`}>
+        <h1 className={home.headline}>Alpha invitations.</h1>
+
+        <section className={home.section} aria-labelledby="operator-capacity-title">
+          <h2 className={home.sectionTitle} id="operator-capacity-title">
+            Cloud capacity
+          </h2>
+          <dl className={home.panel}>
+            {figures.map(([label, value]) => (
+              <div className={home.row} key={label}>
+                <dt className={home.rowTitle}>{label}</dt>
+                <dd className={styles.figure}>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section className={home.section} aria-labelledby="operator-invite-title">
+          <h2 className={home.sectionTitle} id="operator-invite-title">
+            New invitation
+          </h2>
+          <div className={home.panel}>
+            <form className={`${styles.form} ${styles.panelForm}`} onSubmit={sendInvite}>
+              <TextField
+                label="Invitee's email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                required
+              />
+
+              <fieldset className={home.fieldset}>
+                <legend className={styles.legend}>Access</legend>
+                <div className={styles.choices}>
+                  {EXOMEM_INVITE_KINDS.map((option) => (
+                    <RadioCard
+                      key={option}
+                      name="operator-kind"
+                      value={option}
+                      checked={kind === option}
+                      onChange={() => {
+                        setKind(option);
+                        setComplimentaryConfirmed(false);
+                      }}
+                      detail={null}
+                    >
+                      {KIND_LABELS[option]}
+                    </RadioCard>
+                  ))}
+                </div>
+              </fieldset>
+
+              <TextField
+                label={inviterNameRequired(kind) ? "Inviter's name" : "Inviter's name (optional)"}
+                type="text"
+                value={inviterName}
+                maxLength={INVITATION_NAME_MAX}
+                onChange={(event) => setInviterName(event.target.value)}
+                autoComplete="off"
+                required={inviterNameRequired(kind)}
+              />
+
+              {inviterEmailAllowed(kind) ? (
+                <TextField
+                  label="Inviter's email (optional, for the used and ended notices)"
+                  type="email"
+                  value={inviterEmail}
+                  onChange={(event) => setInviterEmail(event.target.value)}
+                  autoComplete="off"
+                />
+              ) : null}
+
+              <TextField
+                label={inviteeNameNeeded ? "Invitee's name" : "Invitee's name (optional)"}
+                type="text"
+                value={inviteeName}
+                maxLength={INVITATION_NAME_MAX}
+                onChange={(event) => setInviteeName(event.target.value)}
+                autoComplete="off"
+                required={inviteeNameNeeded}
+              />
+
+              {/* One line: the library has no multi-line field. The note's line breaks show
+                  only in the plain-text email; the invitation page and HTML email run it on. */}
+              <TextField
+                label="Note from the inviter (optional)"
+                type="text"
+                value={note}
+                maxLength={INVITATION_NOTE_MAX}
+                onChange={(event) => setNote(event.target.value)}
+                autoComplete="off"
+              />
+
+              {kind === "covered" ? (
+                <Switch
+                  label="Confirm this person will not be asked to subscribe."
+                  checked={complimentaryConfirmed}
+                  onChange={setComplimentaryConfirmed}
+                />
+              ) : null}
+
+              <div>
+                <Button
+                  variant="primary"
+                  size="page"
+                  type="submit"
+                  working={sending}
+                  disabled={
+                    !email.trim() ||
+                    blocked ||
+                    requiresComplimentaryConfirmation(kind, complimentaryConfirmed)
+                  }
+                >
+                  {sending ? "Sending…" : `Send ${KIND_NAMES[kind]} invitation`}
+                </Button>
+                <p
+                  className={home.billingStatus}
+                  role={error ? "alert" : "status"}
+                  aria-live="polite"
+                >
+                  {message ||
+                    (capacity.freePlaces === null
+                      ? "Cloud capacity has not been observed recently. Invitations wait until it is."
+                      : blocked
+                        ? "Cloud capacity is full."
+                        : "Paid access is the default.")}
+                </p>
+              </div>
+            </form>
+          </div>
+        </section>
       </div>
-
-      <div className={styles.capacityGrid} aria-label="Cloud capacity">
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Cloud places free</span>
-          <strong className={styles.capacityValue}>
-            {capacity.freePlaces === null ? "Unknown" : capacity.freePlaces}
-          </strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Invitations out</span>
-          <strong className={styles.capacityValue}>{capacity.outstandingInvitations}</strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Cells live</span>
-          <strong className={styles.capacityValue}>
-            {capacity.freePlaces === null
-              ? capacity.liveCells
-              : `${capacity.liveCells}/${capacity.observedSlots}`}
-          </strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Capacity observed</span>
-          <strong className={styles.capacityValue}>
-            {capacity.newestObservationAt
-              ? new Date(capacity.newestObservationAt).toLocaleString([], {
-                  day: "numeric",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : "Never"}
-          </strong>
-        </div>
-      </div>
-
-      <form className={styles.form} onSubmit={sendInvite}>
-        <label className={styles.label} htmlFor="operator-email">
-          Invitee&apos;s email
-        </label>
-        <input
-          className={styles.input}
-          id="operator-email"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          autoComplete="email"
-          required
-        />
-
-        <label className={styles.label} htmlFor="operator-kind">
-          Access
-        </label>
-        <select
-          className={styles.input}
-          id="operator-kind"
-          value={kind}
-          onChange={(event) => {
-            setKind(event.target.value as ExomemInviteKind);
-            setComplimentaryConfirmed(false);
-          }}
-        >
-          {EXOMEM_INVITE_KINDS.map((option) => (
-            <option key={option} value={option}>
-              {KIND_LABELS[option]}
-            </option>
-          ))}
-        </select>
-
-        <label className={styles.label} htmlFor="operator-inviter-name">
-          {inviterNameRequired(kind) ? "Inviter's name" : "Inviter's name (optional)"}
-        </label>
-        <input
-          className={styles.input}
-          id="operator-inviter-name"
-          type="text"
-          value={inviterName}
-          maxLength={INVITATION_NAME_MAX}
-          onChange={(event) => setInviterName(event.target.value)}
-          autoComplete="off"
-          required={inviterNameRequired(kind)}
-        />
-
-        {inviterEmailAllowed(kind) ? (
-          <>
-            <label className={styles.label} htmlFor="operator-inviter-email">
-              Inviter&apos;s email (optional, for the used and ended notices)
-            </label>
-            <input
-              className={styles.input}
-              id="operator-inviter-email"
-              type="email"
-              value={inviterEmail}
-              onChange={(event) => setInviterEmail(event.target.value)}
-              autoComplete="off"
-            />
-          </>
-        ) : null}
-
-        <label className={styles.label} htmlFor="operator-invitee-name">
-          {inviteeNameNeeded ? "Invitee's name" : "Invitee's name (optional)"}
-        </label>
-        <input
-          className={styles.input}
-          id="operator-invitee-name"
-          type="text"
-          value={inviteeName}
-          maxLength={INVITATION_NAME_MAX}
-          onChange={(event) => setInviteeName(event.target.value)}
-          autoComplete="off"
-          required={inviteeNameNeeded}
-        />
-
-        <label className={styles.label} htmlFor="operator-note">
-          Note from the inviter (optional)
-        </label>
-        <textarea
-          className={styles.input}
-          id="operator-note"
-          value={note}
-          maxLength={INVITATION_NOTE_MAX}
-          rows={3}
-          onChange={(event) => setNote(event.target.value)}
-        />
-
-        {kind === "covered" ? (
-          <label className={styles.checkRow}>
-            <input
-              type="checkbox"
-              checked={complimentaryConfirmed}
-              onChange={(event) => setComplimentaryConfirmed(event.target.checked)}
-            />
-            Confirm this person will not be asked to subscribe.
-          </label>
-        ) : null}
-
-        <button
-          className={styles.button}
-          type="submit"
-          disabled={
-            sending ||
-            !email.trim() ||
-            blocked ||
-            requiresComplimentaryConfirmation(kind, complimentaryConfirmed)
-          }
-        >
-          {sending ? "Sending…" : `Send ${KIND_NAMES[kind]} invitation`}
-        </button>
-      </form>
-      <p
-        className={`${styles.status} ${error ? styles.error : ""}`}
-        role={error ? "alert" : "status"}
-        aria-live="polite"
-      >
-        {message ||
-          (capacity.freePlaces === null
-            ? "Cloud capacity has not been observed recently. Invitations wait until it is."
-            : blocked
-              ? "Cloud capacity is full."
-              : "Paid access is the default.")}
-      </p>
-    </section>
+    </>
   );
 }
