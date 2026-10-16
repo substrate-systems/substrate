@@ -106,12 +106,11 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
     throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_CELL_IDS"]);
   }
   // The deployment emits exactly "true" to select every cell, or leaves the
-  // variable unset. Any other value would silently read as on or off for a
-  // switch that widens fetch authority, so it stops startup like a bad id list.
-  const allCells = env.EXOMEM_CLOUD_ARTIFACT_ALL_CELLS;
-  if (allCells !== undefined && allCells !== "true") {
-    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_ALL_CELLS"]);
-  }
+  // variable unset. Any other value reads as off, which is the safe direction
+  // for a switch that widens fetch authority. It must not throw: the gateway
+  // loads this on every request, its readiness check never loads it, and a
+  // throw would let a rollout pass and then fail every request.
+  const allCells = env.EXOMEM_CLOUD_ARTIFACT_ALL_CELLS === "true";
   try {
     const artifactSigningKey = createPrivateKey(env.EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY ?? "");
     if (artifactSigningKey.asymmetricKeyType !== "ed25519") throw new Error();
@@ -121,7 +120,7 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
       cellTokenKey,
       artifactSigningKey,
       artifactCells: new Set(cells as string[]),
-      artifactAllCells: allCells === "true",
+      artifactAllCells: allCells,
     };
   } catch {
     // Key parser errors may echo supplied material; keep startup failures value-free.
