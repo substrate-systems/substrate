@@ -136,7 +136,7 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 
 These corrections follow the launch polish merge because both batches change subscribe. Their production release follows independent review and acceptance.
 
-- [ ] 10.1 Deploy migrations 0063 to 0066 with every flag off
+- [x] 10.1 Deploy migrations 0063 to 0066 with every flag off
 - [ ] 10.2 Release the exomem repository and roll cells out, owner canary first
 - [ ] 10.3 Release the cell controller and turn the export flag on after the rollout, then redeploy, because the landing and privacy pages read the flag at build time
 - [ ] 10.4 Release Home with levels and activity, then export after the rehearsal
@@ -148,7 +148,7 @@ These corrections follow the launch polish merge because both batches change sub
 - [ ] 10.10 Prove one paid operator invitation in the Paddle sandbox from redemption to payment, then repeat as one controlled production invitation
 - [ ] 10.11 Run strict OpenSpec validation and archive this change after the delivery
 
-Tasks 10.1, 10.2, 10.4–10.6, 10.8 and 10.10 need live evidence from Cloud operations. The code they depend on is on main.
+Production on 2026-10-16: migrations 0063 to 0066 are deployed. Admission is `waitlist`, and `open` is not set (task 10.6). The Home channel is off, and the cells still run Exomem 0.116, so tasks 10.2 and 10.4 wait on the cell rollout. `EXOMEM_PADDLE_DUNNING_DAYS` is 30; task 10.5 waits on a check of the payment provider's dunning setting. Tasks 10.8 and 10.10 wait on the first production friend invitation.
 
 ## 11. Design update rounds 41–47
 
