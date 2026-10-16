@@ -1,0 +1,45 @@
+/* The operator page, in Home's header, column, sections and panels (home.module.css).
+   Only the parts Home does not draw are here. */
+
+/* Home's column ends on its footer line; this page has none, so the column keeps the
+   footer's 40 px below its last panel. */
+.column {
+  padding-bottom: 40px;
+}
+
+/* A capacity figure, on the right of its Home row, in the type of a RadioCard label. */
+.figure {
+  margin-left: auto;
+  font-family: var(--font-mono-exo);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Inside a Home panel, which insets only the sides, the form takes its own top and bottom. */
+.panelForm {
+  padding: 16px 0 18px;
+}
+
+/* The access group's label. The library has no field-group label, so this repeats a
+   TextField label's type (TextField.module.css) to sit with the fields around it. */
+.legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PrivateShell } from "../private-shell";
+import home from "../home/home.module.css";
 import OperatorClient from "./operator-client";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 
 export default function ExomemOperatorPage() {
   return (
-    <PrivateShell>
+    <main className={`${home.page} brand-exomem`}>
       <OperatorClient />
-    </PrivateShell>
+    </main>
   );
 }

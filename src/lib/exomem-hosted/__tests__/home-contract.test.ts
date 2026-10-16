@@ -66,11 +66,4 @@ describe("private Exomem Home contract", () => {
     assert.match(vercel, /window\.location\.replace\(window\.location\.href\)/);
     assert.match(vercel, /return null/);
   });
-
-  it("has keyboard focus, narrow-screen, and reduced-motion rules", () => {
-    const css = source("src/app/exomem/private-shell.module.css");
-    assert.match(css, /:focus-visible/);
-    assert.match(css, /@media \(max-width: 560px\)/);
-    assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  });
 });

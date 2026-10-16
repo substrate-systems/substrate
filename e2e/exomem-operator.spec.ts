@@ -49,7 +49,8 @@ test.describe("private Exomem operator", () => {
     expect(capacityRequests[0]!.headers()["cookie"]).toBeUndefined();
     expect(capacityRequests[0]!.headers()["referer"]).toBeUndefined();
     await expect(page.getByText("Cloud places free").locator("..").getByText("2")).toBeVisible();
-    await expect(page.getByLabel("Access")).toHaveValue("standard");
+    const access = page.getByRole("group", { name: "Access" });
+    await expect(access.getByRole("radio", { name: "Paid", exact: true })).toBeChecked();
 
     await page.getByLabel("Invitee's email").fill("invitee@example.com");
     await page.getByRole("button", { name: "Send paid invitation" }).click();
@@ -88,7 +89,8 @@ test.describe("private Exomem operator", () => {
     await expect(page.getByText("No Cloud places are free.", { exact: true })).toBeVisible();
 
     // A friend invitation names its inviter; an inviter's email needs the invitee's name.
-    await page.getByLabel("Access").selectOption("friend");
+    const access = page.getByRole("group", { name: "Access" });
+    await access.getByRole("radio", { name: "Friend (paid, friend price)" }).check();
     await page.getByLabel("Inviter's name").fill("Alex Example");
     await page.getByLabel("Inviter's email").fill("alex@example.com");
     await expect(page.getByLabel("Invitee's name")).toHaveAttribute("required", "");
@@ -105,14 +107,16 @@ test.describe("private Exomem operator", () => {
       note: "This is what I have been building.",
     });
     // Each send returns the form to a paid invitation.
-    await expect(page.getByLabel("Access")).toHaveValue("standard");
+    await expect(access.getByRole("radio", { name: "Paid", exact: true })).toBeChecked();
 
     await page.getByLabel("Invitee's email").fill("covered@example.com");
-    await page.getByLabel("Access").selectOption("covered");
+    await access.getByRole("radio", { name: "Covered (complimentary)" }).check();
     await page.getByLabel("Inviter's name").fill("Alex Example");
     const covered = page.getByRole("button", { name: "Send covered invitation" });
     await expect(covered).toBeDisabled();
-    await page.getByLabel("Confirm this person will not be asked to subscribe.").check();
+    await page
+      .getByRole("switch", { name: "Confirm this person will not be asked to subscribe." })
+      .check();
     await expect(covered).toBeEnabled();
     await covered.click();
     await expect(page.getByRole("status")).toHaveText("The covered invitation is queued.");
