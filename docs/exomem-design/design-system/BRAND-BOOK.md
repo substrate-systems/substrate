@@ -52,7 +52,7 @@ Every surface has the same graph behind it (`AliveGraph`). Notes are `fg-primary
 ## Focus, fields and validation
 
 - Keyboard focus: a solid `exo-amber` ring 2 px outside the control, with a soft `exo-focus-ring` beyond it; a transparent outline underneath so forced colours draw it. Mouse clicks show no ring.
-- Fields: `exo-field-bg`, 1 px `exo-border-input`, `r-field`, amber caret. Focus: amber border and the soft ring. Error: an ink border and the message in `fg-primary` in the line under the field. No red, no icons; amber always means focus.
+- Fields: `exo-field-bg`, 1 px `exo-border-input`, `r-field`, amber caret. A field or address box straight on a flow page takes `bg-raised` and `exo-border-field`. Focus: amber border and the soft ring. Error: an ink border and the message in `fg-primary` in the line under the field. No red, no icons; amber always means focus.
 - Forms use `novalidate`. Judge a field when the person leaves it; once it shows an error, re-check on every keystroke; on submit, focus the first error and clear nothing. Mark the rare optional field "(optional)"; no asterisks.
 - Forced colours: buttons and fields get system-colour borders. The graph may drop out; that's fine.
 

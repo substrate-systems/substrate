@@ -291,6 +291,7 @@ export function StartFlow({
           <form className={styles.form} onSubmit={submit} noValidate>
             <div className={styles.group}>
               <TextField
+                surface="page"
                 label={startCopy.emailLabel}
                 type="email"
                 name="email"
@@ -404,6 +405,7 @@ function ReviewerSignIn({
       <form className={styles.form} onSubmit={signIn} noValidate>
         <div className={styles.fields}>
           <TextField
+            surface="page"
             label={reviewerCopy.username}
             autoComplete="username"
             spellCheck={false}
@@ -412,6 +414,7 @@ function ReviewerSignIn({
             onChange={(event) => setUsername(event.target.value)}
           />
           <TextField
+            surface="page"
             label={reviewerCopy.password}
             type="password"
             autoComplete="current-password"

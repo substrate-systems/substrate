@@ -23,3 +23,23 @@ On every request that it forwards to a Cloud cell, the gateway SHALL set two hea
 
 - **WHEN** the client's stored name contains characters that an HTTP header value cannot carry
 - **THEN** the gateway sends the next display name that the app list would use: the platform name, else the redirect host
+
+### Requirement: The gateway records when each app last reached its Exomem
+
+When the gateway forwards a request from a connected app to its Cloud cell, it SHALL record the time against that app's grant. The time SHALL move at most once in five minutes. The gateway MUST NOT record a request from the first-party Home client. Recording MUST NOT delay or refuse the request; a failed record SHALL be logged with the database error code only. The record SHALL live outside the OAuth tables, so the gateway keeps no write on them.
+
+#### Scenario: App calls its cell
+
+- **WHEN** a connected app's request passes authentication, scope and rate checks
+- **THEN** the gateway forwards it and records the time against the app's grant
+
+#### Scenario: Record fails
+
+- **WHEN** the gateway cannot record the time
+- **THEN** the request is still forwarded and answered as usual
+- **AND** the log line names the database error code and no request content
+
+#### Scenario: Home calls its cell
+
+- **WHEN** the first-party Home client calls the Cloud MCP address
+- **THEN** the gateway records nothing for it

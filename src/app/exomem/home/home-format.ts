@@ -21,6 +21,29 @@ export function dayMonth(iso: string, timeZone?: string): string {
   return format(iso, { day: "numeric", month: "long" }, timeZone);
 }
 
+/** "today", "yesterday" or "31 October": the reader's calendar day, in their zone. */
+export function dayWord(iso: string, clock: Clock): string {
+  const behind =
+    calendarDay(clock.now, clock.timeZone) - calendarDay(Date.parse(iso), clock.timeZone);
+  // A time a little ahead of a slow browser clock is still today.
+  if (behind <= 0) return "today";
+  if (behind === 1) return "yesterday";
+  return dayMonth(iso, clock.timeZone);
+}
+
+// Days since 1970 of the calendar date that `ms` falls on in the zone.
+function calendarDay(ms: number, timeZone?: string): number {
+  const parts = new Intl.DateTimeFormat(LOCALE, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    timeZone,
+  }).formatToParts(ms);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((entry) => entry.type === type)!.value);
+  return Date.UTC(part("year"), part("month") - 1, part("day")) / 86_400_000;
+}
+
 /** "13 October at 14:20" */
 export function dayMonthTime(iso: string, timeZone?: string): string {
   return format(

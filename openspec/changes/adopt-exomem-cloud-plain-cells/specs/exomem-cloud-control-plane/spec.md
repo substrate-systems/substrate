@@ -237,7 +237,7 @@ Migrations SHALL run as the schema-owning role, through a separate migration con
 
 The gateway and controller roles SHALL receive only the privileges their contracts name:
 
-- the gateway may write rate-limit buckets, and may read only the routing columns of cell rows;
+- the gateway may write rate-limit buckets and each app's last-use time, and may read only the routing columns of cell rows;
 - the controller may write only the observed columns of cell rows, capacity rows, and the rollout row's pause, error, held-cell and last-good-image fields.
 
 Migrations SHALL connect through a session-mode pool.

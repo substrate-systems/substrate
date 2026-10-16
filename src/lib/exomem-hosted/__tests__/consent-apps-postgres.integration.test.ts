@@ -7,7 +7,7 @@ import { POST as completeRoute } from "../../../app/api/exomem/oauth/authorize/c
 import { POST as declineRoute } from "../../../app/api/exomem/oauth/authorize/decline/route";
 import { POST as disconnectRoute } from "../../../app/api/exomem/apps/[id]/disconnect/route";
 import { randomCloudCellId } from "../cloud-admission";
-import { findCloudOAuthAccessToken } from "../cloud-oauth";
+import { findCloudOAuthAccessToken, recordCloudAppUse } from "../cloud-oauth";
 import { loadConsentView } from "../consent-view";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { setOperationalEventSinkForTests } from "../observability";
@@ -590,6 +590,18 @@ describe(
           [elsewhere.rows[0]!.id]
         );
         assert.equal(untouched.rows[0]!.revoked_at, null);
+      });
+
+      it("shows when each app last reached its Exomem, and nothing before its first call", async () => {
+        const owner = await newOwner();
+        const used = await connect(owner, await newCimdClient());
+        const unused = await connect(owner, await newCimdClient());
+        await recordCloudAppUse(used.grantId);
+
+        const { apps } = await listOwnerApps(owner);
+        const lastUsed = new Map(apps.map((app) => [app.id, app.lastUsedAt]));
+        assert.ok(lastUsed.get(used.grantId), "the app that called shows its time");
+        assert.equal(lastUsed.get(unused.grantId), null);
       });
 
       it("tells the waiting step an app connected: lastAuthorizedAt moves past the first poll's serverTime", async () => {

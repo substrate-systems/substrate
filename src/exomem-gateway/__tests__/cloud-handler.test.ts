@@ -132,6 +132,7 @@ function baseDeps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatew
   return {
     config: TEST_CONFIG,
     findAccessToken: async () => VALID_ACCESS,
+    recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
     ...overrides,
   };
@@ -536,6 +537,62 @@ describe("Exomem Cloud gateway handler", () => {
         }
       });
     }
+
+    it("records an app's use once a window, without waiting on it, and never Home's own client's or a refused call's", async () => {
+      const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
+      const warn = mock.method(console, "warn", () => undefined);
+      const recorded: string[] = [];
+      // Each answer is read in full, so it frees the identity's concurrency slot.
+      const send = async (
+        access: ActiveCloudOAuthAccessToken,
+        recordAppUse: (grantId: string) => Promise<void>
+      ) => {
+        const response = await handleCloudMcpRequest(
+          postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
+          baseDeps({
+            findAccessToken: async () => access,
+            recordAppUse: (grantId) => {
+              recorded.push(grantId);
+              return recordAppUse(grantId);
+            },
+            fetchCell: fetchCellAt(cell.port),
+          })
+        );
+        return `${response.status} ${await response.text()}`;
+      };
+      try {
+        // A record that never settles holds nothing up; one that fails refuses nothing.
+        const pending = await send(VALID_ACCESS, () => new Promise(() => undefined));
+        const failed = await send({ ...VALID_ACCESS, grantId: "grant-2" }, async () => {
+          throw Object.assign(new Error("permission denied"), { code: "42501" });
+        });
+        const home = await send(
+          { ...VALID_ACCESS, grantId: "grant-home", firstParty: true },
+          async () => undefined
+        );
+        // A busy app's next call in the window, and a call the gateway refuses, record nothing.
+        const again = await send(VALID_ACCESS, async () => undefined);
+        const stopped = await send(
+          { ...VALID_ACCESS, grantId: "grant-3", cellDesiredState: "stopped" },
+          async () => undefined
+        );
+        assert.deepEqual(
+          [pending, failed, home, again, stopped.split(" ")[0]],
+          ['200 {"ok":true}', '200 {"ok":true}', '200 {"ok":true}', '200 {"ok":true}', "503"]
+        );
+        assert.deepEqual(recorded, ["grant-1", "grant-2"]);
+        const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments));
+        assert.ok(
+          logged.some(
+            (line) =>
+              line.includes("exomem_cloud_gateway_app_use_unrecorded") && line.includes("42501")
+          )
+        );
+      } finally {
+        warn.mock.restore();
+        await cell.close();
+      }
+    });
 
     it("preserves encoded names and mismatched metadata for validation by the cell", async () => {
       const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });

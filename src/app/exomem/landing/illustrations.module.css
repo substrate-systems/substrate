@@ -20,25 +20,6 @@
 .svgText.current {
   fill: var(--exo-amber-text);
 }
-.caption {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-height: 16px;
-  margin: 10px 0 0;
-  font-family: var(--font-mono-exo);
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--fg-secondary);
-}
-.captionDot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--exo-amber);
-}
 .node {
   fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-base));
 }

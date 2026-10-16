@@ -164,6 +164,7 @@ The UI cannot infer that join from a family or display name. Home activity remai
 Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
 
 - [ ] 11.10 Deliver regional regular and friend catalogue selection, legacy compatibility and safe subscription conversion with provider acceptance
+- [ ] 11.11 Record each app's last use at the gateway and show it on Home's app rows; close after the gateway image that records it runs in production
 
 Tasks 11.1–11.5 have local implementation and browser evidence in PR #246.
 The actual Sandbox subscription passed decline, retry, signed payment delivery and readiness polling.

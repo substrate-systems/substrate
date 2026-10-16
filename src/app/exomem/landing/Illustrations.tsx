@@ -312,7 +312,7 @@ function MapDrawing({
   );
 }
 
-/** The phone crops the same living map to its hub. The caption names its recalls an example. */
+/** The phone crops the same living map to its hub. */
 export function LivingMap() {
   return (
     <>
@@ -322,10 +322,6 @@ export function LivingMap() {
         viewBox="200 20 320 260"
         className={responsive.phoneOnly}
       />
-      <p className={styles.caption}>
-        <span className={styles.captionDot} aria-hidden />
-        Example: Claude recalls a note and what it links to
-      </p>
     </>
   );
 }

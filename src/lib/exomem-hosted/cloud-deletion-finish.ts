@@ -178,6 +178,14 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
       WHERE code.grant_id = grant_row.id
         AND grant_row.tenant_id = ${tenantId}::uuid
     `;
+    // Nor is when each app last reached the Exomem. The revoked grants stay, so
+    // their cascade never removes these rows.
+    await tx`
+      DELETE FROM exomem_oauth_grant_usage AS app_use
+      USING exomem_oauth_grants AS grant_row
+      WHERE app_use.grant_id = grant_row.id
+        AND grant_row.tenant_id = ${tenantId}::uuid
+    `;
     // A waitlist entry admitted through one of the tenant's invites must go
     // first: its admitted_invite_id would otherwise be set to NULL, which its
     // admitted-pair CHECK refuses. The entry holds only the owner's email.
