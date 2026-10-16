@@ -1157,13 +1157,17 @@ export async function promoteExomemCheckoutSubscription(input: {
   return rows.length === 1;
 }
 
-export async function takeRateLimit(input: {
-  scope: string;
-  keyDigest: string;
-  limit: number;
-  windowSeconds: number;
-}): Promise<boolean> {
-  const { rows } = await sql`
+/** `run` is a transaction's executor when the take must commit or roll back with it. */
+export async function takeRateLimit(
+  input: {
+    scope: string;
+    keyDigest: string;
+    limit: number;
+    windowSeconds: number;
+  },
+  run: ExomemSql = sql
+): Promise<boolean> {
+  const { rows } = await run`
     /* exomem:take-rate-limit */
     INSERT INTO exomem_rate_limit_buckets (
       scope, key_digest, window_started_at, admitted_count, updated_at

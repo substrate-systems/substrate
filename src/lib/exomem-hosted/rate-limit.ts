@@ -48,11 +48,35 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 1,
     windowSeconds: 60,
   },
+  // Start links that `open` mode hands out, to newcomers and promoted waiting
+  // people together, under one key for everybody. `limit` is the default;
+  // `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR` sizes it (self-serve-admission.ts).
+  selfServeAdmission: {
+    scope: "exomem:self-serve-admission",
+    limit: 5,
+    windowSeconds: 60 * 60,
+  },
   // Invitation inspect is public and calls Paddle's price preview, so each
   // network address is bounded before the token is looked up.
   inviteInspectIp: {
     scope: "exomem:invite-inspect:ip",
     limit: 60,
+    windowSeconds: 10 * 60,
+  },
+  // Invitation redemption, in the browser or through an OAuth continuation,
+  // is public and may wait on the Cloud capacity lock, so each network
+  // address is bounded before the token is looked up. A person redeems once.
+  inviteRedeemIp: {
+    scope: "exomem:invite-redeem:ip",
+    limit: 20,
+    windowSeconds: 10 * 60,
+  },
+  // Owner actions that wait on Paddle or the cell controller: checkout, an
+  // invitation decision and an export link. One bucket per account covers all
+  // three; a person presses each a few times, never thirty in ten minutes.
+  ownerProviderCallTenant: {
+    scope: "exomem:owner-provider-call:tenant",
+    limit: 30,
     windowSeconds: 10 * 60,
   },
   oauthAuthorizeIp: {

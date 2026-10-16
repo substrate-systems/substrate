@@ -246,14 +246,15 @@ async function cancelUnboundTransaction(
  * Checks the configured friend discount at Paddle before every use (a
  * friend checkout, a friend-price subscription update, a friend price
  * shown): active, recurring with no limit on intervals, no code, not
- * enabled for checkout, and restricted to exactly the base price. Returns
- * its id.
+ * enabled for checkout, restricted to exactly the base price, and not a
+ * percentage that takes the whole price. Returns its id.
  *
  * Fails closed: any difference refuses the friend price outright. It
  * prevents a coupon anyone can type, a discount that lapses after some
- * renewals, and a discount that also reaches the storage price. When it
- * fires wrongly, friend checkouts and decisions fail until the operator
- * fixes the discount in Paddle; the invitee is not charged the wrong price.
+ * renewals, a discount that also reaches the storage price, and a free
+ * subscription. When it fires wrongly, friend checkouts and decisions fail
+ * until the operator fixes the discount in Paddle; the invitee is not
+ * charged the wrong price.
  */
 export async function verifyExomemFriendDiscount(
   config: ExomemPaddleConfig,
@@ -278,11 +279,18 @@ export async function verifyExomemFriendDiscount(
     discount.enabled_for_checkout !== false ||
     !Array.isArray(restrictTo) ||
     restrictTo.length !== 1 ||
-    restrictTo[0] !== config.priceId
+    restrictTo[0] !== config.priceId ||
+    // A flat amount needs the price to compare with; checkout's total covers it.
+    (discount.type === "percentage" && !(Number(discount.amount) < 100))
   ) {
     throw new ExomemBillingError("EXOMEM_FRIEND_DISCOUNT_INVALID", 503);
   }
   return discountId;
+}
+
+/** A Paddle total in minor units that charges nothing. */
+function chargesNothing(total: unknown): boolean {
+  return typeof total === "string" && MONEY_MINOR_UNITS.test(total) && Number(total) === 0;
 }
 
 /** Server-selected catalogue terms; remove the legacy arm after every environment adopts the friend price. */
@@ -364,6 +372,15 @@ export async function createExomemCheckout(
   if ((data?.discount_id ?? null) !== discountId) {
     await cancelUnboundTransaction(transactionId, transport);
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  // A friend price or discount made free in the dashboard is not sold. When
+  // this fires wrongly, friend checkouts fail until the operator fixes Paddle.
+  if (
+    options.friendPrice === true &&
+    chargesNothing(safeObject(safeObject(data?.details)?.totals)?.total)
+  ) {
+    await cancelUnboundTransaction(transactionId, transport);
+    throw new ExomemBillingError("EXOMEM_FRIEND_DISCOUNT_INVALID", 503);
   }
   let recorded = false;
   let recordFailed = false;
@@ -641,17 +658,22 @@ export async function previewExomemPrices(
   };
   const usual = await cachedPrice({ ...base, discountId: null }, transport, now);
   if (!input.friend) return { usual, friend: null };
+  let friend: ExomemMoney;
   if (config.friendPriceId) {
     const selected = await selectExomemCheckoutPrice(true, config, transport);
-    const friend = await cachedPrice({ ...base, ...selected }, transport, now);
-    return { usual, friend };
+    friend = await cachedPrice({ ...base, ...selected }, transport, now);
+  } else {
+    let discountId = config.friendDiscountId;
+    if (!discountId || (shownDiscountChecks.get(discountId) ?? 0) <= now) {
+      discountId = await verifyExomemFriendDiscount(config, transport);
+      shownDiscountChecks.set(discountId, now + PRICE_CACHE_MS);
+    }
+    friend = await cachedPrice({ ...base, discountId }, transport, now);
   }
-  let discountId = config.friendDiscountId;
-  if (!discountId || (shownDiscountChecks.get(discountId) ?? 0) <= now) {
-    discountId = await verifyExomemFriendDiscount(config, transport);
-    shownDiscountChecks.set(discountId, now + PRICE_CACHE_MS);
+  // A free friend price is never shown, as checkout never sells one.
+  if (chargesNothing(friend.amount)) {
+    throw new ExomemBillingError("EXOMEM_FRIEND_DISCOUNT_INVALID", 503);
   }
-  const friend = await cachedPrice({ ...base, discountId }, transport, now);
   return { usual, friend };
 }
 

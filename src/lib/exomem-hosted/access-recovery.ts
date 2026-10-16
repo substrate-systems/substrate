@@ -64,6 +64,8 @@ export function mintAccessRecoveryReceipt(
     timeZone: string | null;
     challengeDigest: Buffer;
     prior: AccessRecoveryReceipt | null;
+    /** A resend passed no bot check, so it keeps the prior expiry: one check never buys resends forever. */
+    resend?: boolean;
   },
   now = new Date()
 ) {
@@ -80,14 +82,18 @@ export function mintAccessRecoveryReceipt(
     timeZone: input.timeZone,
     browserKey: input.prior?.browserKey ?? generateExternalToken(),
     challengeDigest: input.challengeDigest.toString("hex"),
-    expiresAt: new Date(now.getTime() + ttl * 1000).toISOString(),
+    expiresAt:
+      input.resend && input.prior
+        ? input.prior.expiresAt
+        : new Date(now.getTime() + ttl * 1000).toISOString(),
   };
   return {
     receipt,
     token: Buffer.from(JSON.stringify(encryptSecret(JSON.stringify(receipt)))).toString(
       "base64url"
     ),
-    ttl,
+    // The cookie lasts as long as the receipt it carries.
+    ttl: Math.max(1, Math.ceil((Date.parse(receipt.expiresAt) - now.getTime()) / 1000)),
   };
 }
 
@@ -148,17 +154,22 @@ export async function accessStartRetryAfterSeconds(
   return Number(rows[0].seconds);
 }
 
-/** Start and recovery share one public answer; only common limits can change its visible wait. */
+/**
+ * Start and recovery share one public answer; only common limits can change its visible wait.
+ * `resend` is the recovery route's resend, which passed no bot check of its own.
+ */
 export async function uniformAccessStartResponse(
   request: Request,
-  input: { email: string; timeZone: string | null; requestId: string }
+  input: { email: string; timeZone: string | null; requestId: string; resend: boolean }
 ) {
   const prior = readAccessRecoveryReceipt(request);
   let challenge = mintMagicLinkChallenge();
   let recovery = mintAccessRecoveryReceipt({
-    ...input,
+    email: input.email,
+    timeZone: input.timeZone,
     challengeDigest: challenge.challengeDigest,
     prior,
+    resend: input.resend,
   });
   const networkKey = clientAddressKey(request) ?? "unavailable";
   const retryLimited =
@@ -170,6 +181,7 @@ export async function uniformAccessStartResponse(
       timeZone: prior.timeZone,
       challengeDigest: Buffer.from(prior.challengeDigest, "hex"),
       prior,
+      resend: input.resend,
     });
     const existing = magicLinkChallengeFromRequest(request);
     const digest = existing ? tokenDigest(existing) : null;

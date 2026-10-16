@@ -97,7 +97,7 @@ The cell controller SHALL mark an export ready only after it checks the uploaded
 
 ### Requirement: Home reaches its cell with a short-lived first-party token
 
-Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. No request SHALL carry a tenant or cell identifier. The gateway SHALL exempt from its per-address limit only a token that its lookup resolved to the first-party client from the stored client row, and SHALL keep the per-tenant and client limit for that token.
+Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make only a closed set of calls that the server selects: `configure_memory` and `bootstrap` with the `activity` section for Home, and `viewer_map`, `ask_memory` and `read_memory` for the memory viewer while its flag is on. No request SHALL carry a tenant or cell identifier. The gateway SHALL exempt from its per-address limit only a token that its lookup resolved to the first-party client from the stored client row, and SHALL keep the per-tenant and client limit for that token.
 
 #### Scenario: Cell is stopped or not ready
 

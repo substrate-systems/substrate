@@ -63,7 +63,7 @@ The friend price SHALL use a dedicated monthly Paddle price for each environment
 
 ### Requirement: Legacy friend discount is verified before every use and fails closed
 
-Before it attaches the friend discount to a checkout, or applies it to a subscription, the server SHALL verify that the discount is active, recurring without a limit on intervals, has no code, is not enabled for checkout, and is restricted to the Exomem price. If any check fails, the server MUST refuse the action and make no change at the provider.
+Before it attaches the friend discount to a checkout, or applies it to a subscription, the server SHALL verify that the discount is active, recurring without a limit on intervals, has no code, is not enabled for checkout, is restricted to the Exomem price, and does not bring that price to zero. If any check fails, the server MUST refuse the action and make no change at the provider.
 
 #### Scenario: Discount has a code at checkout
 

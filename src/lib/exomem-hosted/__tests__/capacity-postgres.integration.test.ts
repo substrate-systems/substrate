@@ -4,7 +4,7 @@ import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { redeemCloudInviteAtomic } from "../cloud-admission";
-import { getCloudCapacityStatus } from "../cloud-capacity";
+import { getCloudCapacityStatus, lockCloudCapacity } from "../cloud-capacity";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -13,6 +13,7 @@ import {
   type ExomemSql,
 } from "../db";
 import { clearSettledEmailRecipients, drainExomemEmailOutbox } from "../email-outbox";
+import { setOperationalEventSinkForTests } from "../observability";
 import {
   EXOMEM_INVITE_CAPABILITIES,
   EXOMEM_INVITE_LIMITS,
@@ -48,6 +49,7 @@ const ENV = {
   EXOMEM_CONTROL_PLANE_KEY: randomBytes(32).toString("base64url"),
   EXOMEM_TURNSTILE_SECRET_KEY: TURNSTILE_ALWAYS_PASSES,
   EXOMEM_SELF_SERVE_ADMISSION: undefined,
+  EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR: undefined,
 } as Record<string, string | undefined>;
 const priorEnv: Record<string, string | undefined> = {};
 const realFetch = globalThis.fetch;
@@ -174,6 +176,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     siteverifyCalls = 0;
     process.env.EXOMEM_TURNSTILE_SECRET_KEY = TURNSTILE_ALWAYS_PASSES;
     delete process.env.EXOMEM_SELF_SERVE_ADMISSION;
+    delete process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR;
     // The waitlist row must go before the invite it names (its admitted-pair
     // CHECK refuses the SET NULL), and tokens before the tenants they name.
     await pool!.query("DELETE FROM exomem_email_outbox");
@@ -330,7 +333,8 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [email]),
       1
     );
-    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 3);
+    // The request's address, browser and network limits, and the admission's pace.
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 4);
   });
 
   it("admits exactly one of many simultaneous starts at the last free slot and queues the rest", async () => {
@@ -431,6 +435,88 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       ),
       1
     );
+  });
+
+  it("queues a newcomer and promotes nobody once the hour's self-serve admissions are used, while places are free", async () => {
+    await configureCapacity(5);
+    process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR = "1";
+    const paced = newAddress("paced");
+    const logs: string[] = [];
+    setOperationalEventSinkForTests((line) => logs.push(line));
+    try {
+      assert.equal(
+        await startSelfServeAtomic({
+          emailNormalized: newAddress("first"),
+          timeZone: null,
+          mode: "open",
+        }),
+        "admitted"
+      );
+      assert.equal(
+        await startSelfServeAtomic({ emailNormalized: paced, timeZone: null, mode: "open" }),
+        "waitlisted"
+      );
+      assert.deepEqual(await promoteWaitlistedPeople({ mode: "open" }), {
+        status: "ran",
+        promoted: 0,
+        settled: 0,
+      });
+    } finally {
+      setOperationalEventSinkForTests(null);
+    }
+
+    // Queued exactly as a full Cloud queues: a waitlist place and its one email.
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_invites WHERE self_serve"), 1);
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1 AND admitted_at IS NULL",
+        [paced]
+      ),
+      1
+    );
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_email_outbox WHERE kind = 'waitlist' AND recipient = $1",
+        [paced]
+      ),
+      1
+    );
+    // Each refusal raises the alert, and the alert names nobody.
+    const alerts = logs.filter((line) => JSON.parse(line).event === "access.start.admission_paced");
+    assert.equal(alerts.length, 2);
+    assert.equal(alerts.join(" ").includes(paced), false);
+
+    // The next hour, the queue moves again.
+    await pool!.query(
+      "UPDATE exomem_rate_limit_buckets SET window_started_at = now() - interval '2 hours'"
+    );
+    assert.deepEqual(await promoteWaitlistedPeople({ mode: "open" }), {
+      status: "ran",
+      promoted: 1,
+      settled: 0,
+    });
+  });
+
+  it("refuses an unknown invitation without waiting on the capacity lock", async () => {
+    await configureCapacity(1);
+    const holder = await pool!.connect();
+    try {
+      await holder.query("BEGIN");
+      await lockCloudCapacity(taggedSql(holder));
+      const answer = await Promise.race([
+        redeemCloudInviteAtomic({
+          tokenDigest: randomBytes(32),
+          sessionDigest: randomBytes(32),
+          csrfDigest: randomBytes(32),
+          sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        }),
+        new Promise((resolve) => setTimeout(resolve, 2_000, "waited on the lock")),
+      ]);
+      assert.equal(answer, null);
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
   });
 
   it("keeps a waiting person's place when they ask again, and sends the back of the queue to one whose link lapsed", async () => {
@@ -593,20 +679,91 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
 
     // Once the link expires before the next retry, the email fails and the
-    // place returns.
+    // place returns. The last answer was a refusal, and the link records the
+    // same cause as its email.
     await pool!.query(
       "UPDATE exomem_email_outbox SET not_before = now(), expires_at = now() + interval '30 seconds' WHERE recipient = $1",
       [email]
     );
-    const atDeadline = await drainExomemEmailOutbox({}, { sendEmail: providerDown });
-    assert.equal(atDeadline.failed, 1);
-    assert.equal(
-      await count(
-        "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NOT NULL",
-        [email]
-      ),
-      1
+    const atDeadline = await drainExomemEmailOutbox(
+      {},
+      { sendEmail: async () => ({ success: false, status: 400 }) }
     );
+    assert.equal(atDeadline.failed, 1);
+    const settled = await pool!.query<{ email_code: string; link_code: string }>(
+      `SELECT outbox.last_error_code AS email_code, link.delivery_error_code AS link_code
+       FROM exomem_email_outbox AS outbox
+       JOIN exomem_invites AS link ON link.email_normalized = outbox.recipient
+       WHERE outbox.recipient = $1 AND link.revoked_at IS NOT NULL`,
+      [email]
+    );
+    assert.deepEqual(settled.rows, [{ email_code: "EMAIL_REFUSED", link_code: "EMAIL_REFUSED" }]);
+  });
+
+  // A refused waitlist email costs nobody their place, so it fails at once. A
+  // refused start link retries: failing it would revoke the link and its place.
+  for (const [kind, status, settles] of [
+    ["waitlist", 400, true],
+    ["waitlist", 503, false],
+    ["start", 400, false],
+  ] as const) {
+    it(`${settles ? "fails at once" : "retries"} a ${kind} email the provider answers ${status}`, async () => {
+      await configureCapacity(kind === "start" ? 1 : 0);
+      const email = newAddress(`${kind}-${status}`);
+      await startSelfServeAtomic({ emailNormalized: email, timeZone: null, mode: "open" });
+
+      const drained = await drainExomemEmailOutbox(
+        {},
+        { sendEmail: async () => ({ success: false, status }) }
+      );
+
+      assert.equal(drained.failed, settles ? 1 : 0);
+      assert.equal(drained.retryScheduled, settles ? 0 : 1);
+      const row = await pool!.query<{ kind: string; state: string; last_error_code: string }>(
+        "SELECT kind, state, last_error_code FROM exomem_email_outbox WHERE recipient = $1",
+        [email]
+      );
+      assert.deepEqual(row.rows[0], {
+        kind,
+        state: settles ? "failed" : "pending",
+        last_error_code: status === 400 ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
+      });
+      // The person keeps what they had: a place in the queue, or a live start link.
+      assert.equal(
+        await count(
+          kind === "start"
+            ? "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NULL"
+            : "SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1 AND admitted_at IS NULL",
+          [email]
+        ),
+        1
+      );
+    });
+  }
+
+  it("sends a start link ahead of an older waitlist email", async () => {
+    await configureCapacity(1);
+    const admitted = newAddress("admitted");
+    const waiting = newAddress("waiting");
+    await startSelfServeAtomic({ emailNormalized: admitted, timeZone: null, mode: "open" });
+    await startSelfServeAtomic({ emailNormalized: waiting, timeZone: null, mode: "open" });
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET created_at = now() - interval '1 hour', not_before = now() - interval '1 hour' WHERE recipient = $1",
+      [waiting]
+    );
+    const sentTo: string[] = [];
+
+    await drainExomemEmailOutbox(
+      { maxMessages: 1 },
+      {
+        sendEmail: async (input) => {
+          sentTo.push(input.to);
+          return { success: true };
+        },
+      }
+    );
+
+    assert.deepEqual(sentTo, [admitted]);
   });
 
   it("clears settled email addresses after 30 days and deletes waitlist entries 180 days after their last activity", async () => {

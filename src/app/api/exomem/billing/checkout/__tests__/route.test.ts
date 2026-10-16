@@ -9,8 +9,21 @@ let reviewerCredentialKind: string | null = null;
 let returnedTransaction: string | null = null;
 let returnedResult: { state: "open"; checkoutUrl: string } | { state: "settled" };
 let sessionTenantId = TENANT_ID;
+let rateLimitAllowed = true;
+let rateLimitKeys: string[] = [];
 
-before(() => {
+before(async () => {
+  // The per-account limit is a database bucket; here it answers as each test sets it.
+  const actualRateLimit = await import("@/lib/exomem-hosted/rate-limit");
+  mock.module("@/lib/exomem-hosted/rate-limit", {
+    namedExports: {
+      ...actualRateLimit,
+      takeExomemRateLimit: async (_rule: unknown, key: string) => {
+        rateLimitKeys.push(key);
+        return rateLimitAllowed;
+      },
+    },
+  });
   mock.module("@/lib/exomem-hosted/sessions", {
     namedExports: {
       resolveExomemSession: async () => ({
@@ -54,6 +67,8 @@ beforeEach(() => {
   reviewerCredentialKind = null;
   returnedTransaction = null;
   sessionTenantId = TENANT_ID;
+  rateLimitAllowed = true;
+  rateLimitKeys = [];
   returnedResult = {
     state: "open",
     checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${TRANSACTION_ID}`,
@@ -141,6 +156,41 @@ describe("POST /api/exomem/billing/checkout", () => {
       assert.equal(returnedTransaction, null);
     }
   });
+  it("answers an account over its limit with 429 before Paddle is asked", async () => {
+    rateLimitAllowed = false;
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    const response = await POST(
+      new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      })
+    );
+
+    assert.equal(response.status, 429);
+    assert.equal((await response.json()).error.code, "RATE_LIMITED");
+    assert.deepEqual(rateLimitKeys, [TENANT_ID]);
+    assert.equal(startCalls, 0);
+  });
+
+  it("never rate-limits the setup page's repeated confirmation of a paid checkout", async () => {
+    rateLimitAllowed = false;
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    for (let poll = 0; poll < 40; poll += 1) {
+      const response = await POST(
+        new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tenantId: TENANT_ID, transactionId: TRANSACTION_ID }),
+        })
+      );
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(rateLimitKeys, []);
+  });
+
   it("starts the checkout and returns the transaction id the Paddle overlay opens", async () => {
     const { NextRequest } = await import("next/server");
     const { POST } = await import("../route");

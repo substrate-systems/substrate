@@ -77,6 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       email: fields.email,
       timeZone: normalizeTimeZone(fields.timeZone),
       requestId,
+      resend: false,
     });
     emitAccessEvent({ event: "access.start.accepted", outcome: "succeeded", requestId });
     return response;

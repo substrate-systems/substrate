@@ -138,7 +138,7 @@ The start form SHALL check every request with a Cloudflare Turnstile challenge. 
 
 ### Requirement: The admission setting decides what a new address receives
 
-The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default and any unknown value are `waitlist`.
+The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default and any unknown value are `waitlist`. While the setting is `open`, one shared limit SHALL pace self-serve admissions for all addresses together. When that limit is reached, the system SHALL queue a new address as if Cloud were full, and promotion SHALL wait until the limit allows another admission.
 
 #### Scenario: Admission is open and a place is free
 
@@ -151,6 +151,11 @@ The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide wh
 - **WHEN** the setting is `open` and Cloud has no free place, or someone waits, and a new address submits the start form
 - **THEN** the system adds the address to the waitlist and queues the waitlist email
 - **AND** it creates no start link
+
+#### Scenario: Admissions arrive faster than the shared limit
+
+- **WHEN** the setting is `open`, Cloud has a free place, nobody waits, the shared admission limit is reached, and a new address submits the start form
+- **THEN** the system adds the address to the waitlist, creates no start link, and answers exactly as for any other request
 
 #### Scenario: Admission is waitlist only
 
@@ -214,7 +219,7 @@ When the system reissues a start link for the same person, it SHALL keep the ori
 
 ### Requirement: Invitation and hold emails are sent once
 
-Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease and SHALL retry until the email's own expiry. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
+Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease. The system SHALL retry every email until its own expiry, except that a waitlist confirmation the provider refuses as invalid SHALL fail at once while the person keeps their place. Start and lifecycle emails SHALL be claimed before waitlist confirmations. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
 
 #### Scenario: The same fact is recorded twice
 
@@ -226,6 +231,16 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 - **WHEN** the email provider fails and recovers before a start link expires
 - **THEN** the system delivers the start email and the person keeps their place
 - **AND** after the link's own expiry the system stops retrying
+
+#### Scenario: Provider refuses a waitlist confirmation
+
+- **WHEN** the email provider refuses a waitlist confirmation as invalid
+- **THEN** the row fails at once, the system does not retry it, and the person keeps their place
+
+#### Scenario: Provider refuses a start email
+
+- **WHEN** the email provider refuses a start email as invalid
+- **THEN** the system retries it until the link's own expiry and the person keeps their link
 
 #### Scenario: Precondition no longer holds
 
@@ -434,7 +449,7 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 ### Requirement: The consent page shows where the code goes
 
-The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label an unverified web client name as app-supplied beside the requested permissions. The system MUST store a client name only when the client declares one.
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label a name that the client declares as app-supplied beside the requested permissions, for a web app and for a local app. A name that Exomem supplies, or a host shown in place of a name, SHALL carry no label. The system MUST store a client name only when the client declares one.
 
 #### Scenario: Web client declares a name
 
@@ -445,6 +460,7 @@ The consent page SHALL always show where the authorization code goes: the host o
 
 - **WHEN** a client with a loopback redirect and a declared name opens the consent page
 - **THEN** the footer shows the declared app name and "this computer"
+- **AND** the permissions show the declared name labelled as app-supplied
 
 #### Scenario: Expired request navigation
 
@@ -624,7 +640,7 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 ### Requirement: Sign-in recovery cannot authenticate or enumerate accounts
 
-Owner authentication links SHALL remain single-use and expire after 15 minutes. A separate opaque recovery receipt SHALL bind resend recovery to the requesting browser. Its configured lifetime SHALL default to one hour. Recovery MUST NOT create a session, return an address, reveal account eligibility or recover another browser's request.
+Owner authentication links SHALL remain single-use and expire after 15 minutes. A separate opaque recovery receipt SHALL bind resend recovery to the requesting browser. Its configured lifetime SHALL default to one hour, and a resend SHALL keep the first receipt's expiry. Recovery MUST NOT create a session, return an address, reveal account eligibility or recover another browser's request.
 
 #### Scenario: A proven browser opens an expired or used link
 

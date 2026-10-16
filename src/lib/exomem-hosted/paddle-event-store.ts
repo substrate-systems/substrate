@@ -76,7 +76,8 @@ export function createSqlExomemPaddleEventStore(
                  entitlement.source_occurred_at,
                  entitlement.source_revision,
                  entitlement.provider_environment,
-                 entitlement.source_state
+                 entitlement.source_state,
+                 tenant.friend_offer_invite_id IS NOT NULL AS holds_friend_offer
           FROM exomem_tenants AS tenant
           JOIN exomem_entitlements AS entitlement
             ON entitlement.tenant_id = tenant.id
@@ -124,6 +125,7 @@ export function createSqlExomemPaddleEventStore(
                  authoritative_target.source_occurred_at,
                  authoritative_target.source_revision,
                  authoritative_target.source_state AS prior_source_state,
+                 authoritative_target.holds_friend_offer,
                  authoritative_target.entitlement_id IS NOT NULL AS is_authoritative,
                  CASE
                    WHEN authoritative_target.entitlement_id IS NULL THEN 'ignored'
@@ -287,6 +289,9 @@ export function createSqlExomemPaddleEventStore(
         -- tenant without a friend offer the offer of a friend invitation
         -- addressed to its owner, in this transaction: an older event is
         -- stale and records nothing, and no later step can lose the write.
+        -- A binding event reports what checkout sold, and checkout sells the
+        -- friend price only to a tenant that already holds the offer, so it
+        -- never creates one; a disagreement is logged after the statement.
         friend_offer AS (
           UPDATE exomem_tenants AS tenant
           SET friend_offer_invite_id = offer.invite_id,
@@ -313,6 +318,7 @@ export function createSqlExomemPaddleEventStore(
             AND decision.outcome = 'applied'
             AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
             AND ${isSubscriptionEvent && application.subscriptionCarriesFriendPrice}::boolean
+            AND NOT ${canBindSubscriptionByTransaction}::boolean
             AND tenant.friend_offer_invite_id IS NULL
             AND EXISTS (SELECT 1 FROM claimed)
           RETURNING tenant.id
@@ -327,6 +333,8 @@ export function createSqlExomemPaddleEventStore(
                  WHEN completion.claimed_count = 0 THEN 'duplicate'
                  ELSE decision.outcome
                END AS outcome,
+               decision.tenant_id,
+               decision.holds_friend_offer,
                CASE
                  WHEN completion.claimed_count = 1 AND decision.outcome = 'applied'
                    THEN 1 / completion.projected_count
@@ -341,6 +349,20 @@ export function createSqlExomemPaddleEventStore(
         // Stable and identifier-free. A thrown statement/shape error leaves a
         // new receipt uncommitted, so the same Paddle delivery remains retryable.
         throw new Error("EXOMEM_PADDLE_ATOMIC_APPLY_FAILED");
+      }
+      // A first subscription whose friend price disagrees with what checkout
+      // sold the tenant is activated as Paddle reports it, and the operator is
+      // told: Paddle bills it, so refusing it here would only strand a payer.
+      if (
+        outcome === "applied" &&
+        canBindSubscriptionByTransaction &&
+        typeof rows[0]?.holds_friend_offer === "boolean" &&
+        rows[0].holds_friend_offer !== application.subscriptionCarriesFriendPrice
+      ) {
+        console.error({
+          event: "exomem_paddle_friend_price_mismatch",
+          tenant_id: rows[0].tenant_id,
+        });
       }
       return {
         outcome: outcome as ExomemPaddleStoreResult["outcome"],

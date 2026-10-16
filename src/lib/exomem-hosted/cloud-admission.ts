@@ -75,6 +75,25 @@ async function requireCloudAdmissionCapacity(
 }
 
 /**
+ * Whether a live invitation has this digest, read without a row lock before
+ * the capacity lock, so an unknown, used or lapsed token never queues on that
+ * one lock that every admission shares. It refuses only what the locked
+ * re-read refuses too, so firing wrongly would need a token that becomes live
+ * later, which no invitation does; the re-read still decides the rest.
+ */
+async function liveInviteExists(tx: ExomemSql, digest: Buffer): Promise<boolean> {
+  const { rows } = await tx`
+    /* exomem-cloud:live-invite-exists */
+    SELECT 1 FROM exomem_invites
+    WHERE token_digest = ${digest}
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+  `;
+  return rows.length > 0;
+}
+
+/**
  * A repeat start request leaves the person's earlier start links valid, so
  * using one of them revokes the others: the address now owns its cell and
  * holds no further promise.
@@ -191,6 +210,7 @@ export async function redeemCloudInviteAtomic(
   input: RedeemCloudInviteInput
 ): Promise<RedeemedCloudAccess | null> {
   return withExomemTransaction(async (tx: ExomemSql) => {
+    if (!(await liveInviteExists(tx, input.tokenDigest))) return null;
     await lockCloudCapacity(tx);
 
     const inviteResult = await tx`
@@ -498,6 +518,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     // this call the same way every other Cloud entry point does.
     const cloudResource = loadExomemCloudResource().mcpUrl;
     return await withExomemTransaction(async (tx: ExomemSql) => {
+      if (!(await liveInviteExists(tx, input.inviteDigest)))
+        throw new CloudOAuthAdmissionRejected();
       await lockCloudCapacity(tx);
 
       const inviteResult = await tx`

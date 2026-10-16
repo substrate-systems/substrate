@@ -286,7 +286,7 @@ describe(
       });
     }
 
-    it("after the authentication cookie clears, an expired link can resend only to its original address", async () => {
+    it("after the authentication cookie clears, an expired link can resend only to its original address, within its first receipt's lifetime", async () => {
       const userId = randomUUID(),
         tenantId = randomUUID();
       const email = "expired-owner@example.test";
@@ -358,6 +358,18 @@ describe(
       );
       assert.equal(redirected.status, 400);
       const freshRecovery = response.cookies.get(EXOMEM_ACCESS_RECOVERY_COOKIE)!.value;
+      // The resend's receipt ends when the first one does, so one bot check cannot resend forever.
+      assert.equal(
+        recovery.readAccessRecoveryReceipt(
+          request(
+            "/api/exomem/access/magic-link/recover",
+            {},
+            `${EXOMEM_ACCESS_RECOVERY_COOKIE}=${freshRecovery}`
+          ),
+          new Date(receipt.receipt.expiresAt)
+        ),
+        null
+      );
       const tooSoon = await resend(
         request(
           "/api/exomem/access/magic-link/recover",

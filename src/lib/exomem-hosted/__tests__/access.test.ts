@@ -41,6 +41,7 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
     }),
     takeRateLimit: async () => true,
     completeStartRequest: async () => undefined,
+    afterResponse: (work) => work(),
     ...overrides,
   };
 }
@@ -162,6 +163,36 @@ describe("Exomem hosted access", () => {
       })
     );
     assert.deepEqual(result, { accepted: true });
+    assert.equal(admissions, 1);
+  });
+
+  // The self-serve branch waits on the Cloud capacity lock and the owner
+  // branch does not, so a branch run before the answer would time it apart.
+  it("answers before the self-serve branch runs, and runs it once the answer is sent", async () => {
+    let admissions = 0;
+    const deferred: Array<() => Promise<void>> = [];
+    const result = await requestStart(
+      {
+        email: SENTINEL,
+        networkKey: "ip-hash-input",
+        browserChallengeDigest: Buffer.alloc(32, 0x63),
+        timeZone: null,
+      },
+      dependencies({
+        createMagicAccessToken: async () => null,
+        admissionMode: () => "open",
+        startSelfServe: async () => {
+          admissions += 1;
+          return "admitted";
+        },
+        afterResponse: async (work) => {
+          deferred.push(work);
+        },
+      })
+    );
+    assert.deepEqual(result, { accepted: true });
+    assert.equal(admissions, 0);
+    for (const work of deferred) await work();
     assert.equal(admissions, 1);
   });
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { after, before, beforeEach, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { friendPriceOffered, friendPriceUnchecked } from "../../../app/exomem/invite/invite-view";
@@ -184,9 +184,15 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
   }
   if (method === "POST" && pathname === "/transactions") {
     const id = `txn_${randomUUID().replaceAll("-", "").slice(0, 26)}`;
+    // €15, less the flat friend discount when the transaction carries it.
+    const total = Math.max(
+      0,
+      1500 - (body?.discount_id === FRIEND_DISCOUNT ? Number(paddle.discount.amount) : 0)
+    );
     const transaction = {
       id,
       status: "draft",
+      details: { totals: { total: String(total), currency_code: "EUR" } },
       discount_id: body?.discount_id ?? null,
       customer_id: body?.customer_id ?? null,
       custom_data: body?.custom_data,
@@ -1592,6 +1598,78 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
         error instanceof ExomemHostedError && error.code === "EXOMEM_FRIEND_DISCOUNT_INVALID"
     );
     assert.equal(paddleCalls("POST", "/transactions").length, 0);
+  });
+
+  it("cancels a friend checkout that Paddle totals at nothing, when the flat discount reaches the whole price", async () => {
+    const owner = await paidOwner({ sourceState: "cancelled", cell: "read_only", endedDaysAgo: 2 });
+    const { token } = await issueFriendInvitation({ email: owner.email });
+    await decideInvitation({
+      token,
+      choice: "use_friend_price",
+      session: { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId },
+    });
+    paddle.discount = { ...validDiscount(), amount: "1500" };
+
+    await assert.rejects(
+      startOwnerCheckout(owner.userId, owner.tenantId),
+      (error) =>
+        error instanceof ExomemHostedError && error.code === "EXOMEM_FRIEND_DISCOUNT_INVALID"
+    );
+    // The one transaction Paddle created is cancelled, so nobody can pay nothing for it.
+    assert.equal(paddleCalls("POST", "/transactions").length, 1);
+    assert.deepEqual(
+      paddleCalls("PATCH", "/transactions/").map((call) => call.body),
+      [{ status: "canceled" }]
+    );
+  });
+
+  it("grants no friend offer from a first subscription that carries the friend discount for a checkout sold at the usual price, and alerts the operator", async () => {
+    const owner = await paidOwner({ sourceState: "cancelled", cell: "read_only", endedDaysAgo: 5 });
+    const checkout = await startOwnerCheckout(owner.userId, owner.tenantId);
+    assert.equal(paddleCalls("POST", "/transactions")[0]!.body?.discount_id, undefined);
+    // A live friend invitation the owner never used.
+    await issueFriendInvitation({ email: owner.email });
+    const errors = mock.method(console, "error", () => undefined);
+    let logged: string[];
+    try {
+      const dispatched = await dispatchVerifiedExomemPaddleEvent(
+        {
+          event_id: `evt_${randomUUID().replaceAll("-", "")}`,
+          event_type: "subscription.created",
+          occurred_at: new Date().toISOString(),
+          environment: "sandbox",
+          data: {
+            id: paddleId("sub"),
+            status: "active",
+            transaction_id: checkout.transactionId,
+            customer_id: owner.customerRef,
+            discount: { id: FRIEND_DISCOUNT },
+            items: [{ price: { id: BASE_PRICE, product_id: PRODUCT, name: "Exomem · monthly" } }],
+            custom_data: {
+              product_key: "exomem-hosted",
+              user_id: owner.userId,
+              tenant_id: owner.tenantId,
+            },
+          },
+        },
+        { env: ENV, store: createSqlExomemPaddleEventStore(taggedSql(pool!)) }
+      );
+      // Paddle bills the subscription, so it is activated as reported.
+      assert.deepEqual(dispatched, { kind: "handled", outcome: "applied" });
+    } finally {
+      logged = errors.mock.calls.map((call) => JSON.stringify(call.arguments));
+      errors.mock.restore();
+    }
+
+    assert.equal(await friendOffer(owner.tenantId), null);
+    assert.deepEqual(
+      logged.filter((line) => line.includes("exomem_paddle_friend_price_mismatch")),
+      [
+        JSON.stringify([
+          { event: "exomem_paddle_friend_price_mismatch", tenant_id: owner.tenantId },
+        ]),
+      ]
+    );
   });
 
   it("reopens a checkout only after checking the friend discount again, and never at the usual price for a friend offer", async () => {

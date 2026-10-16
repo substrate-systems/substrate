@@ -21,7 +21,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length)
       throw exomemErrors.invalidRequest();
     const prior = readAccessRecoveryReceipt(request);
-    const response = await uniformAccessStartResponse(request, { email: prior?.email ?? "", timeZone: prior?.timeZone ?? null, requestId });
+    const response = await uniformAccessStartResponse(request, {
+      email: prior?.email ?? "",
+      timeZone: prior?.timeZone ?? null,
+      requestId,
+      resend: true,
+    });
     emitAccessEvent({ event: "access.start.accepted", outcome: "succeeded", requestId });
     return response;
   } catch (error) {

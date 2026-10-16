@@ -26,7 +26,7 @@ import { tokenDigest } from "./security";
 /** The app a request is from, as the consent page names and draws it. */
 export type ConsentApp = {
   displayName: string;
-  /** `displayNameVouched` says whether Exomem stands behind the name. */
+  /** `displayNameClaimedByApp` says whether the name is the app's own claim. */
   displayNameSource: OAuthClientDisplayNameSource;
   platform: string | null;
   /** The request's redirect is loopback: the code goes to this computer. */
