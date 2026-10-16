@@ -91,6 +91,9 @@ jobs:
     name: onboarding end-to-end
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The journey layout spec saves each step's screenshot here for design review.
+      JOURNEY_SHOTS: ${{ github.workspace }}/journey-shots
     # The Exomem journey specs (last steps) drive the real server against this database.
     services:
       postgres:
@@ -170,6 +173,7 @@ jobs:
         run: |
           # A fresh key for this run only: the server and the seeding specs share it.
           export EXOMEM_CONTROL_PLANE_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+          mkdir -p "$JOURNEY_SHOTS"
           npx playwright test --project "exomem journey desktop 1440" --project "exomem journey phone 390" --project "exomem journey phone 360x640" --project "exomem journey phone 360x720" --project "exomem journey phone 390x740"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -177,6 +181,13 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: journey-shots
+          path: ${{ env.JOURNEY_SHOTS }}
+          if-no-files-found: ignore
+          retention-days: 14
 
   # Engineering practices quality check: fails a pull request that adds dead code
   # and posts a Quality report. Configured by .github/quality.yml; see
