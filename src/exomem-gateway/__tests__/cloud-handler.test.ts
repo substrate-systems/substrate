@@ -1066,6 +1066,55 @@ describe("Cloud artifact fetch authority", () => {
     assert.equal(grant, null);
   });
 
+  // A cell is selected by the explicit list or by the all-cells switch; the
+  // grant binds the authenticated cell in both cases.
+  const GRANT_CASES = [
+    { name: "a listed cell with the switch off", cells: [TEST_CELL_ID], all: false, granted: true },
+    { name: "an unlisted cell with the switch off", cells: [], all: false, granted: false },
+    { name: "an unlisted cell with the switch on", cells: [], all: true, granted: true },
+    { name: "a listed cell with the switch on", cells: [TEST_CELL_ID], all: true, granted: true },
+  ];
+  for (const { name, cells, all, granted } of GRANT_CASES) {
+    it(`${granted ? "signs" : "does not sign"} a file call for ${name}`, async () => {
+      const { privateKey } = generateKeyPairSync("ed25519");
+      const body = JSON.stringify({
+        method: "tools/call",
+        params: {
+          name: "preserve_artifacts",
+          arguments: {
+            scope: "sample",
+            category: "review",
+            files: [
+              { file_id: "synthetic-file", download_url: "https://files.example.test/proof" },
+            ],
+          },
+        },
+      });
+      let grant: string | null = null;
+      const response = await handleCloudMcpRequest(
+        postRequest({ bearer: CLIENT_BEARER, body }),
+        baseDeps({
+          config: {
+            ...TEST_CONFIG,
+            artifactSigningKey: privateKey,
+            artifactCells: new Set(cells),
+            artifactAllCells: all,
+          },
+          fetchCell: async (_url, init) => {
+            grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+            return new Response("ok");
+          },
+        })
+      );
+      assert.equal(await response.text(), "ok");
+      assert.equal(grant !== null, granted);
+      if (grant !== null) {
+        const [, payload] = (grant as string).split(".");
+        assert.equal(JSON.parse(Buffer.from(payload!, "base64url").toString()).sub, TEST_CELL_ID);
+      }
+    });
+  }
+
   it("leaves unselected accounts on their existing streaming path", async () => {
     const { privateKey } = generateKeyPairSync("ed25519");
     const body = "ordinary account's unchanged request";
@@ -1186,6 +1235,35 @@ describe("Cloud artifact fetch authority", () => {
       assert.fail("invalid key accepted");
     } catch (error) {
       assert.equal(String(error).includes(invalidKey), false);
+    }
+  });
+
+  it("reads the all-cells switch exactly as the chart emits it", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const configured = {
+      EXOMEM_CLOUD_MCP_URL: TEST_CONFIG.mcpUrl,
+      EXOMEM_CLOUD_MCP_PATH: TEST_CONFIG.mcpPath,
+      EXOMEM_CLOUD_CELL_TOKEN_KEY: TEST_TOKEN_KEY.toString("hex"),
+      EXOMEM_CLOUD_ARTIFACT_TRANSPORT_ENABLED: "true",
+      EXOMEM_CLOUD_ARTIFACT_CELL_IDS: JSON.stringify([TEST_CELL_ID]),
+      EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    };
+    assert.equal(loadExomemCloudConfig(configured).artifactAllCells, false);
+    assert.equal(
+      loadExomemCloudConfig({ ...configured, EXOMEM_CLOUD_ARTIFACT_ALL_CELLS: "true" })
+        .artifactAllCells,
+      true
+    );
+    // The switch widens fetch authority to every cell, so a value the chart
+    // never emits stops the gateway instead of being read as on or off.
+    for (const value of ["false", "True", "TRUE", "1", "yes", " true", ""]) {
+      assert.throws(
+        () => loadExomemCloudConfig({ ...configured, EXOMEM_CLOUD_ARTIFACT_ALL_CELLS: value }),
+        /EXOMEM_CLOUD_ARTIFACT_ALL_CELLS/,
+        JSON.stringify(value)
+      );
     }
   });
 
