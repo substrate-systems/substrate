@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { exomemEmailSchemeQuery } from "@/lib/email-templates/exomem-email";
 import { applyMigrations } from "../../../../scripts/migrate";
+import { drainMagicLinkDeliveries } from "../access-delivery";
 import { redeemCloudInviteAtomic } from "../cloud-admission";
 import { getCloudCapacityStatus, lockCloudCapacity } from "../cloud-capacity";
 import {
@@ -297,6 +299,42 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     });
     assert.match(answers[0]!.cookies, /exomem_magic_challenge/);
     for (const answer of answers) assert.ok(answer.elapsedMs >= 600, `${answer.elapsedMs} ms`);
+  });
+
+  it("builds the emails a light page asks for on light, for an owner and a newcomer alike", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/start/route");
+    const owner = newAddress("owner");
+    const ownerUser = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      [owner]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
+      [ownerUser.rows[0]!.id]
+    );
+    const newcomer = newAddress("newcomer");
+    process.env.EXOMEM_SELF_SERVE_ADMISSION = "open";
+    await configureCapacity(1);
+    for (const email of [owner, newcomer]) {
+      const response = await POST(
+        startRequest({ email, turnstileToken: "XXXX.DUMMY.TOKEN.XXXX", emailScheme: "light" })
+      );
+      assert.equal(response.status, 202);
+    }
+
+    // The owner's sign-in link and the newcomer's start link leave by their two outboxes.
+    const sent = new Map<string, string>();
+    const capture = async (input: { to: string; htmlContent: string }) => {
+      sent.set(input.to, input.htmlContent);
+      return { success: true };
+    };
+    await drainMagicLinkDeliveries({}, { sendEmail: capture });
+    await drainExomemEmailOutbox({}, { sendEmail: capture });
+
+    // A light-based email switches to dark in its block; a dark-based one would switch to light.
+    for (const email of [owner, newcomer]) {
+      assert.ok(sent.get(email)?.includes(`@media ${exomemEmailSchemeQuery("dark")}`), email);
+    }
   });
 
   it("refuses an invalid Turnstile token with 400 and writes nothing at all", async () => {

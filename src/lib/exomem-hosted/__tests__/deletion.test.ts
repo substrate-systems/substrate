@@ -24,6 +24,7 @@ describe("Exomem product-scoped deletion confirmation", () => {
           tokenId: "token-id",
           emailNormalized: "owner@example.test",
           timeZone: "Europe/London",
+          emailScheme: null,
         };
       },
       markDelivered: async () => undefined,
@@ -55,6 +56,7 @@ describe("Exomem product-scoped deletion confirmation", () => {
           tokenId: "token-id",
           emailNormalized: "owner@example.test",
           timeZone: null,
+          emailScheme: null,
         }),
         markDelivered: async () => undefined,
         sendEmail: async () => {

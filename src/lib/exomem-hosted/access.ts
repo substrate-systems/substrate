@@ -1,5 +1,6 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { after } from "next/server";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
   createMagicAccessToken,
@@ -42,6 +43,7 @@ export type AccessDependencies = {
   startSelfServe: (input: {
     emailNormalized: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     mode: "waitlist" | "open";
   }) => Promise<StartOutcome>;
   createMagicAccessToken: (
@@ -143,7 +145,8 @@ async function queueOwnerSignInLink(
   deps: AccessDependencies,
   emailNormalized: string,
   browserChallengeDigest: Buffer,
-  timeZone: string | null
+  timeZone: string | null,
+  emailScheme: ExomemEmailScheme | null
 ): Promise<string | null> {
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
@@ -158,6 +161,8 @@ async function queueOwnerSignInLink(
       expiresAt: expiresAt.toISOString(),
       // Delivery-only fallback; this never changes the account time zone.
       timeZone,
+      // Delivery-only too; this never changes the account's email scheme.
+      emailScheme,
     })
   );
   const created = await deps.createMagicAccessToken({
@@ -199,6 +204,7 @@ export async function requestStart(
     networkKey: string;
     browserChallengeDigest: Buffer;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     browserKey?: string;
   },
   dependencies?: Partial<AccessDependencies>
@@ -231,7 +237,8 @@ export async function requestStart(
         deps,
         emailNormalized,
         input.browserChallengeDigest,
-        input.timeZone
+        input.timeZone,
+        input.emailScheme
       );
       if (deliveryId) {
         return { accepted: true, deliveryId };
@@ -239,7 +246,12 @@ export async function requestStart(
       const mode = deps.admissionMode();
       await deps.afterResponse(async () => {
         try {
-          await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
+          await deps.startSelfServe({
+            emailNormalized,
+            timeZone: input.timeZone,
+            emailScheme: input.emailScheme,
+            mode,
+          });
         } catch {
           emitStartFailed();
         }
@@ -259,6 +271,7 @@ export async function redeemMagicLink(
     browserChallenge?: string | null;
     expectedEmail?: string;
     timeZone?: string | null;
+    emailScheme?: ExomemEmailScheme | null;
   },
   dependencies?: Partial<AccessDependencies>
 ): Promise<RedeemedMagicAccess & SessionMaterial> {
@@ -284,6 +297,7 @@ export async function redeemMagicLink(
     csrfDigest: session.csrfDigest,
     sessionExpiresAt: session.expiresAt,
     timeZone: input.timeZone ?? null,
+    emailScheme: input.emailScheme ?? null,
   });
   if (!row)
     throw expectedEmailNormalized === null

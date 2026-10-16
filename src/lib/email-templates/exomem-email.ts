@@ -6,12 +6,15 @@
  *  5. headline   6. body   7. a note or facts   8. one action
  *  9. small print   10. footer
  *
- * The HTML is 600 px wide on solid dark grounds with color-scheme dark, so a
- * client that forces light mode still reads it, and it carries a light
- * version in a prefers-color-scheme block (Apple Mail, iOS Mail, Outlook for
- * Mac). Layout is tables with inline styles, because Gmail and Outlook ignore
- * flex and most of <style>. The band and the wordmark are PNGs, because Gmail
- * strips SVG. Every email has a plain-text part with the same words.
+ * The HTML is 600 px wide on solid grounds in one base scheme: the
+ * recipient's scheme on the Exomem site, or dark when that is unknown. Its
+ * inline styles and the images it shows first are the base scheme's, so a
+ * client that reads only inline styles (Gmail on the web) shows the base. It
+ * carries the other scheme in a prefers-color-scheme block (Apple Mail, iOS
+ * Mail, Outlook for Mac). Layout is tables with inline styles, because Gmail
+ * and Outlook ignore flex and most of <style>. The band and the wordmark are
+ * PNGs, because Gmail strips SVG. Every email has a plain-text part with the
+ * same words.
  *
  * Colours are the Exomem tokens, read from the one tokens stylesheet
  * (src/lib/exomem/design-tokens.ts). Server only.
@@ -25,13 +28,28 @@ export const EXOMEM_EMAIL_BANDS = ["arrive", "live", "readonly", "kept", "fading
 
 export type ExomemEmailBand = (typeof EXOMEM_EMAIL_BANDS)[number];
 
-export type ExomemEmailScheme = "dark" | "light";
+/** The two colour schemes of the CSS specification, which the site's two themes are. */
+export const EXOMEM_EMAIL_SCHEMES = ["dark", "light"] as const;
+
+export type ExomemEmailScheme = (typeof EXOMEM_EMAIL_SCHEMES)[number];
+
+/** A scheme as a request or a row gives it: "dark" or "light", and anything else `null`. */
+export function exomemEmailScheme(value: unknown): ExomemEmailScheme | null {
+  return EXOMEM_EMAIL_SCHEMES.find((scheme) => scheme === value) ?? null;
+}
+
+function otherScheme(scheme: ExomemEmailScheme): ExomemEmailScheme {
+  return scheme === "dark" ? "light" : "dark";
+}
 
 /**
- * The media query that turns an email light. The dev preview rewrites it to
- * show both versions side by side; a real client decides it by preference.
+ * The media query that turns an email to this scheme, when its base is the
+ * other one. The dev preview rewrites it to show both versions side by side;
+ * a real client decides it by preference.
  */
-export const EXOMEM_EMAIL_LIGHT_SCHEME_QUERY = "(prefers-color-scheme: light)";
+export function exomemEmailSchemeQuery(scheme: ExomemEmailScheme): string {
+  return `(prefers-color-scheme: ${scheme})`;
+}
 
 /** Where the state bands and the wordmark are served, under the public base URL. */
 export const EXOMEM_EMAIL_ASSET_PATH = "/exomem/email";
@@ -55,6 +73,12 @@ export type ExomemEmailFact = {
 };
 
 export type ExomemEmailSlots = {
+  /**
+   * Not a slot: the scheme the inline styles and the first images take, the
+   * recipient's on the Exomem site. The other scheme applies through the
+   * media block. `null` is dark: no scheme is recorded.
+   */
+  base: ExomemEmailScheme | null;
   /** Slot 1: "Exomem", or "<name> via Exomem" when a person sent it. */
   sentBy?: { personName: string } | null;
   /** Slot 1: 45 characters or fewer, except named friend invitations (design.md). */
@@ -167,43 +191,52 @@ function token(tokens: ExomemTokenMap, name: string): string {
   return value;
 }
 
-/** class="…" plus the dark inline declarations for a set of roles. */
-function paint(palette: Palette, roles: readonly Role[]): { cls: string; css: string } {
+/** class="…" plus the base scheme's inline declarations for a set of roles. */
+function paint(
+  palette: Palette,
+  base: ExomemEmailScheme,
+  roles: readonly Role[]
+): { cls: string; css: string } {
   return {
     cls: roles.map(roleClass).join(" "),
     css: roles
-      .map((role) => `${ROLES[role].property}: ${token(palette.dark, ROLES[role].dark)};`)
+      .map((role) => `${ROLES[role].property}: ${token(palette[base], ROLES[role][base])};`)
       .join(" "),
   };
 }
 
-function lightRules(palette: Palette): string {
+/** The rules that turn a base-scheme email to the other scheme: every role, and the image twins. */
+function otherSchemeRules(palette: Palette, base: ExomemEmailScheme): string {
+  const other = otherScheme(base);
   const rules = (Object.keys(ROLES) as Role[]).map(
     (role) =>
-      `.${roleClass(role)} { ${ROLES[role].property}: ${token(palette.light, ROLES[role].light)} !important; }`
+      `.${roleClass(role)} { ${ROLES[role].property}: ${token(palette[other], ROLES[role][other])} !important; }`
   );
-  rules.push(".x-img-dark { display: none !important; }");
+  rules.push(`.x-img-${base} { display: none !important; }`);
   rules.push(
-    ".x-img-light { display: block !important; max-height: none !important; overflow: visible !important; }"
+    `.x-img-${other} { display: block !important; max-height: none !important; overflow: visible !important; }`
   );
   return rules.join("\n    ");
 }
 
 /**
- * A dark image shown by default and its light twin, hidden until the light
- * block applies. Outlook for Windows never sees the twin.
+ * The base scheme's image, shown by default, and its twin in the other
+ * scheme, hidden until the other scheme's block applies. Outlook for Windows
+ * never sees the twin.
  */
 function schemeImages(
   assetBaseUrl: string,
+  base: ExomemEmailScheme,
   files: Record<ExomemEmailScheme, string>,
   attributes: { width: number; height: number; alt: string; style: string },
   linkUrl: string
 ): string {
+  const other = otherScheme(base);
   const img = (scheme: ExomemEmailScheme) =>
     `<a href="${escapeHtml(linkUrl)}" style="display: block; text-decoration: none;"><img src="${escapeHtml(`${assetBaseUrl}${EXOMEM_EMAIL_ASSET_PATH}/${files[scheme]}`)}" width="${attributes.width}" height="${attributes.height}" alt="${escapeHtml(attributes.alt)}" style="${attributes.style}"></a>`;
   return (
-    `<div class="x-img-dark">${img("dark")}</div>` +
-    `<!--[if !mso]><!--><div class="x-img-light" style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${img("light")}</div><!--<![endif]-->`
+    `<div class="x-img-${base}">${img(base)}</div>` +
+    `<!--[if !mso]><!--><div class="x-img-${other}" style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${img(other)}</div><!--<![endif]-->`
   );
 }
 
@@ -244,14 +277,17 @@ function textPart(slots: ExomemEmailSlots): string {
 const PREHEADER_FILLER = "\u034f\u200c\u00a0".repeat(60);
 
 /**
- * Renders the ten slots as one HTML part and one plain-text part. The band
- * and the wordmark load from the configured public base URL.
+ * Renders the ten slots as one HTML part and one plain-text part, on the base
+ * scheme with the other scheme in its media block. The band and the wordmark
+ * load from the configured public base URL.
  */
 export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail {
+  const scheme = slots.base ?? "dark";
+  const other = otherScheme(scheme);
   const palette = exomemTokens();
   const assetBaseUrl = exomemPublicBaseUrlFromEnv();
-  const p = (...roles: Role[]) => paint(palette, roles);
-  const schemeBlock = `@media ${EXOMEM_EMAIL_LIGHT_SCHEME_QUERY} {\n    ${lightRules(palette)}\n  }`;
+  const p = (...roles: Role[]) => paint(palette, scheme, roles);
+  const schemeBlock = `@media ${exomemEmailSchemeQuery(other)} {\n    ${otherSchemeRules(palette, scheme)}\n  }`;
 
   const frame = p("frame");
   const card = p("card", "cardBorder", "primary");
@@ -268,6 +304,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   row(
     schemeImages(
       assetBaseUrl,
+      scheme,
       { dark: exomemEmailWordmarkFile("dark"), light: exomemEmailWordmarkFile("light") },
       {
         ...EXOMEM_EMAIL_WORDMARK,
@@ -323,7 +360,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       })
       .join("");
     row(
-      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="${box.cls}" style="table-layout: fixed; border: 1px solid; ${box.css} border-collapse: separate; border-radius: ${token(palette.dark, "--r-card")};">` +
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="${box.cls}" style="table-layout: fixed; border: 1px solid; ${box.css} border-collapse: separate; border-radius: ${token(palette[scheme], "--r-card")};">` +
         `<tr><td style="padding: 4px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout: fixed;">${factRows}</table></td></tr></table>`
     );
   }
@@ -332,7 +369,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
     const fill = p("buttonFill");
     const label = p("buttonText");
     const link = p("primary");
-    const radius = token(palette.dark, "--r-ctl");
+    const radius = token(palette[scheme], "--r-ctl");
     const textLink = slots.action.link
       ? `<td class="x-aside" style="padding-left: 18px;"><a class="x-text-link ${link.cls}" href="${escapeHtml(slots.action.link.url)}" style="font-family: ${MONO}; font-size: 13px; line-height: 18px; text-decoration: underline; ${link.css}">${escapeHtml(slots.action.link.label)}</a></td>`
       : "";
@@ -358,9 +395,10 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
     `<tr><td class="${footer.cls}" style="border-top: 1px solid; ${footer.css} padding-top: 14px; font-family: ${MONO}; font-size: 13px; overflow-wrap: anywhere; word-break: break-word;">${FOOTER}</td></tr>`
   );
 
-  const cardRadius = token(palette.dark, "--r-pop");
+  const cardRadius = token(palette[scheme], "--r-pop");
   const band = schemeImages(
     assetBaseUrl,
+    scheme,
     {
       dark: exomemEmailBandFile(slots.band, "dark"),
       light: exomemEmailBandFile(slots.band, "light"),
@@ -379,11 +417,11 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark light">
-  <meta name="supported-color-schemes" content="dark light">
+  <meta name="color-scheme" content="${scheme} ${other}">
+  <meta name="supported-color-schemes" content="${scheme} ${other}">
   <title>${escapeHtml(slots.subject)}</title>
   <style>
-  :root { color-scheme: dark light; supported-color-schemes: dark light; }
+  :root { color-scheme: ${scheme} ${other}; supported-color-schemes: ${scheme} ${other}; }
   body { margin: 0; padding: 0; }
   ${schemeBlock}
   @media (max-width: 480px) {

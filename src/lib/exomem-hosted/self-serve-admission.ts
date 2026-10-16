@@ -8,6 +8,7 @@
  */
 
 import { createHash } from "node:crypto";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { executeExomemSql, takeRateLimit, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
@@ -156,6 +157,7 @@ async function enqueueStartLinkEmail(
     kind: "start" | "place_opened";
     emailNormalized: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     link: StartLinkMaterial;
     invite: { inviteId: string; expiresAt: string };
   }
@@ -165,6 +167,7 @@ async function enqueueStartLinkEmail(
     dedupeKey: `start:${input.invite.inviteId}`,
     recipient: input.emailNormalized,
     recipientTimeZone: input.timeZone,
+    recipientEmailScheme: input.emailScheme,
     payload: {
       version: 1,
       inviteId: input.invite.inviteId,
@@ -195,10 +198,13 @@ async function enqueueStartLinkEmail(
 export async function startSelfServeAtomic(input: {
   emailNormalized: string;
   timeZone: string | null;
+  /** Absent is unknown: the emails are dark. */
+  emailScheme?: ExomemEmailScheme | null;
   mode: "waitlist" | "open";
   randomBytes?: RandomBytesSource;
 }): Promise<StartOutcome> {
   const link = mintStartLink(input.randomBytes);
+  const emailScheme = input.emailScheme ?? null;
   return withExomemTransaction(async (tx) => {
     await lockCloudCapacity(tx);
 
@@ -232,6 +238,7 @@ export async function startSelfServeAtomic(input: {
         kind: "start",
         emailNormalized: input.emailNormalized,
         timeZone,
+        emailScheme,
         link,
         invite,
       });
@@ -260,6 +267,7 @@ export async function startSelfServeAtomic(input: {
           kind: "start",
           emailNormalized: input.emailNormalized,
           timeZone: input.timeZone,
+          emailScheme,
           link,
           invite,
         });
@@ -281,11 +289,13 @@ export async function startSelfServeAtomic(input: {
     // A stored zone came from an earlier request and is kept: this request is
     // unauthenticated and must not change it.
     const timeZone = entry?.time_zone ?? input.timeZone;
+    // The scheme is stored, and the latest request's wins: it changes only how
+    // the email looks, and the place-opened email has no other source for it.
     if (entry && entry.admitted_at === null) {
       await tx`
         /* exomem:start-waitlist-keep-place */
         UPDATE exomem_waitlist_entries
-        SET updated_at = now()
+        SET email_scheme = COALESCE(${emailScheme}, email_scheme), updated_at = now()
         WHERE id = ${entry.id}::uuid
       `;
       entryId = entry.id;
@@ -297,8 +307,8 @@ export async function startSelfServeAtomic(input: {
       }
       const inserted = await tx`
         /* exomem:start-waitlist-join */
-        INSERT INTO exomem_waitlist_entries (email_normalized, time_zone)
-        VALUES (${input.emailNormalized}, NULL)
+        INSERT INTO exomem_waitlist_entries (email_normalized, time_zone, email_scheme)
+        VALUES (${input.emailNormalized}, NULL, ${emailScheme})
         RETURNING id
       `;
       entryId = (inserted.rows[0] as { id: string }).id;
@@ -310,6 +320,7 @@ export async function startSelfServeAtomic(input: {
       dedupeKey: `waitlist:${entryId}`,
       recipient: input.emailNormalized,
       recipientTimeZone: timeZone,
+      recipientEmailScheme: emailScheme,
       payload: { version: 1, entryId },
       expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
     });
@@ -366,7 +377,7 @@ export async function promoteWaitlistedPeople(
       await lockCloudCapacity(tx);
       const oldest = await tx`
         /* exomem:promote-oldest-waiting */
-        SELECT id, email_normalized::text AS email_normalized, time_zone
+        SELECT id, email_normalized::text AS email_normalized, time_zone, email_scheme
         FROM exomem_waitlist_entries
         WHERE admitted_at IS NULL
         ORDER BY created_at, id
@@ -374,7 +385,12 @@ export async function promoteWaitlistedPeople(
         FOR UPDATE SKIP LOCKED
       `;
       const entry = oldest.rows[0] as
-        | { id: string; email_normalized: string; time_zone: string | null }
+        | {
+            id: string;
+            email_normalized: string;
+            time_zone: string | null;
+            email_scheme: ExomemEmailScheme | null;
+          }
         | undefined;
       if (!entry) return false;
       if (!(await cloudAdmissionAllows(tx, { email: entry.email_normalized }))) return false;
@@ -394,6 +410,7 @@ export async function promoteWaitlistedPeople(
         kind: "place_opened",
         emailNormalized: entry.email_normalized,
         timeZone: entry.time_zone,
+        emailScheme: entry.email_scheme,
         link,
         invite,
       });

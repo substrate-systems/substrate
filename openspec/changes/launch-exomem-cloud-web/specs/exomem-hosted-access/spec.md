@@ -376,6 +376,31 @@ The start form and the redemption routes SHALL accept an optional IANA time zone
 - **WHEN** a redemption carries a name outside the IANA set
 - **THEN** the request succeeds and the tenant's time zone stays unknown
 
+### Requirement: Emails follow the person's site theme
+
+The Exomem pages SHALL show the device's colour scheme until the person picks a theme with the switch, and SHALL keep a picked theme. The start form and the redemption routes SHALL accept an optional email scheme, `dark` or `light`, which the page sends as its current theme. The system SHALL treat any other value, or no value, as unknown, never as an error. Each email SHALL use one base scheme for its inline styles and the images it shows first, and SHALL carry the other scheme in a `prefers-color-scheme` block. An email for an unknown scheme SHALL be dark. A redemption SHALL store a known scheme on the account. A start request SHALL use its scheme for the email that answers it and SHALL store it on the person's waitlist entry. A start request MUST NOT change the account's scheme. An invitation SHALL store no scheme, and its email MUST NOT use the inviter's scheme.
+
+#### Scenario: A light page asks for a sign-in link
+
+- **WHEN** an owner asks for a sign-in link from a page in the light theme
+- **THEN** the sign-in email uses the light colours in its inline styles
+- **AND** it uses the dark colours only in its `prefers-color-scheme: dark` block
+
+#### Scenario: Unknown scheme
+
+- **WHEN** a start or redemption request carries no email scheme, or a value other than `dark` or `light`
+- **THEN** the request succeeds and its emails are dark
+
+#### Scenario: Lifecycle email after a light redemption
+
+- **WHEN** a person redeems an invitation from a page in the light theme, and their Exomem later becomes ready
+- **THEN** the ready email is light
+
+#### Scenario: Invitation to a new address
+
+- **WHEN** an owner in the light theme invites an address that has no Exomem account
+- **THEN** the invitation email is dark
+
 ### Requirement: A paid web redemption continues in the setup journey
 
 A paid redemption that began on the web, with no live OAuth continuation, SHALL lead to the setup journey, not to Home. A redemption under a live OAuth continuation SHALL keep returning the consent path.

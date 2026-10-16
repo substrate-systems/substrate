@@ -11,8 +11,9 @@
    Scope: tokens apply inside `.brand-exomem`, and on <html> while it carries the Exomem
    marker (`data-exomem`), which the root layout sets before first paint on /exomem/** only.
    The marker keeps the scrollbar and the page ground off the rest of substratesystems.io.
-   Dark is the default. Light is equally canonical, switched by `data-theme="light"` on
-   <html> (remembered in localStorage "exomem-theme"). A `.brand-exomem` element can pin
+   Without a theme the tokens are dark. Light is equally canonical, switched by
+   `data-theme="light"` on <html>, which follows the device until the person picks a theme
+   (remembered in localStorage "exomem-theme"). A `.brand-exomem` element can pin
    its own theme with `data-theme="light"` or `data-theme="dark"`.
 
    THE ONE HARD RULE (unchanged): amber lights only live, retrieved or current

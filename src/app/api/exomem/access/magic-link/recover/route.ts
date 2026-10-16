@@ -24,6 +24,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const response = await uniformAccessStartResponse(request, {
       email: prior?.email ?? "",
       timeZone: prior?.timeZone ?? null,
+      emailScheme: prior?.emailScheme ?? null,
       requestId,
       resend: true,
     });

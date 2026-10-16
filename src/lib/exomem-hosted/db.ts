@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { sql as pgSql } from "../db/pg-sql";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { exomemErrors } from "./errors";
@@ -357,6 +358,8 @@ export type ClaimedMagicLinkDelivery = {
   emailNormalized: string;
   /** The owner's time zone, as their browser last reported it. */
   recipientTimeZone: string | null;
+  /** The owner's email scheme, as their browser last reported it. */
+  recipientEmailScheme: ExomemEmailScheme | null;
   expiresAt: string;
   tokenDigest: Buffer;
   secretCiphertext: SecretEnvelope;
@@ -471,6 +474,7 @@ export async function claimMagicLinkDelivery(input: {
            claimed.token_id,
            users.email::text AS email_normalized,
            tenant.time_zone,
+           tenant.email_scheme,
            claimed.expires_at,
            token.token_digest,
            claimed.secret_ciphertext,
@@ -486,6 +490,7 @@ export async function claimMagicLinkDelivery(input: {
         token_id: string;
         email_normalized: string;
         time_zone: string | null;
+        email_scheme: ExomemEmailScheme | null;
         expires_at: string | Date;
         token_digest: Buffer;
         secret_ciphertext: SecretEnvelope | string;
@@ -498,6 +503,7 @@ export async function claimMagicLinkDelivery(input: {
     tokenId: row.token_id,
     emailNormalized: row.email_normalized,
     recipientTimeZone: row.time_zone ?? null,
+    recipientEmailScheme: row.email_scheme ?? null,
     expiresAt:
       row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at),
     tokenDigest: Buffer.from(row.token_digest),
@@ -606,6 +612,8 @@ export type RedeemMagicAccessTokenInput = {
   sessionExpiresAt: Date;
   /** The signing-in browser's time zone, already normalized. */
   timeZone?: string | null;
+  /** The signing-in page's email scheme, already normalized. */
+  emailScheme?: ExomemEmailScheme | null;
 };
 
 export async function redeemMagicAccessTokenAtomic(
@@ -660,12 +668,14 @@ export async function redeemMagicAccessTokenAtomic(
                 product_session.id AS session_id,
                 locked_token.browser_challenge_matched
     ),
-    time_zone_recorded AS (
+    browser_recorded AS (
       UPDATE exomem_tenants AS tenant
-      SET time_zone = ${input.timeZone ?? null}
+      SET time_zone = COALESCE(${input.timeZone ?? null}::text, tenant.time_zone),
+          email_scheme = COALESCE(${input.emailScheme ?? null}::text, tenant.email_scheme)
       FROM consumed
       WHERE tenant.id = consumed.tenant_id
-        AND ${input.timeZone ?? null}::text IS NOT NULL
+        AND (${input.timeZone ?? null}::text IS NOT NULL
+          OR ${input.emailScheme ?? null}::text IS NOT NULL)
       RETURNING tenant.id
     )
     SELECT user_id, tenant_id, session_id, browser_challenge_matched FROM consumed
@@ -783,14 +793,20 @@ export async function createDeletionConfirmationToken(input: {
   tenantId: string;
   tokenDigest: Buffer;
   expiresAt: Date;
-}): Promise<{ tokenId: string; emailNormalized: string; timeZone: string | null } | null> {
+}): Promise<{
+  tokenId: string;
+  emailNormalized: string;
+  timeZone: string | null;
+  emailScheme: ExomemEmailScheme | null;
+} | null> {
   const { rows } = await sql`
     /* exomem:create-deletion-confirmation */
     WITH owner AS (
       SELECT users.id AS user_id,
              users.email,
              tenant.id AS tenant_id,
-             tenant.time_zone
+             tenant.time_zone,
+             tenant.email_scheme
       FROM users
       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
       WHERE users.id = ${input.userId}
@@ -823,7 +839,7 @@ export async function createDeletionConfirmationToken(input: {
       ON CONFLICT (token_digest) DO NOTHING
       RETURNING id, user_id
     )
-    SELECT created.id, owner.email, owner.time_zone
+    SELECT created.id, owner.email, owner.time_zone, owner.email_scheme
     FROM created
     JOIN owner ON owner.user_id = created.user_id
   `;
@@ -833,6 +849,7 @@ export async function createDeletionConfirmationToken(input: {
         tokenId: String(row.id),
         emailNormalized: String(row.email).toLowerCase(),
         timeZone: row.time_zone ? String(row.time_zone) : null,
+        emailScheme: (row.email_scheme as ExomemEmailScheme | null) ?? null,
       }
     : null;
 }

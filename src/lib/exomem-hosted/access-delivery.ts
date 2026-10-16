@@ -3,6 +3,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { renderExomemMagicLinkEmail } from "@/lib/email-templates/exomem-access";
+import { exomemEmailScheme, type ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import {
   claimMagicLinkDelivery,
   expireInvalidMagicLinkDeliveries,
@@ -62,15 +63,29 @@ function parseDeliveryPayload(
   record: ClaimedMagicLinkDelivery,
   decrypt: MagicLinkDeliveryDependencies["decrypt"],
   now: Date
-): { token: string; expiresAt: Date; timeZone: string | null } | null {
+): {
+  token: string;
+  expiresAt: Date;
+  timeZone: string | null;
+  emailScheme: ExomemEmailScheme | null;
+} | null {
   try {
     const raw = decrypt(record.secretCiphertext).reveal();
     const value = JSON.parse(raw) as Record<string, unknown>;
     if (
-      // These keys are the encrypted delivery schema, including the optional fallback zone.
+      // These keys are the encrypted delivery schema, including the optional fallback
+      // zone and scheme.
       Object.keys(value).some(
         (key) =>
-          !["emailNormalized", "expiresAt", "purpose", "token", "version", "timeZone"].includes(key)
+          ![
+            "emailNormalized",
+            "expiresAt",
+            "purpose",
+            "token",
+            "version",
+            "timeZone",
+            "emailScheme",
+          ].includes(key)
       ) ||
       value.version !== 1 ||
       value.purpose !== "magic_link" ||
@@ -85,7 +100,12 @@ function parseDeliveryPayload(
     if (!timingSafeEqual(digest, record.tokenDigest)) return null;
     const expiresAt = new Date(record.expiresAt);
     if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now) return null;
-    return { token: value.token, expiresAt, timeZone: normalizeTimeZone(value.timeZone) };
+    return {
+      token: value.token,
+      expiresAt,
+      timeZone: normalizeTimeZone(value.timeZone),
+      emailScheme: exomemEmailScheme(value.emailScheme),
+    };
   } catch {
     return null;
   }
@@ -115,6 +135,9 @@ async function deliverClaimedMagicLink(
     accessUrl: exomemPublicFragmentUrl(publicBaseUrl, "/exomem/sign-in", payload.token),
     expiresAt: payload.expiresAt,
     timeZone: record.recipientTimeZone ?? payload.timeZone,
+    // The page that asked for the link decides: a scheme changes only how the email
+    // looks, so this one email may follow a request that has not signed in yet.
+    scheme: payload.emailScheme ?? record.recipientEmailScheme,
   });
   let delivered = false;
   try {

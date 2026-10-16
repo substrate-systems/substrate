@@ -1,6 +1,7 @@
 // The site-wide Exomem theme preference. One key in localStorage holds "light" or
-// "dark"; dark is the default. The theme is applied as data-theme on <html>, beside
-// the data-exomem marker that scopes the Exomem tokens and scrollbar to /exomem/**.
+// "dark" once the person picks one with the toggle; until then the theme follows the
+// device's colour scheme. The theme is applied as data-theme on <html>, beside the
+// data-exomem marker that scopes the Exomem tokens and scrollbar to /exomem/**.
 
 export type ExomemTheme = "dark" | "light";
 
@@ -8,7 +9,9 @@ const STORAGE_KEY = "exomem-theme";
 
 /**
  * Reads the stored preference and marks <html> as an Exomem page in that theme.
- * Anything but "light" is dark, including storage that throws (blocked or private).
+ * Without a stored "light" or "dark", the device's colour scheme decides, read once:
+ * a later change on the device applies on the next page load. Storage or
+ * `matchMedia` that throws (blocked, private, very old) gives dark.
  *
  * The root layout also runs this as an inline script before first paint, through
  * `toString()`, so it must stay self-contained: no imports and no outer variables.
@@ -16,9 +19,11 @@ const STORAGE_KEY = "exomem-theme";
 function applyStoredTheme(storageKey: string, root: HTMLElement): ExomemTheme {
   let theme: ExomemTheme = "dark";
   try {
-    if (window.localStorage.getItem(storageKey) === "light") theme = "light";
+    const stored = window.localStorage.getItem(storageKey);
+    if (stored === "light" || stored === "dark") theme = stored;
+    else if (window.matchMedia("(prefers-color-scheme: light)").matches) theme = "light";
   } catch {
-    // Storage is unavailable: keep the default.
+    // Storage or the media query is unavailable: dark.
   }
   root.setAttribute("data-exomem", "");
   root.setAttribute("data-theme", theme);
@@ -40,6 +45,11 @@ export const exomemThemeScript = `(function(){if((${isExomemPath.toString()})(lo
 /** Marks <html> for an Exomem page reached by a client-side navigation. */
 export function applyExomemTheme(root: HTMLElement): ExomemTheme {
   return applyStoredTheme(STORAGE_KEY, root);
+}
+
+/** The theme an Exomem page shows now, as the inline script or the switch set it. */
+export function currentExomemTheme(root: HTMLElement): ExomemTheme {
+  return root.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
 /** Removes the marker and theme when a client-side navigation leaves the Exomem pages. */
