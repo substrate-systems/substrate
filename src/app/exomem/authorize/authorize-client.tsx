@@ -606,7 +606,6 @@ function Consent({
       kind={KIND[current]}
       app={tile}
       headerEmail={signedIn}
-      homeHref={request.email ? "/exomem/home" : "/exomem"}
       footer={footer}
       onPairMotionComplete={onPairMotionComplete}
       // Connect, its variants and Connecting… are one step whose button changes.

@@ -35,7 +35,9 @@
   min-height: 0;
 }
 
-.wordmark {
+/* The wordmark link also takes phone.module.css's hit area, whose position: relative wins or
+   loses by the order the two modules load in; the page's own placement must win either way. */
+.page > .wordmark {
   position: absolute;
   z-index: 1;
   left: var(--gutter);

@@ -9,6 +9,12 @@ export const TRY_AGAIN = "Try again";
 /** The Journey board's own name for an app it cannot name ("other" in its APPS). */
 export const UNNAMED_APP = "your app";
 
+/** The wordmark's link names, which say where it goes. The board draws no names. */
+export const wordmarkCopy = {
+  home: "Exomem home",
+  landing: "Exomem main page",
+};
+
 export const startCopy = {
   web: {
     title: "Start with your email",
