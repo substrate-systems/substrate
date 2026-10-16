@@ -47,6 +47,23 @@ export function applyExomemTheme(root: HTMLElement): ExomemTheme {
   return applyStoredTheme(STORAGE_KEY, root);
 }
 
+/**
+ * Re-applies the theme each time the device's colour scheme changes (an automatic
+ * switch at sunset, say), by the same rule as first paint: a picked theme stays, and
+ * without one the page takes the device's new scheme at once. Returns the unsubscribe.
+ */
+export function followDeviceTheme(root: HTMLElement): () => void {
+  const reapply = () => applyStoredTheme(STORAGE_KEY, root);
+  try {
+    const device = window.matchMedia("(prefers-color-scheme: light)");
+    device.addEventListener("change", reapply);
+    return () => device.removeEventListener("change", reapply);
+  } catch {
+    // No media query events (very old browsers): the device is read on the next load.
+    return () => {};
+  }
+}
+
 /** The theme an Exomem page shows now, as the inline script or the switch set it. */
 export function currentExomemTheme(root: HTMLElement): ExomemTheme {
   return root.getAttribute("data-theme") === "light" ? "light" : "dark";

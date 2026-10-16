@@ -378,7 +378,13 @@ The start form and the redemption routes SHALL accept an optional IANA time zone
 
 ### Requirement: Emails follow the person's site theme
 
-The Exomem pages SHALL show the device's colour scheme until the person picks a theme with the switch, and SHALL keep a picked theme. The start form and the redemption routes SHALL accept an optional email scheme, `dark` or `light`, which the page sends as its current theme. The system SHALL treat any other value, or no value, as unknown, never as an error. Each email SHALL use one base scheme for its inline styles and the images it shows first, and SHALL carry the other scheme in a `prefers-color-scheme` block. An email for an unknown scheme SHALL be dark. A redemption SHALL store a known scheme on the account. A start request SHALL use its scheme for the email that answers it and SHALL store it on the person's waitlist entry. A start request MUST NOT change the account's scheme. An invitation SHALL store no scheme, and its email MUST NOT use the inviter's scheme.
+The Exomem pages SHALL show the device's colour scheme until the person picks a theme with the switch, SHALL take a change of that scheme while a page is open without a reload, and SHALL keep a picked theme when the device changes. The start form and the redemption routes SHALL accept an optional email scheme, `dark` or `light`, which the page sends as its current theme. The system SHALL treat any other value, or no value, as unknown, never as an error. Each email SHALL use one base scheme for its inline styles and the images it shows first, and SHALL carry the other scheme in a `prefers-color-scheme` block. An email for an unknown scheme SHALL be dark. A redemption SHALL store a known scheme on the account. A start request SHALL use its scheme for the email that answers it and SHALL store it on the person's waitlist entry. A start request MUST NOT change the account's scheme. An invitation SHALL store no scheme, and its email MUST NOT use the inviter's scheme.
+
+#### Scenario: The device changes while a page is open
+
+- **WHEN** the device switches from dark to light while an Exomem page is open
+- **THEN** the page turns light without a reload if the person has picked no theme
+- **AND** the page keeps the picked theme if the person has picked one
 
 #### Scenario: A light page asks for a sign-in link
 

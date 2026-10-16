@@ -95,6 +95,7 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 - [x] 6.6 Render every time limit at send time in the recipient's time zone, UTC labelled when unknown
 - [x] 6.7 Render emails 09 to 13 through the shared ten-slot template, with the R28 copy and bands, and remove their lint exemption
 - [x] 6.8 Follow the device's colour scheme on the site until a theme is picked, and build each email on the scheme the person used the site in (migration 0072)
+- [x] 6.9 Follow a change of the device's colour scheme while an Exomem page is open, and keep a picked theme
 
 ## 7. Frontend journey
 
