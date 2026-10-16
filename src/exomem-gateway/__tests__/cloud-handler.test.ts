@@ -538,15 +538,16 @@ describe("Exomem Cloud gateway handler", () => {
       });
     }
 
-    it("records an app's use without waiting on it, and never Home's own client's", async () => {
+    it("records an app's use once a window, without waiting on it, and never Home's own client's or a refused call's", async () => {
       const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
       const warn = mock.method(console, "warn", () => undefined);
       const recorded: string[] = [];
-      const send = (
+      // Each answer is read in full, so it frees the identity's concurrency slot.
+      const send = async (
         access: ActiveCloudOAuthAccessToken,
         recordAppUse: (grantId: string) => Promise<void>
-      ) =>
-        handleCloudMcpRequest(
+      ) => {
+        const response = await handleCloudMcpRequest(
           postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
           baseDeps({
             findAccessToken: async () => access,
@@ -557,6 +558,8 @@ describe("Exomem Cloud gateway handler", () => {
             fetchCell: fetchCellAt(cell.port),
           })
         );
+        return `${response.status} ${await response.text()}`;
+      };
       try {
         // A record that never settles holds nothing up; one that fails refuses nothing.
         const pending = await send(VALID_ACCESS, () => new Promise(() => undefined));
@@ -567,11 +570,16 @@ describe("Exomem Cloud gateway handler", () => {
           { ...VALID_ACCESS, grantId: "grant-home", firstParty: true },
           async () => undefined
         );
-        assert.deepEqual(
-          [pending.status, failed.status, home.status, await pending.text(), await failed.text()],
-          [200, 200, 200, '{"ok":true}', '{"ok":true}']
+        // A busy app's next call in the window, and a call the gateway refuses, record nothing.
+        const again = await send(VALID_ACCESS, async () => undefined);
+        const stopped = await send(
+          { ...VALID_ACCESS, grantId: "grant-3", cellDesiredState: "stopped" },
+          async () => undefined
         );
-        await home.text();
+        assert.deepEqual(
+          [pending, failed, home, again, stopped.split(" ")[0]],
+          ['200 {"ok":true}', '200 {"ok":true}', '200 {"ok":true}', '200 {"ok":true}', "503"]
+        );
         assert.deepEqual(recorded, ["grant-1", "grant-2"]);
         const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments));
         assert.ok(
