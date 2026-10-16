@@ -690,3 +690,31 @@ describe("the deletion link's lifetime", () => {
     assert.equal(deletionLinkMinutes("2026-10-12T10:15:00Z", null), null);
   });
 });
+
+// The consent page labels a name by the same rule (displayNameClaimedByApp).
+describe("a connected app's name", () => {
+  it("labels only a name the app gave itself, a local app's included", () => {
+    const local = { kind: "local" as const, platform: null, redirectHosts: ["127.0.0.1"] };
+    assert.equal(
+      appMeta(
+        app({ ...local, displayName: "Claude Code", displayNameSource: "client_metadata" }),
+        clock,
+        false
+      ),
+      "connected 5 October · name from the app · sends access to this computer"
+    );
+    // A local app that declared no name is shown by its host, which is no claim.
+    assert.equal(
+      appMeta(
+        app({ ...local, displayName: "127.0.0.1", displayNameSource: "redirect_host" }),
+        clock,
+        false
+      ),
+      "connected 5 October"
+    );
+    assert.equal(
+      appMeta(app({ displayNameSource: "operator" }), clock, false),
+      "connected 5 October"
+    );
+  });
+});

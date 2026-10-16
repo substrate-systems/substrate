@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
-import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
+import { displayNameClaimedByApp } from "@/lib/exomem-hosted/client-platforms";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { loadConsentView, type ConsentApp } from "@/lib/exomem-hosted/consent-view";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
@@ -73,7 +73,7 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
 function requestApp(app: ConsentApp): RequestApp {
   return {
     displayName: app.displayName,
-    vouched: displayNameVouched(app.displayNameSource),
+    nameClaimedByApp: displayNameClaimedByApp(app.displayNameSource),
     platform: app.platform,
     loopback: app.loopback,
     redirectHost: app.redirectHost,

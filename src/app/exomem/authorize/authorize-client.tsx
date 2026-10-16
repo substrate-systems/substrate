@@ -45,8 +45,8 @@ export type AccountFacts = {
 
 export type RequestApp = {
   displayName: string;
-  /** Exomem stands behind the name (operator or platform), so it needs no label. */
-  vouched: boolean;
+  /** The name is the app's own claim (`displayNameClaimedByApp`), so it carries a label. */
+  nameClaimedByApp: boolean;
   platform: string | null;
   loopback: boolean;
   redirectHost: string;
@@ -317,8 +317,7 @@ function Consent({
 
   const tile = appTile(app);
   const footer = requestFooter(app);
-  // A name nobody vouched for is labelled, a local app's included.
-  const claimedName = app.vouched ? null : app.displayName;
+  const claimedName = app.nameClaimedByApp ? app.displayName : null;
 
   if (current === "signedout" || current === "switched") {
     return (

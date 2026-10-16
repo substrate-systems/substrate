@@ -9,7 +9,7 @@ import { activityEventKey, type ActivityEvent } from "./home-activity";
 import {
   CLIENT_FAMILY_NAMES,
   CLIENT_PLATFORM_GLYPHS,
-  displayNameVouched,
+  displayNameClaimedByApp,
 } from "@/lib/exomem-hosted/client-platforms";
 import type {
   ActivityClientFamily,
@@ -495,7 +495,7 @@ export function appGlyph(app: HomeApp): string {
 /**
  * The row's second line: when the app connected and when it last reached the
  * Exomem. On a reviewer account it says the app joined during the review; a name
- * Exomem does not vouch for shows where access goes.
+ * the app gave itself shows where access goes.
  */
 export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
   // An app connected within the hour reads "connected just now" or "12 minutes ago",
@@ -508,7 +508,7 @@ export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
   if (reviewer) parts.push("during review");
   // An older server sends no lastUsedAt; the row then says nothing about use.
   if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
-  if (!displayNameVouched(app.displayNameSource) && app.displayNameSource !== "redirect_host") {
+  if (displayNameClaimedByApp(app.displayNameSource)) {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
     parts.push("name from the app", `sends access to ${destination}`);
   }
