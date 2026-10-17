@@ -20,7 +20,7 @@ Amber (`exo-amber`) lights only what is live, retrieved or current: a note an as
 - Text: headings and primary text `fg-primary`; long reading `fg-body`; descriptions `fg-secondary`; labels and metadata `fg-muted`; placeholders and hint lines `fg-placeholder`. `fg-tertiary` is for disabled and off states only, never for anything that must be read.
 - Small amber text uses `exo-amber-text` (it passes AA in light); `exo-amber` itself is for dots, rings and text 24 px and up in light.
 - Lines: `exo-rule` between rows and sections, `exo-border-input` on controls at rest, `exo-border-strong` on hover.
-- Dark is the default; light is equally canonical (`data-theme="light"` on `<html>`). In light, `exo-phosphor` (the bright amber) appears only as the halo around a lit note or a lit E.
+- The site follows the device's colour scheme until the person picks one, and dark applies when the device says nothing; light is equally canonical (`data-theme="light"` on `<html>`). In light, `exo-phosphor` (the bright amber) appears only as the halo around a lit note or a lit E.
 - Selected text uses `selection-bg` under `selection-fg` (ink) in both themes; never the browser's blue. A selection is current, so it may be amber.
 - Two token notes are flagged where a locked value misses AA: `fg-muted` on `bg-base` in light (4.3:1) and `fg-footer` (3.5–3.7:1). Changing them is the operator's call; until then follow their notes.
 
@@ -52,7 +52,7 @@ Every surface has the same graph behind it (`AliveGraph`). Notes are `fg-primary
 ## Focus, fields and validation
 
 - Keyboard focus: a solid `exo-amber` ring 2 px outside the control, with a soft `exo-focus-ring` beyond it; a transparent outline underneath so forced colours draw it. Mouse clicks show no ring.
-- Fields: `exo-field-bg`, 1 px `exo-border-input`, `r-field`, amber caret. Focus: amber border and the soft ring. Error: an ink border and the message in `fg-primary` in the line under the field. No red, no icons; amber always means focus.
+- Fields: `exo-field-bg`, 1 px `exo-border-input`, `r-field`, amber caret. A field or address box straight on a flow page takes `bg-raised` and `exo-border-field`. Focus: amber border and the soft ring. Error: an ink border and the message in `fg-primary` in the line under the field. No red, no icons; amber always means focus.
 - Forms use `novalidate`. Judge a field when the person leaves it; once it shows an error, re-check on every keystroke; on submit, focus the first error and clear nothing. Mark the rare optional field "(optional)"; no asterisks.
 - Forced colours: buttons and fields get system-colour borders. The graph may drop out; that's fine.
 

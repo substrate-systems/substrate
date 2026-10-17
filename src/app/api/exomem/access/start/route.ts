@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { uniformAccessStartResponse } from "@/lib/exomem-hosted/access-recovery";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
@@ -15,15 +16,16 @@ import { verifyTurnstileToken } from "@/lib/exomem-hosted/turnstile";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Room for an email address, a Turnstile token (at most 2048 characters) and
-// a time zone name.
+// Room for an email address, a Turnstile token (at most 2048 characters), a
+// time zone name and an email scheme.
 const MAX_BODY_BYTES = 8 * 1024;
-const BODY_KEYS = new Set(["email", "turnstileToken", "timeZone"]);
+const BODY_KEYS = new Set(["email", "turnstileToken", "timeZone", "emailScheme"]);
 const NO_STORE = { "cache-control": "no-store" } as const;
 
 /**
  * POST /api/exomem/access/start — "Start with your email", for new and
- * returning people. Body: `{email, turnstileToken, timeZone?}`.
+ * returning people. Body: `{email, turnstileToken, timeZone?, emailScheme?}`.
+ * An `emailScheme` other than "dark" or "light" is unknown, not an error.
  *
  * - A missing, invalid or reused Turnstile token: 400 `challenge_failed`.
  *   That answer depends on the token only, never on the email.
@@ -76,7 +78,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const response = await uniformAccessStartResponse(request, {
       email: fields.email,
       timeZone: normalizeTimeZone(fields.timeZone),
+      emailScheme: exomemEmailScheme(fields.emailScheme),
       requestId,
+      resend: false,
     });
     emitAccessEvent({ event: "access.start.accepted", outcome: "succeeded", requestId });
     return response;

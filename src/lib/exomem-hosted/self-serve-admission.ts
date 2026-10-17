@@ -8,9 +8,12 @@
  */
 
 import { createHash } from "node:crypto";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
-import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { executeExomemSql, takeRateLimit, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit, type ExomemRateLimitRule } from "./rate-limit";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
 /**
@@ -29,6 +32,49 @@ export function selfServeAdmissionMode(
   value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSION
 ): SelfServeAdmissionMode {
   return value === "open" ? "open" : "waitlist";
+}
+
+/**
+ * `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`: how many start links `open` mode
+ * hands out an hour, to newcomers and promoted waiting people together. An
+ * unset value, or one that is not a positive whole number, reads as the
+ * default in rate-limit.ts; a larger value than the cap below reads as the cap.
+ */
+function selfServeAdmissionPace(
+  value: string | undefined = process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR
+): ExomemRateLimitRule {
+  const rule = EXOMEM_RATE_LIMITS.selfServeAdmission;
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit < 1) return rule;
+  // The bucket's admitted_count is a PostgreSQL integer; a larger limit fails every take.
+  return { ...rule, limit: Math.min(limit, 2_147_483_647) };
+}
+
+// The pace counts admissions, not people: every address shares one bucket,
+// because one person can type any number of addresses.
+const SELF_SERVE_PACE_KEY = "everybody";
+
+/**
+ * Takes one admission from the self-serve pace, in the admission's own
+ * transaction under the capacity lock, so an admission that rolls back takes
+ * nothing. It stops one person from holding Cloud slots with many addresses.
+ * When it fires wrongly, a real person waits in the queue for a later
+ * promotion, and nothing else is lost.
+ */
+async function takeSelfServeAdmission(tx: ExomemSql): Promise<boolean> {
+  const allowed = await takeExomemRateLimit(selfServeAdmissionPace(), SELF_SERVE_PACE_KEY, {
+    take: (input) => takeRateLimit(input, tx),
+  });
+  if (!allowed) {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.start.admission_paced",
+        outcome: "denied",
+        errorCode: "RATE_LIMITED",
+      })
+    );
+  }
+  return allowed;
 }
 
 /**
@@ -111,6 +157,7 @@ async function enqueueStartLinkEmail(
     kind: "start" | "place_opened";
     emailNormalized: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     link: StartLinkMaterial;
     invite: { inviteId: string; expiresAt: string };
   }
@@ -120,6 +167,7 @@ async function enqueueStartLinkEmail(
     dedupeKey: `start:${input.invite.inviteId}`,
     recipient: input.emailNormalized,
     recipientTimeZone: input.timeZone,
+    recipientEmailScheme: input.emailScheme,
     payload: {
       version: 1,
       inviteId: input.invite.inviteId,
@@ -141,7 +189,8 @@ async function enqueueStartLinkEmail(
  *    address, so a request must not cancel a link they are about to open.
  *    Using any one of the links revokes the rest (cloud-admission.ts).
  * 2. In `open` mode, a free slot admits them, but only while nobody is
- *    waiting, so a newcomer never overtakes the queue.
+ *    waiting, so a newcomer never overtakes the queue, and only while the
+ *    self-serve pace has room.
  * 3. Otherwise they are queued. A person already waiting keeps their place,
  *    so asking again never costs them it. A person whose earlier start link
  *    lapsed unused goes to the back, because they already had a turn.
@@ -149,10 +198,13 @@ async function enqueueStartLinkEmail(
 export async function startSelfServeAtomic(input: {
   emailNormalized: string;
   timeZone: string | null;
+  /** Absent is unknown: the emails are dark. */
+  emailScheme?: ExomemEmailScheme | null;
   mode: "waitlist" | "open";
   randomBytes?: RandomBytesSource;
 }): Promise<StartOutcome> {
   const link = mintStartLink(input.randomBytes);
+  const emailScheme = input.emailScheme ?? null;
   return withExomemTransaction(async (tx) => {
     await lockCloudCapacity(tx);
 
@@ -186,6 +238,7 @@ export async function startSelfServeAtomic(input: {
         kind: "start",
         emailNormalized: input.emailNormalized,
         timeZone,
+        emailScheme,
         link,
         invite,
       });
@@ -200,7 +253,11 @@ export async function startSelfServeAtomic(input: {
           SELECT 1 FROM exomem_waitlist_entries WHERE admitted_at IS NULL
         ) AS waiting
       `;
-      if (fits && !(waiting.rows[0] as { waiting: boolean }).waiting) {
+      if (
+        fits &&
+        !(waiting.rows[0] as { waiting: boolean }).waiting &&
+        (await takeSelfServeAdmission(tx))
+      ) {
         const invite = await insertStartLink(tx, {
           emailNormalized: input.emailNormalized,
           link,
@@ -210,6 +267,7 @@ export async function startSelfServeAtomic(input: {
           kind: "start",
           emailNormalized: input.emailNormalized,
           timeZone: input.timeZone,
+          emailScheme,
           link,
           invite,
         });
@@ -231,11 +289,13 @@ export async function startSelfServeAtomic(input: {
     // A stored zone came from an earlier request and is kept: this request is
     // unauthenticated and must not change it.
     const timeZone = entry?.time_zone ?? input.timeZone;
+    // The scheme is stored, and the latest request's wins: it changes only how
+    // the email looks, and the place-opened email has no other source for it.
     if (entry && entry.admitted_at === null) {
       await tx`
         /* exomem:start-waitlist-keep-place */
         UPDATE exomem_waitlist_entries
-        SET updated_at = now()
+        SET email_scheme = COALESCE(${emailScheme}, email_scheme), updated_at = now()
         WHERE id = ${entry.id}::uuid
       `;
       entryId = entry.id;
@@ -247,8 +307,8 @@ export async function startSelfServeAtomic(input: {
       }
       const inserted = await tx`
         /* exomem:start-waitlist-join */
-        INSERT INTO exomem_waitlist_entries (email_normalized, time_zone)
-        VALUES (${input.emailNormalized}, NULL)
+        INSERT INTO exomem_waitlist_entries (email_normalized, time_zone, email_scheme)
+        VALUES (${input.emailNormalized}, NULL, ${emailScheme})
         RETURNING id
       `;
       entryId = (inserted.rows[0] as { id: string }).id;
@@ -260,6 +320,7 @@ export async function startSelfServeAtomic(input: {
       dedupeKey: `waitlist:${entryId}`,
       recipient: input.emailNormalized,
       recipientTimeZone: timeZone,
+      recipientEmailScheme: emailScheme,
       payload: { version: 1, entryId },
       expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
     });
@@ -272,11 +333,12 @@ export type WaitlistPromotionResult =
   | { status: "ran"; promoted: number; settled: number };
 
 /**
- * Promotes waiting people, oldest first, while Cloud has a free slot. Runs
- * only in `open` mode. Each promotion is its own transaction under the
- * capacity lock: it re-reads the headroom, takes the oldest waiting entry,
- * creates its start link, marks the entry admitted and enqueues the
- * "place opened" email, so a crash between two promotions loses nothing.
+ * Promotes waiting people, oldest first, while Cloud has a free slot and the
+ * self-serve pace has room. Runs only in `open` mode. Each promotion is its
+ * own transaction under the capacity lock: it re-reads the headroom, takes
+ * the oldest waiting entry, creates its start link, marks the entry admitted
+ * and enqueues the "place opened" email, so a crash between two promotions
+ * loses nothing.
  *
  * A waiting address that has since come to own an Exomem (an operator
  * invited it) needs no place. Its entry is settled, by deletion, instead of
@@ -315,7 +377,7 @@ export async function promoteWaitlistedPeople(
       await lockCloudCapacity(tx);
       const oldest = await tx`
         /* exomem:promote-oldest-waiting */
-        SELECT id, email_normalized::text AS email_normalized, time_zone
+        SELECT id, email_normalized::text AS email_normalized, time_zone, email_scheme
         FROM exomem_waitlist_entries
         WHERE admitted_at IS NULL
         ORDER BY created_at, id
@@ -323,10 +385,16 @@ export async function promoteWaitlistedPeople(
         FOR UPDATE SKIP LOCKED
       `;
       const entry = oldest.rows[0] as
-        | { id: string; email_normalized: string; time_zone: string | null }
+        | {
+            id: string;
+            email_normalized: string;
+            time_zone: string | null;
+            email_scheme: ExomemEmailScheme | null;
+          }
         | undefined;
       if (!entry) return false;
       if (!(await cloudAdmissionAllows(tx, { email: entry.email_normalized }))) return false;
+      if (!(await takeSelfServeAdmission(tx))) return false;
       const invite = await insertStartLink(tx, {
         emailNormalized: entry.email_normalized,
         link,
@@ -342,6 +410,7 @@ export async function promoteWaitlistedPeople(
         kind: "place_opened",
         emailNormalized: entry.email_normalized,
         timeZone: entry.time_zone,
+        emailScheme: entry.email_scheme,
         link,
         invite,
       });

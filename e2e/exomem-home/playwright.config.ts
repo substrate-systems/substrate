@@ -18,7 +18,13 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
-  use: { baseURL: environment.baseUrl, trace: "on-first-retry" },
+  use: {
+    baseURL: environment.baseUrl,
+    trace: "on-first-retry",
+    // Home follows the device's colour scheme until a person picks a theme. The specs
+    // start on a dark device; a spec that checks a stored theme sets that itself.
+    colorScheme: "dark",
+  },
   projects: [
     {
       name: "home desktop 1440",

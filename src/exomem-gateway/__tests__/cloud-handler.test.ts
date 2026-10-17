@@ -132,6 +132,7 @@ function baseDeps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatew
   return {
     config: TEST_CONFIG,
     findAccessToken: async () => VALID_ACCESS,
+    recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
     ...overrides,
   };
@@ -537,6 +538,62 @@ describe("Exomem Cloud gateway handler", () => {
       });
     }
 
+    it("records an app's use once a window, without waiting on it, and never Home's own client's or a refused call's", async () => {
+      const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
+      const warn = mock.method(console, "warn", () => undefined);
+      const recorded: string[] = [];
+      // Each answer is read in full, so it frees the identity's concurrency slot.
+      const send = async (
+        access: ActiveCloudOAuthAccessToken,
+        recordAppUse: (grantId: string) => Promise<void>
+      ) => {
+        const response = await handleCloudMcpRequest(
+          postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
+          baseDeps({
+            findAccessToken: async () => access,
+            recordAppUse: (grantId) => {
+              recorded.push(grantId);
+              return recordAppUse(grantId);
+            },
+            fetchCell: fetchCellAt(cell.port),
+          })
+        );
+        return `${response.status} ${await response.text()}`;
+      };
+      try {
+        // A record that never settles holds nothing up; one that fails refuses nothing.
+        const pending = await send(VALID_ACCESS, () => new Promise(() => undefined));
+        const failed = await send({ ...VALID_ACCESS, grantId: "grant-2" }, async () => {
+          throw Object.assign(new Error("permission denied"), { code: "42501" });
+        });
+        const home = await send(
+          { ...VALID_ACCESS, grantId: "grant-home", firstParty: true },
+          async () => undefined
+        );
+        // A busy app's next call in the window, and a call the gateway refuses, record nothing.
+        const again = await send(VALID_ACCESS, async () => undefined);
+        const stopped = await send(
+          { ...VALID_ACCESS, grantId: "grant-3", cellDesiredState: "stopped" },
+          async () => undefined
+        );
+        assert.deepEqual(
+          [pending, failed, home, again, stopped.split(" ")[0]],
+          ['200 {"ok":true}', '200 {"ok":true}', '200 {"ok":true}', '200 {"ok":true}', "503"]
+        );
+        assert.deepEqual(recorded, ["grant-1", "grant-2"]);
+        const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments));
+        assert.ok(
+          logged.some(
+            (line) =>
+              line.includes("exomem_cloud_gateway_app_use_unrecorded") && line.includes("42501")
+          )
+        );
+      } finally {
+        warn.mock.restore();
+        await cell.close();
+      }
+    });
+
     it("preserves encoded names and mismatched metadata for validation by the cell", async () => {
       const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
       const body = JSON.stringify({
@@ -902,6 +959,17 @@ describe("Exomem Cloud gateway handler", () => {
 
 describe("Cloud artifact fetch authority", () => {
   beforeEach(() => resetCloudGatewayConcurrencyForTests());
+  const FILE_CALL_BODY = JSON.stringify({
+    method: "tools/call",
+    params: {
+      name: "preserve_artifacts",
+      arguments: {
+        scope: "sample",
+        category: "review",
+        files: [{ file_id: "synthetic-file", download_url: "https://files.example.test/proof" }],
+      },
+    },
+  });
   it("binds a signed grant to the authenticated cell and exact files, preserving the MCP body", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("ed25519");
     const file = {
@@ -1007,6 +1075,31 @@ describe("Cloud artifact fetch authority", () => {
     );
     assert.equal(await ordinary.text(), "ok");
     assert.equal(grant, null);
+  });
+
+  it("signs a file call for an unlisted cell when the all-cells switch is on", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    let grant: string | null = null;
+    const response = await handleCloudMcpRequest(
+      postRequest({ bearer: CLIENT_BEARER, body: FILE_CALL_BODY }),
+      baseDeps({
+        config: {
+          ...TEST_CONFIG,
+          artifactSigningKey: privateKey,
+          artifactCells: new Set(),
+          artifactAllCells: true,
+        },
+        fetchCell: async (_url, init) => {
+          grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+          return new Response("ok");
+        },
+      })
+    );
+    assert.equal(await response.text(), "ok");
+    assert.ok(grant, "the switch selects a cell that the list does not name");
+    // The grant binds the authenticated cell, not a cell the switch names.
+    const [, payload] = (grant as string).split(".");
+    assert.equal(JSON.parse(Buffer.from(payload!, "base64url").toString()).sub, TEST_CELL_ID);
   });
 
   it("leaves unselected accounts on their existing streaming path", async () => {
@@ -1130,6 +1223,46 @@ describe("Cloud artifact fetch authority", () => {
     } catch (error) {
       assert.equal(String(error).includes(invalidKey), false);
     }
+  });
+
+  it("reads only the exact value true as the all-cells switch and any other value as off", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const configured = {
+      EXOMEM_CLOUD_MCP_URL: TEST_CONFIG.mcpUrl,
+      EXOMEM_CLOUD_MCP_PATH: TEST_CONFIG.mcpPath,
+      EXOMEM_CLOUD_CELL_TOKEN_KEY: TEST_TOKEN_KEY.toString("hex"),
+      EXOMEM_CLOUD_ARTIFACT_TRANSPORT_ENABLED: "true",
+      EXOMEM_CLOUD_ARTIFACT_CELL_IDS: JSON.stringify(["bbbbbbbbbbbbbbbb"]),
+      EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    };
+    assert.equal(
+      loadExomemCloudConfig({ ...configured, EXOMEM_CLOUD_ARTIFACT_ALL_CELLS: "true" })
+        .artifactAllCells,
+      true
+    );
+    // The gateway loads its configuration on every request while its readiness
+    // check never loads it, so a throw here would pass a rollout and then fail
+    // every request. A value other than "true" must therefore read as off.
+    const misspelled = loadExomemCloudConfig({
+      ...configured,
+      EXOMEM_CLOUD_ARTIFACT_ALL_CELLS: "True",
+    });
+    assert.equal(misspelled.artifactAllCells, false);
+    let grant: string | null = null;
+    const response = await handleCloudMcpRequest(
+      postRequest({ bearer: CLIENT_BEARER, body: FILE_CALL_BODY }),
+      baseDeps({
+        config: misspelled,
+        fetchCell: async (_url, init) => {
+          grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+          return new Response("ok");
+        },
+      })
+    );
+    assert.equal(await response.text(), "ok");
+    assert.equal(grant, null);
   });
 
   it("passes a slow request through once without losing its outstanding read", async (context) => {

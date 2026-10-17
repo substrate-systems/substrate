@@ -7,6 +7,7 @@ import { formatMoney, type ExomemMoney } from "@/lib/exomem/money";
 import {
   renderExomemEmail,
   type ExomemEmailFact,
+  type ExomemEmailScheme,
   type ExomemEmailSlots,
   type RenderedExomemEmail,
 } from "./exomem-email";
@@ -38,6 +39,7 @@ export function renderExomemFriendInvitationEmail(input: {
   timeZone: EmailTimeZone;
   usualPrice: ExomemMoney;
   friendPrice: ExomemMoney;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const usual = formatMoney(input.usualPrice);
   const friend = formatMoney(input.friendPrice);
@@ -47,6 +49,7 @@ export function renderExomemFriendInvitationEmail(input: {
       ? `${input.inviterName} invited you to Exomem`
       : "You’re invited to Exomem";
   return renderExomemEmail({
+    base: input.scheme,
     sentBy: { personName: input.inviterName },
     subject,
     preheader: `Your friend price: ${friend} a month instead of ${usual}.`,
@@ -72,8 +75,10 @@ export function renderExomemCoveredInvitationEmail(input: {
   inviteeEmail: string;
   expiresAt: Date;
   timeZone: EmailTimeZone;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   return renderExomemEmail({
+    base: input.scheme,
     sentBy: { personName: input.inviterName },
     subject: `${input.inviterName} is covering your Exomem`,
     preheader: `No checkout. ${input.inviterName} covers it.`,
@@ -99,9 +104,11 @@ export function renderExomemInvitationReminderEmail(input: {
   /** How many days before the end this reminder is sent. */
   leadDays: number;
   timeZone: EmailTimeZone;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const ends = emailDate(input.expiresAt, input.timeZone);
   return renderExomemEmail({
+    base: input.scheme,
     sentBy: { personName: input.inviterName },
     subject: `${input.inviterName}’s invitation ends on ${ends}`,
     preheader: "Your friend price is still waiting.",
@@ -125,6 +132,7 @@ export function renderExomemInvitationUsedEmail(input: {
   usedAt: Date;
   friendPrice: ExomemMoney | null;
   timeZone: EmailTimeZone;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const rows: ExomemEmailFact[] = [
     { label: "Invitation", value: `used ${emailDate(input.usedAt, input.timeZone)}` },
@@ -133,6 +141,7 @@ export function renderExomemInvitationUsedEmail(input: {
     rows.push({ label: "Their price", value: `${formatMoney(input.friendPrice)} a month` });
   }
   return renderExomemEmail({
+    base: input.scheme,
     subject: `${input.inviteeName} accepted your invitation`,
     preheader: `${input.inviteeName} joined with your friend price.`,
     band: "live",
@@ -153,12 +162,14 @@ export function renderExomemInvitationEndedEmail(input: {
   inviteeName: string;
   issuedAt: Date;
   expiredAt: Date;
+  scheme: ExomemEmailScheme | null;
 }): RenderedExomemEmail {
   const days = Math.max(
     1,
     Math.round((input.expiredAt.getTime() - input.issuedAt.getTime()) / 86_400_000)
   );
   return renderExomemEmail({
+    base: input.scheme,
     subject: `Your invitation to ${input.inviteeName} ended`,
     preheader: `${input.inviteeName} didn’t open it in time.`,
     band: "kept",

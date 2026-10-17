@@ -18,6 +18,7 @@ function record(browserTimeZone?: string) {
     tokenId: "token-1",
     emailNormalized: EMAIL,
     recipientTimeZone: null,
+    recipientEmailScheme: null,
     expiresAt: EXPIRES,
     tokenDigest: tokenDigest(TOKEN)!,
     secretCiphertext: encryptSecret(
@@ -83,7 +84,7 @@ describe("durable Exomem magic-link delivery", () => {
   });
 
   it("does not send when the queued delivery is already claimed or unavailable", async () => {
-    await dispatchMagicLinkDelivery(
+    const state = await dispatchMagicLinkDelivery(
       "delivery-1",
       dependencies({
         claim: async () => null,
@@ -91,6 +92,16 @@ describe("durable Exomem magic-link delivery", () => {
         sendEmail: async () => assert.fail("an unavailable delivery must not send"),
       })
     );
+    assert.equal(state, null);
+  });
+
+  it("tells the request whether its link went out, so a refusal is logged rather than silent", async () => {
+    const sent = await dispatchMagicLinkDelivery("delivery-1", dependencies());
+    const refused = await dispatchMagicLinkDelivery(
+      "delivery-1",
+      dependencies({ sendEmail: async () => ({ success: false }) })
+    );
+    assert.deepEqual([sent, refused], ["sent", "retry"]);
   });
 
   it("decrypts a row-bound single-use token only in the leased worker", async () => {

@@ -79,6 +79,7 @@ describe("the friend price at Paddle", () => {
     ["stops after some renewals", { maximum_recurring_intervals: 3 }],
     ["applies to the first payment only", { recur: false }],
     ["is archived", { status: "archived" }],
+    ["takes the whole price off", { type: "percentage", amount: "100" }],
   ];
   for (const [problem, change] of leaks) {
     it(`refuses a friend checkout, creating no transaction, when the discount ${problem}`, async () => {

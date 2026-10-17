@@ -10,11 +10,11 @@ type PostHogCapture = {
  * Authenticated Exomem surfaces. Analytics must not mount, and no capture may
  * escape, on any of these.
  *
- * Every route rendering `PrivateShell` belongs here. `/exomem/adopt` was added
- * when the Adoption Studio shipped but not listed, so pageviews carrying
- * `$current_url` escaped from an authenticated surface until this was corrected;
- * `private-shell-coverage.test.ts` now pins the two lists together so a new
- * private route cannot be added without also being excluded here.
+ * Every authenticated Exomem route belongs here. The coverage test finds them
+ * by page metadata that sets `referrer: "no-referrer"`. `/exomem/adopt` was added when the Adoption Studio shipped but not listed, so
+ * pageviews carrying `$current_url` escaped from an authenticated surface until
+ * this was corrected; `private-route-coverage.test.ts` now pins the two lists
+ * together so a new private route cannot be added without also being excluded here.
  *
  * `/exomem/account`, `/exomem/billing`, `/exomem/export` and `/exomem/restore`
  * are deliberately listed ahead of the routes existing — excluding a path that

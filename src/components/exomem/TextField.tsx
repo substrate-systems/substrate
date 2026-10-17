@@ -17,6 +17,11 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | 
    */
   invalid?: boolean;
   hint?: string;
+  /**
+   * Where the field sits. "page": straight on a flow page, drawn in the flow's panel
+   * colour with its stronger line. "panel" (the default): inside a card or a form panel.
+   */
+  surface?: "panel" | "page";
 };
 
 /** A labelled text input. */
@@ -25,6 +30,7 @@ export function TextField({
   error,
   invalid = false,
   hint,
+  surface = "panel",
   onChange,
   onBlur,
   onInvalid,
@@ -53,7 +59,7 @@ export function TextField({
       <input
         {...input}
         id={id}
-        className={styles.input}
+        className={surface === "page" ? `${styles.input} ${styles.onPage}` : styles.input}
         aria-invalid={hasError || invalid || undefined}
         aria-describedby={
           [hasLine ? errorId : undefined, input["aria-describedby"]].filter(Boolean).join(" ") ||

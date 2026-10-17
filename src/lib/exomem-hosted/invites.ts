@@ -184,6 +184,8 @@ export async function issueOperatorInvite(
       dedupeKey: `invite:${inviteId}`,
       recipient: emailNormalized,
       recipientTimeZone: null,
+      // The invitee's own account values, if any, are read at send (email-outbox.ts).
+      recipientEmailScheme: null,
       expiresAt,
     };
     if (input.kind === "friend" && prices?.friend) {
@@ -206,6 +208,7 @@ export async function issueOperatorInvite(
           dedupeKey: `invite-reminder:${inviteId}`,
           recipient: emailNormalized,
           recipientTimeZone: null,
+          recipientEmailScheme: null,
           payload: link,
           notBefore: remindAt,
           expiresAt,
@@ -217,6 +220,7 @@ export async function issueOperatorInvite(
           dedupeKey: `invite-ended:${inviteId}`,
           recipient: inviterEmail,
           recipientTimeZone: null,
+          recipientEmailScheme: null,
           payload: { version: 1, inviteId },
           notBefore: expiresAt,
         });
@@ -277,6 +281,7 @@ export async function recordInvitationUse(
     dedupeKey: `invite-used:${input.inviteId}`,
     recipient: inviterEmail,
     recipientTimeZone: null,
+    recipientEmailScheme: null,
     payload: { version: 1, inviteId: input.inviteId },
   });
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { redeemMagicLink } from "@/lib/exomem-hosted/access";
 import { readAccessRecoveryReceipt, recoveryLinkState } from "@/lib/exomem-hosted/access-recovery";
 import { ExomemHostedError, exomemErrors } from "@/lib/exomem-hosted/errors";
@@ -38,7 +39,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       body.token.length === 0 ||
       (body.expectedEmail !== undefined && typeof body.expectedEmail !== "string") ||
       Object.keys(body).some(
-        (key) => key !== "token" && key !== "timeZone" && key !== "expectedEmail"
+        (key) =>
+          key !== "token" && key !== "timeZone" && key !== "emailScheme" && key !== "expectedEmail"
       )
     ) {
       throw exomemErrors.invalidRequest();
@@ -50,6 +52,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       browserChallenge,
       expectedEmail: body.expectedEmail as string | undefined,
       timeZone: normalizeTimeZone(body.timeZone),
+      emailScheme: exomemEmailScheme(body.emailScheme),
     });
     response = NextResponse.json(
       {

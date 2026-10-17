@@ -17,6 +17,8 @@ export type SendTransactionalEmailResult = {
   success: boolean;
   error?: string;
   messageId?: string;
+  /** Brevo's HTTP status when it answered with an error; absent when no answer came. */
+  status?: number;
 };
 
 type BrevoSuccessResponse = {
@@ -111,6 +113,7 @@ export async function sendTransactionalEmail(
     return {
       success: false,
       error: `brevo error ${res.status}: ${detail || res.statusText}`,
+      status: res.status,
     };
   }
 

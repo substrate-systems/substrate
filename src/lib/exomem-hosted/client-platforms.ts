@@ -50,9 +50,11 @@ export type OAuthClientDisplayNameSource =
   | "redirect_host";
 
 /**
- * Whether Exomem vouches for the name. Any other name could be chosen by
- * whoever runs the client, so a page shows where its codes go beside it.
+ * Whether the name is the client's own claim, which whoever runs it can
+ * choose, so the consent page and Home label it and show where its codes go.
+ * A name Exomem vouches for (operator, platform) and a redirect-host fallback
+ * are no claim, so they get no label.
  */
-export function displayNameVouched(source: OAuthClientDisplayNameSource): boolean {
-  return source === "operator" || source === "platform";
+export function displayNameClaimedByApp(source: OAuthClientDisplayNameSource): boolean {
+  return source === "client_metadata";
 }

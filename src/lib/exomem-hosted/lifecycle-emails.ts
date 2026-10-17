@@ -7,6 +7,7 @@
  * announces, so it is sent once.
  */
 
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 
@@ -37,6 +38,7 @@ export async function enqueueSubscriptionEndedEmails(
     keptUntil: Date;
     recipient: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     now: Date;
   }
 ): Promise<{ reminderScheduled: boolean }> {
@@ -48,6 +50,7 @@ export async function enqueueSubscriptionEndedEmails(
       dedupeKey: `deletion-reminder:${input.cellId}:${input.endedAt}`,
       recipient: input.recipient,
       recipientTimeZone: input.timeZone,
+      recipientEmailScheme: input.emailScheme,
       tenantId: input.tenantId,
       payload: { version: 1, cellId: input.cellId, endedAt: input.endedAt },
       notBefore: reminderAt,
@@ -58,6 +61,7 @@ export async function enqueueSubscriptionEndedEmails(
     dedupeKey: `subscription-ended:${input.cellId}:${input.endedAt}`,
     recipient: input.recipient,
     recipientTimeZone: input.timeZone,
+    recipientEmailScheme: input.emailScheme,
     tenantId: input.tenantId,
     payload: {
       version: 1,
@@ -80,13 +84,20 @@ export async function enqueueSubscriptionEndedEmails(
  */
 export async function enqueueDeletedEmail(
   tx: ExomemSql,
-  input: { tenantId: string; deletedAt: string; recipient: string; timeZone: string | null }
+  input: {
+    tenantId: string;
+    deletedAt: string;
+    recipient: string;
+    timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
+  }
 ): Promise<void> {
   await enqueueExomemEmail(tx, {
     kind: "deleted",
     dedupeKey: `deleted:${input.tenantId}:${input.deletedAt}`,
     recipient: input.recipient,
     recipientTimeZone: input.timeZone,
+    recipientEmailScheme: input.emailScheme,
     tenantId: input.tenantId,
     payload: { version: 1, tenantId: input.tenantId, deletedAt: input.deletedAt },
   });
@@ -127,7 +138,8 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
     const added = await withExomemTransaction(async (tx) => {
       const { rows: owners } = await tx`
         /* exomem:ready-email-owner */
-        SELECT owner.email::text AS email, tenant.time_zone, tenant.id AS tenant_id
+        SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme,
+               tenant.id AS tenant_id
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
         JOIN users AS owner ON owner.id = tenant.owner_user_id
@@ -137,7 +149,12 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
           AND NOT tenant.marketplace_reviewer_purpose
       `;
       const owner = owners[0] as
-        | { email: string; time_zone: string | null; tenant_id: string }
+        | {
+            email: string;
+            time_zone: string | null;
+            email_scheme: ExomemEmailScheme | null;
+            tenant_id: string;
+          }
         | undefined;
       if (!owner) return false;
       return enqueueExomemEmail(tx, {
@@ -145,6 +162,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
         dedupeKey: `ready:${cellId}`,
         recipient: owner.email,
         recipientTimeZone: owner.time_zone,
+        recipientEmailScheme: owner.email_scheme,
         tenantId: owner.tenant_id,
         payload: { version: 1, cellId },
       });

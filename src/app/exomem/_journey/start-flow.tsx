@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { TextField } from "@/components/exomem/TextField";
+import { currentExomemTheme } from "@/lib/exomem/theme";
 import { failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
 import { SentCard, StepActions, StepHeading, StepNotice } from "./parts";
@@ -46,6 +47,8 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
         email,
         turnstileToken,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // The page's theme, which the emails this request causes are built on.
+        emailScheme: currentExomemTheme(document.documentElement),
       }),
       credentials: "same-origin",
       cache: "no-store",
@@ -291,6 +294,7 @@ export function StartFlow({
           <form className={styles.form} onSubmit={submit} noValidate>
             <div className={styles.group}>
               <TextField
+                surface="page"
                 label={startCopy.emailLabel}
                 type="email"
                 name="email"
@@ -404,6 +408,7 @@ function ReviewerSignIn({
       <form className={styles.form} onSubmit={signIn} noValidate>
         <div className={styles.fields}>
           <TextField
+            surface="page"
             label={reviewerCopy.username}
             autoComplete="username"
             spellCheck={false}
@@ -412,6 +417,7 @@ function ReviewerSignIn({
             onChange={(event) => setUsername(event.target.value)}
           />
           <TextField
+            surface="page"
             label={reviewerCopy.password}
             type="password"
             autoComplete="current-password"

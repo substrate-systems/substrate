@@ -1,23 +1,35 @@
-// The Exomem theme: one preference applied before first paint, kept across navigation,
-// and scoped to /exomem. Unit tests cover the inline script's branches; what only a
-// browser shows is whether the real pages get it at the right moment. Theme handling
-// does not depend on the viewport, so this spec runs in the desktop project only.
+// The Exomem theme: the device's colour scheme until a person picks one, applied before
+// first paint, kept across navigation, and scoped to /exomem. Unit tests cover the inline
+// script's branches; what only a browser shows is whether the real pages get it at the
+// right moment. Theme handling does not depend on the viewport, so this spec runs in the
+// desktop project only. The device is dark (playwright.config.ts) unless a test says so.
 
 import { expect, test, type Page } from "@playwright/test";
 import { storeTheme } from "./accessibility";
 
 const root = (page: Page) => page.locator("html");
 
-test("is dark by default, on the Exomem ground", async ({ page }) => {
-  await page.goto("/exomem/sign-in");
+test("follows the device until a theme is picked, on the Exomem ground", async ({ page }) => {
+  // The page follows device changes once its scripts have run; wait for them to load.
+  await page.goto("/exomem/sign-in", { waitUntil: "networkidle" });
 
   await expect(root(page)).toHaveAttribute("data-exomem", "");
   await expect(root(page)).toHaveAttribute("data-theme", "dark");
   // The page itself, not just a panel, takes the Exomem ground.
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(10, 9, 8)");
+
+  // The device switches at sunset or sunrise while the page is open: no reload needed.
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 248, 244)");
+
+  await page.reload();
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
 });
 
-test("applies a stored light preference before any app code runs", async ({ page }) => {
+test("applies a stored light preference over a dark device before any app code runs", async ({
+  page,
+}) => {
   await storeTheme(page, "light");
   // Record the theme the moment <body> exists, before anything has painted.
   await page.addInitScript(() => {
@@ -49,8 +61,26 @@ test("follows the toggle across navigation and reload", async ({ page }) => {
 
   await page.goto("/exomem");
   await expect(root(page)).toHaveAttribute("data-theme", "light");
-  await page.reload();
+  await page.reload({ waitUntil: "networkidle" });
   await expect(root(page)).toHaveAttribute("data-theme", "light");
+
+  // A picked theme stays when the device changes: light in a dark room is a choice. The
+  // page's own listener was added first, so it has run once this one has counted the change.
+  await page.evaluate(() => {
+    const seen = window as unknown as { deviceChanges: number };
+    seen.deviceChanges = 0;
+    matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+      seen.deviceChanges += 1;
+    });
+  });
+  const deviceChanges = () =>
+    page.evaluate(() => (window as unknown as { deviceChanges: number }).deviceChanges);
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(deviceChanges).toBe(1);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(deviceChanges).toBe(2);
+  await expect(root(page)).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 248, 244)");
 });
 
 test("leaves the rest of the site when a link leads off /exomem", async ({ page }) => {

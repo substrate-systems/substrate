@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { after, NextResponse } from "next/server";
+import { EXOMEM_EMAIL_SCHEMES, type ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { requestStart } from "./access";
-import { dispatchMagicLinkDelivery } from "./access-delivery";
+import { dispatchMagicLinkDelivery, type MagicLinkDeliveryState } from "./access-delivery";
 import { executeExomemSql } from "./db";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, hashRateLimitKey } from "./rate-limit";
@@ -27,6 +28,8 @@ const Receipt = z
     version: z.literal(1),
     email: z.string().max(254),
     timeZone: z.string().max(128).nullable(),
+    // Optional: a receipt minted before the scheme travelled has none.
+    emailScheme: z.enum(EXOMEM_EMAIL_SCHEMES).nullable().optional(),
     browserKey: z.string().length(43),
     expiresAt: z.iso.datetime(),
     // A SHA-256 digest has this fixed hexadecimal field format.
@@ -62,8 +65,11 @@ export function mintAccessRecoveryReceipt(
   input: {
     email: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     challengeDigest: Buffer;
     prior: AccessRecoveryReceipt | null;
+    /** A resend passed no bot check, so it keeps the prior expiry: one check never buys resends forever. */
+    resend?: boolean;
   },
   now = new Date()
 ) {
@@ -78,16 +84,21 @@ export function mintAccessRecoveryReceipt(
     version: 1,
     email: input.email.trim().length <= 254 ? input.email.trim() : "",
     timeZone: input.timeZone,
+    emailScheme: input.emailScheme,
     browserKey: input.prior?.browserKey ?? generateExternalToken(),
     challengeDigest: input.challengeDigest.toString("hex"),
-    expiresAt: new Date(now.getTime() + ttl * 1000).toISOString(),
+    expiresAt:
+      input.resend && input.prior
+        ? input.prior.expiresAt
+        : new Date(now.getTime() + ttl * 1000).toISOString(),
   };
   return {
     receipt,
     token: Buffer.from(JSON.stringify(encryptSecret(JSON.stringify(receipt)))).toString(
       "base64url"
     ),
-    ttl,
+    // The cookie lasts as long as the receipt it carries.
+    ttl: Math.max(1, Math.ceil((Date.parse(receipt.expiresAt) - now.getTime()) / 1000)),
   };
 }
 
@@ -148,17 +159,29 @@ export async function accessStartRetryAfterSeconds(
   return Number(rows[0].seconds);
 }
 
-/** Start and recovery share one public answer; only common limits can change its visible wait. */
+/**
+ * Start and recovery share one public answer; only common limits can change its visible wait.
+ * `resend` is the recovery route's resend, which passed no bot check of its own.
+ */
 export async function uniformAccessStartResponse(
   request: Request,
-  input: { email: string; timeZone: string | null; requestId: string }
+  input: {
+    email: string;
+    timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
+    requestId: string;
+    resend: boolean;
+  }
 ) {
   const prior = readAccessRecoveryReceipt(request);
   let challenge = mintMagicLinkChallenge();
   let recovery = mintAccessRecoveryReceipt({
-    ...input,
+    email: input.email,
+    timeZone: input.timeZone,
+    emailScheme: input.emailScheme,
     challengeDigest: challenge.challengeDigest,
     prior,
+    resend: input.resend,
   });
   const networkKey = clientAddressKey(request) ?? "unavailable";
   const retryLimited =
@@ -168,8 +191,10 @@ export async function uniformAccessStartResponse(
     recovery = mintAccessRecoveryReceipt({
       email: prior.email,
       timeZone: prior.timeZone,
+      emailScheme: prior.emailScheme ?? null,
       challengeDigest: Buffer.from(prior.challengeDigest, "hex"),
       prior,
+      resend: input.resend,
     });
     const existing = magicLinkChallengeFromRequest(request);
     const digest = existing ? tokenDigest(existing) : null;
@@ -179,11 +204,12 @@ export async function uniformAccessStartResponse(
   const { deliveryId } = await requestStart({
     email: recovery.receipt.email,
     timeZone: recovery.receipt.timeZone,
+    emailScheme: recovery.receipt.emailScheme ?? null,
     browserChallengeDigest: challenge.challengeDigest,
     browserKey: recovery.receipt.browserKey,
     networkKey,
   });
-  if (deliveryId) scheduleMagicLinkDelivery(deliveryId);
+  if (deliveryId) scheduleMagicLinkDelivery(deliveryId, input.requestId);
   const retryAfterSeconds = await accessStartRetryAfterSeconds(
     recovery.receipt.browserKey,
     networkKey
@@ -203,18 +229,42 @@ export async function uniformAccessStartResponse(
   return response;
 }
 
+/**
+ * Logs, content-free and under the request's id, what became of the link sent
+ * right after the request. A retry waits for the scheduled drain, whose route
+ * logs its own counts. "lost" logs nothing: the lease ran out, so the row is the
+ * drain's again, though a slow provider may still have taken this send.
+ */
+function reportMagicLinkDelivery(state: MagicLinkDeliveryState | null, requestId: string) {
+  if (state === "sent") {
+    emitOperationalEvent(
+      buildOperationalEvent({ event: "access.magic_link.sent", outcome: "succeeded", requestId })
+    );
+  } else if (state === "retry" || state === "failed") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.magic_link.delivery_failed",
+        outcome: state === "retry" ? "pending" : "failed",
+        errorCode: state === "retry" ? "EMAIL_DELIVERY_UNAVAILABLE" : "EMAIL_DELIVERY_FAILED",
+        requestId,
+      })
+    );
+  }
+}
+
 /** The row is durable before registration; cron recovers a failed hook or invocation. */
-function scheduleMagicLinkDelivery(deliveryId: string): void {
+function scheduleMagicLinkDelivery(deliveryId: string, requestId: string): void {
   try {
     after(async () => {
       try {
-        await dispatchMagicLinkDelivery(deliveryId);
+        reportMagicLinkDelivery(await dispatchMagicLinkDelivery(deliveryId), requestId);
       } catch {
         emitOperationalEvent(
           buildOperationalEvent({
             event: "access.magic_link.delivery_failed",
             outcome: "failed",
             errorCode: "INTERNAL_ERROR",
+            requestId,
           })
         );
       }
@@ -225,6 +275,7 @@ function scheduleMagicLinkDelivery(deliveryId: string): void {
         event: "access.magic_link.delivery_failed",
         outcome: "failed",
         errorCode: "NOTIFICATION_NOT_SCHEDULED",
+        requestId,
       })
     );
   }

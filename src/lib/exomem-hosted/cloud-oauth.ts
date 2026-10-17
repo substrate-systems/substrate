@@ -243,6 +243,21 @@ export async function findCloudOAuthAccessToken(
     : null;
 }
 
+/** Home shows the day an app was last used, so its time moves at most once in this window. */
+export const APP_USE_WINDOW_SECONDS = 300;
+
+/** Records that an app reached its Exomem, for Home's "used today". */
+export async function recordCloudAppUse(grantId: string): Promise<void> {
+  await executeExomemSql`
+    /* exomem-cloud:record-app-use */
+    INSERT INTO exomem_oauth_grant_usage AS app_use (grant_id, last_used_at)
+    VALUES (${grantId}::uuid, now())
+    ON CONFLICT (grant_id) DO UPDATE SET last_used_at = excluded.last_used_at
+    WHERE app_use.last_used_at
+      < excluded.last_used_at - make_interval(secs => ${APP_USE_WINDOW_SECONDS})
+  `;
+}
+
 export class CloudPrincipalHasNoCellError extends Error {
   constructor() {
     super("this principal owns no non-deleted Exomem Cloud cell row");

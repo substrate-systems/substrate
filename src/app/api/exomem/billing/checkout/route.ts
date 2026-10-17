@@ -6,6 +6,7 @@ import {
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { liveOAuthConsentPath } from "@/lib/exomem-hosted/oauth-continuity";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "@/lib/exomem-hosted/rate-limit";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
@@ -57,6 +58,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ? { ...returned, redirectUrl: (await liveOAuthConsentPath(request)) ?? "/exomem/home" }
           : returned;
     } else {
+      // Only a new checkout is limited: setup confirms a paid one every 2 s until the cell is ready.
+      if (
+        !(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId))
+      )
+        throw exomemErrors.rateLimited();
       result = await startOwnerCheckout(session.userId, session.tenantId);
     }
     return NextResponse.json(

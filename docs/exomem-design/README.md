@@ -47,7 +47,7 @@ How to read a `.dc.html`: markup inside `<x-dc>` uses `{{ holes }}`, `<sc-for li
 These came out of review. Breaking one is a bug, not a style choice.
 
 1. **Amber lights only live, retrieved or current state.** Never decoration, never a brand flourish. (Phosphor `#FFB000` dark, deep `#A86E00` light.)
-2. **Dark is the default; light is equally canonical.** One subtle switch, site-wide (landing, flow, Home, viewer), remembered in `localStorage["exomem-theme"]`, applied as `data-theme` on `<html>` before first paint.
+2. **The site follows the device's colour scheme until the person picks one; dark and light are equally canonical.** One subtle switch, site-wide (landing, flow, Home, viewer), remembered in `localStorage["exomem-theme"]`, applied as `data-theme` on `<html>` before first paint. Dark applies when the device says nothing. Emails use the scheme the person had on the site, and dark when that is unknown.
 3. **Model every state.** Every button does something real. No dead buttons (e.g. "Not now" on the consent page leads to a modelled *declined* state).
 4. **Phone flow pages never scroll.** Each step fits one screen (layouts compute against the real screen height, 640–932 px). Home and the reader may scroll.
 5. **Every number is computed at render** — prices, dates, time limits, counts, sizes. Never hard-code "in 24 hours"; compute "kept 24 h, until 13 Oct, 14:20" in the reader's time zone.
@@ -91,7 +91,7 @@ Exomem is a sibling brand inside the Substrate system: it inherits Substrate's r
 
 **Decision, 2026-10-12, approved by the product owner (AA text):** light `--fg-muted` is `#736E64` (was `#7A756B`); a new `--exo-amber-text` (dark `#FFB000`, light `#A06600`) colours amber text, and `--exo-amber` stays for lines, dots, fills and the focus ring; switched-off filter chips use `--fg-muted`, and `--fg-tertiary` is for disabled controls and non-text marks only. The table above keeps the handoff values; the code holds the current ones. On the same day, the owner moved light `--exo-amber-text` from `#9A6500` to `#A06600`. It is the smallest step from `--exo-amber` that reaches 4.5:1 on `--bg-base`, so amber text keeps the colour of amber fills.
 
-Borders are ink at low alpha: rule `.07`, card `.10`, input/chip `.14`, hover `.34`. Amber line `.5` for "current" chips and amber buttons. Landing-only extra grounds (hero bands, footer) are in `Landing-Page.dc.html` (`PAL`).
+Borders are ink at low alpha: rule `.07`, card `.10`, input/chip `.14`, a field straight on a flow page `.22`, hover `.34`. Amber line `.5` for "current" chips and amber buttons. Landing-only extra grounds (hero bands, footer) are in `Landing-Page.dc.html` (`PAL`).
 
 ### 2.2 Type
 
@@ -139,7 +139,7 @@ Build these once and use them everywhere. Full specs, states and sources: `syste
 | **Tag chip** | Plex Mono 11, r 4, border input. Status variant "current": amber text + amber line. |
 | **Segmented switch** (levels Off/Light/Balanced/Maximal) | Track with 1 px border; selected segment filled `--fg-primary`. Description underneath reserves its height so nothing jumps. |
 | **Switch** ("Grow automatically") | A switch, not a checkbox; no black borders. |
-| **Field** | h 44, `--bg-panel`, border input; amber border on focus. Address field has Copy inside, right. The MCP address breaks only after `.io/`. |
+| **Field** | h 44, `--bg-panel`, border input; amber border on focus. A field straight on a flow page takes `--bg-raised` and the `.22` field border (R47 flow). Address field has Copy inside, right. The MCP address breaks only after `.io/`. |
 | **Card / notice** | `--bg-panel`, border card, r 9, padding 12–16. Notices (trouble, storage 80%/full) carry one action. |
 | **Modal** | Centered, `--bg-elevated`, r 12, scrim. Steps inside (ask → working → done); Esc closes. |
 | **Popover** | `--bg-raised`, border input, r 10, shadow. |
@@ -203,7 +203,7 @@ Source: `R28-Emails.dc.html` (template and catalogue), `R12-Lifecycle.dc.html` (
 9. Small print — every time limit, computed at send, in the reader's time zone; say what happens if ignored.
 10. Footer — "Exomem by Substrate Systems". Service emails, no unsubscribe.
 
-Light variant via `prefers-color-scheme`. Inviters get exactly two emails: used (12) and ended unused (13). Full catalogue: **Appendix B**.
+Each email is built on the scheme the person had on the site, and on dark when that is unknown. The other scheme applies through `prefers-color-scheme` in mail apps that report one. Inviters get exactly two emails: used (12) and ended unused (13). Full catalogue: **Appendix B**.
 
 ### 3.5 Graph viewer (new route, e.g. `/exomem/graph`)
 

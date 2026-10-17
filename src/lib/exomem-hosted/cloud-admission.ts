@@ -6,6 +6,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
@@ -75,6 +76,25 @@ async function requireCloudAdmissionCapacity(
 }
 
 /**
+ * Whether a live invitation has this digest, read without a row lock before
+ * the capacity lock, so an unknown, used or lapsed token never queues on that
+ * one lock that every admission shares. It refuses only what the locked
+ * re-read refuses too, so firing wrongly would need a token that becomes live
+ * later, which no invitation does; the re-read still decides the rest.
+ */
+async function liveInviteExists(tx: ExomemSql, digest: Buffer): Promise<boolean> {
+  const { rows } = await tx`
+    /* exomem-cloud:live-invite-exists */
+    SELECT 1 FROM exomem_invites
+    WHERE token_digest = ${digest}
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+  `;
+  return rows.length > 0;
+}
+
+/**
  * A repeat start request leaves the person's earlier start links valid, so
  * using one of them revokes the others: the address now owns its cell and
  * holds no further promise.
@@ -118,6 +138,7 @@ async function createCloudCell(
     desiredState: "running" | "stopped";
     recipient: string;
     recipientTimeZone: string | null;
+    recipientEmailScheme: ExomemEmailScheme | null;
     /** Who invited them, for email 18; `null` for a self-serve start. */
     inviterName: string | null;
   }
@@ -137,6 +158,7 @@ async function createCloudCell(
       dedupeKey: `hold-reminder:${cell.cell_id}`,
       recipient: input.recipient,
       recipientTimeZone: input.recipientTimeZone,
+      recipientEmailScheme: input.recipientEmailScheme,
       tenantId: input.tenantId,
       payload: {
         version: 1,
@@ -158,6 +180,8 @@ export type RedeemCloudInviteInput = {
   sessionExpiresAt: Date;
   /** The redeeming browser's time zone, already normalized. */
   timeZone?: string | null;
+  /** The redeeming page's email scheme, already normalized. An invitation records none. */
+  emailScheme?: ExomemEmailScheme | null;
 };
 
 export type RedeemedCloudAccess = {
@@ -191,6 +215,7 @@ export async function redeemCloudInviteAtomic(
   input: RedeemCloudInviteInput
 ): Promise<RedeemedCloudAccess | null> {
   return withExomemTransaction(async (tx: ExomemSql) => {
+    if (!(await liveInviteExists(tx, input.tokenDigest))) return null;
     await lockCloudCapacity(tx);
 
     const inviteResult = await tx`
@@ -210,6 +235,7 @@ export async function redeemCloudInviteAtomic(
     // Capacity check: no write-bearing statement has run yet.
     await requireCloudAdmissionCapacity(tx, invite);
     const timeZone = input.timeZone ?? invite.recipient_time_zone;
+    const emailScheme = input.emailScheme ?? null;
 
     const ownerResult = await tx`
       INSERT INTO users (email, email_verified_at)
@@ -241,15 +267,16 @@ export async function redeemCloudInviteAtomic(
       await tx`
         UPDATE exomem_tenants
         SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
-            time_zone = COALESCE(${timeZone}, time_zone)
+            time_zone = COALESCE(${timeZone}, time_zone),
+            email_scheme = COALESCE(${emailScheme}, email_scheme)
         WHERE id = ${existing.id}::uuid
       `;
       await clearLifecycleDeletionBlock(tx, existing.id);
       tenantId = existing.id;
     } else {
       const tenantResult = await tx`
-        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone)
-        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone})
+        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme)
+        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme})
         RETURNING id
       `;
       const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -311,6 +338,7 @@ export async function redeemCloudInviteAtomic(
       desiredState: desiredCellState,
       recipient: invite.email_normalized,
       recipientTimeZone: timeZone,
+      recipientEmailScheme: emailScheme,
       // The hold reminder reads the inviter's name from this invitation when
       // it is sent, so deleting the inviter's account also removes it there.
       inviterName: null,
@@ -439,7 +467,7 @@ export type RedeemedCloudBrowserAccess = RedeemedCloudAccess & SessionMaterial;
  */
 export async function redeemCloudInvite(
   token: string,
-  options: { timeZone?: string | null } = {}
+  options: { timeZone?: string | null; emailScheme?: ExomemEmailScheme | null } = {}
 ): Promise<RedeemedCloudBrowserAccess> {
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
@@ -450,6 +478,7 @@ export async function redeemCloudInvite(
     csrfDigest: session.csrfDigest,
     sessionExpiresAt: session.expiresAt,
     timeZone: options.timeZone ?? null,
+    emailScheme: options.emailScheme ?? null,
   });
   if (!row) throw exomemErrors.accessTokenInvalid();
   return { ...row, ...session };
@@ -488,6 +517,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   codeExpiresAt: Date;
   /** The redeeming browser's time zone, already normalized. */
   timeZone?: string | null;
+  /** The redeeming page's email scheme, already normalized. */
+  emailScheme?: ExomemEmailScheme | null;
 }): Promise<CloudOAuthInviteAdmission | null> {
   try {
     // Security review finding 15: without this, an OAuth transaction minted
@@ -498,6 +529,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     // this call the same way every other Cloud entry point does.
     const cloudResource = loadExomemCloudResource().mcpUrl;
     return await withExomemTransaction(async (tx: ExomemSql) => {
+      if (!(await liveInviteExists(tx, input.inviteDigest)))
+        throw new CloudOAuthAdmissionRejected();
       await lockCloudCapacity(tx);
 
       const inviteResult = await tx`
@@ -550,6 +583,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
 
       await requireCloudAdmissionCapacity(tx, invite);
       const timeZone = input.timeZone ?? invite.recipient_time_zone;
+      const emailScheme = input.emailScheme ?? null;
 
       const ownerResult = await tx`
         INSERT INTO users (email, email_verified_at)
@@ -578,15 +612,16 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         await tx`
           UPDATE exomem_tenants
           SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
-              time_zone = COALESCE(${timeZone}, time_zone)
+              time_zone = COALESCE(${timeZone}, time_zone),
+              email_scheme = COALESCE(${emailScheme}, email_scheme)
           WHERE id = ${existing.id}::uuid
         `;
         await clearLifecycleDeletionBlock(tx, existing.id);
         tenantId = existing.id;
       } else {
         const tenantResult = await tx`
-          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone)
-          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone})
+          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme)
+          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme})
           RETURNING id
         `;
         const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -639,6 +674,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         desiredState: desiredCellState,
         recipient: invite.email_normalized,
         recipientTimeZone: timeZone,
+        recipientEmailScheme: emailScheme,
         // See redeemCloudInviteAtomic's matching call.
         inviterName: null,
       });

@@ -35,8 +35,9 @@
   min-height: 56px;
   padding: 8px 8px 8px 14px;
   border-radius: 10px;
-  border: 1px solid var(--exo-border-input);
-  background: var(--bg-panel);
+  /* The flow draws its address box straight on the page, like its fields (R47). */
+  border: 1px solid var(--exo-border-field);
+  background: var(--bg-raised);
 }
 
 .address {

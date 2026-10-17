@@ -40,6 +40,7 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level. |
 | `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                                          |
 | `EXOMEM_SELF_SERVE_ADMISSION`                                       | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                      |
+| `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`                             | Start links that `open` mode hands out per hour, to newcomers and promoted people together. Unset or not a positive whole number reads as 5. See "Start admission" below.                                                             |
 | `EXOMEM_CLOUD_EXPORTS_ENABLED`                                      | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                     |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
@@ -527,6 +528,13 @@ Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
   else a waitlist place. Each reconcile tick promotes the oldest waiting
   people into free places.
 
+`open` mode also paces admissions: at most
+`EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR` start links an hour (default 5), for
+newcomers and promotions together, whatever the address. Past it, a newcomer
+gets a waitlist place exactly as when Cloud is full, and promotion waits for
+the next hour. Each refusal logs `access.start.admission_paced`, content-free.
+To admit people faster, raise the pace and redeploy.
+
 A free place is a freshly observed Cloud slot that no live cell and no unused
 invitation holds. Every invitation counts, whatever its kind, and one address
 counts once. Start links expire after 48 hours. A person who asks again while
@@ -536,10 +544,15 @@ place and gets no second waitlist email.
 
 Emails for start links, waitlist places, promotions, the unpaid-hold
 reminder and the account lifecycle (emails 03 to 07) go through
-`exomem_email_outbox`. The access-delivery job sends at most 20 per run. It
-retries a failed send after 1, 2, 4 and up to 60 minutes. An email with a
-deadline, such as a start link, retries until that deadline. An email without
-one, such as 07, stops after 10 attempts. Email 07 also waits, with no limit,
+`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
+sends waitlist emails only when no other email is ready. It retries a failed
+send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
+start link, retries until that deadline. An email without one, such as 07,
+stops after 10 attempts. When Brevo refuses the request (`400`, `413` or
+`422`), the row records `EMAIL_REFUSED`. A refused waitlist email fails at
+once, and the person keeps their place. Every other refused email retries,
+because a refusal can come from our own account, such as an unvalidated
+sender. Email 07 also waits, with no limit,
 until cellctl has deleted every cell of the account. A wait counts no attempt.
 To see what is stuck, run:
 
@@ -624,6 +637,15 @@ also needs `inviterName`.
 The response contains only an opaque invite ID and request ID. Brevo sends the
 token in the URL fragment, so request logs never contain it. A complimentary
 redemption creates a cell row with `desired_state = running`.
+
+### A first subscription that disagrees with its checkout
+
+Checkout sells the friend price only to a tenant that holds a friend offer.
+When Paddle reports a new subscription whose friend price disagrees with
+that, the web app logs `exomem_paddle_friend_price_mismatch` with the tenant
+ID. It activates the subscription as Paddle reports it and records no friend
+offer from it. Compare the subscription's price and discount in the Paddle
+dashboard with the tenant's checkout, and correct the subscription there.
 
 ### Remove a friend price
 

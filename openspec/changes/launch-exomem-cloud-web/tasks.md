@@ -11,11 +11,11 @@
 - [x] 1.9 Add the waitlist promotion arm to the reconcile job, oldest first, skipping addresses that own an active account, one transaction per admission
 - [x] 1.10 Keep a waiting person's place and send no second waitlist email on a repeat request; resend a live start link with the same expiry, leaving earlier links valid and revoking siblings on redemption; send a lapsed or used start link to the back of the queue
 - [x] 1.11 Anchor the unpaid hold and the hold reminder on the stopped cell's creation time
-- [x] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick, retrying each row until its own expiry
+- [x] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick, retrying each row until its own expiry (a refused waitlist confirmation fails at once)
 - [x] 1.13 Remove recipient and payload from settled outbox rows after 30 days and delete waitlist entries 180 days after the later of the last request and the last start link's expiry unless the address owns an account
 - [x] 1.14 State the outbox and waitlist retention periods on the privacy page
 - [x] 1.15 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
-- [ ] 1.16 Run a dedicated security review of admission
+- [x] 1.16 Run a dedicated security review of admission
 
 ## 2. Consent hand-back and owner apps
 
@@ -27,7 +27,7 @@
 - [x] 2.6 Add `GET /api/exomem/apps` with display names and first-party exclusion
 - [x] 2.7 Add `POST /api/exomem/apps/{id}/disconnect` that revokes grant, token families, access tokens and unconsumed codes
 - [x] 2.8 Test against PostgreSQL: no grant or code written on decline, replay and expiry, foreign app id returns 404
-- [ ] 2.9 Run a dedicated security review of decline and disconnect
+- [x] 2.9 Run a dedicated security review of decline and disconnect
 
 ## 3. Account facts and reviewer sign-in (migration 0064)
 
@@ -57,7 +57,7 @@
     3. `POST /transactions` with `customer_id` and `discount_id` but no `address_id` returns a "draft" transaction that echoes `discount_id` and has `checkout.url`. Paddle accepts a cancel of that transaction.
     4. `PATCH /subscriptions/{id}` with a discount accepts the request shape. Paddle refuses it with "discount is not valid for any items in subscription" when the subscription's price is not the price that the discount is restricted to. Task 4.12 keeps such owners to their plan before any Paddle call.
     5. The `subscription.created` event carries `transaction_id` and `custom_data`.
-- [ ] 4.11 Run a dedicated security review of the friend price
+- [x] 4.11 Run a dedicated security review of the friend price
 - [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
 - [x] 4.13 Cancel an open resubscribe checkout at Paddle before a lapsed kept window deletes the cell, and keep the cell read-only while Paddle cannot answer
 - [x] 4.14 Fix the independent review's findings: check the friend discount on every reopened checkout, read Paddle before storing `kept`, settle a lapsed checkout only on proof and within a time budget, recover a paid resubscription without its event, refuse checkout during deletion, scrub the inviter's note and copied name, date invitation emails in the reader's time zone, and share the invitation kinds and limits
@@ -66,7 +66,7 @@
 ## 5. Cell home channel, storage and export (migration 0066)
 
 - [x] 5.1 Add migration 0066: first-party Home client with its admission mode, usage columns, export table, `export` hold kind, and grants
-- [x] 5.2 Add `cloud-home-mcp` with the 120-second token mint and exactly two calls
+- [x] 5.2 Add `cloud-home-mcp` with the 120-second token mint and a closed set of server-selected calls (Home's two; the viewer's three)
 - [x] 5.3 Add `GET` and `PUT /api/exomem/cloud/home/levels` with revision checks and the unavailable reasons
 - [x] 5.4 Add `GET /api/exomem/cloud/home/live` for activity and note count
 - [x] 5.5 Add storage to the status poll as known or unknown
@@ -81,6 +81,7 @@
 - [x] 5.14 Test with real PostgreSQL roles: tenant isolation, column grants, token scope, refusal after deletion
 - [ ] 5.15 Rehearse on a local cluster with the real gateway: levels, activity, storage, export on running and stopped cells
 - [ ] 5.16 Run a dedicated security review of the token mint, the export delivery path and the ledger fields
+  - The 2026-10-16 review covers the token mint, the ledger fields and the web side of export. The cell controller's export delivery waits on PR #1708.
 
 Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR #1708, not merged). Exports stay off until it ships, and tasks 6.5 and 10.3 follow it. The web side of export (tasks 5.6 and 8.8) is on main behind `EXOMEM_CLOUD_EXPORTS_ENABLED`.
 
@@ -93,6 +94,8 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 - [ ] 6.5 Enqueue the export-ready email once per export, linking to Home
 - [x] 6.6 Render every time limit at send time in the recipient's time zone, UTC labelled when unknown
 - [x] 6.7 Render emails 09 to 13 through the shared ten-slot template, with the R28 copy and bands, and remove their lint exemption
+- [x] 6.8 Follow the device's colour scheme on the site until a theme is picked, and build each email on the scheme the person used the site in (migration 0072)
+- [x] 6.9 Follow a change of the device's colour scheme while an Exomem page is open, and keep a picked theme
 
 ## 7. Frontend journey
 
@@ -104,7 +107,7 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 - [x] 7.6 Build the break states: connect error, ended, paused, suspended, expired, read-only
 - [x] 7.7 Build reviewer sign-in on the web
 - [x] 7.8 Check the approved phone placement and short-window scrolling in dark and light
-- [ ] 7.9 Block tasks 7.3 and 8.7 until the product owner approves deviations (h) and (i)
+- [x] 7.9 Block tasks 7.3 and 8.7 until the product owner approves deviations (h) and (i)
 
 ## 8. Frontend Home
 
@@ -169,6 +172,7 @@ The UI cannot infer that join from a family or display name. Home activity remai
 Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
 
 - [ ] 11.10 Deliver regional regular and friend catalogue selection, legacy compatibility and safe subscription conversion with provider acceptance
+- [ ] 11.11 Record each app's last use at the gateway and show it on Home's app rows; close after the gateway image that records it runs in production
 
 Tasks 11.1–11.5 have local implementation and browser evidence in PR #246.
 The actual Sandbox subscription passed decline, retry, signed payment delivery and readiness polling.

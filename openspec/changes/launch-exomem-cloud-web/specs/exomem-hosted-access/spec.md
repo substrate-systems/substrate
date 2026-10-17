@@ -138,7 +138,7 @@ The start form SHALL check every request with a Cloudflare Turnstile challenge. 
 
 ### Requirement: The admission setting decides what a new address receives
 
-The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default and any unknown value are `waitlist`.
+The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default and any unknown value are `waitlist`. While the setting is `open`, one shared limit SHALL pace self-serve admissions for all addresses together. When that limit is reached, the system SHALL queue a new address as if Cloud were full, and promotion SHALL wait until the limit allows another admission.
 
 #### Scenario: Admission is open and a place is free
 
@@ -151,6 +151,11 @@ The setting `EXOMEM_SELF_SERVE_ADMISSION` (`waitlist` or `open`) SHALL decide wh
 - **WHEN** the setting is `open` and Cloud has no free place, or someone waits, and a new address submits the start form
 - **THEN** the system adds the address to the waitlist and queues the waitlist email
 - **AND** it creates no start link
+
+#### Scenario: Admissions arrive faster than the shared limit
+
+- **WHEN** the setting is `open`, Cloud has a free place, nobody waits, the shared admission limit is reached, and a new address submits the start form
+- **THEN** the system adds the address to the waitlist, creates no start link, and answers exactly as for any other request
 
 #### Scenario: Admission is waitlist only
 
@@ -214,7 +219,7 @@ When the system reissues a start link for the same person, it SHALL keep the ori
 
 ### Requirement: Invitation and hold emails are sent once
 
-Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease and SHALL retry until the email's own expiry. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
+Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease. The system SHALL retry every email until its own expiry, except that a waitlist confirmation the provider refuses as invalid SHALL fail at once while the person keeps their place. Start and lifecycle emails SHALL be claimed before waitlist confirmations. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
 
 #### Scenario: The same fact is recorded twice
 
@@ -226,6 +231,16 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 - **WHEN** the email provider fails and recovers before a start link expires
 - **THEN** the system delivers the start email and the person keeps their place
 - **AND** after the link's own expiry the system stops retrying
+
+#### Scenario: Provider refuses a waitlist confirmation
+
+- **WHEN** the email provider refuses a waitlist confirmation as invalid
+- **THEN** the row fails at once, the system does not retry it, and the person keeps their place
+
+#### Scenario: Provider refuses a start email
+
+- **WHEN** the email provider refuses a start email as invalid
+- **THEN** the system retries it until the link's own expiry and the person keeps their link
 
 #### Scenario: Precondition no longer holds
 
@@ -361,6 +376,37 @@ The start form and the redemption routes SHALL accept an optional IANA time zone
 - **WHEN** a redemption carries a name outside the IANA set
 - **THEN** the request succeeds and the tenant's time zone stays unknown
 
+### Requirement: Emails follow the person's site theme
+
+The Exomem pages SHALL show the device's colour scheme until the person picks a theme with the switch, SHALL take a change of that scheme while a page is open without a reload, and SHALL keep a picked theme when the device changes. The start form and the redemption routes SHALL accept an optional email scheme, `dark` or `light`, which the page sends as its current theme. The system SHALL treat any other value, or no value, as unknown, never as an error. Each email SHALL use one base scheme for its inline styles and the images it shows first, and SHALL carry the other scheme in a `prefers-color-scheme` block. An email for an unknown scheme SHALL be dark. A redemption SHALL store a known scheme on the account. A start request SHALL use its scheme for the email that answers it and SHALL store it on the person's waitlist entry. A start request MUST NOT change the account's scheme. An invitation SHALL store no scheme, and its email MUST NOT use the inviter's scheme.
+
+#### Scenario: The device changes while a page is open
+
+- **WHEN** the device switches from dark to light while an Exomem page is open
+- **THEN** the page turns light without a reload if the person has picked no theme
+- **AND** the page keeps the picked theme if the person has picked one
+
+#### Scenario: A light page asks for a sign-in link
+
+- **WHEN** an owner asks for a sign-in link from a page in the light theme
+- **THEN** the sign-in email uses the light colours in its inline styles
+- **AND** it uses the dark colours only in its `prefers-color-scheme: dark` block
+
+#### Scenario: Unknown scheme
+
+- **WHEN** a start or redemption request carries no email scheme, or a value other than `dark` or `light`
+- **THEN** the request succeeds and its emails are dark
+
+#### Scenario: Lifecycle email after a light redemption
+
+- **WHEN** a person redeems an invitation from a page in the light theme, and their Exomem later becomes ready
+- **THEN** the ready email is light
+
+#### Scenario: Invitation to a new address
+
+- **WHEN** an owner in the light theme invites an address that has no Exomem account
+- **THEN** the invitation email is dark
+
 ### Requirement: A paid web redemption continues in the setup journey
 
 A paid redemption that began on the web, with no live OAuth continuation, SHALL lead to the setup journey, not to Home. A redemption under a live OAuth continuation SHALL keep returning the consent path.
@@ -434,7 +480,7 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 ### Requirement: The consent page shows where the code goes
 
-The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label an unverified web client name as app-supplied beside the requested permissions. The system MUST store a client name only when the client declares one.
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. A web request footer SHALL show only the redirect host. A loopback footer SHALL show the app name and "this computer". Before requesting consent, the page SHALL label a name that the client declares as app-supplied beside the requested permissions, for a web app and for a local app. A name that Exomem supplies, or a host shown in place of a name, SHALL carry no label. The system MUST store a client name only when the client declares one.
 
 #### Scenario: Web client declares a name
 
@@ -445,6 +491,7 @@ The consent page SHALL always show where the authorization code goes: the host o
 
 - **WHEN** a client with a loopback redirect and a declared name opens the consent page
 - **THEN** the footer shows the declared app name and "this computer"
+- **AND** the permissions show the declared name labelled as app-supplied
 
 #### Scenario: Expired request navigation
 
@@ -470,6 +517,7 @@ A signed-in owner SHALL be able to list connected apps and disconnect each one. 
 
 - **WHEN** an owner opens the app list
 - **THEN** each app shows its display name, platform, kind (web or local), context (coding or conversation), first connected time and last authorized time
+- **AND** each app shows the time it last reached its Exomem, or no time before its first call
 - **AND** a client-declared name shows the redirect host beside it, labelled as the client's own claim
 - **AND** the first-party Home client is absent
 
@@ -623,7 +671,7 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 ### Requirement: Sign-in recovery cannot authenticate or enumerate accounts
 
-Owner authentication links SHALL remain single-use and expire after 15 minutes. A separate opaque recovery receipt SHALL bind resend recovery to the requesting browser. Its configured lifetime SHALL default to one hour. Recovery MUST NOT create a session, return an address, reveal account eligibility or recover another browser's request.
+Owner authentication links SHALL remain single-use and expire after 15 minutes. A separate opaque recovery receipt SHALL bind resend recovery to the requesting browser. Its configured lifetime SHALL default to one hour, and a resend SHALL keep the first receipt's expiry. Recovery MUST NOT create a session, return an address, reveal account eligibility or recover another browser's request.
 
 #### Scenario: A proven browser opens an expired or used link
 

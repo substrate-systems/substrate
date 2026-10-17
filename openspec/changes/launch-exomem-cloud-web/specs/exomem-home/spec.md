@@ -207,6 +207,20 @@ Home SHALL show the level for each context (chat apps and coding agents) and SHA
 - **WHEN** the cell is stopped, not ready, unreachable or runs an older image
 - **THEN** Home shows that the levels are unavailable with the reason and offers no switch
 
+### Requirement: Home's app rows say when each app was last used
+
+Each connected app row SHALL say when the app connected and, once the gateway has recorded a call, on which day the app last reached the Exomem: "used today", "used yesterday" or "used" with the date. Home SHALL count the day in the reader's time zone. A row with no recorded call MUST say nothing about use. An app connected within the last hour SHALL read "connected just now" or "connected 12 minutes ago"; a reviewer's row keeps the date.
+
+#### Scenario: App used today
+
+- **WHEN** the gateway recorded a call from the app earlier on the reader's current day
+- **THEN** the row reads "connected 5 October · used today"
+
+#### Scenario: App never called
+
+- **WHEN** the gateway has recorded no call from the app
+- **THEN** the row reads "connected 5 October" and nothing about use
+
 ### Requirement: The live activity line is content free
 
 Home SHALL show recent assistant activity as client family, action (recalled or saved), item count and time. The client family MUST be one of the cell's closed set of families, else unknown. The activity data MUST NOT contain note titles, paths, queries or content. Home SHALL read it on load, on tab focus and every 30 seconds while the tab is visible. When the activity is unavailable, Home SHALL show nothing in its place, and MUST NOT show zero.

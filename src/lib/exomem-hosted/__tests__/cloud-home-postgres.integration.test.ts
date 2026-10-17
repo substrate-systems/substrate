@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,9 @@ import { dispatchVerifiedExomemPaddleEvent } from "../paddle-webhook";
 // The Home channel and the export API against real PostgreSQL. The cell's
 // HTTP answer is substituted at the gateway boundary (`fetchCell`); the
 // gateway's own token lookup runs for real on every substituted call.
+
+// The export link's per-account rate limit keys its bucket with this key.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const RESOURCE = "https://cloud.example.test/mcp/v1";
@@ -1653,31 +1656,37 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(((await json(refused)).error as { code: string }).code, "EXPORT_NOT_READY");
     });
 
-    it("refuses a controller link that is not https, and never shows it", async () => {
-      const alice = await owner();
-      const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
-      await markReady(id);
-      const answering = (async () => {
-        for (let attempt = 0; attempt < 40; attempt += 1) {
-          const { rowCount } = await pool.query(
-            `UPDATE exomem_cloud_exports
-             SET download_url = 'http://objects.example.test/archive',
-                 download_url_expires_at = now() + interval '5 minutes',
+    for (const [problem, url, lifetime] of [
+      ["is not https", "http://objects.example.test/archive", "5 minutes"],
+      ["lasts longer than five minutes", "https://objects.example.test/archive", "1 day"],
+    ] as const) {
+      it(`refuses a controller link that ${problem}, and never shows it`, async () => {
+        const alice = await owner();
+        const id = ((await json(await startExport(alice))).export as { export_id: string })
+          .export_id;
+        await markReady(id);
+        const answering = (async () => {
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            const { rowCount } = await pool.query(
+              `UPDATE exomem_cloud_exports
+             SET download_url = $2,
+                 download_url_expires_at = now() + $3::interval,
                  link_issued_at = GREATEST(clock_timestamp(), link_requested_at)
              WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
-            [id]
-          );
-          if (rowCount) return;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-      })();
-      const refused = await requestLink(alice, id, 4_000);
-      await answering;
-      assert.equal(refused.status, 502);
-      const body = await refused.text();
-      assert.equal(JSON.parse(body).error.code, "EXPORT_LINK_INVALID");
-      assert.equal(body.includes("objects.example.test"), false);
-    });
+              [id, url, lifetime]
+            );
+            if (rowCount) return;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+        })();
+        const refused = await requestLink(alice, id, 4_000);
+        await answering;
+        assert.equal(refused.status, 502);
+        const body = await refused.text();
+        assert.equal(JSON.parse(body).error.code, "EXPORT_LINK_INVALID");
+        assert.equal(body.includes("objects.example.test"), false);
+      });
+    }
 
     it("answers 410 for a link to an export past its expiry, and shows when it expired", async () => {
       const alice = await owner();

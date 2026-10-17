@@ -5,6 +5,7 @@ import type { HomeAccount, HomeActivity, HomeApp, HomeExport } from "../home-api
 import type { Lifecycle } from "../home-state";
 import {
   activityFacts,
+  appMeta,
   banner,
   deletionLinkMinutes,
   exportView,
@@ -70,6 +71,7 @@ function app(overrides: Partial<HomeApp> = {}): HomeApp {
     redirectHosts: ["claude.example.test"],
     connectedAt: "2026-10-05T09:00:00Z",
     lastAuthorizedAt: "2026-10-05T09:00:00Z",
+    lastUsedAt: null,
     ...overrides,
   };
 }
@@ -304,6 +306,31 @@ describe("the live line and the note count", () => {
       liveLine(facts, [], NONE, clock)?.text,
       "No assistant activity since 12 Oct, 08:00"
     );
+  });
+});
+
+describe("the app rows", () => {
+  it("says on which day the app last reached the Exomem, and nothing before its first call", () => {
+    const meta = (lastUsedAt: string | null) => appMeta(app({ lastUsedAt }), clock, false);
+    assert.equal(meta("2026-10-12T08:00:00Z"), "connected 5 October · used today");
+    assert.equal(meta("2026-10-11T22:00:00Z"), "connected 5 October · used yesterday");
+    assert.equal(meta("2026-10-08T12:00:00Z"), "connected 5 October · used 8 October");
+    assert.equal(meta(null), "connected 5 October");
+  });
+
+  it("counts the day in the reader's zone, not the server's", () => {
+    // 10:00 UTC on 12 October is 23:00 in Auckland, where 12:00 UTC on 11 October
+    // was already 01:00 on 12 October.
+    const auckland = { now: NOW, timeZone: "Pacific/Auckland" };
+    const used = app({ lastUsedAt: "2026-10-11T12:00:00Z" });
+    assert.equal(appMeta(used, auckland, false), "connected 5 October · used today");
+    assert.equal(appMeta(used, clock, false), "connected 5 October · used yesterday");
+  });
+
+  it("says an app connected just now, while a reviewer's row keeps the date", () => {
+    const fresh = app({ connectedAt: "2026-10-12T09:59:30Z" });
+    assert.equal(appMeta(fresh, clock, false), "connected just now");
+    assert.equal(appMeta(fresh, clock, true), "connected 12 October · during review");
   });
 });
 
@@ -661,5 +688,33 @@ describe("the deletion link's lifetime", () => {
     );
     assert.equal(deletionLinkMinutes("2026-10-12T10:01:00Z", "Mon, 12 Oct 2026 10:00:00 GMT"), 1);
     assert.equal(deletionLinkMinutes("2026-10-12T10:15:00Z", null), null);
+  });
+});
+
+// The consent page labels a name by the same rule (displayNameClaimedByApp).
+describe("a connected app's name", () => {
+  it("labels only a name the app gave itself, a local app's included", () => {
+    const local = { kind: "local" as const, platform: null, redirectHosts: ["127.0.0.1"] };
+    assert.equal(
+      appMeta(
+        app({ ...local, displayName: "Claude Code", displayNameSource: "client_metadata" }),
+        clock,
+        false
+      ),
+      "connected 5 October · name from the app · sends access to this computer"
+    );
+    // A local app that declared no name is shown by its host, which is no claim.
+    assert.equal(
+      appMeta(
+        app({ ...local, displayName: "127.0.0.1", displayNameSource: "redirect_host" }),
+        clock,
+        false
+      ),
+      "connected 5 October"
+    );
+    assert.equal(
+      appMeta(app({ displayNameSource: "operator" }), clock, false),
+      "connected 5 October"
+    );
   });
 });

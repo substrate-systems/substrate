@@ -19,6 +19,7 @@ import type { EnvironmentSource } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
 import { readBoundedJsonRequest } from "./http";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 import {
   resolveExomemSession,
   validateMutationRequest,
@@ -29,6 +30,12 @@ import {
 const CLOUD_EXPORTS_PER_DAY = 3;
 const LINK_WAIT_MS = 8_000;
 const LINK_POLL_MS = 250;
+// The controller promises 5-minute links. A link whose recorded expiry is
+// further away than that plus clock skew is refused. This bounds the expiry the
+// controller records, not the signed URL's own lifetime, which only the
+// controller sets.
+const LINK_LIFETIME_MS = 5 * 60 * 1000;
+const LINK_CLOCK_SKEW_MS = 60 * 1000;
 
 export type CloudExportRow = {
   export_id: string;
@@ -318,6 +325,21 @@ function httpsLink(url: string): string {
   throw linkInvalid();
 }
 
+/**
+ * The expiry the controller recorded for the link, if it is within the
+ * promised lifetime. It checks the recorded expiry only: a signed URL that
+ * itself lasts longer than its recorded expiry would still pass. When this
+ * fires wrongly, on a controller clock far ahead, the owner's download fails
+ * and the log line shows why.
+ */
+function cappedLinkExpiry(expiresAt: Date, now: Date): string {
+  if (expiresAt.getTime() <= now.getTime() + LINK_LIFETIME_MS + LINK_CLOCK_SKEW_MS) {
+    return expiresAt.toISOString();
+  }
+  console.warn({ event: "exomem_cloud_export_link_invalid", reason: "lifetime_too_long" });
+  throw linkInvalid();
+}
+
 export type CloudExportLink =
   | { state: "issued"; url: string; url_expires_at: string }
   | { state: "pending" };
@@ -372,7 +394,7 @@ async function requestCloudExportLink(
       return {
         state: "issued",
         url: httpsLink(row.download_url),
-        url_expires_at: row.download_url_expires_at.toISOString(),
+        url_expires_at: cappedLinkExpiry(row.download_url_expires_at, now),
       };
     }
     if (Date.now() + LINK_POLL_MS > deadline) return { state: "pending" };
@@ -428,6 +450,8 @@ export async function handleCloudExportLinkRequest(
     if (!cloudExportsEnabled(dependencies.env)) throw notFound();
     const session = await resolveExomemSession(request);
     validateMutationRequest(request, session);
+    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId)))
+      throw exomemErrors.rateLimited();
     const link = await requestCloudExportLink(session, exportId.toLowerCase(), dependencies);
     return link.state === "issued"
       ? respond({ url: link.url, url_expires_at: link.url_expires_at })

@@ -76,6 +76,7 @@ it("the opaque receipt has a distinct purpose, bounded expiry, and no authentica
   const material = recovery.mintAccessRecoveryReceipt({
     email: "owner@example.test",
     timeZone: "Europe/London",
+    emailScheme: null,
     challengeDigest: randomBytes(32),
     prior: null,
   });
@@ -186,6 +187,7 @@ describe(
         const receipt = recovery.mintAccessRecoveryReceipt({
           email,
           timeZone: null,
+          emailScheme: null,
           challengeDigest: randomBytes(32),
           prior: null,
         });
@@ -263,11 +265,9 @@ describe(
         }
         assert.equal(logs.join(" ").includes("private-"), false);
         assert.equal(logs.join(" ").includes(email), false);
-        if (failure !== "provider") {
-          assert.ok(
-            logs.some((line) => JSON.parse(line).event === "access.magic_link.delivery_failed")
-          );
-        }
+        assert.ok(
+          logs.some((line) => JSON.parse(line).event === "access.magic_link.delivery_failed")
+        );
         const pending = await pool.query(
           "SELECT state, attempts, secret_ciphertext IS NOT NULL AS encrypted FROM exomem_access_delivery_outbox"
         );
@@ -288,7 +288,7 @@ describe(
       });
     }
 
-    it("after the authentication cookie clears, an expired link can resend only to its original address", async () => {
+    it("after the authentication cookie clears, an expired link can resend only to its original address, within its first receipt's lifetime", async () => {
       const userId = randomUUID(),
         tenantId = randomUUID();
       const email = "expired-owner@example.test";
@@ -306,6 +306,7 @@ describe(
       const receipt = recovery.mintAccessRecoveryReceipt({
         email,
         timeZone: "Europe/London",
+        emailScheme: null,
         challengeDigest: challenge,
         prior: null,
       });
@@ -360,6 +361,18 @@ describe(
       );
       assert.equal(redirected.status, 400);
       const freshRecovery = response.cookies.get(EXOMEM_ACCESS_RECOVERY_COOKIE)!.value;
+      // The resend's receipt ends when the first one does, so one bot check cannot resend forever.
+      assert.equal(
+        recovery.readAccessRecoveryReceipt(
+          request(
+            "/api/exomem/access/magic-link/recover",
+            {},
+            `${EXOMEM_ACCESS_RECOVERY_COOKIE}=${freshRecovery}`
+          ),
+          new Date(receipt.receipt.expiresAt)
+        ),
+        null
+      );
       const tooSoon = await resend(
         request(
           "/api/exomem/access/magic-link/recover",
@@ -404,6 +417,7 @@ describe(
       const bound = recovery.mintAccessRecoveryReceipt({
         email: "used-owner@example.test",
         timeZone: null,
+        emailScheme: null,
         challengeDigest: challenge,
         prior: null,
       });
@@ -418,6 +432,7 @@ describe(
       const another = recovery.mintAccessRecoveryReceipt({
         email: "another@example.test",
         timeZone: null,
+        emailScheme: null,
         challengeDigest: randomBytes(32),
         prior: null,
       });
@@ -443,6 +458,7 @@ describe(
       const receipt = recovery.mintAccessRecoveryReceipt({
         email,
         timeZone: null,
+        emailScheme: null,
         challengeDigest: randomBytes(32),
         prior: null,
       });

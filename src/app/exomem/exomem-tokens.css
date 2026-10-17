@@ -11,8 +11,9 @@
    Scope: tokens apply inside `.brand-exomem`, and on <html> while it carries the Exomem
    marker (`data-exomem`), which the root layout sets before first paint on /exomem/** only.
    The marker keeps the scrollbar and the page ground off the rest of substratesystems.io.
-   Dark is the default. Light is equally canonical, switched by `data-theme="light"` on
-   <html> (remembered in localStorage "exomem-theme"). A `.brand-exomem` element can pin
+   Without a theme the tokens are dark. Light is equally canonical, switched by
+   `data-theme="light"` on <html>, which follows the device until the person picks a theme
+   (remembered in localStorage "exomem-theme"). A `.brand-exomem` element can pin
    its own theme with `data-theme="light"` or `data-theme="dark"`.
 
    THE ONE HARD RULE (unchanged): amber lights only live, retrieved or current
@@ -65,6 +66,7 @@
   --exo-rule: rgba(var(--ink-rgb), 0.07); /* section rules, row dividers */
   --exo-border-card: rgba(var(--ink-rgb), 0.1); /* cards, bordered buttons: the boards' line */
   --exo-border-input: rgba(var(--ink-rgb), 0.14); /* inputs, chips */
+  --exo-border-field: rgba(var(--ink-rgb), 0.22); /* fields straight on a flow page */
   --exo-border-strong: rgba(var(--ink-rgb), 0.34); /* hover on bordered controls */
   --exo-amber-line: rgba(var(--amber-rgb), 0.5); /* "current" chip, amber buttons */
 

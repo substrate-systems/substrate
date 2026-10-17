@@ -1,4 +1,6 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
+import { after } from "next/server";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
   createMagicAccessToken,
@@ -41,6 +43,7 @@ export type AccessDependencies = {
   startSelfServe: (input: {
     emailNormalized: string;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     mode: "waitlist" | "open";
   }) => Promise<StartOutcome>;
   createMagicAccessToken: (
@@ -56,6 +59,8 @@ export type AccessDependencies = {
   ) => Promise<boolean>;
   /** Waits out the rest of the response floor, from a `performance.now()` start. */
   completeStartRequest: (startedAtMs: number) => Promise<void>;
+  /** Runs work once the response has been sent. */
+  afterResponse: (work: () => Promise<void>) => Promise<void>;
 };
 
 async function padStartResponse(startedAtMs: number): Promise<void> {
@@ -82,6 +87,29 @@ async function padStartResponse(startedAtMs: number): Promise<void> {
   );
 }
 
+async function runAfterResponse(work: () => Promise<void>): Promise<void> {
+  try {
+    after(work);
+  } catch {
+    // Outside a request (a script or a test) no response waits, so the work runs now.
+    // In production this would put the capacity lock wait back into the response time.
+    emitOperationalEvent(
+      buildOperationalEvent({ event: "access.start.ran_before_response", outcome: "succeeded" })
+    );
+    await work();
+  }
+}
+
+function emitStartFailed(): void {
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "access.start.failed",
+      outcome: "failed",
+      errorCode: "INTERNAL_ERROR",
+    })
+  );
+}
+
 function defaults(): AccessDependencies {
   return {
     now: () => new Date(),
@@ -93,6 +121,7 @@ function defaults(): AccessDependencies {
     redeemMagicAccessTokenAtomic,
     takeRateLimit: takeExomemRateLimit,
     completeStartRequest: padStartResponse,
+    afterResponse: runAfterResponse,
   };
 }
 
@@ -116,7 +145,8 @@ async function queueOwnerSignInLink(
   deps: AccessDependencies,
   emailNormalized: string,
   browserChallengeDigest: Buffer,
-  timeZone: string | null
+  timeZone: string | null,
+  emailScheme: ExomemEmailScheme | null
 ): Promise<string | null> {
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
@@ -131,6 +161,8 @@ async function queueOwnerSignInLink(
       expiresAt: expiresAt.toISOString(),
       // Delivery-only fallback; this never changes the account time zone.
       timeZone,
+      // Delivery-only too; this never changes the account's email scheme.
+      emailScheme,
     })
   );
   const created = await deps.createMagicAccessToken({
@@ -156,7 +188,10 @@ async function queueOwnerSignInLink(
  * The two rate limits run before any branch, so a limited request does the
  * same work whoever it names. No branch sends mail itself: each writes an
  * outbox row in the transaction that records its outcome. The response is
- * held to `START_RESPONSE_FLOOR_MS`.
+ * held to `START_RESPONSE_FLOOR_MS`. The self-serve branch runs after the
+ * response: its outcome never changes the answer, and its wait on the Cloud
+ * capacity lock, which the owner branch never takes, would otherwise show in
+ * the response time.
  *
  * A failure inside a branch is logged content-free and still answers
  * "accepted", because a failure status from one branch only would tell the
@@ -169,6 +204,7 @@ export async function requestStart(
     networkKey: string;
     browserChallengeDigest: Buffer;
     timeZone: string | null;
+    emailScheme: ExomemEmailScheme | null;
     browserKey?: string;
   },
   dependencies?: Partial<AccessDependencies>
@@ -201,21 +237,27 @@ export async function requestStart(
         deps,
         emailNormalized,
         input.browserChallengeDigest,
-        input.timeZone
+        input.timeZone,
+        input.emailScheme
       );
       if (deliveryId) {
         return { accepted: true, deliveryId };
       }
       const mode = deps.admissionMode();
-      await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
+      await deps.afterResponse(async () => {
+        try {
+          await deps.startSelfServe({
+            emailNormalized,
+            timeZone: input.timeZone,
+            emailScheme: input.emailScheme,
+            mode,
+          });
+        } catch {
+          emitStartFailed();
+        }
+      });
     } catch {
-      emitOperationalEvent(
-        buildOperationalEvent({
-          event: "access.start.failed",
-          outcome: "failed",
-          errorCode: "INTERNAL_ERROR",
-        })
-      );
+      emitStartFailed();
     }
     return { accepted: true };
   } finally {
@@ -229,6 +271,7 @@ export async function redeemMagicLink(
     browserChallenge?: string | null;
     expectedEmail?: string;
     timeZone?: string | null;
+    emailScheme?: ExomemEmailScheme | null;
   },
   dependencies?: Partial<AccessDependencies>
 ): Promise<RedeemedMagicAccess & SessionMaterial> {
@@ -254,6 +297,7 @@ export async function redeemMagicLink(
     csrfDigest: session.csrfDigest,
     sessionExpiresAt: session.expiresAt,
     timeZone: input.timeZone ?? null,
+    emailScheme: input.emailScheme ?? null,
   });
   if (!row)
     throw expectedEmailNormalized === null

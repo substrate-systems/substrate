@@ -16,7 +16,9 @@ import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import {
+  APP_USE_WINDOW_SECONDS,
   findCloudOAuthAccessToken,
+  recordCloudAppUse,
   type ActiveCloudOAuthAccessToken,
 } from "../lib/exomem-hosted/cloud-oauth";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
@@ -71,12 +73,19 @@ const REQUIRED_CLOUD_SCOPES = ["exomem.read", "exomem.write"] as const;
 let activeCloudCalls = 0;
 const activeCloudCallsByIdentity = new Map<string, number>();
 let ipBucketSkips = 0;
+let appUseLosses = 0;
+// When this process last asked to record each grant's use. The table's own
+// WHERE holds replicas to one change per window; this map spares a busy app a
+// database statement on every request.
+const appUseAskedAt = new Map<string, number>();
 
 /** Test-only: clears the module-level counters between tests. */
 export function resetCloudGatewayConcurrencyForTests(): void {
   activeCloudCalls = 0;
   activeCloudCallsByIdentity.clear();
   ipBucketSkips = 0;
+  appUseLosses = 0;
+  appUseAskedAt.clear();
 }
 
 /** Requests this process served without an IP bucket (D3 step 3). */
@@ -91,9 +100,45 @@ export function cloudGatewayIpBucketSkips(): number {
  */
 function recordIpBucketSkip(): void {
   ipBucketSkips += 1;
-  if ((ipBucketSkips & (ipBucketSkips - 1)) === 0) {
+  if (loggedOccurrence(ipBucketSkips)) {
     console.warn({ event: "exomem_cloud_gateway_ip_bucket_skipped", count: ipBucketSkips });
   }
+}
+
+/**
+ * Logs an app's use that the gateway could not record, with the database's
+ * error code only, on the same schedule as an IP-bucket skip.
+ */
+function recordAppUseLoss(error: unknown): void {
+  appUseLosses += 1;
+  if (loggedOccurrence(appUseLosses)) {
+    const code = (error as { code?: unknown } | null)?.code;
+    console.warn({
+      event: "exomem_cloud_gateway_app_use_unrecorded",
+      count: appUseLosses,
+      code: typeof code === "string" ? code : null,
+    });
+  }
+}
+
+/**
+ * Notes that an app reached its Exomem, for Home's app row: at most once per
+ * window from this process, never awaited, its failure only logged.
+ */
+function noteAppUse(grantId: string, record: typeof recordCloudAppUse): void {
+  const now = Date.now();
+  const windowMs = APP_USE_WINDOW_SECONDS * 1000;
+  if (now - (appUseAskedAt.get(grantId) ?? -Infinity) < windowMs) return;
+  for (const [id, askedAt] of appUseAskedAt) {
+    if (now - askedAt >= windowMs) appUseAskedAt.delete(id);
+  }
+  appUseAskedAt.set(grantId, now);
+  record(grantId).catch(recordAppUseLoss);
+}
+
+// The 1st, 2nd, 4th, 8th... occurrence: loud for a lasting fault, never one line per request.
+function loggedOccurrence(count: number): boolean {
+  return (count & (count - 1)) === 0;
 }
 
 /**
@@ -233,6 +278,7 @@ export function buildCloudProtectedResourceMetadata(
 export type CloudGatewayDependencies = {
   config?: ExomemCloudConfig;
   findAccessToken?: typeof findCloudOAuthAccessToken;
+  recordAppUse?: typeof recordCloudAppUse;
   takeRateLimit?: typeof takeExomemRateLimit;
   fetchCell?: typeof fetch;
 };
@@ -248,6 +294,7 @@ export async function handleCloudMcpRequest(
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
   const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
+  const recordAppUse = dependencies.recordAppUse ?? recordCloudAppUse;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
 
   // 1. GET is refused before anything else is even parsed.
@@ -301,7 +348,13 @@ export async function handleCloudMcpRequest(
   if (!release) return errorResponse(429, "RATE_LIMITED");
   let response: Response;
   try {
-    response = await proxyToCell(request, access, config, dependencies.fetchCell ?? fetch);
+    response = await proxyToCell(
+      request,
+      access,
+      config,
+      dependencies.fetchCell ?? fetch,
+      recordAppUse
+    );
   } catch (error) {
     release();
     throw error;
@@ -313,7 +366,8 @@ async function proxyToCell(
   request: Request,
   access: ActiveCloudOAuthAccessToken,
   config: ExomemCloudConfig,
-  fetchCell: typeof fetch
+  fetchCell: typeof fetch,
+  recordAppUse: typeof recordCloudAppUse
 ): Promise<Response> {
   if (request.method !== "POST" && request.method !== "DELETE") {
     return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "POST" } });
@@ -335,6 +389,11 @@ async function proxyToCell(
     console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
     return errorResponse(500, "CELL_ID_INVALID");
   }
+
+  // The request goes to the cell, so the app reached its Exomem: Home's app row
+  // says when. Home's own client is not an app. A lost note only leaves that
+  // line older, or absent.
+  if (!access.firstParty) noteAppUse(access.grantId, recordAppUse);
 
   // 7. Derive the per-cell bearer (C4).
   const cellBearer = deriveCloudCellBearer(config.cellTokenKey, access.cellId);
@@ -375,7 +434,7 @@ async function proxyToCell(
   let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
   if (
     config.artifactSigningKey &&
-    config.artifactCells?.has(access.cellId) &&
+    (config.artifactAllCells || config.artifactCells?.has(access.cellId)) &&
     request.method === "POST"
   ) {
     try {

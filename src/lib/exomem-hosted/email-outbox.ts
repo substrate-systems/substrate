@@ -5,7 +5,8 @@
  * a unique dedupe key, so "sent once" is a database constraint rather than a
  * hope. The `exomem-access-delivery` cron drains it: each row is claimed
  * under a lease, its kind re-checks that the fact still holds (or the row is
- * `cancelled`), and it is rendered at send time in the recipient's time zone.
+ * `cancelled`), and it is rendered at send time in the recipient's time zone
+ * and email scheme.
  * Delivery is at least once: a worker that dies after the provider accepted
  * the email but before it recorded `sent` leaves the lease to expire, and the
  * next worker sends again.
@@ -15,7 +16,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { sendTransactionalEmail } from "@/lib/brevo";
+import { sendTransactionalEmail, type SendTransactionalEmailResult } from "@/lib/brevo";
 import {
   renderExomemHoldReminderEmail,
   renderExomemInviteEmail,
@@ -38,6 +39,7 @@ import {
   renderExomemInvitationReminderEmail,
   renderExomemInvitationUsedEmail,
 } from "@/lib/email-templates/exomem-invites";
+import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { exomemPaddleDunningDays, loadExomemAccountView } from "./account-view";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
@@ -71,12 +73,18 @@ type EmailRenderInput<P, C> = {
   context: C;
   /** The zone of the person the email goes to, as `addressee` or the row gives it. */
   timeZone: string | null;
+  /** Their email scheme, from the same source; `null` renders dark. */
+  emailScheme: ExomemEmailScheme | null;
   now: Date;
   publicBaseUrl: string;
 };
 
-/** An account owner's address and time zone, as the database holds them now. */
-export type ExomemEmailAddressee = { email: string; timeZone: string | null };
+/** An account owner's address, time zone and email scheme, as the database holds them now. */
+export type ExomemEmailAddressee = {
+  email: string;
+  timeZone: string | null;
+  emailScheme: ExomemEmailScheme | null;
+};
 
 /**
  * The fact an email announces will hold later but does not yet: the row waits
@@ -99,7 +107,7 @@ type EmailDefinition<P, C> = {
   stillHolds: (tx: ExomemSql, payload: P) => Promise<C | NotYet | null>;
   /**
    * For an email to an account's owner: where it goes, read by `stillHolds`,
-   * so it reaches the owner's address and zone at send time. Without it the
+   * so it reaches the owner's address, zone and scheme at send time. Without it the
    * email goes to the row's recipient: a start link to the address that asked
    * for it, and email 07 to the owner's address when the Exomem was deleted.
    */
@@ -112,7 +120,19 @@ type EmailDefinition<P, C> = {
     input: EmailRenderInput<P, C>
   ) => RenderedExomemAccessEmail | Promise<RenderedExomemAccessEmail>;
   afterSent?: (tx: ExomemSql, payload: P) => Promise<void>;
-  afterFailed?: (tx: ExomemSql, payload: P) => Promise<void>;
+  /** `errorCode` is the one the row records, so a linked record can name the same cause. */
+  afterFailed?: (tx: ExomemSql, payload: P, errorCode: string) => Promise<void>;
+  /**
+   * Claimed only while no other kind is ready, for an email that anybody can
+   * cause for any address, so a flood of it never delays anyone else's mail.
+   */
+  claimedLast?: true;
+  /**
+   * A provider refusal fails it at once instead of retrying it until its
+   * deadline. Only for a kind without `afterFailed`, whose failure takes
+   * nothing from anyone; the drain ignores the flag on any other kind.
+   */
+  failsWhenRefused?: true;
 };
 
 function defineEmail<P, C>(definition: EmailDefinition<P, C>): EmailDefinition<P, C> {
@@ -200,12 +220,16 @@ async function markStartLinkDelivered(tx: ExomemSql, payload: StartLinkPayload):
  * A promoted waitlist entry stays admitted: re-queuing it would promote the
  * same unreachable address again and again at the head of the queue.
  */
-async function revokeUndeliveredStartLink(tx: ExomemSql, payload: StartLinkPayload): Promise<void> {
+async function revokeUndeliveredStartLink(
+  tx: ExomemSql,
+  payload: StartLinkPayload,
+  errorCode: string
+): Promise<void> {
   await tx`
     /* exomem:email-start-link-undelivered */
     UPDATE exomem_invites
     SET delivery_state = 'failed',
-        delivery_error_code = 'EMAIL_DELIVERY_UNAVAILABLE',
+        delivery_error_code = ${errorCode},
         revoked_at = COALESCE(revoked_at, now())
     WHERE id = ${payload.inviteId}::uuid AND consumed_at IS NULL
   `;
@@ -270,10 +294,14 @@ function exportUrl(publicBaseUrl: string): string | null {
   return cloudExportsEnabled() ? homeUrl(publicBaseUrl) : null;
 }
 
-type OwnerRow = { owner_email: string; time_zone: string | null };
+type OwnerRow = {
+  owner_email: string;
+  time_zone: string | null;
+  email_scheme: ExomemEmailScheme | null;
+};
 
 function ownerOf(row: OwnerRow): ExomemEmailAddressee {
-  return { email: row.owner_email, timeZone: row.time_zone };
+  return { email: row.owner_email, timeZone: row.time_zone, emailScheme: row.email_scheme };
 }
 
 /**
@@ -312,7 +340,7 @@ async function endedPeriodStillHolds(
 ): Promise<EndedContext | null> {
   const { rows } = await tx`
     /* exomem:email-ended-period-still-holds */
-    SELECT owner.email::text AS owner_email, tenant.time_zone,
+    SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme,
            entitlement.source_occurred_at, now() AS checked_at
     FROM exomem_cloud_cells AS cell
     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
@@ -388,26 +416,33 @@ type UsableInvitation = {
   note: string | null;
   /** The invitee's, when their address already has an Exomem account. */
   timeZone: string | null;
+  /** The same: an invitation records no scheme, and never the inviter's. */
+  emailScheme: ExomemEmailScheme | null;
 };
 
 /**
- * The time zone the Exomem account at this address last reported, or null
- * when none is known; the email then labels its dates UTC. Read at send
- * time, so a zone reported after the email was queued still counts.
+ * The time zone and the email scheme the Exomem account at this address last
+ * reported, each null when none is known; the email then labels its dates
+ * UTC, or is dark. Read at send time, so a value reported after the email
+ * was queued still counts.
  */
-async function accountTimeZone(tx: ExomemSql, email: string): Promise<string | null> {
+async function accountPreferences(
+  tx: ExomemSql,
+  email: string
+): Promise<{ timeZone: string | null; emailScheme: ExomemEmailScheme | null }> {
+  // A user owns at most one tenant (exomem_tenants.owner_user_id is UNIQUE).
   const { rows } = await tx`
-    /* exomem:email-account-time-zone */
-    SELECT tenant.time_zone
+    /* exomem:email-account-preferences */
+    SELECT tenant.time_zone, tenant.email_scheme
     FROM users
     JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
     WHERE users.email = ${email}
       AND users.deleted_at IS NULL
-      AND tenant.time_zone IS NOT NULL
-    ORDER BY tenant.updated_at DESC
-    LIMIT 1
   `;
-  return (rows[0] as { time_zone: string } | undefined)?.time_zone ?? null;
+  const row = rows[0] as
+    | { time_zone: string | null; email_scheme: ExomemEmailScheme | null }
+    | undefined;
+  return { timeZone: row?.time_zone ?? null, emailScheme: row?.email_scheme ?? null };
 }
 
 /**
@@ -445,7 +480,7 @@ async function usableInvitation(
     email: row.email,
     inviterName: row.inviter_name,
     note: row.note,
-    timeZone: await accountTimeZone(tx, row.email),
+    ...(await accountPreferences(tx, row.email)),
   };
 }
 
@@ -476,6 +511,7 @@ const EXOMEM_EMAILS = {
         expiresAt: new Date(input.payload.expiresAt),
         now: input.now,
         timeZone: input.timeZone,
+        scheme: input.emailScheme,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -489,6 +525,7 @@ const EXOMEM_EMAILS = {
         accessUrl: startLinkUrl(input),
         expiresAt: new Date(input.payload.expiresAt),
         timeZone: input.timeZone,
+        scheme: input.emailScheme,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -507,7 +544,9 @@ const EXOMEM_EMAILS = {
       `;
       return rows.length === 1 ? true : null;
     },
-    render: () => renderExomemWaitlistEmail(),
+    render: ({ emailScheme }) => renderExomemWaitlistEmail({ scheme: emailScheme }),
+    claimedLast: true,
+    failsWhenRefused: true,
   }),
   /**
    * Email 18: two days before an unpaid hold ends. It holds only while the
@@ -538,7 +577,7 @@ const EXOMEM_EMAILS = {
     ): Promise<{ owner: ExomemEmailAddressee; inviterName: string | null } | null> => {
       const { rows } = await tx`
         /* exomem:email-hold-reminder-still-unpaid */
-        SELECT owner.email::text AS owner_email, tenant.time_zone,
+        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme,
                (
                  SELECT invite.inviter_name
                  FROM exomem_invites AS invite
@@ -559,12 +598,13 @@ const EXOMEM_EMAILS = {
       return row ? { owner: ownerOf(row), inviterName: row.inviter_name } : null;
     },
     addressee: (context) => context.owner,
-    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
       renderExomemHoldReminderEmail({
         setupUrl: new URL("/exomem/setup", `${publicBaseUrl}/`).toString(),
         holdEndsAt: new Date(payload.holdEndsAt),
         inviterName: context.inviterName,
         timeZone,
+        scheme: emailScheme,
       }),
   }),
   /**
@@ -590,6 +630,7 @@ const EXOMEM_EMAILS = {
                owner.id AS owner_user_id,
                tenant.id AS tenant_id,
                tenant.time_zone,
+               tenant.email_scheme,
                entitlement.source,
                entitlement.provider_next_billed_at,
                EXISTS (
@@ -626,7 +667,7 @@ const EXOMEM_EMAILS = {
       };
     },
     addressee: (context) => context.owner,
-    render: async ({ context, timeZone, publicBaseUrl }) =>
+    render: async ({ context, timeZone, emailScheme, publicBaseUrl }) =>
       renderExomemReadyEmail({
         homeUrl: homeUrl(publicBaseUrl),
         // No name is stored for an owner yet.
@@ -636,6 +677,7 @@ const EXOMEM_EMAILS = {
           ? null
           : { ...(await readyPlan(context.account)), nextPaymentAt: context.nextPaymentAt },
         timeZone,
+        scheme: emailScheme,
       }),
   }),
   /**
@@ -648,7 +690,7 @@ const EXOMEM_EMAILS = {
     stillHolds: async (tx, payload): Promise<{ owner: ExomemEmailAddressee } | null> => {
       const { rows } = await tx`
         /* exomem:email-payment-failed-still-past-due */
-        SELECT owner.email::text AS owner_email, tenant.time_zone
+        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme
         FROM exomem_entitlements AS entitlement
         JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
         JOIN users AS owner ON owner.id = tenant.owner_user_id
@@ -662,7 +704,7 @@ const EXOMEM_EMAILS = {
       return row ? { owner: ownerOf(row) } : null;
     },
     addressee: (context) => context.owner,
-    render: ({ payload, timeZone, publicBaseUrl }) => {
+    render: ({ payload, timeZone, emailScheme, publicBaseUrl }) => {
       const days = exomemPaddleDunningDays();
       return renderExomemPaymentFailedEmail({
         billingUrl: homeUrl(publicBaseUrl),
@@ -671,6 +713,7 @@ const EXOMEM_EMAILS = {
             ? null
             : new Date(Date.parse(payload.graceStartedAt) + days.value * 86_400_000),
         timeZone,
+        scheme: emailScheme,
       });
     },
   }),
@@ -680,7 +723,7 @@ const EXOMEM_EMAILS = {
       readShape(value, { cellId: "cellId", endedAt: "instant", reminderScheduled: "boolean" }),
     stillHolds: endedPeriodStillHolds,
     addressee: (context) => context.owner,
-    render: ({ payload, context, timeZone, now, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, now, publicBaseUrl }) =>
       renderExomemSubscriptionEndedEmail({
         exportUrl: exportUrl(publicBaseUrl),
         supportUrl: supportUrl(publicBaseUrl),
@@ -689,6 +732,7 @@ const EXOMEM_EMAILS = {
         now,
         reminderScheduled: payload.reminderScheduled,
         timeZone,
+        scheme: emailScheme,
       }),
   }),
   /**
@@ -706,7 +750,7 @@ const EXOMEM_EMAILS = {
       return period.checkedAt < remindAt ? new NotYet(remindAt) : period;
     },
     addressee: (context) => context.owner,
-    render: ({ context, timeZone, now, publicBaseUrl }) =>
+    render: ({ context, timeZone, emailScheme, now, publicBaseUrl }) =>
       renderExomemDeletionReminderEmail({
         exportUrl: exportUrl(publicBaseUrl),
         supportUrl: supportUrl(publicBaseUrl),
@@ -714,6 +758,7 @@ const EXOMEM_EMAILS = {
         keptUntil: context.keptUntil,
         now,
         timeZone,
+        scheme: emailScheme,
       }),
   }),
   /**
@@ -752,8 +797,13 @@ const EXOMEM_EMAILS = {
         return new NotYet(new Date(row.recheck_at));
       return { finishedAt: new Date(row.finished_at) };
     },
-    render: ({ context, timeZone, now }) =>
-      renderExomemDeletedEmail({ deletedAt: context.finishedAt, now, timeZone }),
+    render: ({ context, timeZone, emailScheme, now }) =>
+      renderExomemDeletedEmail({
+        deletedAt: context.finishedAt,
+        now,
+        timeZone,
+        scheme: emailScheme,
+      }),
   }),
   /** Email 02: a standard operator invitation. */
   invitation: defineEmail({
@@ -769,6 +819,7 @@ const EXOMEM_EMAILS = {
         email: input.context.email,
         now: input.now,
         timeZone: input.context.timeZone ?? input.timeZone,
+        scheme: input.context.emailScheme ?? input.emailScheme,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -777,7 +828,7 @@ const EXOMEM_EMAILS = {
   friend_invitation: defineEmail({
     readPayload: readFriendInvitationPayload,
     stillHolds: (tx, payload) => namedInvitation(tx, payload, "friend"),
-    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
       renderExomemFriendInvitationEmail({
         acceptUrl: invitationUrl({ publicBaseUrl, payload }),
         inviterName: context.inviterName,
@@ -785,6 +836,7 @@ const EXOMEM_EMAILS = {
         inviteeEmail: context.email,
         expiresAt: new Date(payload.expiresAt),
         timeZone: context.timeZone ?? timeZone,
+        scheme: context.emailScheme ?? emailScheme,
         usualPrice: { amount: payload.usualAmount, currencyCode: payload.usualCurrency },
         friendPrice: { amount: payload.friendAmount, currencyCode: payload.friendCurrency },
       }),
@@ -795,7 +847,7 @@ const EXOMEM_EMAILS = {
   covered_invitation: defineEmail({
     readPayload: readStartLinkPayload,
     stillHolds: (tx, payload) => namedInvitation(tx, payload, "covered"),
-    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
       renderExomemCoveredInvitationEmail({
         acceptUrl: invitationUrl({ publicBaseUrl, payload }),
         inviterName: context.inviterName,
@@ -803,6 +855,7 @@ const EXOMEM_EMAILS = {
         inviteeEmail: context.email,
         expiresAt: new Date(payload.expiresAt),
         timeZone: context.timeZone ?? timeZone,
+        scheme: context.emailScheme ?? emailScheme,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -811,13 +864,14 @@ const EXOMEM_EMAILS = {
   invitation_reminder: defineEmail({
     readPayload: readStartLinkPayload,
     stillHolds: (tx, payload) => namedInvitation(tx, payload, "friend"),
-    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
       renderExomemInvitationReminderEmail({
         acceptUrl: invitationUrl({ publicBaseUrl, payload }),
         inviterName: context.inviterName,
         expiresAt: new Date(payload.expiresAt),
         leadDays: INVITATION_REMINDER_LEAD_DAYS,
         timeZone: context.timeZone ?? timeZone,
+        scheme: context.emailScheme ?? emailScheme,
       }),
   }),
   /** Email 12, to the inviter: the friend invitation was used with the friend price. */
@@ -826,7 +880,12 @@ const EXOMEM_EMAILS = {
     stillHolds: async (
       tx,
       payload
-    ): Promise<{ inviteeName: string; usedAt: Date; timeZone: string | null } | null> => {
+    ): Promise<{
+      inviteeName: string;
+      usedAt: Date;
+      timeZone: string | null;
+      emailScheme: ExomemEmailScheme | null;
+    } | null> => {
       const { rows } = await tx`
         /* exomem:email-invitation-used */
         SELECT invitee_name, consumed_at, inviter_email::text AS inviter_email
@@ -844,17 +903,18 @@ const EXOMEM_EMAILS = {
         ? {
             inviteeName: row.invitee_name,
             usedAt: new Date(row.consumed_at),
-            timeZone: await accountTimeZone(tx, row.inviter_email),
+            ...(await accountPreferences(tx, row.inviter_email)),
           }
         : null;
     },
-    render: ({ context, timeZone }) =>
+    render: ({ context, timeZone, emailScheme }) =>
       renderExomemInvitationUsedEmail({
         inviteeName: context.inviteeName,
         usedAt: context.usedAt,
         // No price is stored when the invitation is used; the row is left out.
         friendPrice: null,
         timeZone: context.timeZone ?? timeZone,
+        scheme: context.emailScheme ?? emailScheme,
       }),
   }),
   /** Email 13, to the inviter: the friend invitation ended unused. */
@@ -863,10 +923,15 @@ const EXOMEM_EMAILS = {
     stillHolds: async (
       tx,
       payload
-    ): Promise<{ inviteeName: string; issuedAt: Date; expiredAt: Date } | null> => {
+    ): Promise<{
+      inviteeName: string;
+      issuedAt: Date;
+      expiredAt: Date;
+      emailScheme: ExomemEmailScheme | null;
+    } | null> => {
       const { rows } = await tx`
         /* exomem:email-invitation-ended */
-        SELECT invitee_name, created_at, expires_at
+        SELECT invitee_name, created_at, expires_at, inviter_email::text AS inviter_email
         FROM exomem_invites
         WHERE id = ${payload.inviteId}::uuid
           AND kind = 'friend'
@@ -877,27 +942,35 @@ const EXOMEM_EMAILS = {
           AND invitee_name IS NOT NULL
       `;
       const row = rows[0] as
-        | { invitee_name: string; created_at: Date | string; expires_at: Date | string }
+        | {
+            invitee_name: string;
+            created_at: Date | string;
+            expires_at: Date | string;
+            inviter_email: string;
+          }
         | undefined;
       return row
         ? {
             inviteeName: row.invitee_name,
             issuedAt: new Date(row.created_at),
             expiredAt: new Date(row.expires_at),
+            emailScheme: (await accountPreferences(tx, row.inviter_email)).emailScheme,
           }
         : null;
     },
-    render: ({ context }) =>
+    render: ({ context, emailScheme }) =>
       renderExomemInvitationEndedEmail({
         inviteeName: context.inviteeName,
         issuedAt: context.issuedAt,
         expiredAt: context.expiredAt,
+        scheme: context.emailScheme ?? emailScheme,
       }),
   }),
 };
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;
 /** Every kind the outbox can send; `exomem_email_outbox_kind_check` must allow exactly these. */
 export const EXOMEM_EMAIL_KINDS = Object.keys(EXOMEM_EMAILS) as ExomemEmailKind[];
+const CLAIMED_LAST_KINDS = EXOMEM_EMAIL_KINDS.filter((kind) => EXOMEM_EMAILS[kind].claimedLast);
 
 type PayloadOf<K extends ExomemEmailKind> = NonNullable<
   ReturnType<(typeof EXOMEM_EMAILS)[K]["readPayload"]>
@@ -908,6 +981,7 @@ export type EnqueueExomemEmailInput<K extends ExomemEmailKind> = {
   dedupeKey: string;
   recipient: string;
   recipientTimeZone: string | null;
+  recipientEmailScheme: ExomemEmailScheme | null;
   /** The account the email is about, so account deletion removes it whatever its address. */
   tenantId?: string;
   payload: PayloadOf<K>;
@@ -938,13 +1012,14 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
   const { rows } = await tx`
     /* exomem:enqueue-email */
     INSERT INTO exomem_email_outbox (
-      kind, dedupe_key, recipient, recipient_time_zone, tenant_id, payload_ciphertext,
-      not_before, expires_at
+      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, tenant_id,
+      payload_ciphertext, not_before, expires_at
     ) VALUES (
       ${input.kind},
       ${input.dedupeKey},
       ${input.recipient},
       ${input.recipientTimeZone},
+      ${input.recipientEmailScheme},
       ${input.tenantId ?? null}::uuid,
       ${envelope}::jsonb,
       COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
@@ -962,6 +1037,7 @@ type LeasedEmail = {
   id: string;
   recipient: string;
   timeZone: string | null;
+  emailScheme: ExomemEmailScheme | null;
   definition: AnyDefinition;
   payload: unknown;
   context: unknown;
@@ -1015,12 +1091,12 @@ async function claimNextEmail(
   return withExomemTransaction(async (tx) => {
     const { rows } = await tx`
       /* exomem:claim-email */
-      SELECT id, kind, recipient::text AS recipient, recipient_time_zone, payload_ciphertext,
-             (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+      SELECT id, kind, recipient::text AS recipient, recipient_time_zone, recipient_email_scheme,
+             payload_ciphertext, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
       FROM exomem_email_outbox
       WHERE (state = 'pending' AND not_before <= now())
          OR (state = 'leased' AND lease_expires_at <= now())
-      ORDER BY not_before, created_at
+      ORDER BY kind = ANY(${CLAIMED_LAST_KINDS}::text[]), not_before, created_at
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     `;
@@ -1030,6 +1106,7 @@ async function claimNextEmail(
           kind: string;
           recipient: string;
           recipient_time_zone: string | null;
+          recipient_email_scheme: ExomemEmailScheme | null;
           payload_ciphertext: SecretEnvelope | string;
           expired: boolean;
         }
@@ -1068,7 +1145,7 @@ async function claimNextEmail(
     }
     if (row.expired) {
       await settleWithoutSending(tx, row.id, "failed", "EMAIL_EXPIRED");
-      await definition.afterFailed?.(tx, payload);
+      await definition.afterFailed?.(tx, payload, "EMAIL_EXPIRED");
       return { outcome: "failed" };
     }
     if (context instanceof NotYet) {
@@ -1088,6 +1165,7 @@ async function claimNextEmail(
     const to = definition.addressee?.(context) ?? {
       email: row.recipient,
       timeZone: row.recipient_time_zone,
+      emailScheme: row.recipient_email_scheme,
     };
     // The row records where this attempt went, so support and account
     // deletion find it under the address that received it.
@@ -1098,6 +1176,7 @@ async function claimNextEmail(
           attempts = attempts + 1,
           recipient = ${to.email},
           recipient_time_zone = ${to.timeZone},
+          recipient_email_scheme = ${to.emailScheme},
           lease_owner = ${leaseOwner}::uuid,
           lease_expires_at = now() + (${LEASE_SECONDS} * interval '1 second'),
           updated_at = now()
@@ -1109,6 +1188,7 @@ async function claimNextEmail(
         id: row.id,
         recipient: to.email,
         timeZone: to.timeZone,
+        emailScheme: to.emailScheme,
         definition,
         payload,
         context,
@@ -1163,7 +1243,7 @@ async function releaseEmail(
     const outOfAttempts = row.no_deadline && Number(row.attempts) >= MAX_ATTEMPTS_WITHOUT_DEADLINE;
     if (terminal || row.expires_before_retry || outOfAttempts) {
       await settleWithoutSending(tx, email.id, "failed", errorCode);
-      await email.definition.afterFailed?.(tx, email.payload);
+      await email.definition.afterFailed?.(tx, email.payload, errorCode);
       return "failed";
     }
     await tx`
@@ -1202,8 +1282,8 @@ export async function scrubExomemEmailsFor(
 }
 
 /**
- * Clears the recipient and their time zone from rows settled more than 30
- * days ago, in bounded batches. Their payload is already gone; the row and
+ * Clears the recipient, their time zone and their email scheme from rows
+ * settled more than 30 days ago, in bounded batches. Their payload is already gone; the row and
  * its dedupe key stay, so the same fact still cannot send twice.
  */
 export async function clearSettledEmailRecipients(limit = 500): Promise<number> {
@@ -1218,12 +1298,27 @@ export async function clearSettledEmailRecipients(limit = 500): Promise<number> 
       LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
     )
     UPDATE exomem_email_outbox AS outbox
-    SET recipient = NULL, recipient_time_zone = NULL, payload_ciphertext = NULL
+    SET recipient = NULL, recipient_time_zone = NULL, recipient_email_scheme = NULL,
+        payload_ciphertext = NULL
     FROM settled
     WHERE outbox.id = settled.id
     RETURNING outbox.id
   `;
   return rows.length;
+}
+
+/**
+ * Whether the provider refused the request itself: the request-content
+ * statuses of RFC 9110 (400, 413, 422). Such a refusal fails a
+ * `failsWhenRefused` email at once, so a flood of refused waitlist emails
+ * does not retry for a day; every other answer, and every other kind, is
+ * retried until the row's deadline. A refusal can also be our own account's
+ * fault, such as an unvalidated sender: then a waiting person gets no
+ * waitlist email but keeps their place, and no start link or invitation is
+ * revoked.
+ */
+function providerRefusedRequest(status: number | undefined): boolean {
+  return status === 400 || status === 413 || status === 422;
 }
 
 export type ExomemEmailDrainResult = {
@@ -1289,6 +1384,7 @@ export async function drainExomemEmailOutbox(
         payload: email.payload,
         context: email.context,
         timeZone: email.timeZone,
+        emailScheme: email.emailScheme,
         now: deps.now(),
         publicBaseUrl,
       });
@@ -1297,28 +1393,34 @@ export async function drainExomemEmailOutbox(
       result[state === "retry" ? "retryScheduled" : state] += 1;
       continue;
     }
-    let delivered = false;
+    let answer: SendTransactionalEmailResult | null = null;
     try {
-      delivered = (
-        await deps.sendEmail({
-          to: email.recipient,
-          ...EXOMEM_SENDER,
-          // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
-          senderName: rendered.senderName,
-          subject: rendered.subject,
-          htmlContent: rendered.htmlContent,
-          textContent: rendered.textContent,
-        })
-      ).success;
+      answer = await deps.sendEmail({
+        to: email.recipient,
+        ...EXOMEM_SENDER,
+        // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
+        senderName: rendered.senderName,
+        subject: rendered.subject,
+        htmlContent: rendered.htmlContent,
+        textContent: rendered.textContent,
+      });
     } catch {
-      delivered = false;
+      answer = null;
     }
-    if (delivered) {
+    if (answer?.success) {
       if (await markEmailSent(email, leaseOwner)) result.sent += 1;
       else result.lost += 1;
       continue;
     }
-    const state = await releaseEmail(email, leaseOwner, "EMAIL_DELIVERY_UNAVAILABLE", false);
+    const refused = providerRefusedRequest(answer?.status);
+    const finalRefusal =
+      refused && email.definition.failsWhenRefused === true && !email.definition.afterFailed;
+    const state = await releaseEmail(
+      email,
+      leaseOwner,
+      refused ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
+      finalRefusal
+    );
     result[state === "retry" ? "retryScheduled" : state] += 1;
   }
   return result;

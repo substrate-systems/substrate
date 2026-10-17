@@ -29,7 +29,8 @@ NON-NEGOTIABLES
   runs in CI; it must pass. Anything new needs the product owner's yes.
 - Copy is verbatim from the boards (appendices list it). Never write "4 assistants".
 - Every number is computed at render (prices, dates, time limits, counts, sizes), in the reader's time zone.
-- Dark is the default; light is equally canonical; one switch, site-wide, remembered in
+- The site follows the device's colour scheme until the person picks one (dark when the device says
+  nothing); light and dark are equally canonical; one switch, site-wide, remembered in
   localStorage "exomem-theme", applied as data-theme on <html> before first paint (no flash).
 - Phone flow pages never scroll (fit 640–932 px tall screens). Amber lights only live/retrieved/current state.
 - No account enumeration in any error. Reviewer sign-in stays reachable. WCAG 2.1 AA. Reduced motion = no motion.
