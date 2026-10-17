@@ -140,11 +140,11 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 These corrections follow the launch polish merge because both batches change subscribe. Their production release follows independent review and acceptance.
 
 - [x] 10.1 Deploy migrations 0063 to 0066 with every flag off
-- [ ] 10.2 Release the exomem repository and roll cells out, owner canary first
+- [x] 10.2 Release the exomem repository and complete the approved canary rollout before advancing the fleet default
 - [ ] 10.3 Release the cell controller and turn the export flag on after the rollout, then redeploy, because the landing and privacy pages read the flag at build time
 - [ ] 10.4 Release Home with levels and activity, then export after the rehearsal
 - [ ] 10.5 Set `EXOMEM_PADDLE_DUNNING_DAYS` to match the provider's dunning settings
-- [ ] 10.6 Turn `EXOMEM_SELF_SERVE_ADMISSION` to `waitlist`, then to `open`
+- [ ] 10.6 Confirm that public admission remains `waitlist` and operator invitations admit only while capacity is free
 - [x] 10.7 Confirm `enable-exomem-paid-alpha-invites` is archived with `--skip-specs`, because its proofs are tasks 10.9 and 10.10
 - [ ] 10.8 Keep `route-connector-consent-by-account-state` open until its production walk passes, then archive it
 - [x] 10.9 Run focused unit, route, PostgreSQL, webhook, security, static and browser checks for paid operator invitations
@@ -152,6 +152,10 @@ These corrections follow the launch polish merge because both batches change sub
 - [ ] 10.11 Run strict OpenSpec validation and archive this change after the delivery
 
 Production on 2026-10-16: migrations 0063 to 0066 are deployed. Admission is `waitlist`, and `open` is not set (task 10.6). The Home channel is off, and the cells still run Exomem 0.116, so tasks 10.2 and 10.4 wait on the cell rollout. `EXOMEM_PADDLE_DUNNING_DAYS` is 30; task 10.5 waits on a check of the payment provider's dunning setting. Tasks 10.8 and 10.10 wait on the first production friend invitation.
+
+Recorded rollout on 2026-10-17 supersedes that cell-image snapshot. Release v0.124.0 is published, and the approved rollout reached Ready on the canary, reviewer and owner cells. All three cells follow the fleet default of 0.124 without pins. This closes task 10.2; it does not prove that the Home channel or exports are enabled.
+
+The launch policy keeps public admission on `waitlist`; an operator invitation admits while capacity is free. Opening public admission is outside this release. Tasks 10.4–10.6 still need current configuration evidence, including the provider's dunning setting. The Sandbox friend checkout passed, but tasks 10.8 and 10.10 retain the controlled production journey.
 
 ## 11. Design update rounds 41–47
 
@@ -172,7 +176,9 @@ The UI cannot infer that join from a family or display name. Home activity remai
 Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
 
 - [ ] 11.10 Deliver regional regular and friend catalogue selection, legacy compatibility and safe subscription conversion with provider acceptance
-- [ ] 11.11 Record each app's last use at the gateway and show it on Home's app rows; close after the gateway image that records it runs in production
+- [x] 11.11 Record each app's last use at the gateway and show it on Home's app rows; close after the gateway image that records it runs in production
+
+Task 11.11's web change shipped in PR #259, including migration 0073 and its grants. The gateway rollout reached production on 2026-10-16 and advanced again on 2026-10-17 with PR #262. A signed-in Home observation remains part of task 8.11; this deployment does not close the broader UI acceptance.
 
 Tasks 11.1–11.5 have local implementation and browser evidence in PR #246.
 The actual Sandbox subscription passed decline, retry, signed payment delivery and readiness polling.
