@@ -214,11 +214,11 @@ For a stopped cell, the row keeps the board copy: "All your notes and files, as 
 ## Release order
 
 1. Substrate migrations and grants first, with every flag off. They are additive.
-2. Exomem release and cell rollout, owner canary first. The new fields are additive and the ledger reads both versions.
+2. Release Exomem through the approved canary sequence, so the fleet runs the accepted image.
 3. The cell controller. An export on an old cell image fails harmlessly as `EXPORT_FAILED`. Turn the flag on only after the rollout.
 4. The gateway client headers, after the cell image that reads them. An older cell ignores headers it does not know.
 5. Substrate Home: levels and activity first, export after a rehearsal on a local cluster with a real gateway and an object-store stand-in.
-6. Admission last. Turn `EXOMEM_SELF_SERVE_ADMISSION` from `waitlist` to `open`.
+6. Keep public admission on `waitlist`, so operator invitations admit only while capacity is free.
 
 Rollback turns the flags off. Export rows stay, and the cell controller still expires objects.
 
