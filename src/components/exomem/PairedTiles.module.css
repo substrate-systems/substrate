@@ -8,8 +8,8 @@
 }
 
 .tile {
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   box-sizing: border-box;
   border-radius: 14px;
   background: var(--bg-panel);

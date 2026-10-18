@@ -41,6 +41,11 @@
   color: var(--bg-base);
 }
 
+.row .segment[aria-pressed="true"] {
+  background: var(--level-selected-bg);
+  color: var(--level-selected-fg);
+}
+
 /* The description reserves its height, so switching levels moves nothing. */
 .description {
   font-size: 12.5px;

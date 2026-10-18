@@ -304,7 +304,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font: 400 12.5px/1.5 var(--font-mono-exo);
+  font: 400 12.5px var(--font-mono-exo);
 }
 
 .sentAddress {
@@ -332,13 +332,14 @@
 }
 .sentChange {
   min-height: 40px;
-  padding: 0 8px;
-  margin-right: -8px;
+  padding: 12px 6px;
+  margin: -12px -6px;
   border: 0;
   background: transparent;
   color: var(--fg-secondary);
   font: inherit;
   text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
 }
 
@@ -709,6 +710,11 @@
 @media (max-width: 640px), (max-height: 480px) {
   .page {
     --gutter: 16px;
+  }
+
+  /* The 150px lower band adds 66px to the 84px clearance; tall steps can use it. */
+  .page::after {
+    flex-basis: 66px;
   }
 
   /* A phone takes the reviewer's entry over at least 40 px, as every phone target. */
