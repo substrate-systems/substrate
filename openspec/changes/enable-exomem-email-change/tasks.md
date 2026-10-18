@@ -1,9 +1,9 @@
 ## Release A: identity foundation
 
-- [ ] 1.1 Add and backfill Exomem identities without changing existing identifiers or shared-product records.
-- [ ] 1.2 Switch all Exomem identity reads and reviewer authorization to the separate authority.
-- [ ] 1.3 Keep legacy admission and deleted-account re-admission compatible through the temporary tenant bridge and safe shared-user fallback.
-- [ ] 1.4 Verify migrations, atomic role grants, existing sign-in, legacy and current deletion scrubbing, and cross-product isolation.
+- [x] 1.1 Add and backfill Exomem identities without changing existing identifiers or shared-product records.
+- [x] 1.2 Switch all Exomem identity reads and reviewer authorization to the separate authority.
+- [x] 1.3 Keep legacy admission and deleted-account re-admission compatible through the temporary tenant bridge and safe shared-user fallback.
+- [x] 1.4 Verify migrations, atomic role grants, existing sign-in, legacy and current deletion scrubbing, and cross-product isolation.
 - [ ] 1.5 Review and release the compatible foundation with the approved website batch.
 
 ## Release B: email changes

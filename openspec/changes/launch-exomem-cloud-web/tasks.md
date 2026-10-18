@@ -193,11 +193,11 @@ The interactive map and Home constellation preview are deferred together. Home o
 The separate `enable-exomem-email-change` change owns identity isolation and account-address changes. Existing Cloud flags and operational dependencies retain their owners.
 
 - [x] 12.1 Import the public-safe canon and correct its reference paths.
-- [ ] 12.2 Build the Home frame and responsive columns, without header tabs or the deferred map card.
-- [ ] 12.3 Deliver one accessible Auto, Light and Dark control on every Exomem surface.
-- [ ] 12.4 Store account theme choices, apply them before paint, and migrate existing browser preferences.
-- [ ] 12.5 Carry the selected choice and effective scheme into every email renderer and delivery path.
-- [ ] 12.6 Apply current graph colour, note geometry, header clearance and real-event wordmark motion.
+- [x] 12.2 Build the Home frame and responsive columns, without header tabs or the deferred map card.
+- [x] 12.3 Deliver one accessible Auto, Light and Dark control on every Exomem surface.
+- [x] 12.4 Store account theme choices, apply them before paint, and migrate existing browser preferences.
+- [x] 12.5 Carry the selected choice and effective scheme into every email renderer and delivery path.
+- [x] 12.6 Apply current graph colour, note geometry, header clearance and real-event wordmark motion.
 - [ ] 12.7 Build the sign-in card, address correction, inbox actions and authenticated same-browser continuation.
 - [ ] 12.8 Complete integrated browser and accessibility acceptance against the current canon.
 - [ ] 12.9 Complete exact independent review, required CI, compatible release and read-only production verification.
