@@ -1,18 +1,16 @@
 import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
-import {
-  chooseCopy,
-  otherAppCopy,
-  sentCopy,
-  startCopy,
-} from "../../src/app/exomem/_journey/copy";
+import { chooseCopy, otherAppCopy, sentCopy, startCopy } from "../../src/app/exomem/_journey/copy";
 import { seedOwner, uniqueEmail } from "./seed";
 
 async function expectJourneyCentered(page: Page) {
-  const offset = await page.getByRole("main").locator('[class*="column"]').evaluate((column) => {
-    const bounds = column.getBoundingClientRect();
-    return bounds.top + bounds.height / 2 - window.innerHeight / 2;
-  });
+  const offset = await page
+    .getByRole("main")
+    .locator('[class*="column"]')
+    .evaluate((column) => {
+      const bounds = column.getBoundingClientRect();
+      return bounds.top + bounds.height / 2 - window.innerHeight / 2;
+    });
   expect(Math.abs(offset)).toBeLessThanOrEqual(1);
 }
 
@@ -31,7 +29,9 @@ test("email sign-in stays centered through an unreachable service and recovery",
   const beforeHeading = (await heading.boundingBox())!;
   const beforeButton = (await send.boundingBox())!;
   const inputBounds = (await page.getByLabel(startCopy.emailLabel).boundingBox())!;
-  const formGap = await page.locator("form").evaluate((form) => parseFloat(getComputedStyle(form).rowGap));
+  const formGap = await page
+    .locator("form")
+    .evaluate((form) => parseFloat(getComputedStyle(form).rowGap));
   expect(beforeButton.y - inputBounds.y - inputBounds.height).toBe(formGap);
   // A lost network connection is the failure this case exercises.
   await page.route("**/api/exomem/access/start", (route) => route.abort("failed"));
@@ -54,8 +54,8 @@ test("email sign-in stays centered through an unreachable service and recovery",
   await expect(sent).toBeFocused();
   await expect(unreachable).toHaveCount(0);
   await expectJourneyCentered(page);
-  await page.getByRole("button", { name: sentCopy.differentEmail }).click();
-  await expect(heading).toBeFocused();
+  await page.getByRole("button", { name: "Change", exact: true }).click();
+  await expect(page.getByLabel(startCopy.emailLabel)).toBeFocused();
   await expectJourneyCentered(page);
   expect((await heading.boundingBox())!.y).toBe(beforeHeading.y);
 });
