@@ -56,9 +56,11 @@ export function AccountEmailChange({
   const alive = useRef(false);
   const reading = useRef(false);
   const hadPending = useRef(false);
+  const queuedRequest = useRef<string | null>(null);
   const nextPollAt = useRef(0);
 
   const accountChanged = useCallback(() => {
+    queuedRequest.current = null;
     setBinding(null);
     setView(null);
     onAccountChanged();
@@ -71,6 +73,7 @@ export function AccountEmailChange({
     }
     if (reading.current) return;
     reading.current = true;
+    const trackedRequest = queuedRequest.current;
     try {
       const next = await readEmailChange();
       if (!alive.current) return;
@@ -78,11 +81,17 @@ export function AccountEmailChange({
         accountChanged();
         return;
       }
+      // A read begun before this POST cannot settle its newly queued request.
+      if (trackedRequest !== queuedRequest.current) return;
       if (!next) {
         setReadFailed(true);
         return;
       }
-      if (hadPending.current && !next.pending) onAccountRefresh();
+      if (trackedRequest !== null && next.pending?.requestId !== trackedRequest) {
+        queuedRequest.current = null;
+        setBinding(null);
+        onAccountRefresh();
+      } else if (hadPending.current && !next.pending) onAccountRefresh();
       hadPending.current = next.pending !== null;
       setView(next);
       setReadFailed(false);
@@ -90,7 +99,9 @@ export function AccountEmailChange({
         Date.now() + (next.pending || next.receipts?.state === "pending" ? 3_000 : 30_000);
     } catch (error) {
       if (!alive.current) return;
-      if (csrfToken !== csrfCookie() || error instanceof SignedOutError) accountChanged();
+      if (csrfToken !== csrfCookie()) accountChanged();
+      else if (trackedRequest !== queuedRequest.current) return;
+      else if (error instanceof SignedOutError) accountChanged();
       else setReadFailed(true);
     } finally {
       reading.current = false;
@@ -220,8 +231,15 @@ export function AccountEmailChange({
           supportReference={account.supportReference}
           view={view}
           readFailed={readFailed}
-          onQueued={() => void refresh()}
-          onClose={() => setBinding(null)}
+          onQueued={(requestId) => {
+            queuedRequest.current = requestId;
+            nextPollAt.current = 0;
+            void refresh();
+          }}
+          onClose={() => {
+            queuedRequest.current = null;
+            setBinding(null);
+          }}
           onAccountChanged={accountChanged}
         />
       )}
@@ -242,14 +260,18 @@ function EmailChangeDialog({
   supportReference: string;
   view: HomeEmailChange | null;
   readFailed: boolean;
-  onQueued: () => void;
+  onQueued: (requestId: string) => void;
   onClose: () => void;
   onAccountChanged: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [queued, setQueued] = useState<{ email: string; expiresAt: string } | null>(null);
+  const [queued, setQueued] = useState<{
+    requestId: string;
+    email: string;
+    expiresAt: string;
+  } | null>(null);
   const alive = useRef(false);
   const receipt = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
@@ -283,8 +305,8 @@ function EmailChangeDialog({
         onAccountChanged();
         return;
       }
-      setQueued({ email: draft.trim(), expiresAt: result.expiresAt });
-      onQueued();
+      setQueued({ requestId: result.requestId, email: draft.trim(), expiresAt: result.expiresAt });
+      onQueued(result.requestId);
     } catch (error) {
       if (!alive.current) return;
       if (
@@ -300,7 +322,7 @@ function EmailChangeDialog({
     }
   }
 
-  const pending = queued && view?.pending?.expiresAt === queued.expiresAt ? view.pending : null;
+  const pending = queued && view?.pending?.requestId === queued.requestId ? view.pending : null;
   const confirmationSent = pending?.delivery?.email_change_confirmation === "sent";
   const noticeSent = pending?.delivery?.email_change_cancellation === "sent";
   const confirmationFailed = pending?.delivery?.email_change_confirmation === "failed";

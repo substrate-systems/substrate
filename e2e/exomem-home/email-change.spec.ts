@@ -159,7 +159,7 @@ test("email confirmation changes the canonical address only after an explicit ac
   expect(await canonicalEmail(owner)).toBe(proposed);
 });
 
-test("the old inbox can stop a pending change and replay reveals no account state", async ({
+test("the old inbox stops a pending change, closes its Home dialog and reveals no replay state", async ({
   page,
 }) => {
   const owner = await createOwner();
@@ -175,7 +175,8 @@ test("the old inbox can stop a pending change and replay reveals no account stat
     .getByRole("dialog")
     .getByRole("button", { name: "Send the links", exact: true })
     .click();
-  await expect(page.getByRole("dialog", { name: "Check both inboxes" })).toBeVisible();
+  const queued = page.getByRole("dialog", { name: "Check both inboxes" });
+  await expect(queued).toBeVisible();
   const environment = homeE2eEnvironment();
   const delivered = await page.request.get("/api/cron/exomem-access-delivery", {
     headers: { authorization: `Bearer ${environment.schedulerSecret}` },
@@ -184,18 +185,23 @@ test("the old inbox can stop a pending change and replay reveals no account stat
   await expect.poll(async () => (await emailsTo(owner)).length).toBe(1);
   const cancellation = deliveredLink((await emailsTo(owner))[0], "Stop the change");
   expect(new URL(cancellation).pathname).toBe("/exomem/email-change/cancel");
-  await page.goto(cancellation);
+  const cancellationPage = await page.context().newPage();
+  await cancellationPage.goto(cancellation);
   await expect(
-    page.getByRole("heading", { name: "Stop this email change?", exact: true })
+    cancellationPage.getByRole("heading", { name: "Stop this email change?", exact: true })
   ).toBeVisible();
   expect(await canonicalEmail(owner)).toBe(owner.email);
   expect((await changeCounts(owner)).pending).toBe(1);
-  await page.getByRole("button", { name: "Stop the change", exact: true }).click();
+  await cancellationPage.getByRole("button", { name: "Stop the change", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Email change stopped", exact: true })
+    cancellationPage.getByRole("heading", { name: "Email change stopped", exact: true })
   ).toBeVisible();
   expect(await canonicalEmail(owner)).toBe(owner.email);
   expect((await changeCounts(owner)).pending).toBe(0);
+  await page.bringToFront();
+  await expect(queued).toHaveCount(0, { timeout: 15_000 });
+  await expect(accountPanel(page).getByText(owner.email, { exact: true })).toBeVisible();
+  await cancellationPage.close();
   const account = await page.request.get("/api/exomem/account");
   expect(account.ok()).toBe(true);
   expect((await account.json()).account.email).toBe(owner.email);

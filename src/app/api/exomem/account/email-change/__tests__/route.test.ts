@@ -12,7 +12,12 @@ before(() =>
     namedExports: {
       requestExomemEmailChange: async (session: unknown, email: string) => {
         mutations.push({ session, email });
-        return { state: "pending", delivery: "queued", expiresAt: "2030-01-01T00:00:00Z" };
+        return {
+          state: "pending",
+          delivery: "queued",
+          requestId: "11111111-1111-4111-8111-111111111111",
+          expiresAt: "2030-01-01T00:00:00Z",
+        };
       },
       completeExomemEmailChange: async (action: string, token: string) => {
         mutations.push({ action, token });

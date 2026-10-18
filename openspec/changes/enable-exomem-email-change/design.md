@@ -39,6 +39,7 @@ The delivery owner performs these steps; no extra human approval is required for
 
 An owner starts a change through `POST /api/exomem/account/email-change` with normal session and CSRF checks. Reviewers cannot start one.
 One pending request per tenant records the original address, proposed address, two token digests and a fifteen-minute expiry.
+Confirmation and cancellation check expiry against fresh statement time after acquiring the tenant lock.
 A new request supersedes its predecessor. Proposed addresses are not reserved; canonical email uniqueness is checked when confirmation commits.
 The request transaction enqueues emails 16 and 16b with fixed recipients. Ordinary lifecycle mail resolves the current owner at delivery.
 

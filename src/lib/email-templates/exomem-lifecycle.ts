@@ -355,7 +355,7 @@ export function renderExomemConfirmNewEmailEmail(input: {
     band: "arrive",
     headline: "Confirm your new email",
     body: [
-      `Open this to make ${input.newEmail} the address for your Exomem: sign-in links and receipts go here after that.`,
+      `Confirm this to send Exomem sign-in links to ${input.newEmail}. We’ll also request an update to your receipt address. Check Home for the verified result.`,
     ],
     action: { label: "Confirm this address", url: input.confirmUrl },
     smallPrint: `Works once, until ${left ? `${until} (${left})` : until}. If you didn’t ask for this, ignore it: nothing changes.`,

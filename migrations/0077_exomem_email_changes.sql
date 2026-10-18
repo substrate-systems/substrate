@@ -20,6 +20,9 @@ CREATE TABLE exomem_paddle_receipt_contacts (
   provider_customer_ref text,
   observed_email text,
   observed_at timestamptz,
+  -- Retry scheduling follows attempted binding, never unverified observation provenance.
+  attempted_provider_environment text CHECK (attempted_provider_environment IN ('sandbox', 'production')),
+  attempted_provider_customer_ref text,
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   next_attempt_at timestamptz NOT NULL DEFAULT now(),
   lease_owner uuid,
@@ -28,6 +31,7 @@ CREATE TABLE exomem_paddle_receipt_contacts (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK ((lease_owner IS NULL) = (lease_expires_at IS NULL)),
+  CHECK ((attempted_provider_environment IS NULL) = (attempted_provider_customer_ref IS NULL)),
   CHECK ((provider_environment IS NULL AND provider_customer_ref IS NULL AND observed_email IS NULL AND observed_at IS NULL)
     OR (provider_environment IS NOT NULL AND provider_customer_ref IS NOT NULL AND observed_email IS NOT NULL AND observed_at IS NOT NULL))
 );

@@ -52,7 +52,7 @@ function capabilityDigest(token: string): Buffer | null {
 export async function requestExomemEmailChange(
   session: Pick<ExomemSessionRow, "tenantId" | "userId" | "reviewerCredentialId">,
   proposedEmail: string
-): Promise<{ state: "pending"; delivery: "queued"; expiresAt: string }> {
+): Promise<{ state: "pending"; delivery: "queued"; requestId: string; expiresAt: string }> {
   if (session.reviewerCredentialId) throw exomemErrors.entitlementDenied();
   const proposed = normalizeAccessEmail(proposedEmail);
   const confirmationToken = generateExternalToken();
@@ -93,7 +93,7 @@ export async function requestExomemEmailChange(
         },
       });
     }
-    return { state: "pending", delivery: "queued", expiresAt: expiresAt.toISOString() };
+    return { state: "pending", delivery: "queued", requestId, expiresAt: expiresAt.toISOString() };
   });
 }
 
@@ -119,7 +119,7 @@ export async function completeExomemEmailChange(
       const request = await tx`
         SELECT id, original_email::text AS original_email, proposed_email::text AS proposed_email
         FROM exomem_email_changes
-        WHERE tenant_id = ${tenantId}::uuid AND expires_at > now()
+        WHERE tenant_id = ${tenantId}::uuid AND expires_at > statement_timestamp()
           AND ((${action} = 'confirm' AND confirmation_digest = ${digest})
             OR (${action} = 'cancel' AND cancellation_digest = ${digest}))
         FOR UPDATE
@@ -155,7 +155,7 @@ export async function loadExomemEmailChange(
   session: Pick<ExomemSessionRow, "tenantId" | "userId">
 ) {
   const { rows } = await executeExomemSql`
-    SELECT change.proposed_email::text AS proposed_email, change.expires_at,
+    SELECT change.id, change.proposed_email::text AS proposed_email, change.expires_at,
       (SELECT jsonb_object_agg(email.kind, email.state)
        FROM exomem_email_outbox AS email
        WHERE email.dedupe_key IN ('email_change_confirmation:' || change.id, 'email_change_cancellation:' || change.id)) AS delivery
@@ -166,10 +166,16 @@ export async function loadExomemEmailChange(
       AND tenant.status NOT IN ('deleted', 'deletion_pending')
   `;
   const row = rows[0] as
-    | { proposed_email: string; expires_at: Date | string; delivery: Record<string, string> | null }
+    | {
+        id: string;
+        proposed_email: string;
+        expires_at: Date | string;
+        delivery: Record<string, string> | null;
+      }
     | undefined;
   return row
     ? {
+        requestId: row.id,
         proposedEmail: row.proposed_email,
         expiresAt: new Date(row.expires_at).toISOString(),
         delivery: row.delivery,

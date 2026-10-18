@@ -720,6 +720,57 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     assert.ok(known?.observedAt);
   });
 
+  it("honors failed-read backoff without claiming verification and wakes for a changed customer", async () => {
+    const owner = await receiptOwner();
+    const config = loadExomemPaddleConfig({
+      PADDLE_ENVIRONMENT: "sandbox",
+      PADDLE_API_KEY: "pdl_sdbx_apikey_example",
+    });
+    let customerId = owner.customerId;
+    let unavailable = true;
+    let calls = 0;
+    const transport = async (path: string) => {
+      assert.equal(path, `/customers/${customerId}`);
+      calls += 1;
+      return unavailable
+        ? Response.json({ error: { code: "temporarily_unavailable" } }, { status: 503 })
+        : Response.json({ data: { id: customerId, email: owner.desired } });
+    };
+    assert.equal((await runBoundedPaddleReceiptContacts({}, { config, transport })).pending, 1);
+    assert.equal((await loadPaddleReceiptContact(owner))?.knownEmail, null);
+    assert.equal((await loadPaddleReceiptContact(owner))?.observedAt, null);
+    assert.equal((await runBoundedPaddleReceiptContacts({}, { config, transport })).attempted, 0);
+    assert.equal(calls, 1, "an unknown observation does not bypass retry backoff");
+
+    customerId = `ctm_${randomBytes(13).toString("hex")}`;
+    await pool.query(
+      "UPDATE exomem_entitlements SET provider_customer_ref = $2 WHERE tenant_id = $1",
+      [owner.tenantId, customerId]
+    );
+    unavailable = false;
+    assert.equal(
+      (await runBoundedPaddleReceiptContacts({}, { config, transport })).synchronized,
+      1
+    );
+    const observed = await loadPaddleReceiptContact(owner);
+    assert.equal(observed?.knownEmail, owner.desired);
+    assert.equal(observed?.observationSource, "paddle_customer");
+    assert.ok(observed?.observedAt);
+
+    await pool.query(
+      "UPDATE exomem_paddle_receipt_contacts SET next_attempt_at = now() WHERE tenant_id = $1",
+      [owner.tenantId]
+    );
+    unavailable = true;
+    assert.equal((await runBoundedPaddleReceiptContacts({}, { config, transport })).pending, 1);
+    const retained = await loadPaddleReceiptContact(owner);
+    assert.equal(retained?.knownEmail, observed?.knownEmail);
+    assert.equal(retained?.observedAt, observed?.observedAt);
+    assert.equal(retained?.observationSource, observed?.observationSource);
+    assert.equal((await runBoundedPaddleReceiptContacts({}, { config, transport })).attempted, 0);
+    assert.equal(calls, 3);
+  });
+
   for (const refusal of [
     { status: 409, code: "customer_already_exists", state: "conflict" },
     { status: 403, code: "forbidden", state: "failed" },

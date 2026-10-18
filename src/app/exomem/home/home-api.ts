@@ -220,6 +220,8 @@ export async function readEmailChange(): Promise<HomeEmailChange | null> {
   const pendingOk =
     response.pending === null ||
     (pending !== null &&
+      typeof pending.requestId === "string" &&
+      pending.requestId.length > 0 &&
       typeof pending.proposedEmail === "string" &&
       typeof pending.expiresAt === "string" &&
       Number.isFinite(Date.parse(pending.expiresAt)) &&
@@ -249,7 +251,7 @@ export async function readEmailChange(): Promise<HomeEmailChange | null> {
 export async function requestEmailChange(
   email: string,
   csrfToken: string
-): Promise<{ expiresAt: string } | null> {
+): Promise<{ requestId: string; expiresAt: string } | null> {
   const current = () => csrfToken !== "" && csrfToken === csrfCookie();
   if (!current()) return null;
   let response: Record<string, unknown>;
@@ -266,11 +268,13 @@ export async function requestEmailChange(
     response.success !== true ||
     response.state !== "pending" ||
     response.delivery !== "queued" ||
+    typeof response.requestId !== "string" ||
+    response.requestId.length === 0 ||
     typeof response.expiresAt !== "string" ||
     !Number.isFinite(Date.parse(response.expiresAt))
   )
     throw new Error("Email change was not queued");
-  return { expiresAt: response.expiresAt };
+  return { requestId: response.requestId, expiresAt: response.expiresAt };
 }
 
 /** Opens Paddle checkout or the customer portal; resolves with the address to go to. */

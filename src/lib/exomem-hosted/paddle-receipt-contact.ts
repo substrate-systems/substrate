@@ -94,8 +94,8 @@ async function lockTarget(
     SELECT contact.*, owner.email::text AS email,
       entitlement.provider_environment AS environment, entitlement.provider_customer_ref AS customer_id,
       contact.lease_expires_at > now() AS lease_live,
-      (contact.next_attempt_at <= now() OR contact.provider_environment IS DISTINCT FROM entitlement.provider_environment
-        OR contact.provider_customer_ref IS DISTINCT FROM entitlement.provider_customer_ref) AS due
+      (contact.next_attempt_at <= now() OR contact.attempted_provider_environment IS DISTINCT FROM entitlement.provider_environment
+        OR contact.attempted_provider_customer_ref IS DISTINCT FROM entitlement.provider_customer_ref) AS due
     FROM exomem_paddle_receipt_contacts AS contact
     JOIN exomem_tenants AS tenant ON tenant.id = contact.tenant_id
     JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id AND owner.deleted_at IS NULL
@@ -132,6 +132,7 @@ async function claimTarget(
       UPDATE exomem_paddle_receipt_contacts
       SET state = 'pending', lease_owner = ${leaseOwner}::uuid,
         lease_expires_at = now() + (${CONTACT_LEASE_SECONDS} * interval '1 second'),
+        attempted_provider_environment = ${row.environment}, attempted_provider_customer_ref = ${row.customer_id},
         attempts = attempts + 1, updated_at = now()
       WHERE tenant_id = ${tenantId}::uuid
     `;
@@ -267,8 +268,8 @@ export async function runBoundedPaddleReceiptContacts(
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = contact.tenant_id
     WHERE contact.state IN ('pending', 'synchronized')
       AND (contact.lease_expires_at IS NULL OR contact.lease_expires_at <= now())
-      AND (contact.next_attempt_at <= now() OR contact.provider_environment IS DISTINCT FROM entitlement.provider_environment
-        OR contact.provider_customer_ref IS DISTINCT FROM entitlement.provider_customer_ref)
+      AND (contact.next_attempt_at <= now() OR contact.attempted_provider_environment IS DISTINCT FROM entitlement.provider_environment
+        OR contact.attempted_provider_customer_ref IS DISTINCT FROM entitlement.provider_customer_ref)
       AND entitlement.source = 'paddle' AND entitlement.provider_environment = ${config.environment}
       AND entitlement.provider_customer_ref IS NOT NULL
     ORDER BY contact.next_attempt_at LIMIT ${Math.max(1, Math.min(options.maxContacts ?? 5, 20))}
