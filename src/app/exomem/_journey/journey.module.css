@@ -11,10 +11,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  --flow-clearance: 84px;
   --gutter: 40px;
   --edge-gap: 24px;
   box-sizing: border-box;
-  padding: 84px 0;
+  padding: var(--flow-clearance) 0;
 }
 
 /* Equal flexible space centres the step. Header and origin clearance take priority
@@ -710,11 +711,23 @@
 @media (max-width: 640px), (max-height: 480px) {
   .page {
     --gutter: 16px;
+    --flow-bottom-band: 150px;
   }
 
-  /* The 150px lower band adds 66px to the 84px clearance; tall steps can use it. */
-  .page::after {
-    flex-basis: 66px;
+  /* Centre between the phone bands, yielding the offset before the top clearance. */
+  .center {
+    translate: 0
+      clamp(
+        calc((var(--flow-clearance) - var(--flow-bottom-band)) / 2),
+        calc(50% + var(--flow-clearance) - 50vh),
+        0px
+      );
+    translate: 0
+      clamp(
+        calc((var(--flow-clearance) - var(--flow-bottom-band)) / 2),
+        calc(50% + var(--flow-clearance) - 50dvh),
+        0px
+      );
   }
 
   /* A phone takes the reviewer's entry over at least 40 px, as every phone target. */

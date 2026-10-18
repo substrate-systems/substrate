@@ -198,7 +198,7 @@ The separate `enable-exomem-email-change` change owns identity isolation and acc
 - [x] 12.4 Store account theme choices, apply them before paint, and migrate existing browser preferences.
 - [x] 12.5 Carry the selected choice and effective scheme into every email renderer and delivery path.
 - [x] 12.6 Apply current graph colour, note geometry, header clearance and real-event wordmark motion.
-- [x] 12.7 Build the sign-in card, address correction, inbox actions and authenticated same-browser continuation.
+- [ ] 12.7 Build the sign-in card, address correction, inbox actions and authenticated same-browser continuation.
 - [ ] 12.8 Complete integrated browser and accessibility acceptance against the current canon.
 - [ ] 12.9 Complete exact independent review, required CI, compatible release and read-only production verification.
 

@@ -9,7 +9,12 @@ async function expectJourneyCentered(page: Page) {
     .locator('[class*="column"]')
     .evaluate((column) => {
       const bounds = column.getBoundingClientRect();
-      return bounds.top + bounds.height / 2 - window.innerHeight / 2;
+      const headerClearance = 84;
+      const phone = matchMedia("(max-width: 640px), (max-height: 480px)").matches;
+      const bottomBand = phone ? 150 : headerClearance;
+      const bandCenter = (window.innerHeight + headerClearance - bottomBand) / 2;
+      const expectedCenter = Math.max(headerClearance + bounds.height / 2, bandCenter);
+      return bounds.top + bounds.height / 2 - expectedCenter;
     });
   expect(Math.abs(offset)).toBeLessThanOrEqual(1);
 }
