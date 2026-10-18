@@ -908,6 +908,56 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
   });
 
+  it("does not issue a link for an address changed while issuance waits", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "old@example.test"]);
+    await pool.query(
+      "INSERT INTO exomem_tenants (id, owner_user_id, status) VALUES ($1, $2, 'active')",
+      [TENANT, USER]
+    );
+    const confirmation = await pool.connect();
+    let issuance: ReturnType<typeof createMagicAccessToken> | undefined;
+    try {
+      await confirmation.query("BEGIN");
+      await confirmation.query("SELECT id FROM exomem_tenants WHERE id = $1 FOR UPDATE", [TENANT]);
+      issuance = createMagicAccessToken({
+        emailNormalized: "old@example.test",
+        tokenDigest: randomBytes(32),
+        browserChallengeDigest: randomBytes(32),
+        expiresAt: new Date(Date.now() + 15 * 60_000),
+        deliverySecretCiphertext: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "opaque-iv",
+          ciphertext: "opaque-ciphertext",
+          tag: "opaque-tag",
+        },
+      });
+      await waitForBlockedQuery(pool, "exomem:create-magic-access-token");
+      await confirmation.query("UPDATE exomem_users SET email = $1 WHERE id = $2", [
+        "new@example.test",
+        USER,
+      ]);
+      await confirmation.query(
+        "UPDATE exomem_tenants SET magic_link_generation = magic_link_generation + 1 WHERE id = $1",
+        [TENANT]
+      );
+      await confirmation.query("COMMIT");
+      assert.equal(await issuance, null);
+    } finally {
+      await confirmation.query("ROLLBACK").catch(() => undefined);
+      confirmation.release();
+      await issuance?.catch(() => undefined);
+    }
+    const state = await pool.query(
+      `SELECT tenant.magic_link_generation::text AS generation,
+              (SELECT count(*)::int FROM exomem_access_tokens) AS tokens,
+              (SELECT count(*)::int FROM exomem_access_delivery_outbox) AS deliveries
+       FROM exomem_tenants AS tenant WHERE tenant.id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(state.rows[0], { generation: "1", tokens: 0, deliveries: 0 });
+  });
+
   for (const unavailable of ["expired", "revoked", "generation", "tenant", "pending"] as const) {
     it(`email confirmation cannot redeem a link with ${unavailable} authority`, async () => {
       await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [

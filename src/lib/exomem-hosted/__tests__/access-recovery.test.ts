@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import type { NextRequest } from "next/server";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { __setExomemSqlForTests, createMagicAccessToken, type ExomemSql } from "../db";
+import {
+  __setExomemSqlForTests,
+  __setExomemTransactionForTests,
+  createMagicAccessToken,
+  type ExomemSql,
+} from "../db";
 import type { SendTransactionalEmailInput, SendTransactionalEmailResult } from "@/lib/brevo";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import { setOperationalEventSinkForTests } from "../observability";
@@ -57,6 +62,17 @@ before(async () => {
   });
 });
 after(() => mock.reset());
+
+function taggedSql(client: Pool | PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    const query = strings.reduce(
+      (text, part, index) => text + part + (index < values.length ? `$${index + 1}` : ""),
+      ""
+    );
+    const result = await client.query(query, values);
+    return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+  };
+}
 
 function request(path: string, body: object, cookie?: string): NextRequest {
   return new Request(`https://app.example.test${path}`, {
@@ -123,15 +139,22 @@ describe(
       await applyMigrations({ databaseUrl: scoped.toString() });
       await admin.end();
       pool = new Pool({ connectionString: scoped.toString(), max: 3 });
-      sql = async (strings, ...values) => {
-        const query = strings.reduce(
-          (text, part, i) => text + part + (i < values.length ? `$${i + 1}` : ""),
-          ""
-        );
-        const result = await pool.query(query, values);
-        return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-      };
+      sql = taggedSql(pool);
       __setExomemSqlForTests(sql);
+      __setExomemTransactionForTests(async (work) => {
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+          const result = await work(taggedSql(client));
+          await client.query("COMMIT");
+          return result;
+        } catch (error) {
+          await client.query("ROLLBACK");
+          throw error;
+        } finally {
+          client.release();
+        }
+      });
     });
     beforeEach(async () => {
       await pool.query("TRUNCATE exomem_users, users CASCADE");
@@ -143,6 +166,7 @@ describe(
     });
     after(async () => {
       __setExomemSqlForTests(null);
+      __setExomemTransactionForTests(null);
       await pool.query(`DROP SCHEMA "${schema}" CASCADE`);
       await pool.end();
       process.env.EXOMEM_CONTROL_PLANE_KEY = originalKey;

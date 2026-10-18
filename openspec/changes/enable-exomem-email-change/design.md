@@ -11,6 +11,9 @@ Backfill fully deleted Exomem accounts as tombstones, rather than copying person
 Switch every Exomem email read, identity upsert and reviewer authorization function to that authority.
 Preserve the UUIDs in tenants, sessions, access tokens, invitations, transfer grants, OAuth grants, account blocks and reviewer credentials.
 Other products keep their existing identities. A freed address may create another Exomem account after the final switch.
+After full deletion, a new valid invitation to the erased address creates an independent identity and tenant.
+An operator ban remains attached to the old principal and tenant; it does not follow an erased address.
+The old credentials stay blocked. Live identities still retain their admission blocks. Store no address fingerprint to reconnect tombstones.
 
 ### Compatible releases
 
@@ -60,6 +63,13 @@ Reuse the current provider transport and reconciliation lease pattern. Each atte
 A provider readback must match before the state becomes synchronized. Temporary failures remain pending and retry.
 Permanent uniqueness or permission failures remain visible as conflict or failed states. They never undo the confirmed sign-in address.
 Keep the known receipt address visible. Recovery permits another confirmed address change or the existing billing and support actions.
+
+Use one receipt-contact projection per tenant, with a fresh UUID revision on every confirmation and no duplicate desired email.
+Create its intent even before a customer is bound. The worker reads the current canonical address and proven entitlement binding.
+Preserve an in-flight lease across confirmation; completion changes only the existing exact revision, lease and binding.
+Perform provider calls outside database transactions, with a fresh claim check before PATCH and an independent GET afterward.
+Targeted six-hour rechecks of existing pending or synchronized projections repair delayed provider writes; they scan no unrelated customers.
+Permanent conflicts and failures stay frozen until another confirmed address. Last verified receipt addresses include their observation time.
 
 ### Proof and release
 
