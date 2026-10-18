@@ -117,7 +117,7 @@ Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR 
 - [x] 8.4 Build plan and account with known-or-reason dates and the support reference
 - [x] 8.5 Build the storage bar over the real disk, and the unknown state
 - [x] 8.6 Hide storage add-ons, email change, and bring-a-vault and restore until each ships
-  - Storage add-ons now ship behind `EXOMEM_CLOUD_STORAGE_ENABLED`, off by default (#249). Email change and bring-a-vault or restore have no Home surface.
+  - Storage add-ons ship behind `EXOMEM_CLOUD_STORAGE_ENABLED`, off by default (#249). Email change shipped in PR #265. Bring-a-vault and restore have no Home surface.
 - [x] 8.7 Show the Cloud MCP address from configuration
 - [x] 8.8 Build export with every display state, the pause sentence for a running or read-only cell, and the download link
 - [x] 8.9 Keep deletion, and hide it for reviewers
@@ -201,6 +201,11 @@ The separate `enable-exomem-email-change` change owns identity isolation and acc
 - [ ] 12.7 Build the sign-in card, address correction, inbox actions and authenticated same-browser continuation.
 - [ ] 12.8 Complete integrated browser and accessibility acceptance against the current canon.
 - [ ] 12.9 Complete exact independent review, required CI, compatible release and read-only production verification.
+
+The core website and account email change shipped through PRs #264 and #265 on 2026-10-18.
+Their source review, scoped browser acceptance, required CI and read-only production checks are complete.
+Tasks 12.7–12.9 remain open for native inbox actions and full-canon acceptance.
+Native inbox actions still need the pending implementation decision and physical-device acceptance.
 
 Run one test worker, build or browser session at a time. Below 3 GiB of Windows physical headroom, stop owned heavy work and continue lightweight work.
 Required full CI runs remotely. Local write checks use isolated data and blocked external sends and payments.

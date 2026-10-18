@@ -35,6 +35,9 @@ import {
   uniqueEmail,
 } from "./seed";
 
+// Keep failed exchanges and their retries so transport failures remain diagnosable.
+test.use({ trace: "retain-on-failure-and-retries" });
+
 /** The sign-in page's own step before a link redeems (not board copy; see sign-in-client). */
 const CONTINUE_SIGN_IN = "Continue sign-in";
 
