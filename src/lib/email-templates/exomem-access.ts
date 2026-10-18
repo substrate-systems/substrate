@@ -150,7 +150,7 @@ export function renderExomemHoldReminderEmail(input: {
 
 /** W1: the approved invitation-only copy from round41. */
 export function renderExomemWaitlistEmail(
-  input: { scheme?: ExomemEmailScheme | null } = {}
+  input: { scheme?: ExomemEmailScheme | null; themeChoice?: ExomemThemeChoice | null } = {}
 ): RenderedExomemAccessEmail {
   return renderExomemEmail({
     base: input.scheme ?? null,

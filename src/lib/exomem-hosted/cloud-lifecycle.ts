@@ -387,14 +387,19 @@ export async function reconcileCloudCellDesiredState(
       SELECT entitlement.tenant_id, entitlement.source, entitlement.source_state,
              entitlement.manual_suspended_at, entitlement.source_occurred_at,
              entitlement.provider_transaction_ref,
-             tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state
+             tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state,
+             tenant.theme_choice
       FROM exomem_tenants AS tenant
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
       WHERE tenant.id = ${tenantId}::uuid
       FOR NO KEY UPDATE OF tenant, entitlement
     `;
     const row = rows[0] as
-      | (EntitlementRow & { tenant_status: string; tenant_desired_state: string })
+      | (EntitlementRow & {
+          tenant_status: string;
+          tenant_desired_state: string;
+          theme_choice: ExomemThemeChoice | null;
+        })
       | undefined;
     if (!row) return null;
 
@@ -473,13 +478,13 @@ export async function reconcileCloudCellDesiredState(
       if (deletion && !accountDeleted) {
         const { rows: owners } = await tx`
           /* exomem-cloud:deleted-email-owner */
-          SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice
+          SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme
           FROM exomem_tenants AS tenant
           JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
           WHERE tenant.id = ${tenantId}::uuid
         `;
         const owner = owners[0] as
-          | { email: string; time_zone: string | null; theme_choice?: ExomemThemeChoice | null; email_scheme: ExomemEmailScheme | null }
+          | { email: string; time_zone: string | null; email_scheme: ExomemEmailScheme | null }
           | undefined;
         if (owner) {
           await enqueueDeletedEmail(tx, {
@@ -488,7 +493,8 @@ export async function reconcileCloudCellDesiredState(
             recipient: owner.email,
             timeZone: owner.time_zone,
             emailScheme: owner.email_scheme,
-            themeChoice: owner.theme_choice,
+            // The deletion trigger cleared the account preference after the locked read.
+            themeChoice: row.theme_choice,
           });
         }
       }
