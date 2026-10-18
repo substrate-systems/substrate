@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useId, useRef, type ReactNode } from "react";
 import styles from "./Modal.module.css";
 import { Swap } from "./Transitions";
 
@@ -41,11 +41,15 @@ export function Modal({
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
+    return () => {
+      // Close before removal so the browser restores the invoking element.
+      if (dialog.open) dialog.close();
+    };
   }, [open]);
 
   return (

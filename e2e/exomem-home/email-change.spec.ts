@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test as base, type Page } from "@playwright/test";
 import { homeE2eEnvironment } from "./environment";
-import type { SentEmail } from "./fake-brevo";
 import { connectApp, createOwner, emailsTo, grantRevoked, pool, signIn, type Owner } from "./seed";
 
 const test = base.extend<object, { database: void }>({
@@ -30,20 +29,37 @@ async function canonicalEmail(owner: Owner): Promise<string> {
 async function changeCounts(owner: Owner) {
   const { rows } = await pool.query(
     `SELECT (SELECT count(*)::int FROM exomem_email_changes WHERE tenant_id = $1) AS pending,
-            (SELECT count(*)::int FROM exomem_email_outbox WHERE tenant_id = $1) AS emails`,
+            (SELECT count(*)::int FROM exomem_email_outbox WHERE tenant_id = $1
+               AND kind IN ('email_change_confirmation', 'email_change_cancellation')) AS emails`,
     [owner.tenantId]
   );
   return rows[0] as { pending: number; emails: number };
 }
 
-/** The email renderer writes each action as "label: URL"; URL parses the delivered link. */
-function deliveredLink(email: SentEmail, label: string) {
+/** These two kinds and action labels are fixed by the email-change contract. */
+async function requestEmails(owner: Owner, requestId: string) {
+  const { rows } = await pool.query(
+    `SELECT kind, recipient, state FROM exomem_email_outbox
+      WHERE tenant_id = $1 AND dedupe_key IN (
+        'email_change_confirmation:' || $2, 'email_change_cancellation:' || $2
+      ) ORDER BY kind`,
+    [owner.tenantId, requestId]
+  );
+  return rows;
+}
+
+/** The renderer writes each action as "label: URL"; other lifecycle mail has no such action. */
+async function deliveredActions(owner: Owner, label: string): Promise<string[]> {
   const prefix = `${label}: `;
-  const line = email.textContent.split("\n").find((line) => line.startsWith(prefix));
-  expect(line, `The delivered email needs its ${label} action`).toBeDefined();
-  const link = new URL(line!.slice(prefix.length));
-  // Keep the actual delivered path and capability on the isolated server.
-  return new URL(`${link.pathname}${link.search}${link.hash}`, homeE2eEnvironment().baseUrl).href;
+  return (await emailsTo(owner)).flatMap((email) => {
+    const line = email.textContent.split("\n").find((line) => line.startsWith(prefix));
+    if (!line) return [];
+    const link = new URL(line.slice(prefix.length));
+    // Keep the actual delivered path and capability on the isolated server.
+    return [
+      new URL(`${link.pathname}${link.search}${link.hash}`, homeE2eEnvironment().baseUrl).href,
+    ];
+  });
 }
 
 test("email confirmation changes the canonical address only after an explicit action", async ({
@@ -59,38 +75,68 @@ test("email confirmation changes the canonical address only after an explicit ac
       [owner.tenantId]
     )
   ).rows;
+  await signIn(page.context(), owner);
+  const levels = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/exomem/cloud/home/levels" &&
+      response.request().method() === "GET"
+  );
+  const activity = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/exomem/cloud/home/live" &&
+      response.request().method() === "GET"
+  );
+  await page.goto("/exomem/home");
+  expect((await levels).ok()).toBe(true);
+  expect((await activity).ok()).toBe(true);
+  // Home creates its own grant during these reads; compare the settled authority before changing email.
   const grantsBefore = (
     await pool.query(
       "SELECT id, user_id, tenant_id, client_id, resource, scopes, revoked_at FROM exomem_oauth_grants WHERE tenant_id = $1 ORDER BY id",
       [owner.tenantId]
     )
   ).rows;
-  await signIn(page.context(), owner);
-  await page.goto("/exomem/home");
-  await accountPanel(page).getByRole("button", { name: "Change", exact: true }).click();
+  const change = accountPanel(page).getByRole("button", { name: "Change", exact: true });
+  await change.focus();
+  await change.press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(change).toBeFocused();
+  await change.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(change).toBeFocused();
+  expect(await changeCounts(owner)).toEqual({ pending: 0, emails: 0 });
+  await change.press("Enter");
   await expect(accountPanel(page).getByText("Checking email status…", { exact: true })).toHaveCount(
     0
   );
   await page.getByRole("dialog").getByLabel("New email", { exact: true }).fill(proposed);
+  const requested = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/exomem/account/email-change" &&
+      response.request().method() === "POST"
+  );
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Send the links", exact: true })
     .click();
+  const response = await requested;
+  expect(response.status()).toBe(202);
+  const request = await response.json();
+  expect(request).toMatchObject({ success: true, state: "pending", delivery: "queued" });
   const queued = page.getByRole("dialog", { name: "Check both inboxes" });
-  await expect(
-    queued.getByText(`A confirmation link is queued for ${proposed}`, { exact: false })
-  ).toBeVisible();
-  await expect(queued.getByText("Open the link we sent", { exact: false })).toHaveCount(0);
+  // Another worker may already deliver the request; the POST above proves that it queued.
+  await expect(queued.getByText(proposed, { exact: false })).toBeVisible();
   expect(
-    (
-      await pool.query(
-        "SELECT kind, recipient, state FROM exomem_email_outbox WHERE tenant_id = $1 ORDER BY kind",
-        [owner.tenantId]
-      )
-    ).rows
+    (await requestEmails(owner, request.requestId)).map(({ kind, recipient }) => ({
+      kind,
+      recipient,
+    }))
   ).toEqual([
-    { kind: "email_change_cancellation", recipient: owner.email, state: "pending" },
-    { kind: "email_change_confirmation", recipient: proposed, state: "pending" },
+    { kind: "email_change_cancellation", recipient: owner.email },
+    { kind: "email_change_confirmation", recipient: proposed },
   ]);
   expect(await canonicalEmail(owner)).toBe(owner.email);
 
@@ -99,15 +145,22 @@ test("email confirmation changes the canonical address only after an explicit ac
     headers: { authorization: `Bearer ${environment.schedulerSecret}` },
   });
   expect(delivered.ok()).toBe(true);
-  await expect.poll(async () => (await emailsTo({ ...owner, email: proposed })).length).toBe(1);
-  await expect.poll(async () => (await emailsTo(owner)).length).toBe(1);
+  await expect
+    .poll(() => requestEmails(owner, request.requestId))
+    .toEqual([
+      { kind: "email_change_cancellation", recipient: owner.email, state: "sent" },
+      { kind: "email_change_confirmation", recipient: proposed, state: "sent" },
+    ]);
+  await expect
+    .poll(() => deliveredActions({ ...owner, email: proposed }, "Confirm this address"))
+    .toHaveLength(1);
+  await expect.poll(() => deliveredActions(owner, "Stop the change")).toHaveLength(1);
   await expect(
     queued.getByText(`Open the link we sent to ${proposed}`, { exact: false })
   ).toBeVisible({ timeout: 15_000 });
-  const confirmation = deliveredLink(
-    (await emailsTo({ ...owner, email: proposed }))[0],
-    "Confirm this address"
-  );
+  const confirmation = (
+    await deliveredActions({ ...owner, email: proposed }, "Confirm this address")
+  )[0];
   expect(new URL(confirmation).pathname).toBe("/exomem/email-change/confirm");
   const preview = await page.request.get(confirmation);
   expect(preview.ok()).toBe(true);
@@ -171,10 +224,19 @@ test("the old inbox stops a pending change, closes its Home dialog and reveals n
     0
   );
   await page.getByRole("dialog").getByLabel("New email", { exact: true }).fill(proposed);
+  const requested = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/exomem/account/email-change" &&
+      response.request().method() === "POST"
+  );
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Send the links", exact: true })
     .click();
+  const response = await requested;
+  expect(response.status()).toBe(202);
+  const request = await response.json();
+  expect(request).toMatchObject({ success: true, state: "pending", delivery: "queued" });
   const queued = page.getByRole("dialog", { name: "Check both inboxes" });
   await expect(queued).toBeVisible();
   const environment = homeE2eEnvironment();
@@ -182,8 +244,14 @@ test("the old inbox stops a pending change, closes its Home dialog and reveals n
     headers: { authorization: `Bearer ${environment.schedulerSecret}` },
   });
   expect(delivered.ok()).toBe(true);
-  await expect.poll(async () => (await emailsTo(owner)).length).toBe(1);
-  const cancellation = deliveredLink((await emailsTo(owner))[0], "Stop the change");
+  await expect
+    .poll(() => requestEmails(owner, request.requestId))
+    .toEqual([
+      { kind: "email_change_cancellation", recipient: owner.email, state: "sent" },
+      { kind: "email_change_confirmation", recipient: proposed, state: "sent" },
+    ]);
+  await expect.poll(() => deliveredActions(owner, "Stop the change")).toHaveLength(1);
+  const cancellation = (await deliveredActions(owner, "Stop the change"))[0];
   expect(new URL(cancellation).pathname).toBe("/exomem/email-change/cancel");
   const cancellationPage = await page.context().newPage();
   await cancellationPage.goto(cancellation);
@@ -233,7 +301,9 @@ test("a draft from account A cannot queue links for account B after a session sw
   const draft = page.getByRole("dialog").getByLabel("New email", { exact: true });
   await draft.fill(`wrong-account-${randomUUID()}@example.test`);
   // Keep the periodic cookie check from preempting the form's own stale-draft refusal.
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+  const frozenAt = await page.evaluate(() => Date.now());
+  await page.clock.setFixedTime(frozenAt);
+  await page.clock.pauseAt(frozenAt);
   await signIn(page.context(), other);
   await draft.press("Enter");
   await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -323,7 +393,9 @@ test("the server rejects A's frozen nonce when B's cookies reach native fetch", 
   );
   const draft = page.getByRole("dialog").getByLabel("New email", { exact: true });
   await draft.fill(`native-race-${randomUUID()}@example.test`);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+  const frozenAt = await page.evaluate(() => Date.now());
+  await page.clock.setFixedTime(frozenAt);
+  await page.clock.pauseAt(frozenAt);
   let paused!: () => void;
   const reached = new Promise<void>((resolve) => {
     paused = resolve;

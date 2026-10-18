@@ -10,6 +10,7 @@
 
 .form label {
   margin-bottom: 14px;
+  line-height: normal;
 }
 
 .help {
