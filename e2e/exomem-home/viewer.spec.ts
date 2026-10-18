@@ -88,7 +88,7 @@ const test = base.extend<object, { database: void }>({
   ],
 });
 
-test("the owner opens the map, filters source relations, searches and safely reads a note", async ({
+test("the read-only viewer filters source relations, searches and safely reads a note", async ({
   page,
   context,
 }) => {
@@ -115,8 +115,8 @@ test("the owner opens the map, filters source relations, searches and safely rea
   });
   await signIn(context, owner);
   await storeTheme(page, "dark");
-  await page.goto("/exomem/home");
-  await page.getByRole("link", { name: "The map", exact: true }).click();
+  // The deferred map has no Home entry; the existing viewer keeps its direct route.
+  await page.goto("/exomem/viewer");
   await expect(page.getByRole("heading", { name: "Your knowledge" })).toBeVisible();
   await expect(page.getByText("2 shown of 2 notes", { exact: true })).toBeVisible();
   const chip = page.getByRole("button", { name: "vault.checks", exact: true });
