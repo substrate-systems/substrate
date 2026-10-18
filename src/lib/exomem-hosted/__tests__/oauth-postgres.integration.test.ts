@@ -31,7 +31,8 @@ import {
 } from "../oauth-continuity";
 import { oauthClientConfigSha256 } from "../oauth-client-admission";
 import { EXOMEM_RATE_LIMITS } from "../rate-limit";
-import type { SecretEnvelope } from "../security";
+import { decryptSecret, type SecretEnvelope } from "../security";
+import { requestExomemEmailChange, completeExomemEmailChange } from "../email-change";
 import {
   readOAuthClientHeadroom,
   refreshOperatorCimdOAuthClient,
@@ -726,6 +727,64 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
         ["f".repeat(64), artifact.rows[0]!.id]
       );
+    }
+  });
+
+  it("keeps an issued OAuth grant usable after its owner confirms another canonical address", async () => {
+    const priorKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    process.env.EXOMEM_CONTROL_PLANE_KEY = randomBytes(32).toString("base64url");
+    try {
+      const internal = await seedClient();
+      const fixture = await seedAuthorizationCode(internal, 9099, true);
+      const refreshDigest = randomBytes(32);
+      assert.ok(
+        await issueOAuthTokensFromCodeAtomic({
+          codeDigest: fixture.codeDigest,
+          clientId,
+          redirectUri: "https://client.example.test/callback",
+          resource,
+          pkceChallenge: "challenge",
+          refreshDigest,
+          refreshExpiresAt: new Date(Date.now() + 3_600_000),
+          accessDigest: randomBytes(32),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+        })
+      );
+      await requestExomemEmailChange(
+        { ...fixture, reviewerCredentialId: null },
+        `confirmed-${randomUUID()}@example.test`
+      );
+      const queued = (
+        await pool!.query(
+          "SELECT payload_ciphertext FROM exomem_email_outbox WHERE tenant_id = $1 AND kind = 'email_change_confirmation'",
+          [fixture.tenantId]
+        )
+      ).rows[0]!;
+      await completeExomemEmailChange(
+        "confirm",
+        JSON.parse(decryptSecret(queued.payload_ciphertext).reveal()).token
+      );
+      const rotated = await rotateOAuthRefreshTokenAtomic({
+        refreshDigest,
+        replacementRefreshDigest: randomBytes(32),
+        accessDigest: randomBytes(32),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId,
+        resource,
+      });
+      assert.equal(rotated?.grantId, fixture.grantId);
+      assert.equal(
+        (
+          await pool!.query(
+            "SELECT id FROM exomem_oauth_grants WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL",
+            [fixture.grantId, fixture.userId, fixture.tenantId]
+          )
+        ).rows[0]!.id,
+        fixture.grantId
+      );
+    } finally {
+      if (priorKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = priorKey;
     }
   });
 

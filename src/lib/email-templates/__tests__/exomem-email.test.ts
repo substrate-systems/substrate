@@ -5,7 +5,9 @@ import { exomemTokens } from "@/lib/exomem/design-tokens";
 import { renderExomemMagicLinkEmail } from "../exomem-access";
 import { exomemEmailSchemeQuery, exomemSenderName } from "../exomem-email";
 import {
+  renderExomemConfirmNewEmailEmail,
   renderExomemDeletionReminderEmail,
+  renderExomemEmailChangingEmail,
   renderExomemPaymentFailedEmail,
   renderExomemReadyEmail,
   renderExomemSubscriptionEndedEmail,
@@ -164,6 +166,33 @@ describe("Exomem emails", () => {
 });
 
 describe("explicit account email theme", () => {
+  it("carries email-change theme intent through both existing renderers", () => {
+    const explicit = renderExomemConfirmNewEmailEmail({
+      confirmUrl: "https://example.test/exomem/email-change/confirm#token",
+      newEmail: "new@example.test",
+      expiresAt: new Date(NOW.getTime() + 15 * 60_000),
+      now: NOW,
+      timeZone: null,
+      scheme: "dark",
+      themeChoice: "light",
+    });
+    const auto = renderExomemEmailChangingEmail({
+      homeUrl: "https://example.test/exomem/email-change/cancel#token",
+      newEmail: "new@example.test",
+      scheme: "light",
+      themeChoice: "auto",
+    });
+    assert.equal(
+      new JSDOM(explicit.htmlContent).window.document
+        .querySelector('meta[name="color-scheme"]')
+        ?.getAttribute("content"),
+      "light"
+    );
+    assert.equal(explicit.htmlContent.includes("prefers-color-scheme"), false);
+    assert.ok(auto.htmlContent.includes(exomemEmailSchemeQuery("dark")));
+    assert.equal(auto.htmlContent.includes(exomemEmailSchemeQuery("light")), false);
+  });
+
   for (const themeChoice of ["light", "dark"] as const) {
     it(`keeps an explicit ${themeChoice} email in that scheme without a device override`, () => {
       const email = renderExomemMagicLinkEmail({

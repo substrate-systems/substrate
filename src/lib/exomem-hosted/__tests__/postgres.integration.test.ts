@@ -22,6 +22,8 @@ import {
   takeRateLimit,
   type ExomemSql,
 } from "../db";
+import { requestExomemEmailChange, completeExomemEmailChange } from "../email-change";
+import { decryptSecret } from "../security";
 import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 import {
@@ -845,9 +847,6 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id`,
       [USER, TENANT, existingDigest, randomBytes(32)]
     );
-    await pool.query("UPDATE exomem_users SET email = 'canonical@example.test' WHERE id = $1", [
-      USER,
-    ]);
     const tokenDigest = randomBytes(32);
     const browserChallengeDigest = randomBytes(32);
     const input = {
@@ -862,6 +861,45 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         tag: "opaque-tag",
       },
     };
+    const oldTokenDigest = randomBytes(32);
+    const oldLink = await createMagicAccessToken({
+      ...input,
+      tokenDigest: oldTokenDigest,
+      emailNormalized: "old@example.test",
+    });
+    assert.ok(oldLink);
+    const oldLease = randomUUID();
+    assert.ok(
+      await claimMagicLinkDelivery({ leaseOwner: oldLease, deliveryId: oldLink.deliveryId })
+    );
+    assert.equal(
+      await markMagicLinkDeliverySent({ deliveryId: oldLink.deliveryId, leaseOwner: oldLease }),
+      true
+    );
+    await requestExomemEmailChange(
+      { tenantId: TENANT, userId: USER, reviewerCredentialId: null },
+      "canonical@example.test"
+    );
+    const queuedChange = (
+      await pool.query(
+        "SELECT payload_ciphertext FROM exomem_email_outbox WHERE tenant_id = $1 AND kind = 'email_change_confirmation'",
+        [TENANT]
+      )
+    ).rows[0]!;
+    await completeExomemEmailChange(
+      "confirm",
+      JSON.parse(decryptSecret(queuedChange.payload_ciphertext).reveal()).token
+    );
+    assert.equal(
+      await redeemMagicAccessTokenAtomic({
+        tokenDigest: oldTokenDigest,
+        browserChallengeDigest,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      }),
+      null
+    );
     assert.equal(
       await createMagicAccessToken({ ...input, emailNormalized: "old@example.test" }),
       null
@@ -986,9 +1024,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         await pool.query("UPDATE exomem_tenants SET magic_link_generation = 1");
       if (unavailable === "tenant") {
         const other = randomUUID();
-        await pool.query("INSERT INTO users (id, email) VALUES ($1, 'another@example.com')", [
-          other,
-        ]);
+        await pool.query(
+          "INSERT INTO exomem_users (id, email) VALUES ($1, 'another@example.com')",
+          [other]
+        );
         await pool.query("UPDATE exomem_tenants SET owner_user_id = $1", [other]);
       }
       if (unavailable === "pending")

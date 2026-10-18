@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useId, useRef, type ReactNode } from "react";
 import styles from "./Modal.module.css";
 import { Swap } from "./Transitions";
 
@@ -19,6 +19,8 @@ type ModalProps = {
   width?: 360 | 400 | 420;
   /** Home's storage board uses the whole phone width. */
   phoneFullWidth?: boolean;
+  /** The email-change frames start 120 px below the top of the viewport. */
+  placement?: "center" | "top";
 };
 
 const WIDTH_CLASS = { 360: styles.w360, 400: styles.w400, 420: styles.w420 };
@@ -34,21 +36,26 @@ export function Modal({
   children,
   width = 420,
   phoneFullWidth = false,
+  placement = "center",
 }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
+    return () => {
+      // Close before removal so the browser restores the invoking element.
+      if (dialog.open) dialog.close();
+    };
   }, [open]);
 
   return (
     <dialog
       ref={ref}
-      className={`${styles.modal} ${WIDTH_CLASS[width]} ${phoneFullWidth ? styles.phoneFullWidth : ""}`}
+      className={`${styles.modal} ${WIDTH_CLASS[width]} ${phoneFullWidth ? styles.phoneFullWidth : ""} ${placement === "top" ? styles.top : ""}`}
       aria-labelledby={titleId}
       onCancel={(event) => {
         // Esc: the caller decides what closing means for its current step.

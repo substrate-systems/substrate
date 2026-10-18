@@ -280,12 +280,9 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
           : redeemCloudInviteAtomic(input);
       };
 
-      if (oauth) assert.equal(await admit(oldAddress), null);
-      else await assert.rejects(admit(oldAddress), { code: "ACCESS_TOKEN_INVALID" });
-      assert.equal(
-        (await pool!.query("SELECT count(*)::int AS n FROM exomem_tenants")).rows[0]!.n,
-        0
-      );
+      const fresh = await admit(oldAddress);
+      assert.ok(fresh);
+      assert.notEqual((await pool!.query("SELECT owner_user_id FROM exomem_tenants WHERE id = $1", [fresh.tenantId])).rows[0]!.owner_user_id, userId);
       const admitted = await admit(newAddress);
       assert.ok(admitted);
       const admittedOwner = await pool!.query(
@@ -298,12 +295,11 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
         shared.rows,
         [...owner.rows, ...otherProductOwner.rows].sort((a, b) => a.email.localeCompare(b.email))
       );
-      assert.deepEqual((await pool!.query("SELECT id, email FROM exomem_users")).rows, [
-        { id: userId, email: newAddress },
-      ]);
+      assert.equal((await pool!.query("SELECT email FROM exomem_users WHERE id = $1", [userId])).rows[0]!.email, newAddress);
+      assert.equal((await pool!.query("SELECT count(*)::int AS n FROM exomem_users")).rows[0]!.n, 2);
     });
 
-    it(`copies an existing shared identity with the same UUID through ${oauth ? "OAuth" : "browser"} admission`, async () => {
+    it(`creates an independent identity without changing an existing shared address through ${oauth ? "OAuth" : "browser"} admission`, async () => {
       await resetFleet();
       await configureCapacity(2);
       const email = `shared-${randomUUID()}@example.test`;
@@ -327,18 +323,12 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
         "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
         [admitted.tenantId]
       );
-      assert.equal(admittedOwner.rows[0]!.owner_user_id, shared.rows[0]!.id);
-      const identity = await pool!.query("SELECT * FROM exomem_users");
+      assert.notEqual(admittedOwner.rows[0]!.owner_user_id, shared.rows[0]!.id);
+      const identity = await pool!.query("SELECT id, email, email_verified_at FROM exomem_users");
+      assert.equal(identity.rows[0]!.id, admittedOwner.rows[0]!.owner_user_id);
+      assert.equal(identity.rows[0]!.email, email);
       assert.ok(identity.rows[0]!.email_verified_at);
-      assert.deepEqual(
-        identity.rows.map((row) => ({ ...row, email_verified_at: null })),
-        shared.rows
-      );
       assert.deepEqual((await pool!.query("SELECT * FROM users")).rows, shared.rows);
-      const timestamps = await pool!.query(
-        "SELECT identity.created_at = shared.created_at AS preserved FROM exomem_users AS identity JOIN users AS shared USING (id)"
-      );
-      assert.equal(timestamps.rows[0]!.preserved, true);
 
     });
   }
@@ -427,7 +417,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
           email,
         ]);
         await pool!.query(
-          "INSERT INTO exomem_tenants (owner_user_id, status, desired_state, deleted_at, marketplace_reviewer_purpose) VALUES ($1, 'deleted', 'deleted', now(), $2)",
+          "INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose) VALUES ($1, 'provisioning', 'running', $2)",
           [user.rows[0].id, !purpose]
         );
         const fixture = oauth
@@ -528,14 +518,13 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     ]);
     assert.equal(results.filter((result) => result.status === "fulfilled" && result.value).length, 1);
     const owners = await pool!.query(
-      `SELECT identity.id, tenant.owner_user_id, shared.id AS shared_id
+      `SELECT identity.id, tenant.owner_user_id
        FROM exomem_users AS identity
-       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = identity.id
-       JOIN users AS shared ON shared.id = identity.id`
+       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = identity.id`
     );
     assert.equal(owners.rowCount, 1);
     assert.equal(owners.rows[0]!.id, owners.rows[0]!.owner_user_id);
-    assert.equal(owners.rows[0]!.id, owners.rows[0]!.shared_id);
+    assert.equal((await pool!.query("SELECT count(*)::int AS n FROM users")).rows[0]!.n, 0);
   });
 
   it("admits exactly one of two concurrent redemptions at the last free slot", async () => {
@@ -562,13 +551,9 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(activeCells.rows[0]!.n, 1);
   });
 
-  // Security review finding 4: a tenant whose only Cloud cell has been fully
-  // deleted (the day-30 export window elapsed, or a manual release) is not
-  // permanently unable to redeem another invite. redeemCloudInviteAtomic's
-  // owner dedupe now only rejects an owner with a LIVE (non-deleted) cell --
-  // a cell-less owner is reused, going through the exact same capacity
-  // check as a first-time redemption, and gets a genuinely new cell row.
-  it("re-admits a tenant whose only Cloud cell was deleted, via a new invite, same capacity check, new cell row", async () => {
+  // A new verified invitation to an erased address creates a fresh identity;
+  // the old principal and tenant remain as deleted history.
+  it("admits a fresh account after deletion through the same capacity check", async () => {
     await resetFleet();
     await configureCapacity(1);
     const email = `cloud-readmit-${randomUUID()}@example.test`;
@@ -596,12 +581,12 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const second = await createInvite("complimentary", email);
     const readmitted = await redeemCloudInviteAtomic(redemptionInput(second.tokenDigest));
     assert.ok(readmitted);
-    assert.equal(readmitted!.tenantId, admitted!.tenantId, "reuses the same tenant row, not a duplicate");
+    assert.notEqual(readmitted!.tenantId, admitted!.tenantId, "a deleted NULL-email principal is not recovered by address");
     assert.notEqual(readmitted!.cellId, admitted!.cellId, "gets a genuinely new cell row");
 
     const tenant = await pool!.query(
       "SELECT status, desired_state, deleted_at FROM exomem_tenants WHERE id = $1",
-      [admitted!.tenantId]
+      [readmitted!.tenantId]
     );
     assert.equal(tenant.rows[0]!.status, "provisioning");
     assert.equal(tenant.rows[0]!.desired_state, "running");
@@ -619,11 +604,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(activeCells.rows[0]!.n, 1, "capacity still reflects exactly one live cell, not two");
   });
 
-  // An alpha lifecycle deletion always left an exomem_oauth_account_blocks
-  // row (blocked_reason lifecycle_deleted) keyed on the deleted tenant.
-  // Re-admission reuses that tenant row, so the block must go with the
-  // admission; otherwise the owner is refused as an invalid invite, and the
-  // Cloud OAuth checks refuse the tenant right after it (2026-09-27).
+  // Lifecycle blocks remain attached to the deleted principal, not to an erased address.
   async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted.cellId]);
     await pool!.query(
@@ -636,7 +617,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     );
   }
 
-  it("re-admits a tenant the alpha lifecycle deleted and clears its lifecycle block", async () => {
+  it("admits a fresh identity after lifecycle deletion while retaining the old lifecycle block", async () => {
     await resetFleet();
     await configureCapacity(1);
     const email = `cloud-readmit-lifecycle-${randomUUID()}@example.test`;
@@ -649,12 +630,12 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const second = await createInvite("complimentary", email);
     const readmitted = await redeemCloudInviteAtomic(redemptionInput(second.tokenDigest));
     assert.ok(readmitted);
-    assert.equal(readmitted!.tenantId, admitted!.tenantId);
+    assert.notEqual(readmitted!.tenantId, admitted!.tenantId);
     const blocks = await pool!.query(
       "SELECT count(*)::int AS n FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
       [admitted!.tenantId]
     );
-    assert.equal(blocks.rows[0]!.n, 0, "the reused tenant carries no block into Cloud");
+    assert.equal(blocks.rows[0]!.n, 1, "the old principal keeps its lifecycle block");
   });
 
   it("still refuses an owner an operator revoked, leaving the invite unconsumed", async () => {
@@ -666,10 +647,6 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
     assert.ok(admitted);
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted!.cellId]);
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [admitted!.tenantId]
-    );
     await pool!.query(
       "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'operator_revoked')",
       [admitted!.tenantId, admitted!.userId]
@@ -688,7 +665,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(blocks.rows[0]!.blocked_reason, "operator_revoked", "an operator ban is never cleared by an invite");
   });
 
-  it("keeps an operator revocation recorded after an alpha lifecycle deletion, and refuses re-admission", async () => {
+  it("keeps the old operator ban after deletion while admitting a newly invited independent account", async () => {
     const { revokeOperatorOAuthAccount } = await import("../operator-controls");
     await resetFleet();
     await configureCapacity(1);
@@ -706,11 +683,13 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(recorded.rows[0]!.blocked_reason, "operator_revoked", "the ban outranks the lifecycle block");
 
     const second = await createInvite("complimentary", email);
-    await assert.rejects(redeemCloudInviteAtomic(redemptionInput(second.tokenDigest)));
-    const invite = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [
-      second.tokenDigest,
-    ]);
-    assert.equal(invite.rows[0]!.consumed_at, null);
+    const fresh = await redeemCloudInviteAtomic(redemptionInput(second.tokenDigest));
+    assert.ok(fresh);
+    assert.notEqual(fresh.userId, admitted!.userId);
+    assert.notEqual(fresh.tenantId, admitted!.tenantId);
+    const old = (await pool!.query("SELECT email, deleted_at FROM exomem_users WHERE id = $1", [admitted!.userId])).rows[0]!;
+    assert.equal(old.email, null);
+    assert.ok(old.deleted_at);
     const blocks = await pool!.query(
       "SELECT blocked_reason FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
       [admitted!.tenantId]
@@ -779,10 +758,6 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     await configureCapacity(2);
     const email = `cloud-readmit-subscribed-${randomUUID()}@example.test`;
     const { tenantId } = await admitThenDeleteCell(email);
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [tenantId]
-    );
     await pool!.query(
       `UPDATE exomem_entitlements
        SET source = 'paddle', source_state = 'active', provider_subscription_ref = 'sub_live',
@@ -945,7 +920,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       redemptionInput((await createInvite("paddle", email)).tokenDigest)
     );
     assert.ok(second);
-    assert.equal(second!.tenantId, first!.tenantId);
+    assert.equal(second!.tenantId, first!.tenantId, "an expired unpaid cell keeps its live canonical identity");
 
     assert.deepEqual(await expireCloudAwaitingCheckoutTenants({ config: FAKE_PADDLE_CONFIG }), []);
     const cell = await pool!.query("SELECT desired_state FROM exomem_cloud_cells WHERE cell_id = $1", [
@@ -1173,11 +1148,11 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
     assert.ok(readmitted);
-    assert.equal(readmitted!.tenantId, admitted!.tenantId);
+    assert.notEqual(readmitted!.tenantId, admitted!.tenantId);
     assert.notEqual(readmitted!.cellId, admitted!.cellId);
   });
 
-  it("re-admits a tenant the alpha lifecycle deleted through a fresh OAuth invite and clears its block", async () => {
+  it("admits a fresh OAuth identity after lifecycle deletion without restoring the old principal", async () => {
     await resetFleet();
     await configureCapacity(1);
     const email = `cloud-oauth-readmit-lifecycle-${randomUUID()}@example.test`;
@@ -1199,12 +1174,12 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
 
     const readmitted = await admit(await createCloudOAuthFixture(email));
     assert.ok(readmitted);
-    assert.equal(readmitted!.tenantId, admitted!.tenantId);
+    assert.notEqual(readmitted!.tenantId, admitted!.tenantId);
     const blocks = await pool!.query(
       "SELECT count(*)::int AS n FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
       [admitted!.tenantId]
     );
-    assert.equal(blocks.rows[0]!.n, 0);
+    assert.equal(blocks.rows[0]!.n, 1);
   });
 
   it("refuses Cloud OAuth admission for an operator-revoked owner, leaving the invite and transaction unconsumed", async () => {
@@ -1215,10 +1190,6 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
     assert.ok(admitted);
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted!.cellId]);
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [admitted!.tenantId]
-    );
     await pool!.query(
       "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'operator_revoked')",
       [admitted!.tenantId, admitted!.userId]

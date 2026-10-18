@@ -6,6 +6,8 @@ import {
   createExomemCustomerPortal,
   ExomemBillingError,
   resumeExomemCheckout,
+  readExomemPaddleCustomerEmail,
+  updateExomemPaddleCustomerEmail,
   type PaddleTransport,
 } from "../paddle-billing";
 import { loadExomemPaddleConfig } from "../paddle-config";
@@ -799,5 +801,46 @@ describe("Exomem Paddle billing adapters", () => {
       console.error = originalError;
     }
     assert.equal(errors.join(" ").includes(sentinel), false);
+  });
+  it("refuses another environment or customer before accepting a receipt observation", async () => {
+    const config = loadExomemPaddleConfig(configEnv());
+    const customerId = `ctm_${"a".repeat(26)}`;
+    let calls = 0;
+    const transport: PaddleTransport = async () => {
+      calls += 1;
+      return Response.json({
+        data: { id: `ctm_${"b".repeat(26)}`, email: "another@example.test" },
+      });
+    };
+    await assert.rejects(
+      readExomemPaddleCustomerEmail(
+        { customerId, environment: "production" },
+        { config, transport }
+      ),
+      { code: "EXOMEM_PADDLE_ENVIRONMENT_MISMATCH" }
+    );
+    assert.equal(calls, 0);
+    await assert.rejects(
+      readExomemPaddleCustomerEmail({ customerId, environment: "sandbox" }, { config, transport }),
+      { code: "EXOMEM_PADDLE_RESPONSE_INVALID" }
+    );
+  });
+
+  it("updates only the email on the exact existing customer with merchant-only configuration", async () => {
+    const config = loadExomemPaddleConfig({
+      PADDLE_ENVIRONMENT: "sandbox",
+      PADDLE_API_KEY: "pdl_sdbx_apikey_example",
+    });
+    const customerId = `ctm_${"a".repeat(26)}`;
+    const transport: PaddleTransport = async (path, init) => {
+      assert.equal(path, `/customers/${customerId}`);
+      assert.equal(init?.method, "PATCH");
+      assert.deepEqual(JSON.parse(String(init.body)), { email: "confirmed@example.test" });
+      return Response.json({ data: { id: customerId, email: "confirmed@example.test" } });
+    };
+    await updateExomemPaddleCustomerEmail(
+      { customerId, environment: "sandbox", email: "confirmed@example.test" },
+      { config, transport }
+    );
   });
 });

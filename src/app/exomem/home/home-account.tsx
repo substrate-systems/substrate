@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Collapse } from "@/components/exomem/Transitions";
 import type { ExportView, PlanView, StorageView } from "./home-view";
@@ -11,6 +11,7 @@ export function PlanAndAccount({
   plan,
   storage,
   email,
+  emailControl,
   onBilling,
   billingBusy,
   billingMessage,
@@ -19,6 +20,7 @@ export function PlanAndAccount({
   plan: PlanView;
   storage: StorageView;
   email: string | null;
+  emailControl?: ReactNode;
   onBilling: (kind: "portal" | "checkout") => void;
   billingBusy: boolean;
   billingMessage: string | null;
@@ -70,12 +72,14 @@ export function PlanAndAccount({
           </>
         )}
       </div>
-      <div className={styles.row}>
-        <div className={styles.rowText}>
-          <span className={styles.rowTitle}>Email</span>
-          <span className={styles.rowMeta}>{email ?? "not available right now"}</span>
+      {emailControl ?? (
+        <div className={styles.row}>
+          <div className={styles.rowText}>
+            <span className={styles.rowTitle}>Email</span>
+            <span className={styles.rowMeta}>{email ?? "not available right now"}</span>
+          </div>
         </div>
-      </div>
+      )}
       {plan.note && <div className={styles.panelNote}>{plan.note}</div>}
     </Section>
   );

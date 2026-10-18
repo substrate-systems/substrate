@@ -17,6 +17,8 @@ export function homeE2eEnvironment() {
   const mailPort = cellPort + 2;
   // Only the Brevo stand-in accepts this key; it is not a secret.
   const mailApiKey = "home-e2e-brevo-key";
+  // Only the isolated test scheduler accepts this value; it is not a secret.
+  const schedulerSecret = "home-e2e-scheduler-key";
   return {
     databaseUrl,
     port,
@@ -27,6 +29,7 @@ export function homeE2eEnvironment() {
     mcpUrl,
     mailPort,
     mailApiKey,
+    schedulerSecret,
     mailUrl: `http://127.0.0.1:${mailPort}`,
     serverEnv: {
       DATABASE_URL: databaseUrl,
@@ -49,6 +52,7 @@ export function homeE2eEnvironment() {
       EXOMEM_CONTROL_PLANE_KEY: Buffer.alloc(32, 0x5a).toString("base64url"),
       BREVO_API_KEY: mailApiKey,
       BREVO_API_BASE_URL: `http://127.0.0.1:${mailPort}/v3`,
+      EXOMEM_HOSTED_SCHEDULER_SECRET: schedulerSecret,
     },
   };
 }

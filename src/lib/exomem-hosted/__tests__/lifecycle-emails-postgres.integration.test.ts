@@ -17,6 +17,7 @@ import {
   type ExomemSql,
 } from "../db";
 import { confirmDeletion } from "../deletion";
+import { requestExomemEmailChange } from "../email-change";
 import {
   drainExomemEmailOutbox,
   EXOMEM_EMAIL_KINDS,
@@ -135,7 +136,13 @@ async function queued(email: string): Promise<Array<{ kind: string; state: strin
   return rows;
 }
 
-type Sent = { to: string; subject: string; textContent: string; senderName?: string };
+type Sent = {
+  to: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  senderName?: string;
+};
 
 async function drain(): Promise<{ sent: Sent[]; cancelled: number; deferred: number }> {
   const sent: Sent[] = [];
@@ -792,5 +799,41 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       [tenant.tenantId, tenant.email]
     );
     assert.deepEqual(rows, [{ kind: "deleted", recipient: newAddress }]);
+  });
+  it("sends only the current email-change capabilities to their fixed inboxes", async () => {
+    const owner = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+    });
+    await pool.query(
+      "UPDATE exomem_tenants SET theme_choice = 'light', email_scheme = 'dark' WHERE id = $1",
+      [owner.tenantId]
+    );
+    const session = { ...owner, reviewerCredentialId: null };
+    const superseded = `superseded-${randomUUID()}@example.test`;
+    const proposed = `proposed-${randomUUID()}@example.test`;
+    await requestExomemEmailChange(session, superseded);
+    await requestExomemEmailChange(session, proposed);
+    const { sent } = await drain();
+    const current = sent.filter((email) => [owner.email, superseded, proposed].includes(email.to));
+    assert.deepEqual(current.map((email) => email.to).sort(), [owner.email, proposed].sort());
+    assert.ok(current.every((email) => !email.htmlContent.includes("prefers-color-scheme")));
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT kind, state FROM exomem_email_outbox
+      WHERE tenant_id = $1 AND kind IN ('email_change_confirmation', 'email_change_cancellation')
+      ORDER BY state, kind`,
+          [owner.tenantId]
+        )
+      ).rows,
+      [
+        { kind: "email_change_cancellation", state: "cancelled" },
+        { kind: "email_change_confirmation", state: "cancelled" },
+        { kind: "email_change_cancellation", state: "sent" },
+        { kind: "email_change_confirmation", state: "sent" },
+      ]
+    );
   });
 });

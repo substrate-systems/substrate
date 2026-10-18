@@ -342,17 +342,20 @@ export function renderExomemConfirmNewEmailEmail(input: {
   expiresAt: Date;
   now: Date;
   timeZone: EmailTimeZone;
+  scheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 }): RenderedEmail {
   const left = emailDuration(input.now, input.expiresAt);
   const until = emailClock(input.expiresAt, input.timeZone);
   return renderExomemEmail({
-    base: null, // Nothing sends this email yet; its sender passes the scheme.
+    base: input.scheme ?? null,
+    themeChoice: input.themeChoice,
     subject: "Confirm your new email",
     preheader: "Nothing changes until you open it.",
     band: "arrive",
     headline: "Confirm your new email",
     body: [
-      `Open this to make ${input.newEmail} the address for your Exomem: sign-in links and receipts go here after that.`,
+      `Confirm this to send Exomem sign-in links to ${input.newEmail}. We’ll also request an update to your receipt address. Check Home for the verified result.`,
     ],
     action: { label: "Confirm this address", url: input.confirmUrl },
     smallPrint: `Works once, until ${left ? `${until} (${left})` : until}. If you didn’t ask for this, ignore it: nothing changes.`,
@@ -373,9 +376,12 @@ function maskEmailAddress(address: string): string {
 export function renderExomemEmailChangingEmail(input: {
   homeUrl: string;
   newEmail: string;
+  scheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 }): RenderedEmail {
   return renderExomemEmail({
-    base: null, // Nothing sends this email yet; its sender passes the scheme.
+    base: input.scheme ?? null,
+    themeChoice: input.themeChoice,
     subject: "Your Exomem email is changing",
     preheader: "If this wasn’t you, stop it here.",
     band: "kept",

@@ -35,11 +35,22 @@
   background: var(--scrim);
 }
 
+.top {
+  margin: 120px auto auto;
+  max-height: calc(100dvh - 144px);
+  overflow-y: auto;
+}
+
 .title {
   margin: 0;
   font-family: var(--font-mono-exo);
   font-weight: 500;
   font-size: 18px;
+}
+
+/* The email-change board uses the font's normal heading line height. */
+.top .title {
+  line-height: normal;
 }
 
 @media (max-width: 640px) {

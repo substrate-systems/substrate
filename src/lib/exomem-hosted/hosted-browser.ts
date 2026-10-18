@@ -87,9 +87,10 @@ export function csrfCookie(): string {
 export async function postPrivateJson(
   path: string,
   body: Record<string, unknown>,
-  method: "POST" | "PUT" = "POST"
+  method: "POST" | "PUT" = "POST",
+  options: { csrfToken?: string } = {}
 ): Promise<Record<string, unknown>> {
-  const csrf = csrfCookie();
+  const csrf = options.csrfToken === undefined ? csrfCookie() : options.csrfToken;
   const response = await fetch(path, {
     method,
     headers: {

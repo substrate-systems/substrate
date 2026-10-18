@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { StorageDialog } from "./home-storage";
+import { AccountEmailChange } from "./account-email-change";
+import { csrfCookie } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 import {
@@ -104,7 +106,11 @@ export default function HomeClient({
   viewerOffered?: boolean;
 }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
-  const [account, setAccount] = useState<HomeAccount | null>(null);
+  const [accountSnapshot, setAccountSnapshot] = useState<{
+    view: HomeAccount;
+    csrfToken: string;
+  } | null>(null);
+  const account = accountSnapshot?.view ?? null;
   const [accountRead, setAccountRead] = useState<AccountRead>("loading");
   const [billing, setBilling] = useState<HomeBilling | null>(null);
   const [apps, setApps] = useState<HomeApp[] | null>(null);
@@ -209,22 +215,29 @@ export default function HomeClient({
   // A failed read keeps an account read before; with none, Home says it is unknown.
   const accountKnown = useRef(false);
   const refreshAccount = useCallback(async () => {
+    const requestCsrf = csrfCookie();
     try {
       const next = await readAccount();
       if (!mounted.current) return;
+      if (!next.csrfToken || next.csrfToken !== csrfCookie()) return;
       if (next.account) {
         accountKnown.current = true;
-        setAccount(next.account);
+        setAccountSnapshot({ view: next.account, csrfToken: next.csrfToken });
         setBilling(next.billing);
         setAccountRead("known");
       } else if (!accountKnown.current) {
         setAccountRead("failed");
       }
     } catch (error) {
+      if (!requestCsrf || requestCsrf !== csrfCookie()) return;
       if (error instanceof SignedOutError) goToSignIn();
       else if (mounted.current && !accountKnown.current) setAccountRead("failed");
     }
   }, []);
+
+  const refreshEmailAccount = useCallback(() => {
+    void refreshAccount();
+  }, [refreshAccount]);
 
   const refreshApps = useCallback(async () => {
     try {
@@ -769,6 +782,17 @@ export default function HomeClient({
               plan={planView(variant, account, billing, clock)}
               storage={storage}
               email={shownEmail}
+              emailControl={
+                !signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
+                  <AccountEmailChange
+                    key={`${accountSnapshot.csrfToken}:${account.email}`}
+                    account={account}
+                    csrfToken={accountSnapshot.csrfToken}
+                    onAccountChanged={refreshEmailAccount}
+                    onAccountRefresh={refreshEmailAccount}
+                  />
+                ) : undefined
+              }
               onBilling={(kind) => void onBilling(kind, "plan")}
               billingBusy={billingBusy}
               billingMessage={billingError?.control === "plan" ? billingError.text : null}

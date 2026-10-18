@@ -6,6 +6,7 @@ export type ExomemPaddleEnvironment = "sandbox" | "production";
 export type ExomemPaddlePurpose =
   | "checkout"
   | "transaction"
+  | "customer"
   | "portal"
   | "reconciliation"
   | "webhook"
@@ -228,10 +229,9 @@ export function assertExomemPaddlePurpose(
     }
     return;
   }
-  if (purpose === "transaction") {
-    // Cleanup is bound to the exact stored transaction, owner, tenant, and
-    // provider environment. It must remain available after new checkout is
-    // disabled or the sale catalog rotates.
+  if (purpose === "transaction" || purpose === "customer") {
+    // Existing transaction and customer bindings need merchant auth independently
+    // of new checkout settings or the current sale catalogue.
     if (!config.apiKey) {
       throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
     }

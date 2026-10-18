@@ -5,6 +5,8 @@ import { expireCloudAwaitingCheckoutTenants } from "@/lib/exomem-hosted/cloud-ad
 import { runBoundedCloudReconcile } from "@/lib/exomem-hosted/cloud-lifecycle";
 import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-cancellation-notice";
 import { runBoundedCloudDeletionFinish } from "@/lib/exomem-hosted/cloud-deletion-finish";
+import { runBoundedPaddleReceiptContacts } from "@/lib/exomem-hosted/paddle-receipt-contact";
+import { pruneExpiredExomemEmailChanges } from "@/lib/exomem-hosted/email-change";
 import { pruneExpiredOAuthState } from "@/lib/exomem-hosted/oauth-store";
 import {
   promoteWaitlistedPeople,
@@ -125,18 +127,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // of clients that can no longer be used (reclaim-oauth-client-slots). It is
     // bounded per run and runs beside the other lanes, so a failure in any one
     // still lets the others finish this tick before the route reports it.
-    const [paddleResult, cloudResult, oauthResult] = await Promise.allSettled([
-      runBoundedPaddleReconcile({
-        maxSubscriptions: 5,
-        timeBudgetMs: 8_000,
-      }),
-      runCloudLane(),
-      pruneExpiredOAuthState(),
-    ]);
+    const [paddleResult, cloudResult, oauthResult, contactsResult, changesResult] =
+      await Promise.allSettled([
+        runBoundedPaddleReconcile({
+          maxSubscriptions: 5,
+          timeBudgetMs: 8_000,
+        }),
+        runCloudLane(),
+        pruneExpiredOAuthState(),
+        runBoundedPaddleReceiptContacts({ maxContacts: 5, timeBudgetMs: 8_000 }),
+        pruneExpiredExomemEmailChanges(),
+      ]);
     if (oauthResult.status === "rejected") {
       console.error("exomem-oauth: expired state and client retirement lane failed");
     }
+    if (contactsResult.status === "rejected") console.error("exomem: receipt contact lane failed");
+    if (changesResult.status === "rejected")
+      console.error("exomem: expired email change cleanup failed");
     if (
+      contactsResult.status === "rejected" ||
+      changesResult.status === "rejected" ||
       paddleResult.status === "rejected" ||
       cloudResult.status === "rejected" ||
       oauthResult.status === "rejected"
@@ -158,6 +168,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             failed: paddle.failed,
           },
           cloud: cloudResult.value,
+          receiptContacts: contactsResult.value,
+          emailChangesPruned: changesResult.value,
           oauth: {
             disabledCimd: oauthResult.value.disabledCimd,
             retiredAutoRegistered: oauthResult.value.retired.autoRegistered,
