@@ -72,12 +72,14 @@ export function PlanAndAccount({
           </>
         )}
       </div>
-      {emailControl ?? <div className={styles.row}>
-        <div className={styles.rowText}>
-          <span className={styles.rowTitle}>Email</span>
-          <span className={styles.rowMeta}>{email ?? "not available right now"}</span>
+      {emailControl ?? (
+        <div className={styles.row}>
+          <div className={styles.rowText}>
+            <span className={styles.rowTitle}>Email</span>
+            <span className={styles.rowMeta}>{email ?? "not available right now"}</span>
+          </div>
         </div>
-      </div>}
+      )}
       {plan.note && <div className={styles.panelNote}>{plan.note}</div>}
     </Section>
   );

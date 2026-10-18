@@ -33,7 +33,10 @@ export default function EmailChangeClient({ action }: { action: "confirm" | "can
       const response = await postPublicJson(`/api/exomem/account/email-change/${action}`, {
         token: token.current,
       });
-      if (response.success !== true || response.state !== (action === "confirm" ? "confirmed" : "cancelled"))
+      if (
+        response.success !== true ||
+        response.state !== (action === "confirm" ? "confirmed" : "cancelled")
+      )
         throw new Error("The email-change result was not confirmed.");
       token.current = null;
       setState("complete");
@@ -50,24 +53,30 @@ export default function EmailChangeClient({ action }: { action: "confirm" | "can
 
   const completed = state === "complete";
   const invalid = state === "invalid";
-  const title = state === "checking"
-    ? "Checking this link"
-    : invalid
-      ? "This link no longer works"
-      : completed
-        ? action === "confirm" ? "Your email has changed" : "Email change stopped"
-        : action === "confirm" ? "Confirm your new email" : "Stop this email change?";
-  const lede = state === "checking"
-    ? "Your account stays unchanged until you choose an action."
-    : invalid
-      ? "This link may have expired, been replaced or already been used. Check Home before requesting another change."
-      : completed
-        ? action === "confirm"
-          ? "New sign-in links go to your new address. Your notes, sessions and connected apps stay with your account."
-          : "This pending change is cancelled. Your account still uses its existing email address."
-        : action === "confirm"
-          ? "Use the new address for Exomem sign-in links. Your notes and connected apps stay as they are."
-          : "Keep your current email address. The pending change will no longer work.";
+  const title =
+    state === "checking"
+      ? "Checking this link"
+      : invalid
+        ? "This link no longer works"
+        : completed
+          ? action === "confirm"
+            ? "Your email has changed"
+            : "Email change stopped"
+          : action === "confirm"
+            ? "Confirm your new email"
+            : "Stop this email change?";
+  const lede =
+    state === "checking"
+      ? "Your account stays unchanged until you choose an action."
+      : invalid
+        ? "This link may have expired, been replaced or already been used. Check Home before requesting another change."
+        : completed
+          ? action === "confirm"
+            ? "New sign-in links go to your new address. Your notes, sessions and connected apps stay with your account."
+            : "This pending change is cancelled. Your account still uses its existing email address."
+          : action === "confirm"
+            ? "Use the new address for Exomem sign-in links. Your notes and connected apps stay as they are."
+            : "Keep your current email address. The pending change will no longer work.";
 
   return (
     <JourneyPage
@@ -77,16 +86,20 @@ export default function EmailChangeClient({ action }: { action: "confirm" | "can
       focusHeading={state !== "checking"}
     >
       <StepHeading title={title} lede={lede} />
-      <StepNotice visible={error !== null} alert>{error}</StepNotice>
+      <StepNotice visible={error !== null} alert>
+        {error}
+      </StepNotice>
       {state !== "checking" ? (
         <StepActions
-          primary={completed || invalid
-            ? { label: "Go to Home", onClick: () => window.location.assign("/exomem/home") }
-            : {
-                label: action === "confirm" ? "Confirm this address" : "Stop the change",
-                working: state === "submitting",
-                onClick: () => void complete(),
-              }}
+          primary={
+            completed || invalid
+              ? { label: "Go to Home", onClick: () => window.location.assign("/exomem/home") }
+              : {
+                  label: action === "confirm" ? "Confirm this address" : "Stop the change",
+                  working: state === "submitting",
+                  onClick: () => void complete(),
+                }
+          }
         />
       ) : null}
       {/* One explicit action prevents a link preview from changing the account; it costs its owner one click. */}

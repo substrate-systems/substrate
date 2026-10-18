@@ -106,7 +106,10 @@ export default function HomeClient({
   viewerOffered?: boolean;
 }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
-  const [accountSnapshot, setAccountSnapshot] = useState<{ view: HomeAccount; csrfToken: string } | null>(null);
+  const [accountSnapshot, setAccountSnapshot] = useState<{
+    view: HomeAccount;
+    csrfToken: string;
+  } | null>(null);
   const account = accountSnapshot?.view ?? null;
   const [accountRead, setAccountRead] = useState<AccountRead>("loading");
   const [billing, setBilling] = useState<HomeBilling | null>(null);
@@ -232,7 +235,9 @@ export default function HomeClient({
     }
   }, []);
 
-  const refreshEmailAccount = useCallback(() => { void refreshAccount(); }, [refreshAccount]);
+  const refreshEmailAccount = useCallback(() => {
+    void refreshAccount();
+  }, [refreshAccount]);
 
   const refreshApps = useCallback(async () => {
     try {
@@ -777,15 +782,17 @@ export default function HomeClient({
               plan={planView(variant, account, billing, clock)}
               storage={storage}
               email={shownEmail}
-              emailControl={!signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
-                <AccountEmailChange
-                  key={`${accountSnapshot.csrfToken}:${account.email}`}
-                  account={account}
-                  csrfToken={accountSnapshot.csrfToken}
-                  onAccountChanged={refreshEmailAccount}
-                  onAccountRefresh={refreshEmailAccount}
-                />
-              ) : undefined}
+              emailControl={
+                !signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
+                  <AccountEmailChange
+                    key={`${accountSnapshot.csrfToken}:${account.email}`}
+                    account={account}
+                    csrfToken={accountSnapshot.csrfToken}
+                    onAccountChanged={refreshEmailAccount}
+                    onAccountRefresh={refreshEmailAccount}
+                  />
+                ) : undefined
+              }
               onBilling={(kind) => void onBilling(kind, "plan")}
               billingBusy={billingBusy}
               billingMessage={billingError?.control === "plan" ? billingError.text : null}

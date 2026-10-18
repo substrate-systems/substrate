@@ -217,33 +217,59 @@ export async function readEmailChange(): Promise<HomeEmailChange | null> {
   // The receipt projection schema fixes these synchronization states.
   const receiptStates = new Set(["pending", "synchronized", "conflict", "failed"]);
   const delivery = record(pending?.delivery);
-  const pendingOk = response.pending === null || (pending !== null &&
-    typeof pending.proposedEmail === "string" && typeof pending.expiresAt === "string" &&
-    Number.isFinite(Date.parse(pending.expiresAt)) && (pending.delivery === null ||
-      (delivery !== null && Object.values(delivery).every((state) => typeof state === "string" && deliveryStates.has(state)))));
-  const receiptsOk = response.receipts === null || (receipts !== null &&
-    (receipts.state === null || (typeof receipts.state === "string" && receiptStates.has(receipts.state))) && typeof receipts.available === "boolean" &&
-    (receipts.knownEmail === null || typeof receipts.knownEmail === "string") &&
-    (receipts.observedAt === null || (typeof receipts.observedAt === "string" && Number.isFinite(Date.parse(receipts.observedAt)))) &&
-    (receipts.observationSource === null || receipts.observationSource === "paddle_customer") &&
-    (receipts.errorCode === null || typeof receipts.errorCode === "string"));
-  return response.success === true && pendingOk && receiptsOk ? response as unknown as HomeEmailChange : null;
+  const pendingOk =
+    response.pending === null ||
+    (pending !== null &&
+      typeof pending.proposedEmail === "string" &&
+      typeof pending.expiresAt === "string" &&
+      Number.isFinite(Date.parse(pending.expiresAt)) &&
+      (pending.delivery === null ||
+        (delivery !== null &&
+          Object.values(delivery).every(
+            (state) => typeof state === "string" && deliveryStates.has(state)
+          ))));
+  const receiptsOk =
+    response.receipts === null ||
+    (receipts !== null &&
+      (receipts.state === null ||
+        (typeof receipts.state === "string" && receiptStates.has(receipts.state))) &&
+      typeof receipts.available === "boolean" &&
+      (receipts.knownEmail === null || typeof receipts.knownEmail === "string") &&
+      (receipts.observedAt === null ||
+        (typeof receipts.observedAt === "string" &&
+          Number.isFinite(Date.parse(receipts.observedAt)))) &&
+      (receipts.observationSource === null || receipts.observationSource === "paddle_customer") &&
+      (receipts.errorCode === null || typeof receipts.errorCode === "string"));
+  return response.success === true && pendingOk && receiptsOk
+    ? (response as unknown as HomeEmailChange)
+    : null;
 }
 
 /** The frozen nonce prevents an old form from using a newly signed-in account's authority. */
-export async function requestEmailChange(email: string, csrfToken: string): Promise<{ expiresAt: string } | null> {
+export async function requestEmailChange(
+  email: string,
+  csrfToken: string
+): Promise<{ expiresAt: string } | null> {
   const current = () => csrfToken !== "" && csrfToken === csrfCookie();
   if (!current()) return null;
   let response: Record<string, unknown>;
   try {
-    response = await postPrivateJson("/api/exomem/account/email-change", { email }, "POST", { csrfToken });
+    response = await postPrivateJson("/api/exomem/account/email-change", { email }, "POST", {
+      csrfToken,
+    });
   } catch (error) {
     if (!current()) return null;
     throw error;
   }
   if (!current()) return null;
-  if (response.success !== true || response.state !== "pending" || response.delivery !== "queued" ||
-    typeof response.expiresAt !== "string" || !Number.isFinite(Date.parse(response.expiresAt))) throw new Error("Email change was not queued");
+  if (
+    response.success !== true ||
+    response.state !== "pending" ||
+    response.delivery !== "queued" ||
+    typeof response.expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(response.expiresAt))
+  )
+    throw new Error("Email change was not queued");
   return { expiresAt: response.expiresAt };
 }
 
