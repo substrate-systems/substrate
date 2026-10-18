@@ -60,12 +60,18 @@
   position: absolute;
   right: var(--gutter);
   top: 23.5px;
+  /* Keep long addresses in the right half, clear of the wordmark. */
+  max-width: calc(50% - var(--gutter));
   display: flex;
   align-items: center;
   gap: 40px;
   z-index: 3;
 }
 .headerEmail {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
@@ -569,9 +575,11 @@
   max-width: 380px;
 }
 
-/* A live or settled line: an amber dot and one mono line. */
+/* A live or settled line: an amber dot and wrapping mono text. */
 .statusLine {
   display: flex;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   gap: 10px;
   align-items: center;
   font-family: var(--font-mono-exo);

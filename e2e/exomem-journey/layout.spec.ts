@@ -470,6 +470,17 @@ const STEPS: Step[] = [
       const domain = `${"d".repeat(63)}.${"e".repeat(63)}.${"f".repeat(56)}.test`;
       await consentFor(page, context, "readonly", `${local}@${domain}`);
       await expect(page.getByText(consentCopy.readOnly.lede)).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const main = page.getByRole("main");
+      const theme = main.getByRole("button", { name: /^Theme:/ });
+      await expect(theme).toBeVisible();
+      const control = (await theme.boundingBox())!;
+      const wordmark = (await main.getByRole("img", { name: "Exomem" }).first().boundingBox())!;
+      const viewport = page.viewportSize()!;
+      expect(control.x).toBeGreaterThanOrEqual(wordmark.x + wordmark.width);
+      expect(control.x + control.width).toBeLessThanOrEqual(viewport.width);
+      expect(control.y).toBeGreaterThanOrEqual(0);
+      expect(control.y + control.height).toBeLessThanOrEqual(viewport.height);
     },
   },
   {
@@ -546,12 +557,44 @@ const STEPS: Step[] = [
     open: async (page, context) => {
       await signedIn(context, "ready");
       await answerApps(context);
-      const client = await app("computer");
+      const client = await seedClient({
+        name: "W".repeat(64),
+        redirectUri: "http://127.0.0.1:47124/callback",
+        platform: null,
+      });
       await page.goto(authorizeRequest(client).url);
       await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
       await expect(page.getByText(handbackCopy.loopback.lede(client.name))).toBeVisible({
         timeout: AFTER_CONNECT_MS,
       });
+      const status = page.getByText(handbackCopy.loopback.done(client.name), { exact: true });
+      await expect(status).toBeVisible();
+      await expect(status.locator('[aria-hidden="true"]')).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const visible = await status.evaluate((line) => {
+        const column = line.closest('[class*="column"]')!.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(line);
+        return {
+          left: Math.max(0, column.left),
+          right: Math.min(innerWidth, column.right),
+          top: Math.max(0, column.top),
+          bottom: Math.min(innerHeight, column.bottom),
+          rects: Array.from(range.getClientRects(), ({ left, right, top, bottom }) => ({
+            left,
+            right,
+            top,
+            bottom,
+          })),
+        };
+      });
+      expect(visible.rects.length).toBeGreaterThan(0);
+      for (const rect of visible.rects) {
+        expect(rect.left).toBeGreaterThanOrEqual(visible.left);
+        expect(rect.right).toBeLessThanOrEqual(visible.right);
+        expect(rect.top).toBeGreaterThanOrEqual(visible.top);
+        expect(rect.bottom).toBeLessThanOrEqual(visible.bottom);
+      }
     },
   },
   {
