@@ -729,7 +729,8 @@
   }
 }
 
-@media (max-width: 640px) and (height < 720px), (max-height: 480px) {
+/* Explicit grouping preserves the strict height condition through compiler lowering. */
+@media (max-width: 640px) and (not (min-height: 720px)), (max-height: 480px) {
   .tiles {
     display: none;
   }
