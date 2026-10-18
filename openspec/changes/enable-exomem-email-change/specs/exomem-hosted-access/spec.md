@@ -17,6 +17,13 @@ The caller MUST NOT replace the bound email or choose a tenant. Exomem identity 
 - **THEN** redemption never attaches the old address to that identity or its tenant
 - **AND** after the identity switch it may create an independent Exomem identity
 
+#### Scenario: An erased address receives a fresh invitation after an operator ban
+
+- **WHEN** a fully deleted account leaves a blocked principal and a new valid invitation is redeemed at its erased address
+- **THEN** admission creates an independent identity and tenant
+- **AND** the old principal, tenant and credentials remain blocked
+- **AND** the system retains no address fingerprint to connect the deleted principal to the new account
+
 #### Scenario: Consumed or expired invite is replayed
 
 - **WHEN** a consumed, revoked, malformed or expired invite token is presented

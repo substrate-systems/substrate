@@ -28,6 +28,8 @@ import {
   type RenderedExomemAccessEmail,
 } from "@/lib/email-templates/exomem-access";
 import {
+  renderExomemConfirmNewEmailEmail,
+  renderExomemEmailChangingEmail,
   renderExomemDeletedEmail,
   renderExomemDeletionReminderEmail,
   renderExomemPaymentFailedEmail,
@@ -523,7 +525,73 @@ function invitationUrl(input: { publicBaseUrl: string; payload: StartLinkPayload
   return exomemPublicFragmentUrl(input.publicBaseUrl, "/exomem/invite", input.payload.token);
 }
 
+type EmailChangePayload = { version: 1; tenantId: string; requestId: string; token: string };
+
+function readEmailChangePayload(value: Record<string, unknown>): EmailChangePayload | null {
+  const fields = readFields(value, ["tenantId", "requestId", "token"] as const);
+  return fields &&
+    UUID.test(fields.tenantId) &&
+    UUID.test(fields.requestId) &&
+    tokenDigest(fields.token)
+    ? { version: 1, ...fields }
+    : null;
+}
+
+async function emailChangeStillPending(
+  tx: ExomemSql,
+  payload: EmailChangePayload,
+  action: "confirm" | "cancel"
+) {
+  // Claims hold the outbox row; this read takes no account locks. Redemption rechecks the capability under its tenant lock.
+  const { rows } = await tx`
+    SELECT change.proposed_email::text AS proposed_email, change.expires_at
+    FROM exomem_email_changes AS change
+    JOIN exomem_tenants AS tenant ON tenant.id = change.tenant_id
+    WHERE change.id = ${payload.requestId}::uuid AND change.tenant_id = ${payload.tenantId}::uuid
+      AND change.expires_at > now() AND tenant.deleted_at IS NULL
+      AND tenant.status NOT IN ('deleted', 'deletion_pending')
+      AND ((${action} = 'confirm' AND change.confirmation_digest = ${tokenDigest(payload.token)})
+        OR (${action} = 'cancel' AND change.cancellation_digest = ${tokenDigest(payload.token)}))
+  `;
+  return (rows[0] as { proposed_email: string; expires_at: Date | string } | undefined) ?? null;
+}
+
 const EXOMEM_EMAILS = {
+  /** Email 16 is fixed to the proposed address; later owner changes never redirect it. */
+  email_change_confirmation: defineEmail({
+    readPayload: readEmailChangePayload,
+    stillHolds: (tx, payload) => emailChangeStillPending(tx, payload, "confirm"),
+    render: ({ payload, context, now, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
+      renderExomemConfirmNewEmailEmail({
+        confirmUrl: exomemPublicFragmentUrl(
+          publicBaseUrl,
+          "/exomem/email-change/confirm",
+          payload.token
+        ),
+        newEmail: context.proposed_email,
+        expiresAt: new Date(context.expires_at),
+        now,
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
+      }),
+  }),
+  /** Email 16b is fixed to the original inbox and grants cancellation only. */
+  email_change_cancellation: defineEmail({
+    readPayload: readEmailChangePayload,
+    stillHolds: (tx, payload) => emailChangeStillPending(tx, payload, "cancel"),
+    render: ({ payload, context, emailScheme, themeChoice, publicBaseUrl }) =>
+      renderExomemEmailChangingEmail({
+        homeUrl: exomemPublicFragmentUrl(
+          publicBaseUrl,
+          "/exomem/email-change/cancel",
+          payload.token
+        ),
+        newEmail: context.proposed_email,
+        scheme: emailScheme,
+        themeChoice,
+      }),
+  }),
   /** Email 01w: a start link from "Start with your email", or a re-sent one. */
   start: defineEmail({
     readPayload: readStartLinkPayload,

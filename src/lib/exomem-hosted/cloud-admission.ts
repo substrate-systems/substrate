@@ -7,7 +7,7 @@
 
 import { type ExomemThemeChoice } from "@/lib/exomem/theme";
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
@@ -179,35 +179,17 @@ async function createCloudCell(
 
 type CloudAdmissionOwner = { id: string; created_at: string };
 
-/** Keep the shared-user foreign keys compatible until Release B repoints them. */
+/** New Exomem identities never read or mutate another product's user record. */
 async function resolveCloudAdmissionOwner(
   tx: ExomemSql,
   email: string
-): Promise<CloudAdmissionOwner | undefined> {
+): Promise<CloudAdmissionOwner> {
   const { rows } = await tx`
-    WITH canonical AS (
-      SELECT id, created_at::text AS created_at FROM exomem_users
-      WHERE email = ${email} AND deleted_at IS NULL
-    ), shared AS (
-      INSERT INTO users (email, email_verified_at)
-      SELECT ${email}, now()
-      WHERE NOT EXISTS (SELECT 1 FROM exomem_users WHERE email = ${email})
-      ON CONFLICT (email) DO UPDATE
-      -- Return the shared UUID without changing another product's identity fields.
-      SET email = users.email
-      WHERE users.deleted_at IS NULL
-        -- A stale shared address must never recover a live identity with a new email.
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_users AS identity WHERE identity.id = users.id
-            AND (identity.deleted_at IS NULL OR identity.email IS NOT NULL)
-        )
-      RETURNING id, created_at::text AS created_at
-    )
-    SELECT id, created_at FROM canonical
-    UNION ALL
-    SELECT id, created_at FROM shared
+    SELECT id, created_at::text AS created_at FROM exomem_users
+    WHERE email = ${email} AND deleted_at IS NULL
   `;
-  return rows[0] as CloudAdmissionOwner | undefined;
+  // Allocate without locking a principal before its tenant; insertion follows the tenant check.
+  return (rows[0] as CloudAdmissionOwner | undefined) ?? { id: randomUUID(), created_at: new Date().toISOString() };
 }
 
 /** Lock the tenant first, as deletion does, then recheck the verified address. */
@@ -217,15 +199,18 @@ async function verifyCloudAdmissionIdentity(
   email: string
 ): Promise<boolean> {
   const { rows } = await tx`
-    INSERT INTO exomem_users (id, email, email_verified_at, created_at)
-    VALUES (${owner.id}::uuid, ${email}, now(), ${owner.created_at})
-    ON CONFLICT (id) DO UPDATE
-    SET email = EXCLUDED.email,
-        email_verified_at = COALESCE(exomem_users.email_verified_at, now()),
-        deleted_at = NULL
-    WHERE (exomem_users.deleted_at IS NULL AND exomem_users.email = EXCLUDED.email)
-       OR (exomem_users.deleted_at IS NOT NULL AND exomem_users.email IS NULL)
-    RETURNING id
+    WITH existing AS (
+      UPDATE exomem_users SET email_verified_at = COALESCE(email_verified_at, now())
+      WHERE id = ${owner.id}::uuid AND deleted_at IS NULL AND email = ${email}
+      RETURNING id
+    ), created AS (
+      INSERT INTO exomem_users (id, email, email_verified_at, created_at)
+      SELECT ${owner.id}::uuid, ${email}, now(), ${owner.created_at}
+      WHERE NOT EXISTS (SELECT 1 FROM existing)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    )
+    SELECT id FROM existing UNION ALL SELECT id FROM created
   `;
   return rows.length > 0;
 }
@@ -300,10 +285,8 @@ export async function redeemCloudInviteAtomic(
 
     if (await ownerHasAdmissionBlock(tx, owner.id)) throw exomemErrors.accessTokenInvalid();
 
-    // Security review finding 4: a cell-less tenant within the re-admission
-    // scope is reused under this same capacity check, with its admission
-    // columns reset (a fully-deleted prior cell leaves status/desired_state/
-    // deleted_at at 'deleted', which a fresh admission must not inherit).
+    // A live canonical identity may reuse its eligible cell-less tenant.
+    // An erased address resolves to a fresh identity instead.
     const existing = await lockExistingCloudTenant(
       tx,
       owner.id,

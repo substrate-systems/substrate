@@ -34,6 +34,7 @@ const PRIVATE_EXOMEM_PATHS = [
   "/exomem/export",
   "/exomem/restore",
   "/exomem/delete",
+  "/exomem/email-change",
 ] as const;
 
 /** Exposed so the coverage test can compare against the routes on disk. */

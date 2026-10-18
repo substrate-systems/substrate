@@ -896,3 +896,58 @@ export async function createExomemCustomerPortal(
   }
   return { portalUrl };
 }
+
+/** Exact-customer contact operations require merchant credentials, not a checkout catalogue. */
+function customerContactConfig(
+  input: { customerId: string; environment: ExomemPaddleConfig["environment"] },
+  config?: ExomemPaddleConfig
+): void {
+  try {
+    const current = config ?? loadExomemPaddleTransactionConfig();
+    assertExomemPaddlePurpose(current, "customer");
+    if (current.environment !== input.environment)
+      throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
+  } catch (error) {
+    if (error instanceof ExomemBillingError) throw error;
+    throw safeConfigurationError(error);
+  }
+  if (!safePaddleId(input.customerId, "ctm"))
+    throw new ExomemBillingError("EXOMEM_BILLING_INPUT_REJECTED", 400);
+}
+
+export async function readExomemPaddleCustomerEmail(
+  input: { customerId: string; environment: ExomemPaddleConfig["environment"] },
+  dependencies: Pick<BillingDependencies, "config" | "transport"> = {}
+): Promise<string> {
+  customerContactConfig(input, dependencies.config);
+  const payload = await safePaddleJson(
+    dependencies.transport ?? paddleFetch,
+    `/customers/${encodeURIComponent(input.customerId)}`,
+    { method: "GET" }
+  );
+  const data = safeObject(safeObject(payload)?.data);
+  if (
+    data?.id !== input.customerId ||
+    typeof data.email !== "string" ||
+    !data.email.length ||
+    data.email.length > 320
+  ) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  return data.email;
+}
+
+export async function updateExomemPaddleCustomerEmail(
+  input: { customerId: string; environment: ExomemPaddleConfig["environment"]; email: string },
+  dependencies: Pick<BillingDependencies, "config" | "transport"> = {}
+): Promise<void> {
+  customerContactConfig(input, dependencies.config);
+  await safePaddleJson(
+    dependencies.transport ?? paddleFetch,
+    `/customers/${encodeURIComponent(input.customerId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ email: input.email }),
+    }
+  );
+}

@@ -413,7 +413,11 @@ describe("migration 0074 independent Exomem identity", { skip: !DATABASE_URL }, 
       } finally {
         await pool.query("RESET ROLE");
       }
-      await applyMigrations({ databaseUrl: scoped.toString() });
+      copyFileSync(
+        resolve("migrations/0075_exomem_theme_choice.sql"),
+        join(migrationsDir, "0075_exomem_theme_choice.sql")
+      );
+      await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
 
       assert.deepEqual(
         (await pool.query("SELECT * FROM users ORDER BY id")).rows,
@@ -601,6 +605,31 @@ describe("migration 0074 independent Exomem identity", { skip: !DATABASE_URL }, 
         (await pool.query("SELECT email FROM exomem_users WHERE id = $1", [legacyId])).rows[0]!
           .email,
         "canonical@example.test"
+      );
+      await applyMigrations({ databaseUrl: scoped.toString() });
+      assert.equal((await identityForeignKeys()).rowCount, 0);
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS n FROM pg_constraint WHERE contype = 'f' AND confrelid = 'exomem_users'::regclass AND connamespace = current_schema()::regnamespace"
+          )
+        ).rows[0]!.n,
+        8
+      );
+      assert.deepEqual(
+        (await pool.query("SELECT * FROM exomem_sessions")).rows,
+        sessionsBefore.rows
+      );
+      const independent = (
+        await pool.query(
+          "INSERT INTO exomem_users (email) VALUES ('independent@example.test') RETURNING id"
+        )
+      ).rows[0]!.id;
+      await pool.query("INSERT INTO exomem_tenants (owner_user_id) VALUES ($1)", [independent]);
+      assert.equal(
+        (await pool.query("SELECT count(*)::int AS n FROM users WHERE id = $1", [independent]))
+          .rows[0]!.n,
+        0
       );
     } finally {
       if (pool) await pool.end();

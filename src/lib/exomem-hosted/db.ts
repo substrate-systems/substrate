@@ -250,13 +250,27 @@ export type CreateMagicAccessTokenInput = {
 export async function createMagicAccessToken(
   input: CreateMagicAccessTokenInput
 ): Promise<{ tokenId: string; deliveryId: string; emailNormalized: string } | null> {
-  const { rows } = await sql`
+  return withExomemTransaction(async (tx) => {
+    const { rows: candidates } = await tx`
+      /* exomem:create-magic-access-token-lock-owner */
+      SELECT tenant.id AS tenant_id, tenant.owner_user_id AS user_id
+      FROM exomem_tenants AS tenant
+      JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
+      WHERE owner.email = ${input.emailNormalized}
+      FOR UPDATE OF tenant
+    `;
+    const candidate = candidates[0] as { tenant_id: string; user_id: string } | undefined;
+    if (!candidate) return null;
+    // Recheck this tenant's address in a fresh snapshot after any lock wait.
+    const { rows } = await tx`
     /* exomem:create-magic-access-token */
     WITH owner AS (
       SELECT exomem_users.id AS user_id, tenant.id AS tenant_id
       FROM exomem_users
       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
       WHERE exomem_users.email = ${input.emailNormalized}
+        AND exomem_users.id = ${candidate.user_id}::uuid
+        AND tenant.id = ${candidate.tenant_id}::uuid
         AND exomem_users.deleted_at IS NULL
         AND tenant.status IN ('provisioning', 'active', 'suspended')
         AND tenant.deleted_at IS NULL
@@ -324,10 +338,13 @@ export async function createMagicAccessToken(
     FROM token
     JOIN queued ON queued.token_id = token.id
   `;
-  const row = rows[0] as { id: string; delivery_id: string; email_normalized: string } | undefined;
-  return row
-    ? { tokenId: row.id, deliveryId: row.delivery_id, emailNormalized: row.email_normalized }
-    : null;
+    const row = rows[0] as
+      | { id: string; delivery_id: string; email_normalized: string }
+      | undefined;
+    return row
+      ? { tokenId: row.id, deliveryId: row.delivery_id, emailNormalized: row.email_normalized }
+      : null;
+  });
 }
 
 export async function markAccessTokenDelivered(tokenId: string): Promise<void> {

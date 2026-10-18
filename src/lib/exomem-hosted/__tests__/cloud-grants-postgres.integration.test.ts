@@ -484,6 +484,16 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await assert.rejects(gatewayPool!.query("UPDATE exomem_users SET deleted_at = now()"), /permission denied/);
     await assert.rejects(gatewayPool!.query("SELECT id, deleted_at FROM users LIMIT 1"), /permission denied/);
     await assert.rejects(gatewayPool!.query("SELECT email FROM users LIMIT 1"), /permission denied/);
+    await appPool!.query("SELECT original_email, proposed_email FROM exomem_email_changes LIMIT 1");
+    await appPool!.query("SELECT observed_email FROM exomem_paddle_receipt_contacts LIMIT 1");
+    await assert.rejects(
+      gatewayPool!.query("SELECT * FROM exomem_email_changes LIMIT 1"),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("SELECT * FROM exomem_paddle_receipt_contacts LIMIT 1"),
+      /permission denied/
+    );
     for (const column of ["password_hash", "username_digest"]) {
       await assert.rejects(
         gatewayPool!.query(`SELECT ${column} FROM exomem_marketplace_reviewer_credentials LIMIT 1`),

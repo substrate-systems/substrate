@@ -342,11 +342,14 @@ export function renderExomemConfirmNewEmailEmail(input: {
   expiresAt: Date;
   now: Date;
   timeZone: EmailTimeZone;
+  scheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 }): RenderedEmail {
   const left = emailDuration(input.now, input.expiresAt);
   const until = emailClock(input.expiresAt, input.timeZone);
   return renderExomemEmail({
-    base: null, // Nothing sends this email yet; its sender passes the scheme.
+    base: input.scheme ?? null,
+    themeChoice: input.themeChoice,
     subject: "Confirm your new email",
     preheader: "Nothing changes until you open it.",
     band: "arrive",
@@ -373,9 +376,12 @@ function maskEmailAddress(address: string): string {
 export function renderExomemEmailChangingEmail(input: {
   homeUrl: string;
   newEmail: string;
+  scheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 }): RenderedEmail {
   return renderExomemEmail({
-    base: null, // Nothing sends this email yet; its sender passes the scheme.
+    base: input.scheme ?? null,
+    themeChoice: input.themeChoice,
     subject: "Your Exomem email is changing",
     preheader: "If this wasn’t you, stop it here.",
     band: "kept",

@@ -16,6 +16,8 @@ let paddleGate: Promise<void> | null = null;
 let paddleShouldFail = false;
 let oauthPruneCalls = 0;
 let oauthPruneShouldFail = false;
+let contactCalls = 0;
+let contactShouldFail = false;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/cloud-admission", {
@@ -77,6 +79,26 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/paddle-receipt-contact", {
+    namedExports: {
+      runBoundedPaddleReceiptContacts: async () => {
+        contactCalls += 1;
+        if (contactShouldFail) throw new Error("private contact failure");
+        return {
+          configured: true,
+          attempted: 1,
+          synchronized: 1,
+          pending: 0,
+          conflict: 0,
+          failed: 0,
+          superseded: 0,
+        };
+      },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/email-change", {
+    namedExports: { pruneExpiredExomemEmailChanges: async () => 2 },
+  });
   mock.module("@/lib/exomem-hosted/paddle-reconciliation-runtime", {
     namedExports: {
       runBoundedPaddleReconcile: async () => {
@@ -114,6 +136,8 @@ afterEach(() => {
   paddleShouldFail = false;
   oauthPruneCalls = 0;
   oauthPruneShouldFail = false;
+  contactCalls = 0;
+  contactShouldFail = false;
   if (ORIGINAL_SCHEDULER_SECRET === undefined) delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
   else process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = ORIGINAL_SCHEDULER_SECRET;
 });
@@ -140,6 +164,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(response.status, 401);
     assert.equal(paddleRunCalls, 0);
     assert.equal(cloudReconcileCalls, 0);
+    assert.equal(contactCalls, 0);
   });
 
   it("runs a bounded authenticated pass and exposes counts only", async () => {
@@ -181,6 +206,16 @@ describe("GET /api/cron/exomem-reconcile", () => {
         selfServePruned: { waitlistEntries: 3, startLinks: 4 },
       },
       oauth: { disabledCimd: 2, retiredAutoRegistered: 1, retiredGeneric: 3 },
+      receiptContacts: {
+        configured: true,
+        attempted: 1,
+        synchronized: 1,
+        pending: 0,
+        conflict: 0,
+        failed: 0,
+        superseded: 0,
+      },
+      emailChangesPruned: 2,
     });
   });
 
@@ -228,6 +263,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(paddleRunCalls, 1);
     assert.equal(cloudReconcileCalls, 1);
+    assert.equal(contactCalls, 1);
     assert.equal(settled, false);
     cloud.resolve();
     const response = await pending;
@@ -298,5 +334,16 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(body.result.cloud.deletionsFailed, 0);
     assert.equal(body.result.cloud.reconciled, 4, "the other Cloud lanes still report");
     assert.deepEqual(logged, ["exomem-cloud: account deletion finish lane failed"]);
+  });
+  it("keeps billing and Cloud work independent of a failed receipt contact lane", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    contactShouldFail = true;
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 503);
+    assert.equal(paddleRunCalls, 1);
+    assert.equal(cloudReconcileCalls, 1);
+    assert.equal(contactCalls, 1);
+    assert.equal((await response.text()).includes("private contact failure"), false);
   });
 });

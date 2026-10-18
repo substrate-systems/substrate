@@ -18,6 +18,9 @@ import { isExomemMoney } from "@/lib/exomem/money";
 import type { CloudStorageObservation } from "@/lib/exomem-hosted/cloud-status";
 import { csrfCookie, getPrivateJson, HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
 import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";
+import type { loadExomemEmailChange } from "@/lib/exomem-hosted/email-change";
+import type { loadPaddleReceiptContact } from "@/lib/exomem-hosted/paddle-receipt-contact";
+import { postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import { type Lifecycle, parseCloudConnectorUrl, parseLifecycleResponse } from "./home-state";
 
 export type HomeAccount = ExomemAccountView;
@@ -159,7 +162,10 @@ export async function readStatus(): Promise<StatusRead> {
 export async function readAccount(): Promise<{
   account: HomeAccount | null;
   billing: HomeBilling | null;
+  csrfToken: string;
 }> {
+  // A late response may describe a previous session. Its view and pre-request nonce stay paired.
+  const csrfToken = csrfCookie();
   const response = await read("/api/exomem/account");
   const account = record(response.account);
   const plan = record(account?.plan);
@@ -193,7 +199,52 @@ export async function readAccount(): Promise<{
   return {
     account: accountOk ? (account as HomeAccount) : null,
     billing: billingOk ? (billing as HomeBilling) : null,
+    csrfToken,
   };
+}
+
+export type HomeEmailChange = {
+  pending: Awaited<ReturnType<typeof loadExomemEmailChange>>;
+  receipts: Awaited<ReturnType<typeof loadPaddleReceiptContact>>;
+};
+
+export async function readEmailChange(): Promise<HomeEmailChange | null> {
+  const response = await read("/api/exomem/account/email-change");
+  const pending = record(response.pending);
+  const receipts = record(response.receipts);
+  // These states are fixed by the outbox schema, not inferred from message text.
+  const deliveryStates = new Set(["pending", "leased", "sent", "failed", "cancelled"]);
+  // The receipt projection schema fixes these synchronization states.
+  const receiptStates = new Set(["pending", "synchronized", "conflict", "failed"]);
+  const delivery = record(pending?.delivery);
+  const pendingOk = response.pending === null || (pending !== null &&
+    typeof pending.proposedEmail === "string" && typeof pending.expiresAt === "string" &&
+    Number.isFinite(Date.parse(pending.expiresAt)) && (pending.delivery === null ||
+      (delivery !== null && Object.values(delivery).every((state) => typeof state === "string" && deliveryStates.has(state)))));
+  const receiptsOk = response.receipts === null || (receipts !== null &&
+    (receipts.state === null || (typeof receipts.state === "string" && receiptStates.has(receipts.state))) && typeof receipts.available === "boolean" &&
+    (receipts.knownEmail === null || typeof receipts.knownEmail === "string") &&
+    (receipts.observedAt === null || (typeof receipts.observedAt === "string" && Number.isFinite(Date.parse(receipts.observedAt)))) &&
+    (receipts.observationSource === null || receipts.observationSource === "paddle_customer") &&
+    (receipts.errorCode === null || typeof receipts.errorCode === "string"));
+  return response.success === true && pendingOk && receiptsOk ? response as unknown as HomeEmailChange : null;
+}
+
+/** The frozen nonce prevents an old form from using a newly signed-in account's authority. */
+export async function requestEmailChange(email: string, csrfToken: string): Promise<{ expiresAt: string } | null> {
+  const current = () => csrfToken !== "" && csrfToken === csrfCookie();
+  if (!current()) return null;
+  let response: Record<string, unknown>;
+  try {
+    response = await postPrivateJson("/api/exomem/account/email-change", { email }, "POST", { csrfToken });
+  } catch (error) {
+    if (!current()) return null;
+    throw error;
+  }
+  if (!current()) return null;
+  if (response.success !== true || response.state !== "pending" || response.delivery !== "queued" ||
+    typeof response.expiresAt !== "string" || !Number.isFinite(Date.parse(response.expiresAt))) throw new Error("Email change was not queued");
+  return { expiresAt: response.expiresAt };
 }
 
 /** Opens Paddle checkout or the customer portal; resolves with the address to go to. */

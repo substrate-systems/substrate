@@ -35,6 +35,12 @@
   background: var(--scrim);
 }
 
+.top {
+  margin: 120px auto auto;
+  max-height: calc(100dvh - 144px);
+  overflow-y: auto;
+}
+
 .title {
   margin: 0;
   font-family: var(--font-mono-exo);
