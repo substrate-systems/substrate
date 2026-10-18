@@ -329,7 +329,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   row(
     escapeHtml(slots.headline),
     `font-family: ${MONO}; font-weight: 500; font-size: 24px; letter-spacing: -0.02em; line-height: 1.25; ${headline.css}`,
-    headline.cls
+    `${headline.cls} x-headline`
   );
   for (const paragraph of slots.body) {
     row(
@@ -437,7 +437,10 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   body { margin: 0; padding: 0; }
   ${schemeBlock}
   @media (max-width: 480px) {
-    .x-pad { padding: 24px 24px 32px 24px !important; }
+    .x-frame-pad { padding: 0 !important; }
+    .x-card, .x-band { border-radius: 0 !important; }
+    .x-pad { padding: 22px 22px 30px 22px !important; }
+    .x-headline { font-size: 22px !important; }
     .x-action { width: 100% !important; }
     .x-action td { display: block !important; }
     .x-aside { padding: 12px 0 0 0 !important; }
@@ -451,9 +454,9 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
   ${slots.preheader ? `<div style="display: none; font-size: 1px; line-height: 1px; max-height: 0; max-width: 0; opacity: 0; overflow: hidden; mso-hide: all;">${escapeHtml(slots.preheader)}${PREHEADER_FILLER}</div>` : ""}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="${frame.cls}" style="${frame.css}">
     <tr>
-      <td align="center" style="padding: 32px 16px;">
+      <td class="x-frame-pad" align="center" style="padding: 32px 16px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="${card.cls}" style="width: 100%; max-width: 600px; table-layout: fixed; border: 1px solid; border-collapse: separate; border-radius: ${cardRadius}; ${card.css}">
-          <tr><td style="padding: 0; line-height: 0; font-size: 0; border-radius: ${cardRadius} ${cardRadius} 0 0; overflow: hidden;">${band}</td></tr>
+          <tr><td class="x-band" style="padding: 0; line-height: 0; font-size: 0; border-radius: ${cardRadius} ${cardRadius} 0 0; overflow: hidden;">${band}</td></tr>
           <tr>
             <td class="x-pad" style="padding: 26px 40px 34px 40px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout: fixed;">

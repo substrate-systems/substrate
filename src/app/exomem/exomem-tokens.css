@@ -30,6 +30,10 @@
   --bg-hover: #1a1815; /* hover and pressed fills */
   --bg-track: #2a2724; /* tracks, timeline, sheet handle */
 
+  /* Home's selected levels keep the same pale fill and dark ink in both schemes. */
+  --level-selected-bg: #ece9e2;
+  --level-selected-fg: #0a0908;
+
   /* ink */
   --fg-primary: #ece9e2; /* headings, primary text */
   --fg-body: #c9c5bc; /* long reading text, list values */
