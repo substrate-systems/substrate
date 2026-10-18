@@ -729,6 +729,16 @@
   }
 }
 
+@media (max-width: 640px) and (height < 720px), (max-height: 480px) {
+  .tiles {
+    display: none;
+  }
+
+  .column {
+    gap: 14px;
+  }
+}
+
 /* On a desktop only some steps repeat the signed-in email under the actions. */
 @media (min-width: 641px) and (min-height: 481px) {
   .phoneOnly {

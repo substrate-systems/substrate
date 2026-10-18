@@ -68,12 +68,17 @@ export function InvolvementLevels({
             </div>
           );
         })}
-      <div className={styles.panelNote} aria-live="polite">
-        {view.state === "live" && (message ?? view.lockedText)
-          ? `${message ?? view.lockedText} `
-          : ""}
-        Your assistant can change these too. Ask it to use Exomem more, or less.
-      </div>
+      {view.state === "live" && (
+        <div className={styles.panelNote} aria-live="polite">
+          {message ?? view.lockedText}
+          {view.lockedText === null && (
+            <>
+              {message && " "}
+              Your assistant can change these too. Ask it to use Exomem more, or less.
+            </>
+          )}
+        </div>
+      )}
     </Section>
   );
 }
