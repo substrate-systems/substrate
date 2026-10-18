@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 
 export function ExomemPublicPage({
   title,
@@ -16,6 +17,9 @@ export function ExomemPublicPage({
       style={{ minHeight: "100vh", padding: "48px clamp(20px, 5vw, 48px) 80px" }}
     >
       <article style={{ maxWidth: "46rem", margin: "0 auto" }}>
+        <span style={{ float: "right" }}>
+          <ThemeToggle align="end" />
+        </span>
         <Link
           href="/exomem"
           className="exo-link-ts"

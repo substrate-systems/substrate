@@ -82,6 +82,7 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await opened.goto(link);
   await opened.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
   await expect(opened).toHaveURL(/\/exomem\/home$/);
+  await expect(page).toHaveURL(/\/exomem\/home$/);
 
   // The same link pasted into the first tab: spent, and the page says so and offers the form.
   await page.goto(link);
@@ -97,6 +98,114 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
   await page.getByRole("button", { name: "Use a different email", exact: true }).click();
   await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
+});
+
+test("Change returns to the submitted address and focuses its field", async ({ page }) => {
+  const email = uniqueEmail("correct-address");
+  await startWithEmail(page, email);
+  await page.getByRole("button", { name: "Change", exact: true }).click();
+  await expect(page.getByLabel(startCopy.emailLabel)).toHaveValue(email);
+  await expect(page.getByLabel(startCopy.emailLabel)).toBeFocused();
+});
+
+test("a forged tab notification cannot advance a different signed-in account", async ({
+  page,
+  context,
+}) => {
+  const expected = await seedOwner("ready");
+  const other = await seedOwner("ready");
+  await startWithEmail(page, expected.email);
+  await context.addCookies(other.cookies);
+  const checked = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/exomem/access/session"
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "exomem-access-session",
+        newValue: JSON.stringify({ email: "invented@example.test", destination: "/exomem/home" }),
+      })
+    )
+  );
+  expect(await (await checked).json()).toEqual({ authenticated: false });
+  await expect(page.getByRole("heading", { name: sentCopy.title })).toBeVisible();
+});
+
+test("a replaced app request cannot advance the original waiting tab", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  const client = await seedClient({
+    name: "Journey Waiting App",
+    redirectUri: "https://waiting-app.example.test/callback",
+    platform: null,
+  });
+  await page.goto(authorizeRequest(client).url);
+  await page.getByLabel(startCopy.emailLabel).fill(owner.email);
+  await page.getByRole("button", { name: startCopy.app(client.name).primary }).click();
+  await expect(page.getByRole("heading", { name: sentCopy.title })).toBeVisible();
+  const replacement = await context.newPage();
+  await replacement.goto(authorizeRequest(client).url);
+  await context.addCookies(owner.cookies);
+  const checked = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/exomem/access/session"
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new StorageEvent("storage", { key: "exomem-access-session" }))
+  );
+  expect(await (await checked).json()).toEqual({ authenticated: true, destination: null });
+  await expect(page.getByRole("heading", { name: sentCopy.title })).toBeVisible();
+  await replacement.close();
+});
+
+test("a denied theme save stays visible and does not claim an account preference", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  await page.goto("/exomem/home", { waitUntil: "networkidle" });
+  await page.route("**/api/exomem/account/preferences", (route) =>
+    route.fulfill({
+      status: 403,
+      json: { error: { code: "FORBIDDEN", message: "The theme was not saved." } },
+    })
+  );
+  await page.getByRole("button", { name: "Theme: Auto", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "Light", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "The theme was not saved." })
+  ).toBeVisible();
+  await page.unroute("**/api/exomem/account/preferences");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme-choice", "auto");
+});
+
+test("a session answer from before Change cannot advance the corrected form", async ({ page }) => {
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested: (() => void) | undefined;
+  const reached = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  await page.route("**/api/exomem/access/session", async (route) => {
+    requested?.();
+    await held;
+    await route
+      .fulfill({ json: { authenticated: true, destination: "/exomem/home" } })
+      .catch(() => {});
+  });
+  const email = uniqueEmail("stale-answer");
+  await startWithEmail(page, email);
+  await reached;
+  await page.getByRole("button", { name: "Change", exact: true }).click();
+  release?.();
+  await expect(page.getByLabel(startCopy.emailLabel)).toHaveValue(email);
+  await expect(page.getByRole("heading", { name: startCopy.web.title })).toBeVisible();
 });
 
 test("a link opened in another browser checks email and signs in only that browser", async ({

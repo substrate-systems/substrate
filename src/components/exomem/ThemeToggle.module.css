@@ -1,0 +1,132 @@
+.control {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+.button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+}
+.button:hover,
+.button[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+.choiceLight,
+.choiceDark {
+  display: none;
+}
+.choiceAuto {
+  display: inline-flex;
+}
+:global([data-theme-choice="light"]) .choiceLight,
+:global([data-theme-choice="dark"]) .choiceDark {
+  display: inline-flex;
+}
+:global([data-theme-choice="light"]) .choiceAuto,
+:global([data-theme-choice="dark"]) .choiceAuto {
+  display: none;
+}
+.menu,
+.error {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: -8px;
+  z-index: 61;
+  width: 172px;
+  box-sizing: border-box;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--exo-border-card);
+  border-radius: var(--r-pop);
+  box-shadow: var(--shadow-pop);
+  text-align: left;
+}
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.end .menu,
+.end .error {
+  left: auto;
+  right: -8px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--fg-secondary);
+  font: 400 13.5px/1 var(--font-sans-exo);
+  cursor: pointer;
+  text-align: left;
+}
+.row:hover,
+.row:focus,
+.row[aria-checked="true"] {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+.label {
+  flex: 1;
+}
+.check {
+  font: 400 12px/1 var(--font-mono-exo);
+}
+.error {
+  width: 240px;
+  padding: 10px 12px;
+  white-space: normal;
+  color: var(--fg-primary);
+  font: 400 12px/1.5 var(--font-sans-exo);
+}
+.menu + .error {
+  top: calc(100% + 140px);
+}
+@media (max-width: 640px), (max-height: 480px) {
+  .button {
+    width: 40px;
+    height: 40px;
+  }
+  .menu,
+  .error {
+    left: auto;
+    right: -8px;
+  }
+  .row {
+    height: 44px;
+  }
+  .menu + .error {
+    top: calc(100% + 164px);
+  }
+}
+@media (forced-colors: active) {
+  .button {
+    border: 1px solid ButtonText;
+  }
+  .row[aria-checked="true"] {
+    outline: 1px solid Highlight;
+  }
+}

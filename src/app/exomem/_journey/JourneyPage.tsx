@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { FlowField, type FieldKind } from "@/components/exomem/FlowField";
 import { PairedTiles } from "@/components/exomem/PairedTiles";
 import { Wordmark } from "@/components/exomem/Wordmark";
+import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 import { CLIENT_PLATFORM_GLYPHS } from "@/lib/exomem-hosted/client-platforms";
 import { FadeIn } from "@/components/exomem/Transitions";
 import phone from "@/components/exomem/phone.module.css";
@@ -147,10 +148,18 @@ export function JourneyPage({
         className={`${styles.wordmark} ${phone.hitArea}`}
         href={headerEmail ? HOME : LANDING}
         aria-label={headerEmail ? wordmarkCopy.home : wordmarkCopy.landing}
+        data-graph-clear
       >
         <Wordmark state={kind === "stop" ? "off" : "rest"} />
       </a>
-      {headerEmail ? <div className={styles.headerEmail}>{headerEmail}</div> : null}
+      <div className={styles.headerControls} data-graph-header>
+        <ThemeToggle align="end" />
+        {headerEmail ? (
+          <div className={styles.headerEmail} data-graph-clear>
+            {headerEmail}
+          </div>
+        ) : null}
+      </div>
       <div className={styles.center}>
         <div className={styles.column}>
           <div className={styles.tiles}>

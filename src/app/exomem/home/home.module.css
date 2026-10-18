@@ -1,4 +1,4 @@
-/* Exomem Home (Home board, Home-Page.dc.html): a 640 px column on desktop, the page
+/* Exomem Home (Home board, Home-Page.dc.html): a 1056 px frame on desktop, the page
    width less a 16 px gutter on phones (the one Exomem breakpoint, 640 px). Colours,
    radii and motion come from the tokens; sizes are the board's. The board's muted ink
    (#A39E93 / #6B665C) is --fg-secondary. */
@@ -76,8 +76,6 @@
 
 /* --- Header --- */
 
-/* The app header's text is 15 px, the type scale's body size, set in the mono face: the
-   board's 12 px read too small. Its labels never wrap; the email gives way first. */
 .header {
   --header-text: 15px;
   position: relative;
@@ -124,7 +122,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   font-family: var(--font-mono-exo);
   font-size: var(--header-text);
   color: var(--fg-secondary);
@@ -307,7 +305,7 @@
 }
 
 .appRow {
-  padding: 13px 0;
+  padding: 14px 0;
 }
 
 /* The add row runs straight into its panel, without a rule. */
@@ -865,7 +863,7 @@
   /* The theme switch's own padding spaces it from Sign out, so the account side stays
      apart from the nav at 15 px. */
   .headerEnd {
-    gap: 4px;
+    gap: 10px;
   }
 
   .email {
@@ -904,5 +902,77 @@
   .litNote,
   .packRun {
     animation: none;
+  }
+}
+
+/* The deferred map leaves no card or reserved space above Plan and account. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 656px) minmax(0, 368px);
+  gap: 32px;
+  align-items: start;
+}
+.primaryColumn,
+.secondaryColumn {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+@media (min-width: 641px) and (min-height: 481px) and (max-width: 1136px) {
+  .homeHeader {
+    margin: 0 40px;
+  }
+  .homeColumn {
+    max-width: calc(100% - 80px);
+  }
+  .columns {
+    grid-template-columns: minmax(0, 1.78fr) minmax(0, 1fr);
+  }
+}
+@media (max-width: 640px), (max-height: 480px) {
+  .columns {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+  }
+  .primaryColumn {
+    display: contents;
+  }
+  .secondaryColumn {
+    width: 100%;
+    order: 1;
+  }
+  .dataSection {
+    width: 100%;
+    order: 2;
+  }
+}
+
+.homeHeader {
+  --header-text: 15px;
+  height: 51.5px;
+  max-width: 1056px;
+  margin: 0 auto;
+  padding: 23.5px 0 0;
+}
+.homeHeader .wordmark svg {
+  height: 17px;
+}
+.homeColumn {
+  width: 1056px;
+}
+@media (min-width: 641px) and (min-height: 481px) and (max-width: 1136px) {
+  .homeHeader {
+    margin: 0 40px;
+  }
+}
+@media (max-width: 640px), (max-height: 480px) {
+  .homeHeader {
+    --header-text: 15px;
+    padding: 23.5px 16px 0;
+  }
+  .homeColumn {
+    width: 358px;
   }
 }

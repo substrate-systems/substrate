@@ -43,6 +43,8 @@ A new request supersedes its predecessor. Proposed addresses are not reserved; c
 The request transaction enqueues emails 16 and 16b with fixed recipients. Ordinary lifecycle mail resolves the current owner at delivery.
 
 Confirmation and cancellation use `/confirm` and `/cancel` POST routes below the same API path. Link landing GET requests perform no mutation.
+Link results reuse the existing journey layout, headings, notices and actions for confirmation, cancellation, expired links and failures.
+The result pages introduce no separate layout. Confirmation and cancellation require an explicit action before their POST request.
 Both operations lock the same request. Cancellation before confirmation prevents it; cancellation after confirmation never restores an old identity.
 Confirmation checks expiry, the original identity and email uniqueness. It updates the email and invalidates old sign-in links through the existing generation.
 Active sessions and OAuth grants stay valid. Collision responses are generic, and matching addresses never merge accounts.

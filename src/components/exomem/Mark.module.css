@@ -179,3 +179,25 @@
     display: none;
   }
 }
+.ripple circle {
+  fill: var(--exo-amber);
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: wordmark-ripple 1s ease-out both;
+}
+@keyframes wordmark-ripple {
+  from {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ripple {
+    display: none;
+  }
+}

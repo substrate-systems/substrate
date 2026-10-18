@@ -63,7 +63,7 @@ export default function DeleteClient() {
           <Wordmark />
         </span>
         <span className={home.headerEnd}>
-          <ThemeToggle />
+          <ThemeToggle align="end" />
         </span>
       </header>
       <section className={`${home.column} ${styles.column}`} aria-labelledby="delete-title">

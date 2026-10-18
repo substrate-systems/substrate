@@ -13,6 +13,7 @@ import {
 import { fireAlive, useAliveGraph, type AliveEvent } from "./AliveGraph";
 import { TAP_MOUSE_QUIET_MS, TAP_MS } from "./alive-engine";
 import { buildFieldLayout } from "./flow-field-layout";
+import { graphHeader, type GraphHeader } from "./graph-header";
 import phoneStyles from "./phone.module.css";
 import styles from "./FlowField.module.css";
 
@@ -73,7 +74,12 @@ export function FlowField({
   const host = useRef<HTMLDivElement>(null);
   const id = `field-${useId()}`;
   const reduced = useReducedMotion();
-  const [size, setSize] = useState<{ width: number; height: number; phone: boolean } | null>(null);
+  const [size, setSize] = useState<{
+    width: number;
+    height: number;
+    phone: boolean;
+    header: GraphHeader;
+  } | null>(null);
   useLayoutEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -81,14 +87,24 @@ export function FlowField({
       const { width, height } = element.getBoundingClientRect();
       if (!width || !height) return;
       const phone = getComputedStyle(element).getPropertyValue("--field-phone").trim() === "1";
+      const vw = phone ? 390 : 1280;
+      const header = graphHeader(element, vw, Math.round((height * vw) / width));
       setSize((old) =>
-        old?.width === width && old.height === height && old.phone === phone
+        old?.width === width &&
+        old.height === height &&
+        old.phone === phone &&
+        JSON.stringify(old.header) === JSON.stringify(header)
           ? old
-          : { width, height, phone }
+          : { width, height, phone, header }
       );
     };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
+    element
+      .closest("[data-alive-surface]")
+        ?.querySelectorAll("[data-graph-clear], [data-graph-header]")
+      .forEach((control) => observer.observe(control));
+    document.fonts.ready.then(measure);
     return () => observer.disconnect();
   }, []);
   const layout = useMemo(() => {
@@ -98,7 +114,8 @@ export function FlowField({
       width,
       Math.round((size.height * width) / size.width),
       size.phone,
-      footer
+      footer,
+      size.header
     );
   }, [size, footer]);
   const incident = useMemo(() => {
@@ -362,16 +379,24 @@ export function FlowField({
             </g>
           ))}
           {layout.nodes.map((n, i) => (
-            <circle
-              key={i}
-              data-node
-              data-hub={n.hub ? "" : undefined}
-              className={styles.node}
-              cx={n.x + n.s / 2}
-              cy={n.y + n.s / 2}
-              r={n.s / 2}
-              style={{ "--nd": `${n.nd}s` } as CSSProperties}
-            />
+            <g key={i}>
+              <circle
+                data-node
+                data-hub={n.hub ? "" : undefined}
+                className={styles.node}
+                cx={n.x + n.s / 2}
+                cy={n.y + n.s / 2}
+                r={n.s / 2}
+                style={{ "--nd": `${n.nd}s` } as CSSProperties}
+              />
+              <circle
+                className={styles.halo}
+                cx={n.x + n.s / 2}
+                cy={n.y + n.s / 2}
+                r={n.s / 2 + 5}
+                style={{ "--nd": `${n.nd}s` } as CSSProperties}
+              />
+            </g>
           ))}
         </svg>
       ) : null}

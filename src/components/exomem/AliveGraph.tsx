@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { clearGraphHeader, graphHeader } from "./graph-header";
 import { attachAlive, trimEdge, trimSvg } from "./alive-engine";
 import styles from "./AliveGraph.module.css";
 
@@ -65,8 +73,8 @@ export function useAliveGraph(
 }
 
 export function AliveGraph({
-  nodes,
-  edges,
+  nodes: suppliedNodes,
+  edges: suppliedEdges,
   viewBox,
   state = "live",
   hover = true,
@@ -77,6 +85,7 @@ export function AliveGraph({
   style,
   children,
   event,
+  clearHeader = false,
 }: {
   nodes: readonly (readonly [number, number, number?])[];
   edges: readonly (readonly [number, number])[];
@@ -91,9 +100,42 @@ export function AliveGraph({
   style?: CSSProperties;
   children?: ReactNode;
   event?: AliveEvent;
+  clearHeader?: boolean;
 }) {
+  const [adjusted, setAdjusted] = useState<{
+    nodes: readonly (readonly [number, number, number?])[];
+    edges: readonly (readonly [number, number])[];
+  } | null>(null);
+  const nodes = clearHeader && adjusted ? adjusted.nodes : suppliedNodes;
+  const edges = clearHeader && adjusted ? adjusted.edges : suppliedEdges;
   const graph = JSON.stringify({ n: nodes, e: edges });
   const svg = useAliveGraph(id, state, graph, event);
+  useLayoutEffect(() => {
+    const element = svg.current;
+    if (!clearHeader || !element) return;
+    const measure = () => {
+      const box = element.viewBox.baseVal;
+      const points = suppliedNodes.map(([x, y, r]) => ({ x, y, r: r ?? 3 }));
+      const links = clearGraphHeader(
+        points,
+        suppliedEdges,
+        graphHeader(element, box.width, box.height)
+      );
+      const next = {
+        nodes: points.map((point) => [point.x, point.y, point.r] as const),
+        edges: links,
+      };
+      setAdjusted((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    element
+      .closest("[data-alive-surface]")
+      ?.querySelectorAll("[data-graph-clear]")
+      .forEach((control) => observer.observe(control));
+    document.fonts.ready.then(measure);
+    return () => observer.disconnect();
+  }, [clearHeader, suppliedNodes, suppliedEdges, svg]);
   return (
     <svg
       ref={svg}

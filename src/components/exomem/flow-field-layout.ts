@@ -3,6 +3,7 @@
 // with the board's seed, so the same screen size draws the same web.
 
 import { trimEdge } from "./alive-engine";
+import { clearGraphHeader, type GraphHeader } from "./graph-header";
 
 type FieldNode = { x: number; y: number; s: number; nd: number; hub: boolean };
 type FieldEdge = {
@@ -60,7 +61,8 @@ export function buildFieldLayout(
   vw: number,
   vh: number,
   phone: boolean,
-  footer: boolean
+  footer: boolean,
+  header: GraphHeader = { boxes: [], controls: [] }
 ): FieldLayout {
   // The page's own furniture stays clear: the content column, the wordmark, the header's right side.
   const box = phone
@@ -83,6 +85,12 @@ export function buildFieldLayout(
     if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > minD * minD)) pts.push({ x, y });
   }
 
+  clearGraphHeader(
+    pts.map((p) => Object.assign(p, { r: 4.5 })),
+    [],
+    header
+  );
+
   // Each note links to its three nearest neighbours within reach.
   const links: [number, number][] = [];
   const seen = new Set<string>();
@@ -97,7 +105,14 @@ export function buildFieldLayout(
       .forEach(([j, d]) => {
         if (Math.sqrt(d) > maxL) return;
         const key = i < j ? `${i}-${j}` : `${j}-${i}`;
-        if (seen.has(key)) return;
+        if (
+          seen.has(key) ||
+          !clearGraphHeader(pts as (Point & { r: number })[], [[i, j]], {
+            boxes: [],
+            controls: header.controls,
+          }).length
+        )
+          return;
         seen.add(key);
         links.push([i, j]);
         adj[i].push(j);
@@ -149,17 +164,21 @@ export function buildFieldLayout(
   });
 
   const nodes = pts.map((p, i) => {
-    const s = Math.min(9, 2.6 + degree[i] * 0.95);
+    const s = Math.round(Math.min(9, 2.6 + degree[i] * 0.95));
     return {
-      x: round(p.x - s / 2, 1),
-      y: round(p.y - s / 2, 1),
-      s: round(s, 1),
+      x: Math.round(p.x - s / 2),
+      y: Math.round(p.y - s / 2),
+      s,
       nd: round(depth[i] * stepT + 0.22, 2),
       hub: hubs.has(i),
     };
   });
   // Round 41: a link stops at each note's edge, so no line shows through a note.
-  const edgeOf = (i: number) => ({ ...pts[i], r: nodes[i].s / 2 });
+  const edgeOf = (i: number) => ({
+    x: nodes[i].x + nodes[i].s / 2,
+    y: nodes[i].y + nodes[i].s / 2,
+    r: nodes[i].s / 2,
+  });
   const edges = links.map(([i, j], k) => {
     const [a, b] = depth[i] <= depth[j] ? [i, j] : [j, i];
     const [start, end] = trimEdge(edgeOf(a), edgeOf(b));

@@ -52,7 +52,7 @@
 .signal {
   fill: var(--exo-amber);
   opacity: 0;
-  filter: drop-shadow(0 0 6px var(--graph-lit-halo));
+  filter: none;
 }
 
 /* A link outside the resting web waits for the web to grow it, or for a connection to draw it. */
@@ -114,7 +114,7 @@
 }
 
 .done .node {
-  animation: node-rest 2.6s ease-out both;
+  animation: node-rest 2.6s ease-out backwards;
 }
 
 .done .node[data-hub] {
@@ -167,7 +167,7 @@
   28% {
     fill: var(--exo-amber);
     transform: scale(1.9);
-    filter: drop-shadow(0 0 11px var(--graph-lit-halo));
+    filter: none;
   }
   100% {
     fill: var(--amber-75);
@@ -226,9 +226,6 @@
   0% {
     fill: var(--amber-75);
   }
-  100% {
-    fill: var(--settled);
-  }
 }
 
 @keyframes hub-in {
@@ -238,18 +235,18 @@
   }
   100% {
     fill: var(--amber-70);
-    filter: drop-shadow(0 0 5px var(--graph-lit-halo));
+    filter: none;
   }
 }
 
 @keyframes hub {
   0% {
     fill: var(--amber-70);
-    filter: drop-shadow(0 0 5px var(--graph-lit-halo));
+    filter: none;
   }
   100% {
     fill: var(--exo-amber);
-    filter: drop-shadow(0 0 11px var(--graph-lit-halo));
+    filter: none;
   }
 }
 
@@ -313,6 +310,39 @@
 
   .done .node[data-hub] {
     fill: var(--amber-70);
-    filter: drop-shadow(0 0 5px var(--graph-lit-halo));
+    filter: none;
+  }
+}
+
+/* Flat discs keep the lit field consistent with the shared graph engine. */
+.halo {
+  fill: var(--exo-amber);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.55s ease;
+}
+.canvas .node[data-hover="lit"],
+.node[data-walker="on"],
+.done .node[data-hub] {
+  filter: none !important;
+}
+.node[data-walker="on"] + .halo,
+.canvas .node[data-hover="lit"] + .halo,
+.done .node[data-hub] + .halo {
+  opacity: var(--graph-halo-opacity);
+}
+.checkout .node[data-walker="on"] + .halo {
+  opacity: 0;
+}
+.go .halo {
+  animation: field-halo var(--hit) ease-out var(--nd) backwards;
+}
+@keyframes field-halo {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  28% {
+    opacity: var(--graph-halo-opacity);
   }
 }

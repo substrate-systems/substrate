@@ -10,6 +10,8 @@ const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).jo
 export interface WordmarkProps extends Omit<MarkProps, "size" | "small"> {
   /** Height in px. The header uses 17. */
   height?: number;
+  /** Home supplies only newly observed recall/save events, never initial history. */
+  activityKey?: string;
 }
 
 /** The logo: the word Exomem with the Dot E as its capital. Every Mark state works here. */
@@ -22,6 +24,7 @@ export function Wordmark({
   breathe = false,
   label = "Exomem",
   className,
+  activityKey,
 }: WordmarkProps) {
   const s = useSettled(state);
   const n = markNumbers(18, s, { steps, step, value });
@@ -43,6 +46,19 @@ export function Wordmark({
     >
       <g transform="translate(-6.642 -32.782) scale(0.7843)">
         <Dots pts={FULL} row={FULL_ROW} r={2.2} />
+        {activityKey && (
+          <g key={activityKey} className={styles.ripple} aria-hidden="true">
+            {FULL_ROW.map((index, order) => (
+              <circle
+                key={index}
+                cx={FULL[index][0]}
+                cy={FULL[index][1]}
+                r="2.2"
+                style={{ animationDelay: `${order * 90}ms` }}
+              />
+            ))}
+          </g>
+        )}
       </g>
       <path className={styles.word} d={WORD_PATH} />
     </svg>

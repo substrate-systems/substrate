@@ -29,9 +29,15 @@ class Alive {
       this.adj[i].push([j, k]);
       this.adj[j].push([i, k]);
     });
+    this.lit = new Set(
+      (svg.getAttribute("data-lit") || "")
+        .split(",")
+        .filter((value) => value !== "")
+        .map(Number)
+    );
     this.ink = svg.getAttribute("data-ink");
     this.amber = svg.getAttribute("data-amber");
-    this.phosphor = svg.getAttribute("data-phosphor");
+    this.haloOpacity = Number(getComputedStyle(svg).getPropertyValue("--graph-halo-opacity"));
     const vb = (svg.getAttribute("viewBox") || "0 0 100 100").split(/[ ,]+/).map(Number);
     this.vb = vb;
     const en = (svg.getAttribute("data-entry") || "").split(",").map(Number);
@@ -443,12 +449,7 @@ class Alive {
   light(i, ms) {
     const p = this.N[i];
     if (!p) return;
-    const halo = this.dot(
-        p,
-        p.r + 6,
-        { fill: this.k < 1 ? this.phosphor : this.amber, opacity: 0 },
-        this.evt
-      ),
+    const halo = this.dot(p, p.r + 6, { fill: this.amber, opacity: 0 }, this.evt),
       core = this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.evt),
       t0 = performance.now();
     this.items.push({
@@ -457,7 +458,7 @@ class Alive {
         const s = (performance.now() - t0) / ms,
           a = s < 0.15 ? s / 0.15 : s > 0.7 ? Math.max(0, (1 - s) / 0.3) : 1;
         core.setAttribute("opacity", a.toFixed(2));
-        halo.setAttribute("opacity", ((this.k < 1 ? 0.3 : 0.16) * a).toFixed(3));
+        halo.setAttribute("opacity", (this.haloOpacity * a).toFixed(3));
         if (s >= 1) {
           core.remove();
           halo.remove();
@@ -619,15 +620,10 @@ class Alive {
               this.hov
             )
           ),
-          wake: nb.map((j) =>
-            this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)
-          ),
-          halo: this.dot(
-            p,
-            p.r + 6,
-            { fill: this.k < 1 ? this.phosphor : this.amber, opacity: 0 },
-            this.hov
-          ),
+          wake: nb
+            .filter((j) => !this.lit.has(j))
+            .map((j) => this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)),
+          halo: this.dot(p, p.r + 6, { fill: this.amber, opacity: 0 }, this.hov),
           core: this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.hov),
         };
       }
@@ -637,7 +633,7 @@ class Alive {
       const k = this.hovK,
         E = this.hovEls;
       E.core.setAttribute("opacity", k.toFixed(2));
-      E.halo.setAttribute("opacity", ((this.k < 1 ? 0.3 : 0.16) * k).toFixed(3));
+      E.halo.setAttribute("opacity", (this.haloOpacity * k).toFixed(3));
       E.links.forEach((el) =>
         el.setAttribute("opacity", ((this.k < 1 ? 0.8 : 0.45) * k).toFixed(3))
       );
