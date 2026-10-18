@@ -232,6 +232,7 @@ test("Home shows the account's own values and calls only routes a Cloud account 
   // Every route Home called reaches the account through Cloud, never a retired Hosted path.
   expect([...new Set(routes)].sort()).toEqual([
     "/api/exomem/account",
+    "/api/exomem/account/preferences",
     "/api/exomem/apps",
     "/api/exomem/cloud/home/levels",
     "/api/exomem/cloud/home/live",
