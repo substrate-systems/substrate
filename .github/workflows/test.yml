@@ -135,6 +135,13 @@ jobs:
       # `.next` can never serve old code to a passing assertion. No database:
       # every spec in this run stubs the API routes it drives.
       - run: npm run build
+      - name: Package the build for local browser acceptance
+        run: tar --exclude='.next/cache' -czf "$RUNNER_TEMP/next-build.tar.gz" .next
+      - uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: ${{ runner.temp }}/next-build.tar.gz
+          retention-days: 1
       - run: npx playwright test
       # A throwaway database for this job only, so the controlled Release-A
       # migration is confirmed here.

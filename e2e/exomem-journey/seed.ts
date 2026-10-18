@@ -319,11 +319,13 @@ export async function signInLinkFor(email: string): Promise<string> {
        FROM exomem_access_delivery_outbox AS outbox
        JOIN exomem_access_tokens AS token ON token.id = outbox.token_id
        JOIN exomem_users ON exomem_users.id = token.user_id
-       WHERE exomem_users.email = $1 AND outbox.state = 'pending'
+       WHERE exomem_users.email = $1 AND outbox.state IN ('pending', 'leased')
        ORDER BY outbox.created_at DESC LIMIT 1
      ), sent AS (
        UPDATE exomem_access_delivery_outbox AS outbox
-       SET state = 'sent', secret_ciphertext = NULL, sent_at = now(), updated_at = now()
+       SET state = 'sent', secret_ciphertext = NULL,
+           lease_owner = NULL, lease_expires_at = NULL, last_error_code = NULL,
+           sent_at = now(), updated_at = now()
        FROM queued WHERE outbox.id = queued.id
      ), delivered AS (
        UPDATE exomem_access_tokens AS token
