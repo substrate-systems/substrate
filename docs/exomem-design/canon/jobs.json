@@ -1,0 +1,3881 @@
+[
+ {
+  "id": "journey/web/signedout--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/signedout--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/signedout--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "web",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/signedout--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "web",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/signedout--phone640-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 640
+  },
+  "w": 390,
+  "h": 640,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/signedout--phone932-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 932
+  },
+  "w": 390,
+  "h": 932,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent--phone640-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 640
+  },
+  "w": 390,
+  "h": 640,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent--phone932-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 932
+  },
+  "w": 390,
+  "h": 932,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/linkexpired--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "linkexpired",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/linkexpired--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "linkexpired",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/linkused--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "linkused",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/linkused--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "linkused",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/ratelimited--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "ratelimited",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/ratelimited--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "ratelimited",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/waitlist--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "waitlist",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/waitlist--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "waitlist",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/unreachable--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "unreachable",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/unreachable--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "unreachable",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/reviewer--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "reviewer",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/reviewer--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "reviewer",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/reviewerfail--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "reviewerfail",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/reviewerfail--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "reviewerfail",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/invite--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "invite",
+   "app": "web",
+   "invite": "friend",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/invite--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "invite",
+   "app": "web",
+   "invite": "friend",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/accepting--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "accepting",
+   "app": "web",
+   "invite": "friend",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/accepting--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "accepting",
+   "app": "web",
+   "invite": "friend",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/invitebad--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "invitebad",
+   "app": "web",
+   "invite": "friend",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/invitebad--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "invitebad",
+   "app": "web",
+   "invite": "friend",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/inviteexisting--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "inviteexisting",
+   "app": "web",
+   "invite": "friend",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/inviteexisting--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "inviteexisting",
+   "app": "web",
+   "invite": "friend",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/inviteapplied--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "inviteapplied",
+   "app": "web",
+   "invite": "friend",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/inviteapplied--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "inviteapplied",
+   "app": "web",
+   "invite": "friend",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/invitekept--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "invitekept",
+   "app": "web",
+   "invite": "friend",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/invitekept--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "invitekept",
+   "app": "web",
+   "invite": "friend",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/subscribe--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "subscribe",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/subscribe--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "subscribe",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/subscribe--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "subscribe",
+   "app": "web",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/subscribe--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "subscribe",
+   "app": "web",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/paying--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "paying",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/paying--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "paying",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/paying--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "paying",
+   "app": "web",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/paying--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "paying",
+   "app": "web",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/confirming--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "confirming",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/confirming--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "confirming",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/choose--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "choose",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/choose--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "choose",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/choose--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "choose",
+   "app": "web",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/choose--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "choose",
+   "app": "web",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/choose--phone640-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "choose",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 640
+  },
+  "w": 390,
+  "h": 640,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/choose--phone932-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "choose",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 932
+  },
+  "w": 390,
+  "h": 932,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/waiting--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "waiting",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/waiting--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "waiting",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/other--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "other",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/other--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "other",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/joined--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "joined",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/joined--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "joined",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/joined--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "joined",
+   "app": "web",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/joined--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "joined",
+   "app": "web",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/preparing--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "preparing",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/preparing--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "preparing",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/readonly--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "readonly",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/readonly--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "readonly",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/ended--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "ended",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/ended--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "ended",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/paused--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "paused",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/paused--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "paused",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/suspended--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "suspended",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/suspended--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "suspended",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/expired--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "expired",
+   "app": "web",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/expired--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "expired",
+   "app": "web",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connect--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connect--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connect--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connect--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connect--phone640-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 640
+  },
+  "w": 390,
+  "h": 640,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connect--phone932-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 932
+  },
+  "w": 390,
+  "h": 932,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connecting--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connecting",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connecting--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connecting",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/handback--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "handback",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/handback--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "handback",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/handback--desktop-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "handback",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/handback--phone-light",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "handback",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/declined--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "declined",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/declined--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "declined",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/kept--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "kept",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/kept--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "kept",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connecterror--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connecterror",
+   "app": "Claude",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude/connecterror--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connecterror",
+   "app": "Claude",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/signedout--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "Claude Code",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/signedout--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "signedout",
+   "app": "Claude Code",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/sent--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "Claude Code",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/sent--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "Claude Code",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/connect--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude Code",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/connect--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connect",
+   "app": "Claude Code",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/connecting--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connecting",
+   "app": "Claude Code",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/connecting--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "connecting",
+   "app": "Claude Code",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/handback--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "handback",
+   "app": "Claude Code",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/claude-code/handback--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "handback",
+   "app": "Claude Code",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent-gmail--desktop-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "email": "reader@gmail.com",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "journey/web/sent-gmail--phone-dark",
+  "board": "Journey-Page",
+  "props": {
+   "alive": "loop",
+   "hover": "glow",
+   "field": "web",
+   "mark": "dot",
+   "accent": "#FFB000",
+   "checkout": "inline",
+   "ckSummary": "hero",
+   "sentCopy": "r49",
+   "step": "sent",
+   "app": "web",
+   "email": "reader@gmail.com",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3200,
+  "full": false
+ },
+ {
+  "id": "home/ready--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/ready--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/ready--desktop-light",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/ready--phone-light",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "light"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/readonly--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "state": "readonly",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/readonly--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "state": "readonly",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/readonly--desktop-light",
+  "board": "Home-Page",
+  "props": {
+   "state": "readonly",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/readonly--phone-light",
+  "board": "Home-Page",
+  "props": {
+   "state": "readonly",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "light"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/ended--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "state": "ended",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/ended--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "state": "ended",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/ended--desktop-light",
+  "board": "Home-Page",
+  "props": {
+   "state": "ended",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/ended--phone-light",
+  "board": "Home-Page",
+  "props": {
+   "state": "ended",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "light"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/reviewer--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "account": "reviewer",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/reviewer--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "account": "reviewer",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/fresh--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "fresh": true,
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/fresh--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "fresh": true,
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/fresh--desktop-light",
+  "board": "Home-Page",
+  "props": {
+   "fresh": true,
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/fresh--phone-light",
+  "board": "Home-Page",
+  "props": {
+   "fresh": true,
+   "alive": "loop",
+   "device": "phone",
+   "theme": "light"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/first-note--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "fresh": true,
+   "firstNote": true,
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/first-note--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "fresh": true,
+   "firstNote": true,
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/lost--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "reach": "lost",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/lost--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "reach": "lost",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/trouble--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "trouble": true,
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/trouble--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "trouble": true,
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/export-packing--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "packing",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/export-packing--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "packing",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/export-ready--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "ready",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/export-ready--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "ready",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/export-failed--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "failed",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/export-failed--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "failed",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/export-expired--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "expired",
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/export-expired--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "exportState": "expired",
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/storage-nearly-full--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "storageUsedGb": 4.7,
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/storage-nearly-full--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "storageUsedGb": 4.7,
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/storage-full--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "storageUsedGb": 5,
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/storage-full--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "storageUsedGb": 5,
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/modal-room--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "room"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-room--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "room"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-room-done--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "room-done"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-room-done--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "room-done"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-notes--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "import-notes"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-notes--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "import-notes"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-pick--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "import-pick"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-pick--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "import-pick"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-summary--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "import-summary"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-summary--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "import-summary"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-running--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "import-running"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-running--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "import-running"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-done--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "import-done"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-import-done--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "import-done"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-restore--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "restore"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-restore--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "restore"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-restore-done--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "restore-done"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-restore-done--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "restore-done"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-email--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "email"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-email--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "email"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-email-sent--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "email-sent"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-email-sent--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "email-sent"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-billing--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "billing"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-billing--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "billing"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-delete--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "openModal": "delete"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "home/modal-delete--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "openModal": "delete"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2600,
+  "full": false
+ },
+ {
+  "id": "viewer/overview--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "overview",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/overview--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "overview",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/overview--desktop-light",
+  "board": "Viewer",
+  "props": {
+   "start": "overview",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/overview--phone-light",
+  "board": "Viewer",
+  "props": {
+   "start": "overview",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/note--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "note",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/note--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "note",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/note--desktop-light",
+  "board": "Viewer",
+  "props": {
+   "start": "note",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/note--phone-light",
+  "board": "Viewer",
+  "props": {
+   "start": "note",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/why--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "why",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/why--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "why",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/read--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "read",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/read--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "read",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/read--desktop-light",
+  "board": "Viewer",
+  "props": {
+   "start": "read",
+   "device": "desktop",
+   "theme": "light"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/read--phone-light",
+  "board": "Viewer",
+  "props": {
+   "start": "read",
+   "device": "phone",
+   "theme": "light",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/review--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "review",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/review--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "review",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/types--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "types",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/types--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "types",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/reviewed--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "reviewed",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/reviewed--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "reviewed",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/noresults--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "noresults",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/noresults--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "start": "noresults",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/empty--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "vault": "empty",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/empty--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "vault": "empty",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/few--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "vault": "few",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/few--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "vault": "few",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/large--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "vault": "large",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/large--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "vault": "large",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/lost--desktop-dark",
+  "board": "Viewer",
+  "props": {
+   "reach": "lost",
+   "device": "desktop",
+   "theme": "dark"
+  },
+  "w": 1440,
+  "h": 900,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "viewer/lost--phone-dark",
+  "board": "Viewer",
+  "props": {
+   "reach": "lost",
+   "device": "phone",
+   "theme": "dark",
+   "screenH": 844
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 3500,
+  "full": false
+ },
+ {
+  "id": "landing/page--desktop-dark",
+  "board": "Landing-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark",
+   "fluid": true
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 4500,
+  "full": true,
+  "fullH": 9000
+ },
+ {
+  "id": "landing/page--phone-dark",
+  "board": "Landing-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark",
+   "fluid": true
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 4500,
+  "full": true,
+  "fullH": 12000
+ },
+ {
+  "id": "landing/page--desktop-light",
+  "board": "Landing-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "light",
+   "fluid": true
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 4500,
+  "full": true,
+  "fullH": 9000
+ },
+ {
+  "id": "landing/page--phone-light",
+  "board": "Landing-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "light",
+   "fluid": true
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 4500,
+  "full": true,
+  "fullH": 12000
+ },
+ {
+  "id": "sheets/R42-Checkout-States",
+  "board": "R42-Checkout-States",
+  "props": {},
+  "w": 2400,
+  "h": 4900,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R28-Emails",
+  "board": "R28-Emails",
+  "props": {},
+  "w": 2640,
+  "h": 6180,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R41-Emails-Phone",
+  "board": "R41-Emails-Phone",
+  "props": {},
+  "w": 2238,
+  "h": 1980,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R43-Getting-In",
+  "board": "R43-Getting-In",
+  "props": {},
+  "w": 1144,
+  "h": 2120,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R43-Data-Cases",
+  "board": "R43-Data-Cases",
+  "props": {},
+  "w": 1150,
+  "h": 2480,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R43-Unreachable",
+  "board": "R43-Unreachable",
+  "props": {},
+  "w": 1150,
+  "h": 1850,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R43-Accessibility",
+  "board": "R43-Accessibility",
+  "props": {},
+  "w": 1504,
+  "h": 2240,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R44-Writing-E",
+  "board": "R44-Writing-E",
+  "props": {},
+  "w": 1440,
+  "h": 2020,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "sheets/R44-Writing-E-Light",
+  "board": "R44-Writing-E-Light",
+  "props": {},
+  "w": 1440,
+  "h": 2020,
+  "wait": 3000,
+  "full": false
+ },
+ {
+  "id": "home/map-few--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark",
+   "mapVault": "few"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/map-few--desktop-light",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "light",
+   "mapVault": "few"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/map-few--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark",
+   "mapVault": "few"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/map-few--phone-light",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "light",
+   "mapVault": "few"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "home/map-large--desktop-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "desktop",
+   "theme": "dark",
+   "mapVault": "large"
+  },
+  "w": 1280,
+  "h": 820,
+  "wait": 2800,
+  "full": true,
+  "fullH": 2600
+ },
+ {
+  "id": "home/map-large--phone-dark",
+  "board": "Home-Page",
+  "props": {
+   "alive": "loop",
+   "device": "phone",
+   "theme": "dark",
+   "mapVault": "large"
+  },
+  "w": 390,
+  "h": 844,
+  "wait": 2800,
+  "full": true,
+  "fullH": 3200
+ },
+ {
+  "id": "sheets/R52-Theme-Control",
+  "board": "R52-Theme-Control",
+  "props": {},
+  "w": 2006,
+  "h": 2172,
+  "wait": 2500,
+  "full": false
+ }
+]

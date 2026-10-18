@@ -113,7 +113,13 @@ function HeroGraph({ layout, shortNames, className, active, onActive }: GraphPro
           height="22"
           patternUnits="userSpaceOnUse"
         >
-          <circle cx="11" cy="11" r=".7" fill="var(--fg-primary)" opacity=".07" />
+          <circle
+            cx="11"
+            cy="11"
+            r=".7"
+            fill="var(--fg-primary)"
+            opacity="var(--graph-grid-opacity)"
+          />
         </pattern>
       </defs>
       <rect width={layout.width} height={layout.height} fill={`url(#hero-grid-${layout.width})`} />

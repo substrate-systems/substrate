@@ -30,6 +30,10 @@
   --bg-hover: #1a1815; /* hover and pressed fills */
   --bg-track: #2a2724; /* tracks, timeline, sheet handle */
 
+  /* Home's selected levels keep the same pale fill and dark ink in both schemes. */
+  --level-selected-bg: #ece9e2;
+  --level-selected-fg: #0a0908;
+
   /* ink */
   --fg-primary: #ece9e2; /* headings, primary text */
   --fg-body: #c9c5bc; /* long reading text, list values */
@@ -78,7 +82,7 @@
   /* the graph (landing, flow field, viewer) — opacities are part of the look */
   --graph-node: 0.24; /* a resting note */
   --graph-hub: 0.5; /* a busy note */
-  --graph-link: 0.07; /* a plain link (flow field .075; landing plain links .22 because they are scaled down) */
+  --graph-link: 0.09; /* a plain link (flow field .075; landing plain links .22 because they are scaled down) */
   --graph-link-supports: 0.24; /* typed links in the viewer overview */
   --graph-link-refines: 0.38;
   --graph-link-contradicts: 0.28;
@@ -90,6 +94,9 @@
   --graph-held-node: 0.3; /* the walking light held dim behind the checkout */
   --graph-held-link: 0.07;
   --graph-lit-halo: var(--exo-amber); /* glow around a lit note: walking light, connection, hub */
+  --graph-flat-halo: rgba(255, 176, 0, 0.16);
+  --graph-halo-opacity: 0.16;
+  --graph-grid-opacity: 0.07;
   --graph-hover-halo: var(--exo-glow); /* glow around the note under the pointer */
 
   /* type */
@@ -140,7 +147,7 @@
   --exo-amber: #a86e00; /* deep amber: lines, dots, glows, fills, borders, focus ring */
   --exo-amber-text: #a06600; /* the smallest step from --exo-amber that reaches 4.5:1 on --bg-base; owner-chosen over #9a6500 */
   --exo-field-bg: #faf8f4;
-  --exo-focus-ring: rgba(255, 176, 0, 0.3);
+  --exo-focus-ring: rgba(168, 110, 0, 0.3);
   --fg-placeholder: #757068;
 
   --ink-rgb: 26, 24, 20;
@@ -159,14 +166,17 @@
   --scrim: rgba(26, 24, 20, 0.28);
   --scrim-soft: rgba(60, 50, 30, 0.12);
   --graph-node: 0.3;
-  --graph-link: 0.12;
-  /* Lit notes at full strength with the bright phosphor as their halo (CHANGES-R41 §1). */
+  --graph-link: 0.09;
+  /* Light graphs use the canon's flat gold halo. */
   --graph-lit-link: 0.85;
   --graph-on-link: 0.85;
   --graph-held-node: 0.38;
   --graph-held-link: 0.085;
-  --graph-lit-halo: rgba(255, 176, 0, 0.5);
-  --graph-hover-halo: rgba(255, 176, 0, 0.5);
+  --graph-lit-halo: rgba(168, 110, 0, 0.18);
+  --graph-hover-halo: rgba(168, 110, 0, 0.18);
+  --graph-flat-halo: rgba(168, 110, 0, 0.18);
+  --graph-halo-opacity: 0.18;
+  --graph-grid-opacity: 0.2;
 }
 
 /* -----------------------------------------------------------------------------

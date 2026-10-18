@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Button, ButtonLink } from "@/components/exomem/Button";
 import { TextField } from "@/components/exomem/TextField";
-import { currentExomemTheme } from "@/lib/exomem/theme";
+import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
+import { inboxProvider, inboxProviderForDomain, inboxUrl } from "@/lib/exomem/inbox";
+import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
 import { failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
 import { SentCard, StepActions, StepHeading, StepNotice } from "./parts";
@@ -49,6 +52,7 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         // The page's theme, which the emails this request causes are built on.
         emailScheme: currentExomemTheme(document.documentElement),
+        themeChoice: currentExomemThemeChoice(document.documentElement),
       }),
       credentials: "same-origin",
       cache: "no-store",
@@ -100,6 +104,15 @@ export function StartFlow({
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [focusStep, setFocusStep] = useState(focusHeading);
   const [email, setEmail] = useState("");
+  const [sentEmail, setSentEmail] = useState("");
+  const [discoveredProvider, setDiscoveredProvider] = useState<{
+    domain: string;
+    id: string | null;
+  } | null>(null);
+  const requestVersion = useRef(0);
+  const [sentVersion, setSentVersion] = useState(0);
+  const form = useRef<HTMLFormElement>(null);
+  const focusEmail = useRef(false);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [shownNotice, setShownNotice] = useState(notice ?? null);
@@ -118,6 +131,94 @@ export function StartFlow({
   );
 
   const waitLeft = retryAt - now;
+  const formNonce = context.kind === "app" ? context.nonce : undefined;
+  const sentDomain = sentEmail.slice(sentEmail.lastIndexOf("@") + 1).toLowerCase();
+  const provider =
+    inboxProviderForDomain(sentDomain) ??
+    (discoveredProvider?.domain === sentDomain ? inboxProvider(discoveredProvider.id) : null);
+  const inbox = inboxUrl(provider?.id ?? null, sentEmail);
+  useEffect(() => {
+    if (step === "form" && focusEmail.current) {
+      form.current?.querySelector<HTMLInputElement>('input[name="email"]')?.focus();
+      focusEmail.current = false;
+    }
+  }, [step]);
+  useEffect(
+    () => () => {
+      requestVersion.current += 1;
+    },
+    []
+  );
+  useEffect(() => {
+    if ((step !== "sent" && step !== "limited") || !sentEmail) return;
+    const domain = sentEmail.slice(sentEmail.lastIndexOf("@") + 1).toLowerCase();
+    const known = inboxProviderForDomain(domain);
+    if (known) return;
+    const controller = new AbortController();
+    fetch(`/api/exomem/access/inbox?domain=${encodeURIComponent(domain)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => {
+        if (!controller.signal.aborted)
+          setDiscoveredProvider({
+            domain,
+            id:
+              inboxProvider(typeof body?.providerId === "string" ? body.providerId : null)?.id ??
+              null,
+          });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [step, sentEmail]);
+  useEffect(() => {
+    if ((step !== "sent" && step !== "limited") || !sentEmail) return;
+    const version = requestVersion.current;
+    const controller = new AbortController();
+    let timer = 0;
+    let checking = false;
+    async function check() {
+      window.clearTimeout(timer);
+      if (checking || controller.signal.aborted) return;
+      checking = true;
+      try {
+        const response = await fetch("/api/exomem/access/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ expectedEmail: sentEmail, ...(formNonce ? { formNonce } : {}) }),
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
+        });
+        const body = response.ok ? await response.json() : null;
+        if (
+          !controller.signal.aborted &&
+          version === requestVersion.current &&
+          body?.authenticated === true &&
+          typeof body.destination === "string"
+        ) {
+          window.location.replace(body.destination);
+          return;
+        }
+      } catch {
+        /* A later authoritative read can recover a missed tab notification. */
+      } finally {
+        checking = false;
+      }
+      if (!controller.signal.aborted) timer = window.setTimeout(check, 3_000);
+    }
+    const wake = (event: StorageEvent) => {
+      if (event.key === EXOMEM_SIGN_IN_EVENT_KEY) void check();
+    };
+    window.addEventListener("storage", wake);
+    void check();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+      window.removeEventListener("storage", wake);
+    };
+  }, [step, sentEmail, formNonce, sentVersion]);
   useEffect(() => {
     if (step !== "unreachable") return;
     let active = true;
@@ -164,17 +265,24 @@ export function StartFlow({
 
   async function send() {
     if (sending) return;
+    const version = ++requestVersion.current;
+    const address = email;
     setSending(true);
     let outcome: StartOutcome;
     try {
-      outcome = await requestStart(email, await challengeToken());
+      const token = await challengeToken();
+      if (version !== requestVersion.current) return;
+      outcome = await requestStart(address, token);
     } catch (error) {
       outcome = { kind: error instanceof ChallengeError ? "challenge_failed" : "failed" };
     }
+    if (version !== requestVersion.current) return;
     resetChallenge();
     setSending(false);
     if (outcome.kind === "sent") {
       setFailure(null);
+      setSentEmail(address);
+      setSentVersion(version);
       const at = Date.now();
       setRetryAt(at + outcome.retryAfterSeconds * 1000);
       setNow(at);
@@ -189,7 +297,19 @@ export function StartFlow({
       setRetryAttempt((attempt) => attempt + 1);
       setFocusStep(true);
       setStep("unreachable");
-    } else setFailure(failureCopy.challenge);
+    } else {
+      setSentVersion(version);
+      setFailure(failureCopy.challenge);
+    }
+  }
+
+  function changeAddress() {
+    requestVersion.current += 1;
+    focusEmail.current = true;
+    setSending(false);
+    setFailure(null);
+    setFocusStep(false);
+    setStep("form");
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -259,31 +379,46 @@ export function StartFlow({
             }
           />
           <div className={styles.group}>
-            <SentCard email={email} app={context.kind === "app" ? context.app : undefined} />
+            <SentCard
+              email={sentEmail}
+              app={context.kind === "app" ? context.app : undefined}
+              onChange={changeAddress}
+            />
             {challenge}
           </div>
           <StepNotice alert visible={!!failure}>
             {failure ?? failureCopy.generic}
           </StepNotice>
-          <StepActions
-            primary={{
-              label: sending
-                ? "Sending…"
-                : waitLeft > 0
-                  ? sentCopy.resendIn(clock(waitLeft))
-                  : sentCopy.resend,
-              disabled: waitLeft > 0,
-              working: sending,
-              onClick: () => void send(),
-            }}
-            secondary={{
-              label: sentCopy.differentEmail,
-              onClick: () => {
-                setFocusStep(true);
-                setStep("form");
-              },
-            }}
-          />
+          <div className={styles.actions}>
+            {inbox && provider && (
+              <div className={styles.primary}>
+                <ButtonLink
+                  variant="primary"
+                  size="page"
+                  href={inbox}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open {provider.name} ↗
+                </ButtonLink>
+              </div>
+            )}
+            <div className={inbox ? undefined : styles.primary}>
+              <Button
+                variant={inbox ? "ghost" : "primary"}
+                size="page"
+                disabled={waitLeft > 0}
+                working={sending}
+                onClick={() => void send()}
+              >
+                {sending
+                  ? "Sending…"
+                  : waitLeft > 0
+                    ? sentCopy.resendIn(clock(waitLeft))
+                    : sentCopy.resend}
+              </Button>
+            </div>
+          </div>
         </>
       ) : (
         <>
@@ -291,7 +426,7 @@ export function StartFlow({
           {shownNotice ? (
             <StepNotice attention={shownNotice.attention}>{shownNotice.text}</StepNotice>
           ) : null}
-          <form className={styles.form} onSubmit={submit} noValidate>
+          <form ref={form} className={styles.form} onSubmit={submit} noValidate>
             <div className={styles.group}>
               <TextField
                 surface="page"

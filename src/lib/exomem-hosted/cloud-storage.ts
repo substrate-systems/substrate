@@ -111,7 +111,7 @@ async function loadCell(
            cell.observed_storage_at, entitlement.paid_storage_bytes
     FROM exomem_cloud_cells AS cell
     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
-    JOIN users AS owner ON owner.id = tenant.owner_user_id
+    JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
     WHERE tenant.owner_user_id = ${userId} AND tenant.id = ${tenantId}::uuid
       AND tenant.status NOT IN ('deleted', 'deletion_pending') AND cell.desired_state <> 'deleted'

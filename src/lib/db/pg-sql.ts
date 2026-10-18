@@ -111,6 +111,64 @@ export async function query(text: string, values: unknown[] = []): Promise<PgSql
   return runQuery(getPool(), text, values);
 }
 
+/** Bound optional reads across checkout and execution; destroy abandoned active queries. */
+export function queryWithin(
+  text: string,
+  values: unknown[],
+  timeoutMs: number,
+  connect: () => Promise<TransactionClient> = () => getPool().connect()
+): Promise<PgSqlResult> {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let client: TransactionClient | undefined;
+    const timer = setTimeout(() => {
+      finished = true;
+      client?.release(true);
+      client = undefined;
+      reject(new Error("optional PostgreSQL read timed out"));
+    }, timeoutMs);
+    Promise.resolve()
+      .then(connect)
+      .then(async (acquired) => {
+        if (finished) {
+          acquired.release();
+          return;
+        }
+        client = acquired;
+        try {
+          const result = await runQuery(acquired, text, values);
+          if (!finished) {
+            finished = true;
+            clearTimeout(timer);
+            client = undefined;
+            acquired.release();
+            resolve(result);
+          }
+        } catch (error) {
+          if (!finished) {
+            finished = true;
+            clearTimeout(timer);
+            client = undefined;
+            acquired.release(isConnectionLevelError(error));
+            reject(error);
+          }
+        }
+      })
+      .catch((error) => {
+        if (!finished) {
+          finished = true;
+          clearTimeout(timer);
+          reject(error);
+        }
+      });
+  });
+}
+
+/** Tagged optional read, using the same parameter builder and pool as ordinary SQL. */
+export function sqlWithin(timeoutMs: number): PgSql {
+  return (strings, ...values) => queryWithin(buildText(strings, values), values, timeoutMs);
+}
+
 /**
  * A `DatabaseError` is the backend reporting a normal SQL-level failure (a
  * unique violation, a check constraint, a syntax error, ...) over an

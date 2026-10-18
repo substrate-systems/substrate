@@ -72,21 +72,26 @@ export async function postPublicJson(
   return decodeResponse(response);
 }
 
-export function csrfCookie(): string {
-  for (const part of document.cookie.split(";")) {
+export function browserCookie(cookieName: string): string {
+  for (const part of (document.cookie ?? "").split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === "exomem_csrf") return decodeURIComponent(rest.join("="));
+    if (name === cookieName) return decodeURIComponent(rest.join("="));
   }
   return "";
 }
 
+export function csrfCookie(): string {
+  return browserCookie("exomem_csrf");
+}
+
 export async function postPrivateJson(
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  method: "POST" | "PUT" = "POST"
 ): Promise<Record<string, unknown>> {
   const csrf = csrfCookie();
   const response = await fetch(path, {
-    method: "POST",
+    method,
     headers: {
       "content-type": "application/json",
       "x-exomem-csrf": csrf,
@@ -162,3 +167,5 @@ export function friendlyHostedError(error: unknown): string {
   if (error.remediation) return `${error.message} ${error.remediation}`;
   return error.message;
 }
+/** Cross-tab notification carries no identity or destination; the server checks both. */
+export const EXOMEM_SIGN_IN_EVENT_KEY = "exomem-access-session";

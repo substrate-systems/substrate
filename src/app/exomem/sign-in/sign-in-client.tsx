@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { TextField } from "@/components/exomem/TextField";
 import {
   HostedBrowserError,
+  EXOMEM_SIGN_IN_EVENT_KEY,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import { currentExomemTheme } from "@/lib/exomem/theme";
+import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
 import styles from "../_journey/journey.module.css";
 import { failureCopy, startCopy } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
@@ -78,9 +79,15 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
       ...(emailRequired ? { expectedEmail: email } : {}),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       emailScheme: currentExomemTheme(document.documentElement),
+      themeChoice: currentExomemThemeChoice(document.documentElement),
     })
       .then((result) => {
         token.current = null;
+        try {
+          window.localStorage.setItem(EXOMEM_SIGN_IN_EVENT_KEY, String(Date.now()));
+        } catch {
+          /* Polling still wakes the waiting tab when storage is blocked. */
+        }
         window.location.replace(
           typeof result.destination === "string" ? result.destination : "/exomem/home"
         );

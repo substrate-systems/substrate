@@ -1,94 +1,286 @@
-// The site-wide Exomem theme preference. One key in localStorage holds "light" or
-// "dark" once the person picks one with the toggle; until then the theme follows the
-// device's colour scheme. The theme is applied as data-theme on <html>, beside the
-// data-exomem marker that scopes the Exomem tokens and scrollbar to /exomem/**.
+import { browserCookie, csrfCookie, postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import { exomemThemeCookieName, themeBindingFromCsrfToken } from "./theme-binding";
 
 export type ExomemTheme = "dark" | "light";
+// The three modes are fixed by the account preference protocol.
+export const EXOMEM_THEME_CHOICES = ["auto", "light", "dark"] as const;
+export type ExomemThemeChoice = (typeof EXOMEM_THEME_CHOICES)[number];
+export const EXOMEM_THEME_CHANGE_EVENT = "exomem-theme-change";
 
-const STORAGE_KEY = "exomem-theme";
+export type ExomemThemeSnapshot = {
+  scope: string;
+  binding: string;
+  choice: ExomemThemeChoice | null;
+  effective: ExomemTheme | null;
+  expiresAt: string | null;
+};
 
-/**
- * Reads the stored preference and marks <html> as an Exomem page in that theme.
- * Without a stored "light" or "dark", the device's colour scheme decides, and
- * followDeviceTheme runs this rule again when the device changes. Storage or
- * `matchMedia` that throws (blocked, private, very old) gives dark.
- *
- * The root layout also runs this as an inline script before first paint, through
- * `toString()`, so it must stay self-contained: no imports and no outer variables.
- */
-function applyStoredTheme(storageKey: string, root: HTMLElement): ExomemTheme {
-  let theme: ExomemTheme = "dark";
-  try {
-    const stored = window.localStorage.getItem(storageKey);
-    if (stored === "light" || stored === "dark") theme = stored;
-    else if (window.matchMedia("(prefers-color-scheme: light)").matches) theme = "light";
-  } catch {
-    // Storage or the media query is unavailable: dark.
-  }
-  root.setAttribute("data-exomem", "");
-  // An unchanged theme writes nothing, so what watches data-theme (the graph) does not restart.
-  if (root.getAttribute("data-theme") !== theme) root.setAttribute("data-theme", theme);
-  return theme;
+export function exomemThemeChoice(value: unknown): ExomemThemeChoice | null {
+  return value === "auto" || value === "light" || value === "dark" ? value : null;
 }
 
-/**
- * Whether a path is an Exomem page: /exomem and everything under it, its 404s
- * included. The rest of the site never receives the Exomem marker or tokens.
- * Self-contained for the same reason as applyStoredTheme: the inline script embeds it.
- */
+export function effectiveExomemTheme(
+  choice: ExomemThemeChoice,
+  deviceIsLight: boolean
+): ExomemTheme {
+  return choice === "auto" ? (deviceIsLight ? "light" : "dark") : choice;
+}
+
+export function readExomemThemeSnapshot(raw: unknown): ExomemThemeSnapshot | null {
+  if (typeof raw !== "string" || raw.length > 2048) return null;
+  try {
+    const value = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    if (
+      typeof value.scope !== "string" ||
+      value.scope.length > 128 ||
+      typeof value.binding !== "string" ||
+      value.binding.length > 128 ||
+      (value.choice !== null &&
+        value.choice !== "auto" &&
+        value.choice !== "light" &&
+        value.choice !== "dark") ||
+      (value.effective !== null && value.effective !== "light" && value.effective !== "dark")
+    )
+      return null;
+    if (
+      value.expiresAt !== null &&
+      (typeof value.expiresAt !== "string" ||
+        !Number.isFinite(Date.parse(value.expiresAt)) ||
+        Date.parse(value.expiresAt) <= Date.now())
+    )
+      return null;
+    return value as ExomemThemeSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+const KEYS = {
+  choice: "exomem-theme-choice",
+  legacy: "exomem-theme",
+  account: "exomem-theme-account",
+};
+
+/** Shared by the synchronous bundle and the hydrated account controls. */
+function applyStoredTheme(root: HTMLElement): ExomemTheme {
+  const binding = browserThemeBinding();
+  let snapshot: ExomemThemeSnapshot | null = null;
+  try {
+    snapshot = readExomemThemeSnapshot(browserCookie(exomemThemeCookieName(binding)));
+  } catch {
+    /* Ignore malformed presentation cookies. */
+  }
+  if (binding && snapshot?.binding !== binding) {
+    snapshot = { scope: "", binding, choice: "auto", effective: null, expiresAt: null };
+  } else if (!binding) snapshot = null;
+  let browserChoice: ExomemThemeChoice = "auto";
+  try {
+    let stored = window.localStorage.getItem(KEYS.choice);
+    if (stored === null) {
+      const legacy = window.localStorage.getItem(KEYS.legacy);
+      stored = legacy === "light" || legacy === "dark" ? legacy : "auto";
+      window.localStorage.setItem(KEYS.choice, stored);
+      window.localStorage.removeItem(KEYS.legacy);
+    }
+    if (stored === "light" || stored === "dark") browserChoice = stored;
+  } catch {
+    // Storage can be blocked; the device and current account still work.
+  }
+  const choice = snapshot
+    ? snapshot.scope
+      ? (snapshot.choice ?? browserChoice)
+      : "auto"
+    : browserChoice;
+  try {
+    if (snapshot?.scope)
+      window.localStorage.setItem(KEYS.account, JSON.stringify({ scope: snapshot.scope, choice }));
+    else window.localStorage.removeItem(KEYS.account);
+  } catch {
+    // The account cookie remains the canonical browser snapshot.
+  }
+  let deviceIsLight = false;
+  if (choice === "auto") {
+    try {
+      deviceIsLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+    } catch {
+      /* Unknown device renders dark. */
+    }
+  }
+  const effective = effectiveExomemTheme(choice, deviceIsLight);
+  root.setAttribute("data-exomem", "");
+  root.setAttribute("data-theme-choice", choice);
+  root.setAttribute("data-theme-scope", snapshot?.scope ?? "");
+  root.setAttribute(
+    "data-theme-initialized",
+    snapshot?.scope && snapshot.choice === null ? "false" : "true"
+  );
+  if (root.getAttribute("data-theme") !== effective) root.setAttribute("data-theme", effective);
+  return effective;
+}
+
 export function isExomemPath(pathname: string): boolean {
   return pathname === "/exomem" || pathname.indexOf("/exomem/") === 0;
 }
 
-/** The inline <head> script for the root layout: the same two functions, before first paint. */
-export const exomemThemeScript = `(function(){if((${isExomemPath.toString()})(location.pathname))(${applyStoredTheme.toString()})(${JSON.stringify(STORAGE_KEY)},document.documentElement)})()`;
+type ThemeSaveState = { status: "idle" | "saving" | "saved" | "failed"; error: string | null };
+let saveState: ThemeSaveState = { status: "idle", error: null };
+let pending: { scope: string; binding: string; choice: ExomemThemeChoice } | null = null;
+let saveSequence = Promise.resolve();
+let version = 0;
 
-/** Marks <html> for an Exomem page reached by a client-side navigation. */
-export function applyExomemTheme(root: HTMLElement): ExomemTheme {
-  return applyStoredTheme(STORAGE_KEY, root);
+export function exomemThemeSaveState(): ThemeSaveState {
+  return { ...saveState };
 }
 
-// A pick made with the switch in this tab, which must stay even where storage cannot
-// hold it (a private window): the first-paint rule would read no pick there.
-let pickedInThisTab = false;
-
-/**
- * Re-applies the theme each time the device's colour scheme changes (an automatic
- * switch at sunset, say), by the same rule as first paint: a picked theme stays, and
- * without one the page takes the device's new scheme at once. Returns the unsubscribe.
- */
-export function followDeviceTheme(root: HTMLElement): () => void {
-  const reapply = () => {
-    if (!pickedInThisTab) applyStoredTheme(STORAGE_KEY, root);
-  };
-  try {
-    const device = window.matchMedia("(prefers-color-scheme: light)");
-    device.addEventListener("change", reapply);
-    return () => device.removeEventListener("change", reapply);
-  } catch {
-    // No media query events (very old browsers): the device is read on the next load.
-    return () => {};
-  }
+function announce(): void {
+  window.dispatchEvent(new Event(EXOMEM_THEME_CHANGE_EVENT));
 }
 
-/** The theme an Exomem page shows now, as the inline script or the switch set it. */
 export function currentExomemTheme(root: HTMLElement): ExomemTheme {
   return root.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
-/** Removes the marker and theme when a client-side navigation leaves the Exomem pages. */
-export function clearExomemTheme(root: HTMLElement): void {
-  root.removeAttribute("data-exomem");
-  root.removeAttribute("data-theme");
+export function currentExomemThemeChoice(root: HTMLElement): ExomemThemeChoice {
+  return exomemThemeChoice(root.getAttribute("data-theme-choice")) ?? "auto";
 }
 
-/** Switches the theme now and remembers it for every Exomem page. */
-export function setExomemTheme(root: HTMLElement, theme: ExomemTheme): void {
-  pickedInThisTab = true;
-  root.setAttribute("data-theme", theme);
-  try {
-    window.localStorage.setItem(STORAGE_KEY, theme);
-  } catch {
-    // Storage is unavailable: the switch still holds for this page.
+function showChoice(root: HTMLElement, choice: ExomemThemeChoice): void {
+  let deviceIsLight = false;
+  if (choice === "auto") {
+    try {
+      deviceIsLight = window.matchMedia("(prefers-color-scheme: light)").matches;
+    } catch {
+      /* Unknown device renders dark. */
+    }
   }
+  const effective = effectiveExomemTheme(choice, deviceIsLight);
+  root.setAttribute("data-theme-choice", choice);
+  if (root.getAttribute("data-theme") !== effective) root.setAttribute("data-theme", effective);
+}
+
+export function applyExomemTheme(root: HTMLElement): ExomemTheme {
+  applyStoredTheme(root);
+  const scope = root.getAttribute("data-theme-scope") ?? "";
+  if (pending?.scope === scope && pending.binding === browserThemeBinding())
+    showChoice(root, pending.choice);
+  else if (pending) {
+    pending = null;
+    saveState = { status: "idle", error: null };
+  }
+  return currentExomemTheme(root);
+}
+
+function browserThemeBinding(): string {
+  try {
+    return themeBindingFromCsrfToken(csrfCookie());
+  } catch {
+    return "";
+  }
+}
+
+/** The picked theme applies immediately; account persistence has a separate visible state. */
+export async function setExomemThemeChoice(
+  root: HTMLElement,
+  choice: ExomemThemeChoice,
+  options: { initialize?: true; effectiveOnly?: true } = {}
+): Promise<boolean> {
+  const scope = root.getAttribute("data-theme-scope") ?? "";
+  const binding = browserThemeBinding();
+  showChoice(root, choice);
+  pending = { scope, binding, choice };
+  try {
+    window.localStorage.setItem(
+      scope ? KEYS.account : KEYS.choice,
+      scope ? JSON.stringify({ scope, choice }) : choice
+    );
+  } catch {
+    /* A blocked cache never stops the current tab. */
+  }
+  if (!scope) {
+    announce();
+    return true;
+  }
+  const effective = currentExomemTheme(root);
+  const currentVersion = ++version;
+  saveState = { status: "saving", error: null };
+  announce();
+  let saved = false;
+  saveSequence = saveSequence.then(async () => {
+    applyExomemTheme(root);
+    if (root.getAttribute("data-theme-scope") !== scope || browserThemeBinding() !== binding)
+      return;
+    try {
+      const response = await postPrivateJson(
+        "/api/exomem/account/preferences",
+        {
+          themeChoice: choice,
+          emailScheme: effective,
+          ...options,
+        },
+        "PUT"
+      );
+      if (response.success !== true || !exomemThemeChoice(response.themeChoice))
+        throw new Error("The theme was not saved.");
+      const refreshed = readExomemThemeSnapshot(JSON.stringify(response.themeSnapshot));
+      const currentBinding = browserThemeBinding();
+      if (!refreshed || refreshed.scope !== scope || refreshed.binding !== currentBinding) return;
+      document.cookie = `${exomemThemeCookieName(refreshed.binding)}=${encodeURIComponent(JSON.stringify(refreshed))}; Path=/; SameSite=Lax${refreshed.expiresAt ? `; Expires=${new Date(refreshed.expiresAt).toUTCString()}` : ""}${location.protocol === "https:" ? "; Secure" : ""}`;
+      saved = true;
+      if (currentVersion === version) {
+        pending = null;
+        saveState = { status: "saved", error: null };
+        applyExomemTheme(root);
+      }
+    } catch (error) {
+      if (currentVersion === version && root.getAttribute("data-theme-scope") === scope)
+        saveState = {
+          status: "failed",
+          error: error instanceof Error ? error.message : "The theme was not saved.",
+        };
+    }
+    announce();
+  });
+  await saveSequence;
+  return saved && currentVersion === version;
+}
+
+export function followDeviceTheme(root: HTMLElement): () => void {
+  const reapply = () => {
+    applyExomemTheme(root);
+    if (currentExomemThemeChoice(root) === "auto" && root.getAttribute("data-theme-scope")) {
+      void setExomemThemeChoice(root, "auto", { effectiveOnly: true });
+    }
+    announce();
+  };
+  if (
+    root.getAttribute("data-theme-scope") &&
+    root.getAttribute("data-theme-initialized") === "false"
+  ) {
+    void setExomemThemeChoice(root, currentExomemThemeChoice(root), { initialize: true });
+  } else if (root.getAttribute("data-theme-scope") && currentExomemThemeChoice(root) === "auto") {
+    void setExomemThemeChoice(root, "auto", { effectiveOnly: true });
+  }
+  window.addEventListener("storage", reapply);
+  try {
+    const device = window.matchMedia("(prefers-color-scheme: light)");
+    device.addEventListener("change", reapply);
+    return () => {
+      device.removeEventListener("change", reapply);
+      window.removeEventListener("storage", reapply);
+    };
+  } catch {
+    return () => window.removeEventListener("storage", reapply);
+  }
+}
+
+export function clearExomemTheme(root: HTMLElement): void {
+  for (const attribute of [
+    "data-exomem",
+    "data-theme",
+    "data-theme-choice",
+    "data-theme-scope",
+    "data-theme-initialized",
+  ])
+    root.removeAttribute(attribute);
 }

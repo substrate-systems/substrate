@@ -7,7 +7,7 @@ import { after, before, describe, it } from "node:test";
 import { Pool } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { loadExomemAccountView } from "../account-view";
-import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { __setExomemSqlForTests, saveExomemTheme, type ExomemSql } from "../db";
 import { loadExomemPaddleConfig } from "../paddle-config";
 import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
 import { reconcileExomemPaddleSubscription } from "../paddle-reconciliation";
@@ -216,6 +216,49 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
       await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       await admin.end();
     }
+  });
+
+  it("preserves an initialized explicit choice when a stale device observes Auto", async () => {
+    const owner = await insertTenant();
+    assert.deepEqual(
+      await saveExomemTheme({ ...owner, themeChoice: "dark", emailScheme: "dark" }),
+      { themeChoice: "dark", emailScheme: "dark" }
+    );
+    assert.deepEqual(
+      await saveExomemTheme({
+        ...owner,
+        themeChoice: "light",
+        emailScheme: "light",
+        initialize: true,
+      }),
+      { themeChoice: "dark", emailScheme: "dark" }
+    );
+    assert.deepEqual(
+      await saveExomemTheme({
+        ...owner,
+        themeChoice: "auto",
+        emailScheme: "light",
+        effectiveOnly: true,
+      }),
+      { themeChoice: "dark", emailScheme: "dark" }
+    );
+    assert.deepEqual(
+      (
+        await pool.query("SELECT theme_choice, email_scheme FROM exomem_tenants WHERE id = $1", [
+          owner.tenantId,
+        ])
+      ).rows,
+      [{ theme_choice: "dark", email_scheme: "dark" }]
+    );
+    assert.equal(
+      await saveExomemTheme({
+        ...owner,
+        userId: randomUUID(),
+        themeChoice: "light",
+        emailScheme: "light",
+      }),
+      null
+    );
   });
 
   it("gives every tenant that existed before the upgrade its own support reference", async () => {

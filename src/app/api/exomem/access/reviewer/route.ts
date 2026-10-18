@@ -88,7 +88,11 @@ async function signInOnWeb(request: Request, body: ReviewerCredentialBody): Prom
     { success: true, status: "authenticated", destination: "/exomem/home" },
     { headers }
   );
-  applySessionCookies(response, { ...session, expiresAt: new Date(created.expiresAt) });
+  await applySessionCookies(
+    response,
+    { ...session, expiresAt: new Date(created.expiresAt) },
+    request
+  );
   return response;
 }
 
@@ -129,13 +133,17 @@ async function signInForApp(request: Request, body: ReviewerCredentialBody): Pro
     { headers }
   );
   const credentialExpiresAt = new Date(credential.expiresAt);
-  applySessionCookies(response, {
-    ...session,
-    expiresAt:
-      credentialExpiresAt.getTime() < session.expiresAt.getTime()
-        ? credentialExpiresAt
-        : session.expiresAt,
-  });
+  await applySessionCookies(
+    response,
+    {
+      ...session,
+      expiresAt:
+        credentialExpiresAt.getTime() < session.expiresAt.getTime()
+          ? credentialExpiresAt
+          : session.expiresAt,
+    },
+    request
+  );
   return response;
 }
 

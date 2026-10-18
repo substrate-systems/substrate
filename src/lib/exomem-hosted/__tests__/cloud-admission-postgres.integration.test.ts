@@ -104,6 +104,7 @@ async function resetFleet(): Promise<void> {
   // Account blocks reference tenants with ON DELETE RESTRICT.
   await pool!.query("DELETE FROM exomem_oauth_account_blocks");
   await pool!.query("DELETE FROM exomem_tenants");
+  await pool!.query("DELETE FROM exomem_users");
   await pool!.query("DELETE FROM users");
 }
 
@@ -241,6 +242,106 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       else process.env[key] = priorCloudConfigEnv[key];
     }
   });
+
+  for (const oauth of [false, true]) {
+    it(`keeps canonical identity and shared-product identity separate through ${oauth ? "OAuth" : "browser"} admission`, async () => {
+      await resetFleet();
+      await configureCapacity(3);
+      const oldAddress = `old-${randomUUID()}@example.test`;
+      const newAddress = `new-${randomUUID()}@example.test`;
+      const owner = await pool!.query(
+        "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING *",
+        [oldAddress]
+      );
+      const otherProductOwner = await pool!.query(
+        "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING *",
+        [newAddress]
+      );
+      const userId = owner.rows[0]!.id;
+      await pool!.query(
+        `INSERT INTO exomem_users (id, email, email_verified_at, created_at)
+         SELECT id, $2, email_verified_at, created_at FROM users WHERE id = $1`,
+        [userId, newAddress]
+      );
+      const admit = async (email: string) => {
+        const fixture = oauth
+          ? await createCloudOAuthFixture(email)
+          : await createInvite("complimentary", email);
+        const digest = "inviteDigest" in fixture ? fixture.inviteDigest : fixture.tokenDigest;
+        const input = redemptionInput(digest);
+        return oauth
+          ? admitFirstCloudOAuthInviteAtomic({
+              ...input,
+              inviteDigest: digest,
+              transactionDigest: (fixture as { transactionDigest: Buffer }).transactionDigest,
+              codeDigest: randomBytes(32),
+              codeExpiresAt: new Date(Date.now() + 60_000),
+            })
+          : redeemCloudInviteAtomic(input);
+      };
+
+      if (oauth) assert.equal(await admit(oldAddress), null);
+      else await assert.rejects(admit(oldAddress), { code: "ACCESS_TOKEN_INVALID" });
+      assert.equal(
+        (await pool!.query("SELECT count(*)::int AS n FROM exomem_tenants")).rows[0]!.n,
+        0
+      );
+      const admitted = await admit(newAddress);
+      assert.ok(admitted);
+      const admittedOwner = await pool!.query(
+        "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+        [admitted.tenantId]
+      );
+      assert.equal(admittedOwner.rows[0]!.owner_user_id, userId);
+      const shared = await pool!.query("SELECT * FROM users ORDER BY email");
+      assert.deepEqual(
+        shared.rows,
+        [...owner.rows, ...otherProductOwner.rows].sort((a, b) => a.email.localeCompare(b.email))
+      );
+      assert.deepEqual((await pool!.query("SELECT id, email FROM exomem_users")).rows, [
+        { id: userId, email: newAddress },
+      ]);
+    });
+
+    it(`copies an existing shared identity with the same UUID through ${oauth ? "OAuth" : "browser"} admission`, async () => {
+      await resetFleet();
+      await configureCapacity(2);
+      const email = `shared-${randomUUID()}@example.test`;
+      const shared = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING *", [email]);
+      const fixture = oauth
+        ? await createCloudOAuthFixture(email)
+        : await createInvite("complimentary", email);
+      const digest = "inviteDigest" in fixture ? fixture.inviteDigest : fixture.tokenDigest;
+      const input = redemptionInput(digest);
+      const admitted = oauth
+        ? await admitFirstCloudOAuthInviteAtomic({
+            ...input,
+            inviteDigest: digest,
+            transactionDigest: (fixture as { transactionDigest: Buffer }).transactionDigest,
+            codeDigest: randomBytes(32),
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          })
+        : await redeemCloudInviteAtomic(input);
+      assert.ok(admitted);
+      const admittedOwner = await pool!.query(
+        "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+        [admitted.tenantId]
+      );
+      assert.equal(admittedOwner.rows[0]!.owner_user_id, shared.rows[0]!.id);
+      const identity = await pool!.query("SELECT * FROM exomem_users");
+      assert.ok(identity.rows[0]!.email_verified_at);
+      assert.deepEqual(
+        identity.rows.map((row) => ({ ...row, email_verified_at: null })),
+        shared.rows
+      );
+      assert.deepEqual((await pool!.query("SELECT * FROM users")).rows, shared.rows);
+      const timestamps = await pool!.query(
+        "SELECT identity.created_at = shared.created_at AS preserved FROM exomem_users AS identity JOIN users AS shared USING (id)"
+      );
+      assert.equal(timestamps.rows[0]!.preserved, true);
+
+    });
+  }
 
   for (const oauth of [false, true]) {
     for (const observation of [
@@ -413,6 +514,28 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(invite.rows[0]!.consumed_at, null);
     await pool!.query("UPDATE exomem_cloud_cells SET observed_generation = generation WHERE cell_id = $1", [admitted.cellId]);
     assert.ok(await retry());
+  });
+
+  it("keeps one identity and one tenant when two invitations for the same address redeem together", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `concurrent-${randomUUID()}@example.test`;
+    const first = await createInvite("complimentary", email);
+    const second = await createInvite("complimentary", email);
+    const results = await Promise.allSettled([
+      redeemCloudInviteAtomic(redemptionInput(first.tokenDigest)),
+      redeemCloudInviteAtomic(redemptionInput(second.tokenDigest)),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled" && result.value).length, 1);
+    const owners = await pool!.query(
+      `SELECT identity.id, tenant.owner_user_id, shared.id AS shared_id
+       FROM exomem_users AS identity
+       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = identity.id
+       JOIN users AS shared ON shared.id = identity.id`
+    );
+    assert.equal(owners.rowCount, 1);
+    assert.equal(owners.rows[0]!.id, owners.rows[0]!.owner_user_id);
+    assert.equal(owners.rows[0]!.id, owners.rows[0]!.shared_id);
   });
 
   it("admits exactly one of two concurrent redemptions at the last free slot", async () => {

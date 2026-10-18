@@ -1,3 +1,6 @@
+import { exomemThemeChoice } from "@/lib/exomem/theme";
+import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
+import { normalizeTimeZone } from "@/lib/exomem-hosted/time-zone";
 import { NextResponse } from "next/server";
 import { admitFirstCloudOAuthInviteAtomic } from "@/lib/exomem-hosted/cloud-admission";
 import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
@@ -73,7 +76,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       !body ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      Object.keys(body).length !== 2 ||
+      Object.keys(body).some(
+        (key) => !["token", "nonce", "timeZone", "emailScheme", "themeChoice"].includes(key)
+      ) ||
       typeof (body as { token?: unknown }).token !== "string" ||
       typeof (body as { nonce?: unknown }).nonce !== "string"
     ) {
@@ -100,6 +105,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       sessionExpiresAt: session.expiresAt,
       codeDigest: code.codeDigest,
       codeExpiresAt: code.codeExpiresAt,
+      timeZone: normalizeTimeZone((body as Record<string, unknown>).timeZone),
+      emailScheme: exomemEmailScheme((body as Record<string, unknown>).emailScheme),
+      themeChoice: exomemThemeChoice((body as Record<string, unknown>).themeChoice),
     });
     if (!admitted) return accessDenied();
     // A paid invite is admitted without a code; the consent page continues at checkout.
@@ -112,7 +120,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     for (const [name, value] of Object.entries(oauthNoStoreHeaders()))
       response.headers.set(name, value);
-    applySessionCookies(response, session);
+    await applySessionCookies(response, session, request);
     if (connected) clearOAuthContinuationCookie(response);
     return response;
   } catch (error) {

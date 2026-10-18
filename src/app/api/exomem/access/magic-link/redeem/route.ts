@@ -1,3 +1,4 @@
+import { exomemThemeChoice } from "@/lib/exomem/theme";
 import { NextRequest, NextResponse } from "next/server";
 import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { redeemMagicLink } from "@/lib/exomem-hosted/access";
@@ -40,7 +41,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       (body.expectedEmail !== undefined && typeof body.expectedEmail !== "string") ||
       Object.keys(body).some(
         (key) =>
-          key !== "token" && key !== "timeZone" && key !== "emailScheme" && key !== "expectedEmail"
+          key !== "token" &&
+          key !== "timeZone" &&
+          key !== "emailScheme" &&
+          key !== "themeChoice" &&
+          key !== "expectedEmail"
       )
     ) {
       throw exomemErrors.invalidRequest();
@@ -53,6 +58,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       expectedEmail: body.expectedEmail as string | undefined,
       timeZone: normalizeTimeZone(body.timeZone),
       emailScheme: exomemEmailScheme(body.emailScheme),
+      themeChoice: exomemThemeChoice(body.themeChoice),
     });
     response = NextResponse.json(
       {
@@ -65,7 +71,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       { status: 200 }
     );
-    applySessionCookies(response, redeemed);
+    await applySessionCookies(response, redeemed, request);
     if (!redeemed.browserChallengeMatched) clearOAuthContinuationCookie(response);
     emitAccessEvent({
       event: "access.magic_link.redeemed",

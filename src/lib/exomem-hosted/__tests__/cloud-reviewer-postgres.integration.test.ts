@@ -428,7 +428,10 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     );
     assert.equal(await issue(blocked), null);
     const deleted = await sample();
-    await pool.query("UPDATE users SET deleted_at = now() WHERE id = $1", [deleted.ownerUserId]);
+    await pool.query(
+      "UPDATE exomem_users SET email = NULL, email_verified_at = NULL, deleted_at = now() WHERE id = $1",
+      [deleted.ownerUserId]
+    );
     assert.equal(await issue(deleted), null);
     assert.ok(await findCloudReviewerCredentialForAuthentication(valid.usernameDigest));
     const purpose = await pool.query(
@@ -707,7 +710,10 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     await pool.query("DELETE FROM exomem_oauth_account_blocks WHERE tenant_id = $1", [
       fixture.tenantId,
     ]);
-    await pool.query("UPDATE users SET deleted_at = now() WHERE id = $1", [fixture.ownerUserId]);
+    await pool.query(
+      "UPDATE exomem_users SET email = NULL, email_verified_at = NULL, deleted_at = now() WHERE id = $1",
+      [fixture.ownerUserId]
+    );
     assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
     assert.equal(
       await rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens.refreshDigest)),

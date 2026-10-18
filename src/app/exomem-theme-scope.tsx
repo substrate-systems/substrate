@@ -25,8 +25,8 @@ export function ExomemThemeScope() {
       clearExomemTheme(root);
       return;
     }
-    // Already marked: keep the theme the page has (a toggle may have changed it).
-    if (!root.hasAttribute("data-exomem")) applyExomemTheme(root);
+    // Reconcile account switches while preserving this tab's pending choice.
+    applyExomemTheme(root);
     return followDeviceTheme(root);
   }, [pathname]);
   return null;

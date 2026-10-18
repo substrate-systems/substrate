@@ -97,6 +97,35 @@ After valid redemption, the system SHALL show deterministic provisioning progres
 
 ## ADDED Requirements
 
+### Requirement: Sign-in inbox actions reveal no account state
+
+The sign-in card SHALL permit address correction and provider inbox navigation using only the submitted address domain and DNS mail-exchange records.
+Provider lookup MUST NOT inspect account or admission state. Lookup failure MUST NOT prevent requesting or retrying a sign-in link.
+The card MUST retain a truthful non-enumerating acknowledgement and MUST NOT use a compose-mail link as an inbox action.
+
+#### Scenario: Domain identifies a supported inbox
+
+- **WHEN** the submitted domain or its mail-exchange records identify a supported provider
+- **THEN** the card offers that provider's inbox action independently of account existence
+
+#### Scenario: Desktop provider is unknown
+
+- **WHEN** the provider cannot be identified on desktop
+- **THEN** the card retains its server-derived retry countdown and address correction without inventing an inbox destination
+
+#### Scenario: Same-browser sign-in completes elsewhere
+
+- **WHEN** another tab announces a completed sign-in
+- **THEN** the waiting tab reads its current authenticated session and valid continuation before moving on
+- **AND** the authenticated address matches the submitted address
+- **AND** an app continuation still matches the original form nonce
+
+#### Scenario: Another tab signs into a different account or app request
+
+- **WHEN** a notification refers to another account or the browser's app request has changed
+- **THEN** the waiting tab does not advance into that account or request
+- **AND** the browser event alone grants no session or redirect authority
+
 ### Requirement: Public policies describe paid admission and bot protection
 
 The Terms SHALL describe monthly subscriptions, paid and covered invitations, waitlist admission and eligibility at age 18 or older. They SHALL preserve export, deletion and mandatory consumer rights. Eligibility MUST NOT add a date-of-birth or identity check. The privacy policy SHALL name Brevo transactional email and Cloudflare Turnstile, including its technical signals and processor/controller roles.

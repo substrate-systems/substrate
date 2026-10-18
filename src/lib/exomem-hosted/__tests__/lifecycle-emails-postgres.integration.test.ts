@@ -567,7 +567,10 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     const moved = new Map<string, string>();
     for (const tenant of [ready, pastDue, ended]) {
       const address = `moved-${randomUUID()}@example.test`;
-      await pool.query("UPDATE users SET email = $1 WHERE id = $2", [address, tenant.userId]);
+      await pool.query("UPDATE exomem_users SET email = $1 WHERE id = $2", [
+        address,
+        tenant.userId,
+      ]);
       moved.set(tenant.email, address);
     }
 
@@ -759,7 +762,10 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     );
     const tenant = heldWithReminderAtDeploy;
     const newAddress = `moved-${randomUUID()}@example.test`;
-    await pool.query("UPDATE users SET email = $1 WHERE id = $2", [newAddress, tenant.userId]);
+    await pool.query("UPDATE exomem_users SET email = $1 WHERE id = $2", [
+      newAddress,
+      tenant.userId,
+    ]);
 
     const token = generateExternalToken();
     assert.ok(

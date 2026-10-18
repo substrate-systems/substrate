@@ -7,6 +7,8 @@
  * announces, so it is sent once.
  */
 
+import { type ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
@@ -39,6 +41,7 @@ export async function enqueueSubscriptionEndedEmails(
     recipient: string;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
     now: Date;
   }
 ): Promise<{ reminderScheduled: boolean }> {
@@ -51,6 +54,7 @@ export async function enqueueSubscriptionEndedEmails(
       recipient: input.recipient,
       recipientTimeZone: input.timeZone,
       recipientEmailScheme: input.emailScheme,
+      recipientThemeChoice: input.themeChoice,
       tenantId: input.tenantId,
       payload: { version: 1, cellId: input.cellId, endedAt: input.endedAt },
       notBefore: reminderAt,
@@ -62,6 +66,7 @@ export async function enqueueSubscriptionEndedEmails(
     recipient: input.recipient,
     recipientTimeZone: input.timeZone,
     recipientEmailScheme: input.emailScheme,
+    recipientThemeChoice: input.themeChoice,
     tenantId: input.tenantId,
     payload: {
       version: 1,
@@ -90,6 +95,7 @@ export async function enqueueDeletedEmail(
     recipient: string;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
   }
 ): Promise<void> {
   await enqueueExomemEmail(tx, {
@@ -98,6 +104,7 @@ export async function enqueueDeletedEmail(
     recipient: input.recipient,
     recipientTimeZone: input.timeZone,
     recipientEmailScheme: input.emailScheme,
+    recipientThemeChoice: input.themeChoice,
     tenantId: input.tenantId,
     payload: { version: 1, tenantId: input.tenantId, deletedAt: input.deletedAt },
   });
@@ -138,11 +145,11 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
     const added = await withExomemTransaction(async (tx) => {
       const { rows: owners } = await tx`
         /* exomem:ready-email-owner */
-        SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme,
+        SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice,
                tenant.id AS tenant_id
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
-        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
         WHERE cell.cell_id = ${cellId}
           AND cell.ready
           AND tenant.status = 'active'
@@ -152,6 +159,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
         | {
             email: string;
             time_zone: string | null;
+            theme_choice?: ExomemThemeChoice | null;
             email_scheme: ExomemEmailScheme | null;
             tenant_id: string;
           }
@@ -163,6 +171,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
         recipient: owner.email,
         recipientTimeZone: owner.time_zone,
         recipientEmailScheme: owner.email_scheme,
+        recipientThemeChoice: owner.theme_choice,
         tenantId: owner.tenant_id,
         payload: { version: 1, cellId },
       });

@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "rm -rf .next && next dev --port 3000",
     "dev:next": "next dev",
-    "build": "next build",
-    "vercel-build": "tsx scripts/vercel-maybe-migrate.ts && next build",
+    "build": "npm run check:exomem-theme && next build",
+    "vercel-build": "npm run check:exomem-theme && tsx scripts/vercel-maybe-migrate.ts && next build",
     "start": "next start",
     "gateway:start": "node dist/exomem-gateway/index.cjs",
     "gateway:typecheck": "tsc --noEmit",
@@ -28,7 +28,9 @@
     "openspec:validate": "openspec validate --all --strict --no-interactive",
     "openspec:validate:ci": "pwsh -NoProfile -File scripts/openspec_validate.ps1",
     "test:e2e": "npm run build && playwright test",
-    "test:e2e:only": "playwright test"
+    "test:e2e:only": "playwright test",
+    "sync:exomem-theme": "node scripts/build-exomem-theme.mjs",
+    "check:exomem-theme": "node scripts/build-exomem-theme.mjs --check"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",

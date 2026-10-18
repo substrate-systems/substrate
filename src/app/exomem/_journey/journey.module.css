@@ -11,10 +11,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  --flow-clearance: 84px;
   --gutter: 40px;
   --edge-gap: 24px;
   box-sizing: border-box;
-  padding: 84px 0;
+  padding: var(--flow-clearance) 0;
 }
 
 /* Equal flexible space centres the step. Header and origin clearance take priority
@@ -55,10 +56,22 @@
   line-height: 1;
 }
 
-.headerEmail {
+.headerControls {
   position: absolute;
   right: var(--gutter);
-  top: 32px;
+  top: 23.5px;
+  /* Keep long addresses in the right half, clear of the wordmark. */
+  max-width: calc(50% - var(--gutter));
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  z-index: 3;
+}
+.headerEmail {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
@@ -290,31 +303,51 @@
    above it as on the price card, and the note under a hairline as on the scopes card. The
    whole address shows, so a person can check it for a typo. */
 .sent {
-  gap: 14px;
+  gap: 10px;
+  border-radius: var(--r-pop);
 }
 
 .sentTo {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 12px;
+  font: 400 12.5px var(--font-mono-exo);
 }
 
 .sentAddress {
   font-family: var(--font-mono-exo);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
+  min-width: 0;
+  flex: 1;
   color: var(--fg-primary);
   overflow-wrap: anywhere;
 }
 
 .sentNote {
-  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
   border-top: 1px solid var(--exo-border-card);
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--fg-secondary);
+}
+
+.sentLabel {
+  flex: none;
+  color: var(--fg-secondary);
+}
+.sentChange {
+  min-height: 40px;
+  padding: 12px 6px;
+  margin: -12px -6px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
 .scopes {
@@ -542,9 +575,11 @@
   max-width: 380px;
 }
 
-/* A live or settled line: an amber dot and one mono line. */
+/* A live or settled line: an amber dot and wrapping mono text. */
 .statusLine {
   display: flex;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   gap: 10px;
   align-items: center;
   font-family: var(--font-mono-exo);
@@ -684,6 +719,23 @@
 @media (max-width: 640px), (max-height: 480px) {
   .page {
     --gutter: 16px;
+    --flow-bottom-band: 150px;
+  }
+
+  /* Centre between the phone bands, yielding the offset before the top clearance. */
+  .center {
+    translate: 0
+      clamp(
+        calc((var(--flow-clearance) - var(--flow-bottom-band)) / 2),
+        calc(50% + var(--flow-clearance) - 50vh),
+        0px
+      );
+    translate: 0
+      clamp(
+        calc((var(--flow-clearance) - var(--flow-bottom-band)) / 2),
+        calc(50% + var(--flow-clearance) - 50dvh),
+        0px
+      );
   }
 
   /* A phone takes the reviewer's entry over at least 40 px, as every phone target. */
@@ -701,6 +753,17 @@
 
   .column {
     width: 358px;
+  }
+}
+
+/* Explicit grouping preserves the strict height condition through compiler lowering. */
+@media (max-width: 640px) and (not (min-height: 720px)), (max-height: 480px) {
+  .tiles {
+    display: none;
+  }
+
+  .column {
+    gap: 14px;
   }
 }
 

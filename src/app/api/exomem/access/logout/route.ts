@@ -20,7 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { success: true, status: "signed_out", requestId },
       { status: 200 }
     );
-    clearSessionCookies(response);
+    clearSessionCookies(response, request);
     emitAccessEvent({
       event: "access.logout.succeeded",
       outcome: "succeeded",

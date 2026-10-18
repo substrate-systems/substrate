@@ -19,6 +19,7 @@ Exomem Cloud launches with the web experience in `docs/exomem-design`: a landing
 - Home to cell: a server-side channel that reads and sets levels and reads activity, a storage observation, and a self-serve ZIP export that expires.
 - Frontend: the journey, Home and landing, built as drawn, with the nine departures listed in `design.md`.
 - Design update: apply rounds 41–47, including inline subscription checkout, accessible transitions, browser-bound link recovery and server-derived resend waits.
+- Design update: apply the current round 57 canon to Home, theme selection, emails and the sign-in card. Defer the map and Home preview together.
 - **BREAKING** The unpaid hold anchors on the stopped cell's creation. Start links last 48 hours. Paid operator invitations and start links both count against Cloud capacity.
 
 ## Capabilities

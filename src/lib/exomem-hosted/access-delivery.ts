@@ -1,3 +1,4 @@
+import { exomemThemeChoice, type ExomemThemeChoice } from "@/lib/exomem/theme";
 import { normalizeTimeZone } from "./time-zone";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
@@ -68,6 +69,7 @@ function parseDeliveryPayload(
   expiresAt: Date;
   timeZone: string | null;
   emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 } | null {
   try {
     const raw = decrypt(record.secretCiphertext).reveal();
@@ -85,6 +87,7 @@ function parseDeliveryPayload(
             "version",
             "timeZone",
             "emailScheme",
+            "themeChoice",
           ].includes(key)
       ) ||
       value.version !== 1 ||
@@ -105,6 +108,7 @@ function parseDeliveryPayload(
       expiresAt,
       timeZone: normalizeTimeZone(value.timeZone),
       emailScheme: exomemEmailScheme(value.emailScheme),
+      themeChoice: exomemThemeChoice(value.themeChoice),
     };
   } catch {
     return null;
@@ -138,6 +142,7 @@ async function deliverClaimedMagicLink(
     // The page that asked for the link decides: a scheme changes only how the email
     // looks, so this one email may follow a request that has not signed in yet.
     scheme: payload.emailScheme ?? record.recipientEmailScheme,
+    themeChoice: payload.themeChoice,
   });
   let delivered = false;
   try {

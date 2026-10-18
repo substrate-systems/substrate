@@ -1,3 +1,5 @@
+import { themeBindingFromCsrfToken } from "@/lib/exomem/theme-binding";
+import { pruneExomemThemeSnapshots, refreshExomemThemeSnapshot } from "./theme-snapshot";
 import { NextResponse } from "next/server";
 import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
 import {
@@ -185,11 +187,12 @@ export function validateMutationRequest(
   }
 }
 
-export function applySessionCookies(
+export async function applySessionCookies(
   response: NextResponse,
   material: Pick<SessionMaterial, "sessionToken" | "csrfToken" | "expiresAt">,
+  request?: Request,
   now: Date = new Date()
-): void {
+): Promise<void> {
   const common = {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
@@ -207,9 +210,11 @@ export function applySessionCookies(
     ...common,
     httpOnly: false,
   });
+  pruneExomemThemeSnapshots(response, request, themeBindingFromCsrfToken(material.csrfToken));
+  await refreshExomemThemeSnapshot(response, material.sessionToken, material.csrfToken);
 }
 
-export function clearSessionCookies(response: NextResponse): void {
+export function clearSessionCookies(response: NextResponse, request?: Request): void {
   const common = {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
@@ -224,6 +229,7 @@ export function clearSessionCookies(response: NextResponse): void {
     ...common,
     httpOnly: false,
   });
+  pruneExomemThemeSnapshots(response, request);
 }
 
 export async function revokeResolvedSession(

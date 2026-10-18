@@ -86,6 +86,7 @@ export async function requestDeletionConfirmation(
     now,
     timeZone: created.timeZone,
     scheme: created.emailScheme,
+    themeChoice: created.themeChoice,
   });
   let delivery: Awaited<ReturnType<typeof sendTransactionalEmail>>;
   try {

@@ -188,6 +188,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     await pool!.query("DELETE FROM exomem_invites");
     await pool!.query("DELETE FROM exomem_cloud_cells");
     await pool!.query("DELETE FROM exomem_tenants");
+    await pool!.query("DELETE FROM exomem_users");
     await pool!.query("DELETE FROM users");
     await pool!.query("DELETE FROM exomem_rate_limit_buckets");
     await pool!.query("DELETE FROM exomem_cloud_capacity");

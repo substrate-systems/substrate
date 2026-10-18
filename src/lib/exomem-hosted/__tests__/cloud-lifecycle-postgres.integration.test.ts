@@ -134,6 +134,7 @@ async function resetFleet(): Promise<void> {
   await pool!.query("DELETE FROM exomem_entitlements");
   await pool!.query("DELETE FROM exomem_cloud_cells");
   await pool!.query("DELETE FROM exomem_tenants");
+  await pool!.query("DELETE FROM exomem_users");
   await pool!.query("DELETE FROM users");
   await pool!.query("DELETE FROM exomem_cloud_capacity");
 }
@@ -446,7 +447,7 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
     assert.equal(tenant.desiredState, "running");
   });
 
-  it("deletes a cancelled tenant once the export window has elapsed, bumping generation", async () => {
+  it("deletes a cancelled tenant after the export window and keeps its explicit theme for the final notice", async () => {
     await resetFleet();
     const cancelledAt = new Date("2026-01-01T00:00:00Z");
     const { tenantId, cellId } = await seedTenant({
@@ -455,6 +456,10 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
       sourceOccurredAt: cancelledAt,
       initialDesiredState: "read_only",
     });
+    await pool!.query(
+      "UPDATE exomem_tenants SET theme_choice = 'light', email_scheme = 'light' WHERE id = $1",
+      [tenantId]
+    );
     const before_ = await cellState(cellId);
     const justPastWindow = new Date(cancelledAt.getTime() + 30 * 24 * 60 * 60 * 1000 + 1000);
     const target = await reconcileCloudCellDesiredState(tenantId, {
@@ -469,6 +474,17 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
     assert.equal(tenant.status, "deleted");
     assert.equal(tenant.desiredState, "deleted");
     assert.notEqual(tenant.deletedAt, null);
+    assert.equal(
+      (await pool!.query("SELECT theme_choice FROM exomem_tenants WHERE id = $1", [tenantId])).rows[0]!.theme_choice,
+      null
+    );
+    assert.deepEqual(
+      (await pool!.query(
+        "SELECT recipient_theme_choice, recipient_email_scheme FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
+        [tenantId]
+      )).rows,
+      [{ recipient_theme_choice: "light", recipient_email_scheme: "light" }]
+    );
   });
 
   it("does not yet delete a cancelled tenant exactly at the window boundary minus a moment", async () => {

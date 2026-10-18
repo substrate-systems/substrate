@@ -608,7 +608,7 @@ export default function ViewerClient() {
           </nav>
         )}
         <div className={styles.headerEnd}>
-          <ThemeToggle />
+          <ThemeToggle align="end" />
           <ButtonLink href="/exomem/home" variant="ghost">
             Home
           </ButtonLink>

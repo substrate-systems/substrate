@@ -1,3 +1,4 @@
+import { EXOMEM_THEME_CHOICES, type ExomemThemeChoice } from "@/lib/exomem/theme";
 import { z } from "zod";
 import { after, NextResponse } from "next/server";
 import { EXOMEM_EMAIL_SCHEMES, type ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
@@ -30,6 +31,7 @@ const Receipt = z
     timeZone: z.string().max(128).nullable(),
     // Optional: a receipt minted before the scheme travelled has none.
     emailScheme: z.enum(EXOMEM_EMAIL_SCHEMES).nullable().optional(),
+    themeChoice: z.enum(EXOMEM_THEME_CHOICES).nullable().optional(),
     browserKey: z.string().length(43),
     expiresAt: z.iso.datetime(),
     // A SHA-256 digest has this fixed hexadecimal field format.
@@ -66,6 +68,7 @@ export function mintAccessRecoveryReceipt(
     email: string;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
     challengeDigest: Buffer;
     prior: AccessRecoveryReceipt | null;
     /** A resend passed no bot check, so it keeps the prior expiry: one check never buys resends forever. */
@@ -85,6 +88,7 @@ export function mintAccessRecoveryReceipt(
     email: input.email.trim().length <= 254 ? input.email.trim() : "",
     timeZone: input.timeZone,
     emailScheme: input.emailScheme,
+    themeChoice: input.themeChoice,
     browserKey: input.prior?.browserKey ?? generateExternalToken(),
     challengeDigest: input.challengeDigest.toString("hex"),
     expiresAt:
@@ -169,6 +173,7 @@ export async function uniformAccessStartResponse(
     email: string;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
     requestId: string;
     resend: boolean;
   }
@@ -179,6 +184,7 @@ export async function uniformAccessStartResponse(
     email: input.email,
     timeZone: input.timeZone,
     emailScheme: input.emailScheme,
+    themeChoice: input.themeChoice,
     challengeDigest: challenge.challengeDigest,
     prior,
     resend: input.resend,
@@ -192,6 +198,7 @@ export async function uniformAccessStartResponse(
       email: prior.email,
       timeZone: prior.timeZone,
       emailScheme: prior.emailScheme ?? null,
+      themeChoice: prior.themeChoice ?? null,
       challengeDigest: Buffer.from(prior.challengeDigest, "hex"),
       prior,
       resend: input.resend,
@@ -205,6 +212,7 @@ export async function uniformAccessStartResponse(
     email: recovery.receipt.email,
     timeZone: recovery.receipt.timeZone,
     emailScheme: recovery.receipt.emailScheme ?? null,
+    themeChoice: recovery.receipt.themeChoice ?? null,
     browserChallengeDigest: challenge.challengeDigest,
     browserKey: recovery.receipt.browserKey,
     networkKey,

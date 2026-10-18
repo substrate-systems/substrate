@@ -5,7 +5,6 @@ import { afterEach, describe, it } from "node:test";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
-  createMagicAccessToken,
   findExomemSessionByDigest,
   recordExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
@@ -78,51 +77,6 @@ describe("Exomem hosted database boundary", () => {
     assert.match(statement, /reviewer_credential\.expires_at > now\(\)/i);
     assert.match(statement, /tenant\.status IN \('provisioning', 'active', 'suspended'\)/i);
     assert.match(statement, /exomem_oauth_account_blocks/i);
-  });
-
-  it("allows magic-link authentication before deletion begins", async () => {
-    const statements: string[] = [];
-    const testSql: ExomemSql = async (strings) => {
-      statements.push(strings.join("?"));
-      return { rows: [], rowCount: 0 };
-    };
-    __setExomemSqlForTests(testSql);
-    __setExomemTransactionForTests(async (work) => work(testSql));
-    const { createMagicAccessToken, redeemMagicAccessTokenAtomic } = await import("../db");
-    await createMagicAccessToken({
-      emailNormalized: "owner@example.com",
-      tokenDigest: Buffer.alloc(32, 4),
-      browserChallengeDigest: Buffer.alloc(32, 7),
-      expiresAt: new Date("2026-07-13T00:00:00.000Z"),
-      deliverySecretCiphertext: {
-        version: 1,
-        algorithm: "A256GCM",
-        iv: "iv",
-        ciphertext: "ciphertext",
-        tag: "tag",
-      },
-    });
-    await redeemMagicAccessTokenAtomic({
-      tokenDigest: Buffer.alloc(32, 4),
-      browserChallengeDigest: Buffer.alloc(32, 7),
-      sessionDigest: Buffer.alloc(32, 5),
-      csrfDigest: Buffer.alloc(32, 6),
-      sessionExpiresAt: new Date("2026-07-14T00:00:00.000Z"),
-    });
-    assert.equal(
-      statements.some((statement) =>
-        /pg_advisory_xact_lock_shared\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i.test(statement)
-      ),
-      true
-    );
-    for (const statement of statements.filter(
-      (value) => !value.includes("pg_advisory_xact_lock_shared")
-    )) {
-      assert.match(statement, /tenant\.status IN \('provisioning', 'active', 'suspended'\)/i);
-      assert.doesNotMatch(statement, /effective_state IN \('active', 'grace'\)/i);
-      assert.doesNotMatch(statement, /deletion_pending/i);
-    }
-    assert.match(statements[0], /INSERT INTO exomem_access_delivery_outbox/i);
   });
 
   it("binds a checkout transaction only through owner, tenant, and Paddle entitlement state", async () => {
@@ -199,30 +153,5 @@ describe("Exomem hosted database boundary", () => {
     assert.match(source, /updated_at\s*<=\s*now\(\)\s*-\s*\(/i);
     assert.match(source, /LIMIT\s+\$\{/i);
     assert.match(source, /DELETE FROM exomem_rate_limit_buckets/i);
-  });
-
-  it("revokes older browser-bound magic tokens before creating a replacement", async () => {
-    let statement = "";
-    __setExomemSqlForTests(async (strings) => {
-      statement = strings.join("?");
-      return { rows: [{ id: "token-new", email_normalized: "owner@example.com" }], rowCount: 1 };
-    });
-    await createMagicAccessToken({
-      emailNormalized: "owner@example.com",
-      tokenDigest: Buffer.alloc(32, 0x51),
-      browserChallengeDigest: Buffer.alloc(32, 0x52),
-      expiresAt: new Date("2026-07-14T12:00:00.000Z"),
-      deliverySecretCiphertext: {
-        version: 1,
-        algorithm: "A256GCM",
-        iv: "iv",
-        ciphertext: "ciphertext",
-        tag: "tag",
-      },
-    });
-    assert.match(statement, /UPDATE exomem_access_tokens/i);
-    assert.match(statement, /purpose = 'magic_link'/i);
-    assert.match(statement, /revoked_at = COALESCE/i);
-    assert.match(statement, /browser_challenge_digest/i);
   });
 });

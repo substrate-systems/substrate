@@ -479,6 +479,10 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       gatewayPool!.query("UPDATE exomem_tenants SET status = 'active' WHERE id = $1", [tenantId]),
       /permission denied/
     );
+    await gatewayPool!.query("SELECT id, deleted_at FROM exomem_users LIMIT 1");
+    await assert.rejects(gatewayPool!.query("SELECT email FROM exomem_users LIMIT 1"), /permission denied/);
+    await assert.rejects(gatewayPool!.query("UPDATE exomem_users SET deleted_at = now()"), /permission denied/);
+    await assert.rejects(gatewayPool!.query("SELECT id, deleted_at FROM users LIMIT 1"), /permission denied/);
     await assert.rejects(gatewayPool!.query("SELECT email FROM users LIMIT 1"), /permission denied/);
     for (const column of ["password_hash", "username_digest"]) {
       await assert.rejects(

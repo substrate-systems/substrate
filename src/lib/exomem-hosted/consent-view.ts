@@ -176,19 +176,19 @@ async function ownerFacts(
 ): Promise<{ email: string; alreadyConnected: boolean } | null> {
   const { rows } = await executeExomemSql`
     /* exomem:consent-view-owner */
-    SELECT users.email::text AS email,
+    SELECT exomem_users.email::text AS email,
            EXISTS (
              SELECT 1
              FROM exomem_oauth_grants AS oauth_grant
              JOIN exomem_oauth_clients AS client ON client.id = oauth_grant.client_id
-             WHERE oauth_grant.user_id = users.id
+             WHERE oauth_grant.user_id = exomem_users.id
                AND oauth_grant.tenant_id = ${session.tenantId}::uuid
                AND client.client_id = ${continuation.clientId}
                AND oauth_grant.resource = ${continuation.resource}
                AND oauth_grant.revoked_at IS NULL
            ) AS already_connected
-    FROM users
-    WHERE users.id = ${session.userId}::uuid
+    FROM exomem_users
+    WHERE exomem_users.id = ${session.userId}::uuid
   `;
   const row = rows[0] as { email: string; already_connected: boolean } | undefined;
   return row ? { email: row.email, alreadyConnected: row.already_connected } : null;

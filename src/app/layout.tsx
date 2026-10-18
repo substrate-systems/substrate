@@ -4,7 +4,7 @@ import "./globals.css";
 import { siteConfig } from "@/lib/seo";
 import { PostHogProvider } from "./providers";
 import { PrivacySafeAnalytics } from "./privacy-safe-analytics";
-import { exomemThemeScript } from "@/lib/exomem/theme";
+import { exomemThemeScript } from "@/lib/exomem/theme-script.generated";
 import { ExomemThemeScope } from "./exomem-theme-scope";
 
 const inter = Inter({

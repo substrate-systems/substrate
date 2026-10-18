@@ -283,6 +283,8 @@ function MapDrawing({
       viewBox={viewBox}
       className={`${styles.map} ${className}`}
       aria-hidden
+      data-hover="glow"
+      data-lit="0"
       data-alive="loop"
       data-graph={graph}
     >

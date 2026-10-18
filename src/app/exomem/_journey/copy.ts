@@ -38,13 +38,14 @@ export const sentCopy = {
    * that queues no email (a rate limit or an address that does not normalize) and a repeat waitlist request. So the page claims neither a link nor an
    * email, and the button names what the person does: ask again (deviation (j)).
    */
-  lede: "If this address can get an email from us, it’s on its way. You can close this tab.",
-  sentTo: "To",
-  openHere: "Open it in any browser. We may ask you to confirm your email.",
+  lede: "If this address can get an email from us, it’s on its way. Open the email from Exomem to continue, on any device.",
+  sentTo: "Sent to",
+  spam: "Nothing after a minute? Look in spam.",
+  openHere: "Open it in this browser and this tab moves on by itself.",
   /** Only the requesting browser can resume an app's consent, so the app journey says so. */
   openHereForApp: (app: string) => `Open it in this browser to finish connecting ${app}.`,
-  resend: TRY_AGAIN,
-  resendIn: (clock: string) => `${TRY_AGAIN} in ${clock}`,
+  resend: "Send again",
+  resendIn: (clock: string) => `Send again in ${clock}`,
   differentEmail: "Use a different email",
 };
 

@@ -10,6 +10,8 @@
 <helmet>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
 <style>
+.thb:hover,.thb[aria-expanded="true"]{background:var(--thhov) !important;color:var(--thfg) !important}.thb:focus-visible,.thr:focus-visible{outline:2px solid var(--thacc);outline-offset:2px}.thr:hover{background:var(--thhov) !important;color:var(--thfg) !important}@media (prefers-reduced-motion: no-preference){.thm{animation:thIn .15s ease-out both}}@keyframes thIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
 /* Exomem text selection (R45) */.vw ::selection{background:color-mix(in srgb,var(--v1) 30%,transparent);color:rgb(var(--v12))}
 
 .vw .r43h{display:none !important}
@@ -18,7 +20,7 @@ body{margin:0}
 .vw button{font-family:inherit}
 .vw button:focus-visible,.vw input:focus-visible{outline:2px solid var(--v1);outline-offset:2px}
 .mono{font-family:'IBM Plex Mono',monospace}
-.stage{touch-action:none;cursor:grab}
+.stage{touch-action:none;cursor:default}
 .vw.drag .stage{cursor:grabbing}
 .ln{position:absolute;height:1px;transform-origin:0 50%;background:var(--v0);opacity:.07;transition:opacity .4s ease,left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1),width .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1);pointer-events:none}
 .ln.dim{opacity:.035}
@@ -27,7 +29,7 @@ body{margin:0}
 .ln.t-refines{background:repeating-linear-gradient(90deg,var(--v1) 0 2px,transparent 2px 6px);opacity:.9}
 .ln.t-contradicts{background:repeating-linear-gradient(90deg,var(--v0) 0 7px,transparent 7px 12px);opacity:.7}
 .ln.t-supersedes{background:var(--v1);opacity:.8}
-.ln.t-relates{background:var(--v0);opacity:.35}
+.ln.t-relates{background:var(--v0);opacity:.55}
 .ln.lens{background:repeating-linear-gradient(90deg,var(--v0) 0 7px,transparent 7px 12px);opacity:.6;height:1.4px}
 .ln.pair{background:repeating-linear-gradient(90deg,var(--v1) 0 7px,transparent 7px 12px);opacity:1;height:2px}
 .ln.trail{background:var(--v1);opacity:.9;height:2px;margin-top:-.5px}
@@ -49,7 +51,7 @@ body{margin:0}
 .ln .sg{position:absolute;top:-2px;left:0;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--v1);box-shadow:0 0 8px var(--v1);animation:vSig 1.4s cubic-bezier(.4,0,.2,1) both}
 .ln.trail .sg{animation:vSig 2.2s cubic-bezier(.4,0,.2,1) infinite}
 .ar{position:absolute;width:7px;height:7px;border-top:1.5px solid var(--v1);border-right:1.5px solid var(--v1);margin:-4px 0 0 -4px;transition:left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1);pointer-events:none}
-.nd{position:absolute;border-radius:50%;background:var(--v0);opacity:.24;cursor:pointer;transition:opacity .4s ease,transform .5s cubic-bezier(.2,.7,.2,1),background .4s ease,left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1),width .6s ease,height .6s ease,box-shadow .4s ease;animation:vDrift var(--dd) ease-in-out infinite alternate;animation-delay:var(--dl)}
+.nd{position:absolute;border-radius:50%;background:var(--v0);opacity:.24;cursor:pointer;transition:opacity .4s ease,transform .55s cubic-bezier(.34,1.56,.64,1),background .4s ease,left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1),width .6s cubic-bezier(.2,.7,.2,1),height .6s cubic-bezier(.2,.7,.2,1),box-shadow .4s ease}
 .nd::after{content:'';position:absolute;inset:-7px;border-radius:50%}
 .nd.hub{opacity:.5}
 .nd.nb{opacity:.85}
@@ -60,7 +62,7 @@ body{margin:0}
 .nd.lensn{opacity:.85;background:var(--v0)}
 .nd.pairn{background:var(--v1);opacity:1;box-shadow:0 0 0 5px rgba(var(--v13),.16),0 0 12px rgba(var(--v13),.6)}
 .nd.trailn{background:var(--v1);opacity:1;box-shadow:0 0 8px rgba(var(--v13),.55)}
-.nd.hit{background:var(--v1);opacity:1;box-shadow:0 0 10px rgba(var(--v13),.75);transform:scale(1.35)}
+.nd.hit{background:var(--v1);opacity:1;box-shadow:0 0 6px rgba(var(--v13),.55)}
 .nd.born{background:var(--v1);opacity:1;box-shadow:0 0 0 6px rgba(var(--v13),.18),0 0 14px rgba(var(--v13),.8)}
 .nd.focus{background:var(--v1);opacity:1;box-shadow:0 0 12px rgba(var(--v13),.6);animation:vPulse 3s ease-in-out infinite}
 .nd.focus.was{background:var(--v4);box-shadow:inset 0 0 0 2px var(--v1);animation:none}
@@ -74,6 +76,76 @@ body{margin:0}
 .lb.hovl{color:var(--v0);box-shadow:0 0 0 1px rgba(var(--v12),.14);background:rgba(var(--v14),.94)}
 .lb.cl{background:transparent;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--v3);cursor:pointer}
 .lb.cl:hover{color:var(--v5)}
+.vw .nd.hov:not(.focus):not(.pairn){--o:1;background:var(--v0);opacity:1;box-shadow:0 0 0 2px var(--v4),0 0 0 3.5px rgba(var(--v12),.6)}
+.vw .nd.focus.hov,.vw .nd.pairn.hov{box-shadow:0 0 0 2px var(--v4),0 0 0 3.5px rgba(var(--v13),.7)}
+.lb.hovl,.lb.hovx{color:var(--v0);background:rgba(var(--v14),.96);box-shadow:0 0 0 1px rgba(var(--v12),.3);z-index:3}
+/* R57g: glow and fade, the landing's hover: the note brightens with a soft glow; names are plain text on a halo */
+.vw.hv-glow .nd.hov:not(.focus):not(.pairn),.vw.hv-fade .nd.hov:not(.focus):not(.pairn){box-shadow:0 0 0 4px rgba(var(--v12),.13);background:var(--v0) !important;opacity:1 !important}
+.vw.hv-glow .lb.hovl,.vw.hv-glow .lb.hovx,.vw.hv-fade .lb.hovl,.vw.hv-fade .lb.hovx{background:transparent;box-shadow:none;color:var(--v0);text-shadow:0 0 2px var(--v4),0 0 3px var(--v4),0 0 5px var(--v4),0 0 8px var(--v4)}
+.vw.hv-glow .lb.hovl .rt,.vw.hv-fade .lb.hovl .rt{color:var(--v5)}
+.vw.hv-fade.hvon:not(.hvfoc) .nd:not(.hov):not(.hvn):not(.hit):not(.born),.vw.hv-fade.hvaway .nd:not(.hov):not(.hvn):not(.focus):not(.hit):not(.born){opacity:var(--v16) !important}
+.vw.hv-fade.hvon:not(.hvfoc) .ln:not(.hl):not(.hide),.vw.hv-fade.hvaway .ln:not(.hl):not(.hide){opacity:var(--v17) !important}
+.vw.hv-fade.hvon:not(.hvfoc) .lb:not(.hovl):not(.hovx):not(.cl):not(.hitl):not(.hid):not(.hvnl),.vw.hv-fade.hvaway .lb:not(.hovl):not(.hovx):not(.cl):not(.hid):not(.focus):not(.hvnl){opacity:.3}
+.lb .kd{display:inline-block;margin-left:8px;padding:0 5px;border-radius:3px;font-size:10px;line-height:14px;color:var(--v0);opacity:.62;box-shadow:inset 0 0 0 1px currentColor;text-shadow:none;background:var(--v4)}
+.rdmap{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px;border-radius:10px;box-shadow:inset 0 0 0 1px rgba(var(--v12),.1);cursor:pointer;flex:none}
+.rdmap:hover{box-shadow:inset 0 0 0 1px rgba(var(--v12),.24)}
+.rdmap:focus-visible{outline:2px solid var(--v1);outline-offset:2px}
+.rdmh{display:flex;justify-content:space-between;font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.08em;color:var(--v2)}
+.rdmh .go{letter-spacing:0;color:var(--v1)}
+.rdmc{position:relative;overflow:hidden}
+.mml{position:absolute;height:1px;transform-origin:0 50%;background:var(--v0);opacity:.35;margin-top:-.5px}
+.mml.ms-supports{background:var(--v1);opacity:.8;height:1.5px}
+.mml.ms-supersedes{background:var(--v1);opacity:.8}
+.mml.ms-refines{background:transparent;border-top:1.5px dotted var(--v1);opacity:.85;height:0}
+.mml.ms-contradicts{background:transparent;border-top:1px dashed var(--v0);opacity:.6;height:0}
+.mmd{position:absolute;border-radius:50%;background:var(--v0);opacity:.5;transform:translate(-50%,-50%)}
+.mml.ms-far{opacity:.14}
+.mmd.far{opacity:.25}
+.mmd.me{background:var(--v1);opacity:1;box-shadow:0 0 0 4px rgba(var(--v13),.16)}
+.mmlab{position:absolute;transform:translate(-50%,-100%);font:500 8.5px 'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--v5);text-shadow:0 0 2px var(--v4),0 0 4px var(--v4);white-space:nowrap;pointer-events:none}
+.mmm{position:absolute;right:0;bottom:0;font:10.5px 'IBM Plex Mono',monospace;color:var(--v2)}
+.vtip{position:absolute;z-index:40;transform:translate(-50%,calc(-100% - 8px));max-width:280px;width:max-content;padding:5px 9px;border-radius:6px;background:var(--v0);color:var(--v4);font:12px/1.4 Inter,system-ui,sans-serif;box-shadow:0 8px 24px var(--v15);pointer-events:none;white-space:normal;overflow-wrap:anywhere;animation:vtipIn .12s ease both}
+@keyframes vtipIn{from{opacity:0}to{opacity:1}}
+.vtip.below{transform:translate(-50%,8px)}
+.rhd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.rtype{font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--v2)}
+.rstat{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--v5)}
+.rstat i{width:7px;height:7px;border-radius:50%;background:var(--v3)}
+.rstat.cur{color:var(--v1)}.rstat.cur i{background:var(--v1)}
+.rstat.pend i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--v2)}
+.rstat.sup{text-decoration:line-through;color:var(--v2)}
+.rproj{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;border:1px solid rgba(var(--v12),.18);background:transparent;color:var(--v0);font:12px 'IBM Plex Mono',monospace;cursor:pointer}
+.rproj:hover{border-color:rgba(var(--v13),.55)}
+.rproj:focus-visible{outline:2px solid var(--v1);outline-offset:2px}
+.lb .kd.kdl{position:absolute;right:100%;top:1px;margin:0 6px 0 0}
+.lb.hvnl{color:var(--v0);background:transparent;text-shadow:0 0 2px var(--v4),0 0 3px var(--v4),0 0 5px var(--v4),0 0 8px var(--v4);z-index:2}
+.vw.hv-fade.hvon:not(.hvfoc) .nd.hvn,.vw.hv-fade.hvaway .nd.hvn{--o:.85;opacity:1 !important}
+.vw.hv-fade.hvon:not(.hvfoc) .ln.hl,.vw.hv-fade.hvaway .ln.hl{opacity:.75 !important}
+.vw.hv-fade.hvaway .ar{opacity:.15}
+.vw .ln.hvln{opacity:1 !important}
+.lb.hovx{color:var(--v0);background:rgba(var(--v14),.96);box-shadow:0 0 0 1px rgba(var(--v12),.3);z-index:3}
+.vw{-webkit-user-select:none;user-select:none}
+.vw .vscroll,.vw .rd,.vw input,.vw textarea{-webkit-user-select:text;user-select:text}
+.mph{font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--v2);padding:0 10px 8px;margin:0 0 2px;border-bottom:1px solid rgba(var(--v12),.08)}
+.mpop button{display:flex;align-items:center;gap:10px}
+.mpop button svg{flex:none;color:var(--v2)}
+.mpop button:hover svg{color:var(--v0)}
+.lb.morel.mr2{color:var(--v5)}
+.lb.morel.mr2:hover{color:var(--v0)}
+.prow::after{content:"\203A";color:var(--v3);margin-left:auto;padding-left:8px;flex:none}
+.prow:hover::after{color:var(--v1)}
+.rd .wl.dead{cursor:help}
+[data-rd-links]{scroll-margin-top:12px;transition:color .6s ease}
+[data-rd-links].rdflash{color:var(--v1) !important}
+.lb.cl.clh{color:var(--v5);font-weight:500;text-shadow:0 0 2px var(--v4),0 0 3px var(--v4),0 0 5px var(--v4),0 0 8px var(--v4)}
+.lb.cl.clh:hover{color:var(--v0)}
+.lb.cl.clp{color:var(--v5);background:rgba(var(--v14),.92);box-shadow:0 0 0 1px rgba(var(--v12),.12);padding:2px 7px}
+.lb.cl.clp:hover{color:var(--v0)}
+.lb.morel{color:var(--v0);background:var(--v8);box-shadow:0 0 0 1px rgba(var(--v12),.18);padding:3px 9px;border-radius:999px;font-size:11px;z-index:2}
+.lb.morel:hover{box-shadow:0 0 0 1px rgba(var(--v12),.4)}
+.lb .ct{color:var(--v2);margin-left:6px}
+.ln.faint{opacity:.07}
+.vw .ln.faint{opacity:.07}
 .lb .rt{color:var(--v2);margin-right:6px}
 .lb .tag{color:var(--v4);background:var(--v1);border-radius:2px;padding:0 4px;margin-right:6px}
 .chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:6px;border:1px solid rgba(var(--v12),.14);background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:11.5px;cursor:pointer;white-space:nowrap;flex:none}
@@ -87,6 +159,13 @@ body{margin:0}
 .tick span{display:block;width:100%;height:4px;background:var(--v9);transition:background .3s ease}
 .tick.on span{background:var(--v3)}
 .tick.cur span{background:var(--v1)}
+.tick.cur.part span{background:linear-gradient(90deg,var(--v1) var(--p),var(--v3) var(--p))}
+.tlu{display:inline-flex;flex:none;border:1px solid rgba(var(--v12),.12);border-radius:6px;overflow:hidden}
+.tlu button{border:0;background:transparent;color:var(--v2);font:11px 'IBM Plex Mono',monospace;padding:3px 7px;cursor:pointer}
+.tlu button.on{background:rgba(var(--v12),.1);color:var(--v0)}
+.tlu button:hover{color:var(--v0)}
+.tls{display:inline-flex;flex:none;gap:2px}
+.tls button{padding:2px 6px;font-size:13px;line-height:1}
 .prow{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(var(--v12),.06);font-size:13px;cursor:pointer}
 .prow:hover .pt{color:var(--v1)}
 .feed{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(var(--v12),.06);font-size:12.5px}
@@ -104,7 +183,7 @@ body{margin:0}
 .btn.amb{border-color:rgba(var(--v13),.55);color:var(--v1)}
 .btn.amb:hover{background:rgba(var(--v13),.08)}
 .card{border:1px solid rgba(var(--v12),.1);background:var(--v7);border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
-.trow{display:flex;gap:10px;align-items:baseline;padding:8px 0 8px 14px;border-left:1.5px solid rgba(var(--v13),.4);margin-left:5px;font-size:13px;cursor:pointer;position:relative}
+.trow{display:flex;gap:10px;align-items:baseline;padding:8px 0 8px 14px;border-left:2px solid rgba(var(--v13),.4);margin-left:5px;font-size:13px;cursor:pointer;position:relative}
 .trow::before{content:'';position:absolute;left:-4.5px;top:13px;width:7px;height:7px;border-radius:50%;background:var(--v1)}
 .trow.src::before{background:var(--v4);box-shadow:inset 0 0 0 1.5px var(--v1)}
 .trow:hover .pt{color:var(--v1)}
@@ -138,11 +217,11 @@ body{margin:0}
 .rd .rel{display:grid;grid-template-columns:104px minmax(0,1fr);column-gap:16px;align-items:baseline;font-size:14.5px;padding:3px 14px}
 .rd-ph .obs{grid-template-columns:1fr;row-gap:4px}
 .rd-ph .rel{grid-template-columns:96px minmax(0,1fr);padding:3px 0}
-.rd .cat{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--v1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd .cat{font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.4;color:var(--v1);white-space:normal;overflow-wrap:anywhere}
 .rd .rel .cat{color:var(--v2)}
 .rd .wl{white-space:nowrap;color:var(--v1);text-decoration:underline;text-decoration-color:rgba(var(--v13),.4);text-underline-offset:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:.88em}
 .rd .wl:hover{text-decoration-color:var(--v1)}
-.rd .wl.dead{color:var(--v5);text-decoration-style:dotted;text-decoration-color:rgba(var(--v12),.3);cursor:default}
+.rd .wl.dead{color:var(--v5);text-decoration-style:dotted;text-decoration-color:rgba(var(--v12),.3);cursor:default}.rd .b{font-weight:600;color:var(--v0)}.rd .i{font-style:italic}.rd .cd{white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-size:.86em;padding:1px 5px;border-radius:4px;background:var(--v7);border:1px solid rgba(var(--v12),.08)}.rd .xl{color:var(--v0);text-decoration:underline;text-decoration-color:rgba(var(--v12),.35);text-underline-offset:3px;cursor:pointer}.rd .xl::after{content:" \2197";font-size:.8em;color:var(--v2)}.rd h3{margin:6px 0 0;font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:15px;color:var(--v0)}.rd .li{display:grid;grid-template-columns:24px minmax(0,1fr);font-size:16px;line-height:1.7;color:var(--v11);margin-top:-6px}.rd .li .mk{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--v2);padding-top:4px}.rd blockquote{margin:0;padding:2px 0 2px 16px;border-left:2px solid rgba(var(--v12),.2);font-size:16px;line-height:1.7;color:var(--v5)}.rd pre{margin:0;padding:12px 14px;border-radius:8px;background:var(--v7);border:1px solid rgba(var(--v12),.08);font:12.5px/1.6 'IBM Plex Mono',monospace;color:var(--v0);overflow-x:auto;white-space:pre}.rd .tbl{overflow-x:auto;border:1px solid rgba(var(--v12),.1);border-radius:8px}.rd .tgrid{display:grid;font-size:14px;min-width:max-content}.rd .tgrid .th{font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.06em;text-transform:uppercase;color:var(--v2);padding:10px 14px;border-bottom:1px solid rgba(var(--v12),.1);white-space:nowrap}.rd .tgrid .td{padding:9px 14px;border-bottom:1px solid rgba(var(--v12),.06);color:var(--v11);white-space:nowrap}.rd .tgrid .td.last{border-bottom:0}.rd .emb,.ratt .emb{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:8px;border:1px solid rgba(var(--v12),.1);font-size:14px;color:var(--v0);min-width:0}.rd .emb .ek,.ratt .ek{font:500 10.5px 'IBM Plex Mono',monospace;letter-spacing:.06em;color:var(--v2);border:1px solid rgba(var(--v12),.16);border-radius:4px;padding:3px 6px;flex:none}.rd .emb .en,.ratt .en{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.rd .emb .es,.ratt .es{margin-left:auto;font:11px 'IBM Plex Mono',monospace;color:var(--v2);flex:none}.ratt{display:flex;flex-direction:column;gap:6px}.rd .emi{margin:0;display:flex;flex-direction:column;gap:6px}.rd .emi img{display:block;width:100%;height:auto;border-radius:8px;border:1px solid rgba(var(--v12),.1);background:var(--v7)}.rd .emi figcaption{font:11px 'IBM Plex Mono',monospace;color:var(--v2)}.ratt .emb{font-size:13px;padding:8px 12px}.rchip.pend{border-style:dashed}.rchip.sup{text-decoration:line-through;color:var(--v2)}.rchip.ret{color:var(--v2);border-color:rgba(var(--v12),.1)}.rchip.proj{color:var(--v0);border-color:rgba(var(--v12),.22)}.rprops{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 18px;padding:12px 14px;border-radius:8px;border:1px solid rgba(var(--v12),.08);font-size:13.5px;line-height:1.5}.rprops .k{font:11px/1.9 'IBM Plex Mono',monospace;color:var(--v2)}.rprops .v{color:var(--v11);overflow-wrap:anywhere}.rprops .v.m{font:12px/1.8 'IBM Plex Mono',monospace;color:var(--v5)}.rtags{display:flex;flex-wrap:wrap;gap:4px 12px}.rtags span{font:11.5px 'IBM Plex Mono',monospace;color:var(--v2)}.rent{display:flex;flex-wrap:wrap;gap:6px;padding-top:2px}.rent span{font-size:12.5px;padding:3px 9px;border-radius:999px;border:1px solid rgba(var(--v12),.16);color:var(--v0)}.rent span{cursor:pointer}.rent span:hover{border-color:rgba(var(--v13),.5);color:var(--v1)}.rmen{display:flex;flex-direction:column;gap:3px;padding:7px 0;border-bottom:1px solid rgba(var(--v12),.06);cursor:pointer}.rmen .mt{font:12px 'IBM Plex Mono',monospace;color:var(--v0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rmen .mc{font-size:12.5px;line-height:1.5;color:var(--v5)}.rmen:hover .mt{color:var(--v1)}.rrev{display:grid;grid-template-columns:62px minmax(0,1fr);gap:1px 10px;padding:6px 0;border-bottom:1px solid rgba(var(--v12),.06);font-size:12.5px;line-height:1.45}.rrev .rk{font:11px/1.6 'IBM Plex Mono',monospace;color:var(--v2)}.rrev .rw{color:var(--v11)}.rrev .rb{grid-column:2;font:11px 'IBM Plex Mono',monospace;color:var(--v2)}
 .hscroll{overflow-x:auto;scrollbar-width:none}.hscroll::-webkit-scrollbar{display:none}
 .vscroll{overflow-y:auto}
 /* the Exomem scrollbar (R15) */
@@ -184,7 +263,7 @@ body{margin:0}
 .vw .nd.hub{--o:.5}.vw .nd.nb,.vw .nd.lensn{--o:.85}.vw .nd.dim{--o:.1}.vw .nd.hvn{--o:.6}.vw .nd.hov{--o:1}
 </style>
 </helmet>
-<main class="vw {{ muCls }} {{ dragCls }} {{ stillCls }}" style="{{ vwVars }} width: {{ mw }}px; height: {{ mh }}px; background: var(--v4); color: var(--v0); font-family: Inter, system-ui, sans-serif; position: relative; overflow: hidden">
+<main class="vw {{ muCls }} {{ dragCls }} {{ stillCls }} {{ hvCls }}" onPointerOver="{{ tipOver }}" onPointerOut="{{ tipOut }}" style="{{ vwVars }} width: {{ mw }}px; height: {{ mh }}px; background: var(--v4); color: var(--v0); font-family: Inter, system-ui, sans-serif; position: relative; overflow: hidden">
 
   <!-- the map -->
   <div class="stage" onPointerDown="{{ pDown }}" onPointerMove="{{ pMove }}" onPointerUp="{{ pUp }}" onPointerCancel="{{ pUp }}" onPointerLeave="{{ pLeave }}" onWheel="{{ wheel }}" onClick="{{ bgClick }}" style="position: absolute; left: 0; top: {{ gTop }}px; width: {{ gW }}px; height: {{ gH }}px; overflow: hidden">
@@ -196,10 +275,10 @@ body{margin:0}
       <div class="ar {{ a.c }}" style="left: {{ a.x }}px; top: {{ a.y }}px; transform: rotate({{ a.r }}deg)"></div>
     </sc-for>
     <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="0">
-      <div class="nd {{ n.c }}" onClick="{{ n.pick }}" onMouseEnter="{{ n.over }}" onMouseLeave="{{ n.out }}" role="button" aria-label="{{ n.title }}" style="left: {{ n.x }}px; top: {{ n.y }}px; width: {{ n.s }}px; height: {{ n.s }}px; --dd: {{ n.dd }}s; --dl: {{ n.dl }}s"></div>
+      <div class="nd {{ n.c }}" data-i="{{ n.i }}" onClick="{{ n.pick }}" role="button" aria-label="{{ n.title }}" style="left: {{ n.x }}px; top: {{ n.y }}px; width: {{ n.s }}px; height: {{ n.s }}px; --dd: {{ n.dd }}s; --dl: {{ n.dl }}s"></div>
     </sc-for>
     <sc-for list="{{ labels }}" as="b" hint-placeholder-count="0">
-      <div class="lb {{ b.c }}" onClick="{{ b.pick }}" style="left: {{ b.x }}px; top: {{ b.y }}px"><sc-if value="{{ b.tag }}" hint-placeholder-val="{{ false }}"><span class="tag">{{ b.tag }}</span></sc-if><sc-if value="{{ b.rt }}" hint-placeholder-val="{{ false }}"><span class="rt">{{ b.rt }}</span></sc-if>{{ b.t }}</div>
+      <div class="lb {{ b.c }}" data-i="{{ b.i }}" onClick="{{ b.pick }}" style="left: {{ b.x }}px; top: {{ b.y }}px"><sc-if value="{{ b.kl }}" hint-placeholder-val="{{ false }}"><span class="kd kdl">{{ b.kl }}</span></sc-if><sc-if value="{{ b.tag }}" hint-placeholder-val="{{ false }}"><span class="tag">{{ b.tag }}</span></sc-if><sc-if value="{{ b.rt }}" hint-placeholder-val="{{ false }}"><span class="rt">{{ b.rt }}</span></sc-if>{{ b.t }}<sc-if value="{{ b.k }}" hint-placeholder-val="{{ false }}"><span class="kd">{{ b.k }}</span></sc-if></div>
     </sc-for>
     <sc-for list="{{ elabels }}" as="x" hint-placeholder-count="0">
       <div class="el {{ x.c }}" style="left: {{ x.x }}px; top: {{ x.y }}px">{{ x.t }}</div>
@@ -207,22 +286,22 @@ body{margin:0}
     </div>
 
     <!-- live: what the connected assistants are doing right now; pausable -->
-    <div style="position: absolute; left: {{ edge }}px; top: {{ liveTop }}px; display: flex; align-items: center; gap: 9px; font-family: 'IBM Plex Mono', monospace; font-size: {{ liveFs }}px; color: var(--v5); max-width: {{ liveMax }}px">
+    <div style="position: absolute; left: {{ edge }}px; top: {{ liveTop }}px; display: flex; align-items: center; gap: 9px; font-family: 'IBM Plex Mono', monospace; font-size: {{ liveFs }}px; color: var(--v5); max-width: {{ liveMax }}px; z-index: 3; margin-left: -8px; padding: 3px 4px 3px 8px; border-radius: 999px; background: rgba(var(--v14),.9)">
       <span class="live-dot" style="flex: none"></span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ liveLine }}</span>
       <button type="button" class="ghost" onClick="{{ togglePause }}" aria-pressed="{{ paused }}" style="flex: none">{{ pauseLabel }}</button>
     </div>
     <div style="position: absolute; right: {{ edgeR }}px; top: {{ cntTop }}px; display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--v2)">
-      <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><span>{{ shownCount }} of {{ totalCount }} notes</span></sc-if>
+      <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><sc-if value="{{ countOn }}" hint-placeholder-val="{{ true }}"><span>{{ shownCount }} of {{ totalCount }} notes</span></sc-if></sc-if>
       <span style="position: relative; display: inline-flex">
-        <button type="button" class="mbtn" onClick="{{ musicBtn }}" aria-label="{{ musicLabel }}" title="{{ musicLabel }}">
+        <button type="button" class="mbtn" onClick="{{ musicBtn }}" aria-label="{{ musicLabel }}" data-tip="{{ musicLabel }}">
           <sc-if value="{{ muOff }}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M3 6.2v3.6h2.4L8.6 12.4V3.6L5.4 6.2z"></path><path d="M10.8 6a3 3 0 0 1 0 4"></path></svg></sc-if>
           <sc-if value="{{ muOn }}" hint-placeholder-val="{{ false }}"><span class="mbar"><i style="height: calc(3px + var(--bass,0) * 9px)"></i><i style="height: calc(3px + var(--mid,0) * 9px)"></i><i style="height: calc(3px + var(--treb,0) * 9px)"></i></span></sc-if>
         </button>
         <sc-if value="{{ muPop }}" hint-placeholder-val="{{ false }}">
           <div class="mpop">
-            <span style="font-size: 12.5px; color: var(--v0); font-family: Inter, system-ui, sans-serif; padding: 2px 10px 4px">Let the graph listen</span>
-            <button type="button" onClick="{{ musicMic }}">Use the microphone</button>
-            <button type="button" onClick="{{ musicFile }}">Play a song from a file</button>
+            <span class="mph">Let the graph listen</span>
+            <button type="button" onClick="{{ musicMic }}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="2" width="5" height="8" rx="2.5"></rect><path d="M3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V14.5"></path></svg>Use the microphone</button>
+            <button type="button" onClick="{{ musicFile }}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 12V3.5l7-1.5V10.5"></path><circle cx="4.5" cy="12" r="1.5"></circle><circle cx="11.5" cy="10.5" r="1.5"></circle></svg>Play a song from a file</button>
             <span style="font-size: 11.5px; line-height: 1.45; color: {{ muNoteColor }}; font-family: Inter, system-ui, sans-serif; padding: 4px 10px 0">{{ muNote }}</span>
           </div>
         </sc-if>
@@ -232,10 +311,10 @@ body{margin:0}
     <!-- zoom: overview first, then closer; the last button always brings everything back -->
     <div style="position: absolute; right: {{ edgeR }}px; bottom: {{ zoomBottom }}px; display: flex; flex-direction: column; border: 1px solid rgba(var(--v12),.12); border-radius: 8px; background: rgba(var(--v14),.82); overflow: hidden">
       <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}">
-        <button type="button" class="zb" onClick="{{ zoomIn }}" aria-label="Zoom in" title="Zoom in">+</button>
-        <button type="button" class="zb" onClick="{{ zoomOut }}" aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" class="zb" onClick="{{ zoomIn }}" aria-label="Zoom in" data-tip="Zoom in">+</button>
+        <button type="button" class="zb" onClick="{{ zoomOut }}" aria-label="Zoom out" data-tip="Zoom out">−</button>
       </sc-if>
-      <button type="button" class="zb" onClick="{{ fitAll }}" aria-label="Show everything" title="Show everything"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg></button>
+      <button type="button" class="zb" onClick="{{ fitAll }}" aria-label="Show everything" data-tip="Show everything"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg></button>
     </div>
     <sc-if value="{{ zoomNote }}" hint-placeholder-val="{{ false }}">
       <div class="mono" style="position: absolute; right: {{ zoomNoteR }}px; bottom: {{ zoomNoteB }}px; font-size: 10.5px; color: var(--v3)">{{ zoomPct }}</div>
@@ -246,14 +325,16 @@ body{margin:0}
       <div onPointerDown="{{ stop }}" style="position: absolute; left: 0; right: 0; bottom: 0; padding: 22px {{ edge }}px {{ timeBottom }}px; background: linear-gradient(rgba(var(--v14),0), rgba(var(--v14),.9) 45%); display: flex; flex-direction: column; gap: 4px">
         <div style="display: flex; align-items: center; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--v2)">
           <button type="button" onClick="{{ togglePlay }}" aria-label="{{ playLabel }}" style="width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1px solid rgba(var(--v12),.2); background: transparent; color: var(--v0); cursor: pointer; font-size: 10px; line-height: 1; padding: 0">{{ playGlyph }}</button>
-          <button type="button" class="ghost" onClick="{{ cycleSpeed }}" aria-label="{{ speedAria }}" title="{{ speedAria }}" style="flex: none; border: 1px solid rgba(var(--v12),.12); padding: 3px 7px">{{ speedLabel }}</button>
+          <button type="button" class="ghost" onClick="{{ cycleSpeed }}" aria-label="{{ speedAria }}" data-tip="{{ speedAria }}" style="flex: none; border: 1px solid rgba(var(--v12),.12); padding: 3px 7px">{{ speedLabel }}</button>
+          <span class="tlu" role="group" aria-label="Step by"><sc-for list="{{ tlUnits }}" as="u" hint-placeholder-count="3"><button type="button" class="{{ u.c }}" onClick="{{ u.pick }}" aria-pressed="{{ u.on }}">{{ u.t }}</button></sc-for></span>
+          <span class="tls"><button type="button" class="ghost" onClick="{{ stepBack }}" aria-label="{{ stepBackAria }}" data-tip="{{ stepBackAria }}">‹</button><button type="button" class="ghost" onClick="{{ stepFwd }}" aria-label="{{ stepFwdAria }}" data-tip="{{ stepFwdAria }}">›</button></span>
           <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><span>{{ firstMonth }}</span></sc-if>
           <span style="flex: 1; text-align: center; color: var(--v0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ asOfLabel }}</span>
           <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><span>today</span></sc-if>
         </div>
         <div style="display: flex; gap: 3px">
           <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="12">
-            <button type="button" class="tick {{ t.c }}" onClick="{{ t.pick }}" aria-label="{{ t.label }}" style="height: {{ tickH }}px"><span></span></button>
+            <button type="button" class="tick {{ t.c }}" onClick="{{ t.pick }}" aria-label="{{ t.label }}" style="height: {{ tickH }}px; --p: {{ t.p }}%"><span></span></button>
           </sc-for>
         </div>
       </div>
@@ -284,10 +365,6 @@ body{margin:0}
             <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
               <button type="button" class="res" onClick="{{ r.pick }}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span><span style="color: var(--v2); flex: none">{{ r.k }}</span></button>
             </sc-for>
-            <sc-if value="{{ rdHasSrc }}" hint-placeholder-val="{{ true }}">
-              <h2>Sources</h2>
-              <div class="srcs"><sc-for list="{{ rdSrc }}" as="sr" hint-placeholder-count="2"><div class="{{ sr.c }}" onClick="{{ sr.pick }}"><span class="sg2">↳</span><span class="sp"><span class="st">{{ sr.t }}</span><span class="spath">{{ sr.path }}</span></span><span class="sd">{{ sr.d }}</span></div></sc-for></div>
-            </sc-if>
           </div>
         </sc-if>
       </div>
@@ -300,7 +377,7 @@ body{margin:0}
       <div style="margin-left: auto; display: flex; align-items: center; gap: 14px">
         <button type="button" class="chip {{ lensCls }} {{ r43Hide }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
         <span class="mono" style="font-size: 11px; color: var(--v3); padding: 3px 7px; border: 1px dashed rgba(var(--v12),.14); border-radius: 4px">sample vault</span>
-        <button type="button" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}" title="{{ themeLabel }}" style="width: 28px; height: 28px; border-radius: 14px; border: 0; background: transparent; color: var(--v2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M8 1.8 A6.2 6.2 0 0 1 8 14.2 Z" fill="currentColor"></path></svg></button>
+        <span class="thc" onKeyDown="{{ thKey }}" style="position: relative; display: inline-flex; flex: none; --thhov: {{ thHover }}; --thfg: {{ thFg }}; --thacc: {{ thAcc }}"><button type="button" class="thb" onClick="{{ thToggle }}" aria-label="{{ thAria }}" data-tip="{{ thAria }}" aria-haspopup="menu" aria-expanded="{{ thOpen ? 'true' : 'false' }}" style="width: 36px; height: 36px; margin: -4px; border-radius: 50%; border: 0; background: transparent; color: {{ thMuted }}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background .15s ease, color .15s ease"><sc-if value="{{ thChoice === 'auto' }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ thChoice === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ thChoice === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if></button><sc-if value="{{ thOpen }}" hint-placeholder-val="{{ false }}"><span onClick="{{ thClose }}" style="position: fixed; inset: 0; z-index: 60"></span><span class="thm" role="menu" aria-label="Theme" style="position: absolute; top: calc(100% + 10px); right: -8px; z-index: 61; width: 172px; box-sizing: border-box; padding: 4px; background: {{ thRaised }}; border: 1px solid {{ thBorder }}; border-radius: 10px; box-shadow: 0 20px 50px -10px {{ thShadow }}; display: flex; flex-direction: column; gap: 2px; text-align: left"><sc-for list="{{ thRows }}" as="r"><button type="button" class="thr" role="menuitemradio" aria-checked="{{ r.on ? 'true' : 'false' }}" onClick="{{ r.pick }}" style="display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; box-sizing: border-box; padding: 0 10px; border: 0; border-radius: 7px; background: {{ r.on ? thHover : 'transparent' }}; color: {{ r.on ? thFg : thMuted }}; font: 400 13.5px/1 Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; cursor: pointer; text-align: left"><sc-if value="{{ r.k === 'auto' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ r.k === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ r.k === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if><span style="flex: 1; text-align: left">{{ r.label }}</span><sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><span style="font: 400 12px/1 'IBM Plex Mono', monospace">✓</span></sc-if></button></sc-for></span></sc-if></span>
         <button type="button" onClick="{{ goHome }}" style="height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(var(--v12),.14); background: transparent; color: var(--v0); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; cursor: pointer">Home</button>
       </div>
     </header>
@@ -317,7 +394,7 @@ body{margin:0}
           <span class="mono" style="color: var(--v2); font-size: 13px">/</span>
           <input type="text" aria-label="Search notes" placeholder="{{ searchPlaceholder }}" onFocus="{{ openSearch }}" onInput="{{ typeSearch }}" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--v0); font: 15px Inter, system-ui, sans-serif">
         </div>
-        <button type="button" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}" style="width: 36px; height: 36px; flex: none; border: 0; background: transparent; color: var(--v2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M8 1.8 A6.2 6.2 0 0 1 8 14.2 Z" fill="currentColor"></path></svg></button>
+        <span class="thc" onKeyDown="{{ thKey }}" style="position: relative; display: inline-flex; flex: none; --thhov: {{ thHover }}; --thfg: {{ thFg }}; --thacc: {{ thAcc }}"><button type="button" class="thb" onClick="{{ thToggle }}" aria-label="{{ thAria }}" data-tip="{{ thAria }}" aria-haspopup="menu" aria-expanded="{{ thOpen ? 'true' : 'false' }}" style="width: 40px; height: 40px; margin: -6px; border-radius: 50%; border: 0; background: transparent; color: {{ thMuted }}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background .15s ease, color .15s ease"><sc-if value="{{ thChoice === 'auto' }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ thChoice === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ thChoice === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if></button><sc-if value="{{ thOpen }}" hint-placeholder-val="{{ false }}"><span onClick="{{ thClose }}" style="position: fixed; inset: 0; z-index: 60"></span><span class="thm" role="menu" aria-label="Theme" style="position: absolute; top: calc(100% + 10px); right: -8px; z-index: 61; width: 172px; box-sizing: border-box; padding: 4px; background: {{ thRaised }}; border: 1px solid {{ thBorder }}; border-radius: 10px; box-shadow: 0 20px 50px -10px {{ thShadow }}; display: flex; flex-direction: column; gap: 2px; text-align: left"><sc-for list="{{ thRows }}" as="r"><button type="button" class="thr" role="menuitemradio" aria-checked="{{ r.on ? 'true' : 'false' }}" onClick="{{ r.pick }}" style="display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; box-sizing: border-box; padding: 0 10px; border: 0; border-radius: 7px; background: {{ r.on ? thHover : 'transparent' }}; color: {{ r.on ? thFg : thMuted }}; font: 400 13.5px/1 Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; cursor: pointer; text-align: left"><sc-if value="{{ r.k === 'auto' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ r.k === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ r.k === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if><span style="flex: 1; text-align: left">{{ r.label }}</span><sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><span style="font: 400 12px/1 'IBM Plex Mono', monospace">✓</span></sc-if></button></sc-for></span></sc-if></span>
         <button type="button" onClick="{{ goHome }}" style="height: 36px; flex: none; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(var(--v12),.14); background: transparent; color: var(--v0); font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">Home</button>
       </div>
       <div class="hscroll {{ r43Hide }}" style="height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 14px">
@@ -373,20 +450,29 @@ body{margin:0}
       </div>
       <article style="max-width: 640px; margin: 0 auto; padding: 44px 0 90px; display: flex; flex-direction: column; gap: 16px">
           <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
-            <sc-for list="{{ rdChips }}" as="c" hint-placeholder-count="3"><span class="rchip {{ c.c }}">{{ c.t }}</span></sc-for>
+            <div class="rhd"><span class="rtype" data-tip="The kind of note">{{ rdType }}</span><span class="rstat {{ rdStatCls }}" data-tip="{{ rdStatTip }}"><i></i>{{ rdStat }}</span><sc-for list="{{ rdProjects }}" as="pj" hint-placeholder-count="1"><button type="button" class="rproj" onClick="{{ pj.pick }}" data-tip="{{ pj.tip }}">◆ {{ pj.t }}</button></sc-for></div>
           </div>
-          <h1 class="mono" style="margin: 0; font-weight: 500; font-size: {{ rdH1 }}px; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere">{{ rdFile }}</h1>
+          <h1 class="mono" style="margin: 0; font-weight: 500; font-size: {{ rdH1 }}px; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere; text-wrap: balance">{{ rdTitle }}</h1>
           <div class="mono" style="font-size: 11px; color: var(--v2); margin-top: -6px">{{ rdMeta }}</div>
+          <sc-if value="{{ rdHasTags }}" hint-placeholder-val="{{ true }}"><div class="rtags"><sc-for list="{{ rdTags }}" as="tg" hint-placeholder-count="4"><span>{{ tg.t }}</span></sc-for></div></sc-if>
+          <sc-if value="{{ rdHasProps }}" hint-placeholder-val="{{ false }}"><div class="rprops"><sc-for list="{{ rdProps }}" as="pp" hint-placeholder-count="2"><span class="k">{{ pp.k }}</span><span class="v {{ pp.c }}">{{ pp.v }}</span></sc-for></div></sc-if>
           <div class="{{ rdCls }}" style="display: flex; flex-direction: column; gap: 12px">
             <sc-for list="{{ rdBlocks }}" as="b" hint-placeholder-count="6">
               <sc-if value="{{ b.h2 }}" hint-placeholder-val="{{ false }}"><h2>{{ b.t }}</h2></sc-if>
-              <sc-if value="{{ b.p }}" hint-placeholder-val="{{ true }}"><p><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></p></sc-if>
-              <sc-if value="{{ b.obs }}" hint-placeholder-val="{{ false }}"><div class="obs {{ b.fam }}" id="{{ b.anchor }}"><span class="cat"><i class="gl">{{ b.glyph }}</i>{{ b.cat }}</span><div class="ob"><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span><sc-if value="{{ b.hasCtx }}" hint-placeholder-val="{{ false }}"><span class="ctx">{{ b.ctx }}</span></sc-if><sc-if value="{{ b.hasTags }}" hint-placeholder-val="{{ false }}"><span class="tags"><sc-for list="{{ b.tags }}" as="tg" hint-placeholder-count="1"><span class="tg">{{ tg.t }}</span></sc-for></span></sc-if></div></div></sc-if>
-              <sc-if value="{{ b.rel }}" hint-placeholder-val="{{ false }}"><div class="rel"><span class="cat">{{ b.cat }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span></div></sc-if>
+              <sc-if value="{{ b.p }}" hint-placeholder-val="{{ true }}"><p><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></p></sc-if>
+              <sc-if value="{{ b.obs }}" hint-placeholder-val="{{ false }}"><div class="obs {{ b.fam }}" id="{{ b.anchor }}"><span class="cat"><i class="gl">{{ b.glyph }}</i>{{ b.cat }}</span><div class="ob"><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></span><sc-if value="{{ b.hasCtx }}" hint-placeholder-val="{{ false }}"><span class="ctx">{{ b.ctx }}</span></sc-if><sc-if value="{{ b.hasTags }}" hint-placeholder-val="{{ false }}"><span class="tags"><sc-for list="{{ b.tags }}" as="tg" hint-placeholder-count="1"><span class="tg">{{ tg.t }}</span></sc-for></span></sc-if></div></div></sc-if>
+              <sc-if value="{{ b.h3 }}" hint-placeholder-val="{{ false }}"><h3><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></h3></sc-if>
+              <sc-if value="{{ b.li }}" hint-placeholder-val="{{ false }}"><div class="li"><span class="mk">{{ b.mk }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></span></div></sc-if>
+              <sc-if value="{{ b.quote }}" hint-placeholder-val="{{ false }}"><blockquote><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></blockquote></sc-if>
+              <sc-if value="{{ b.code }}" hint-placeholder-val="{{ false }}"><pre>{{ b.t }}</pre></sc-if>
+              <sc-if value="{{ b.table }}" hint-placeholder-val="{{ false }}"><div class="tbl"><div class="tgrid" style="grid-template-columns: {{ b.cols }}"><sc-for list="{{ b.cells }}" as="cc" hint-placeholder-count="8"><span class="{{ cc.c }}">{{ cc.t }}</span></sc-for></div></div></sc-if>
+              <sc-if value="{{ b.img }}" hint-placeholder-val="{{ false }}"><figure class="emi"><img src="{{ b.src }}" alt="{{ b.name }}" loading="lazy"><figcaption>{{ b.name }}</figcaption></figure></sc-if>
+              <sc-if value="{{ b.embed }}" hint-placeholder-val="{{ false }}"><div class="emb"><span class="ek">{{ b.kind }}</span><span class="en">{{ b.name }}</span><span class="es">{{ b.size }}</span></div></sc-if>
+              <sc-if value="{{ b.rel }}" hint-placeholder-val="{{ false }}"><div class="rel"><span class="cat">{{ b.cat }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></span></div></sc-if>
             </sc-for>
-            <sc-if value="{{ rdHasSrc }}" hint-placeholder-val="{{ true }}">
-              <h2>Sources</h2>
-              <div class="srcs"><sc-for list="{{ rdSrc }}" as="sr" hint-placeholder-count="2"><div class="{{ sr.c }}" onClick="{{ sr.pick }}"><span class="sg2">↳</span><span class="sp"><span class="st">{{ sr.t }}</span><span class="spath">{{ sr.path }}</span></span><span class="sd">{{ sr.d }}</span></div></sc-for></div>
+            <sc-if value="{{ rdHasAtt }}" hint-placeholder-val="{{ true }}">
+              <h2>Files</h2>
+              <sc-if value="{{ rdHasAtt }}" hint-placeholder-val="{{ false }}"><div class="ratt"><sc-for list="{{ rdAtt }}" as="at" hint-placeholder-count="2"><div class="emb"><span class="ek">{{ at.kind }}</span><span class="en">{{ at.name }}</span><span class="es">{{ at.size }}</span></div></sc-for></div></sc-if>
             </sc-if>
           </div>
         <div class="mono" style="font-size: 11.5px; color: {{ recalledCol }}; padding-top: 14px; border-top: 1px solid rgba(var(--v12),.08)">{{ recalled }}</div>
@@ -443,14 +529,14 @@ body{margin:0}
               <span class="mono" style="font-size: 11px; color: var(--v2)">{{ supersededOn }}</span>
             </div>
           </sc-if>
-          <div style="display: flex; flex-direction: column; gap: 2px">
+          <sc-if value="{{ sources.length > 0 }}" hint-placeholder-val="{{ true }}" data-r57-src="1"><div style="display: flex; flex-direction: column; gap: 2px">
             <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
             <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
               <div class="prow" onClick="{{ s.pick }}"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
             </sc-for>
-          </div>
+          </div></sc-if>
           <div style="display: flex; flex-direction: column; gap: 2px; min-height: 0">
-            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+            <span data-rd-links="1" class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
             <sc-for list="{{ rels }}" as="r" hint-placeholder-count="4">
               <div class="prow" onClick="{{ r.pick }}"><span class="mono" style="font-size: 11px; color: {{ r.col }}; width: 104px; flex: none; white-space: nowrap">{{ r.type }}</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span></div>
             </sc-for>
@@ -466,25 +552,36 @@ body{margin:0}
       <sc-if value="{{ isRead }}" hint-placeholder-val="{{ false }}">
         <div class="vscroll" style="display: flex; flex-direction: column; gap: 18px; height: 100%; margin-right: -12px; padding-right: 12px">
           <span class="mono" style="font-size: 11px; color: var(--v1); letter-spacing: .1em">AROUND THIS NOTE</span>
+          <div class="rdmap" role="button" tabindex="0" onClick="{{ toMap }}" aria-label="Show this note on the map"><div class="rdmh"><span>ON THE MAP</span><span class="go">Show on the map →</span></div><div class="rdmc" style="height: {{ mmH }}px"><sc-for list="{{ mmLines }}" as="l" hint-placeholder-count="0"><i class="mml {{ l.c }}" style="left: {{ l.x }}px; top: {{ l.y }}px; width: {{ l.w }}px; transform: rotate({{ l.a }}deg)"></i></sc-for><sc-for list="{{ mmDots }}" as="d" hint-placeholder-count="0"><b class="mmd {{ d.c }}" style="left: {{ d.x }}px; top: {{ d.y }}px; width: {{ d.s }}px; height: {{ d.s }}px"></b></sc-for><sc-for list="{{ mmLabs }}" as="ml" hint-placeholder-count="0"><span class="mmlab" style="left: {{ ml.x }}px; top: {{ ml.y }}px">{{ ml.t }}</span></sc-for><sc-if value="{{ mmMore }}" hint-placeholder-val="{{ false }}"><span class="mmm">{{ mmMore }}</span></sc-if></div></div>
           <div style="display: flex; flex-direction: column; gap: 2px">
-            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+            <span data-rd-links="1" class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
             <sc-for list="{{ rdGroups }}" as="r" hint-placeholder-count="3">
               <div style="display: flex; flex-direction: column; padding: 6px 0; border-bottom: 1px solid rgba(var(--v12),.06)">
                 <span class="mono" style="font-size: 11px; color: {{ r.col }}; padding-bottom: 2px">{{ r.k }}</span>
-                <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="2"><div class="prow" onClick="{{ it.pick }}" style="border: 0; padding: 4px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.t }}</span></div></sc-for>
+                <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="2"><div class="prow" onClick="{{ it.pick }}" data-tip="{{ it.tip }}" style="border: 0; padding: 4px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.t }}</span></div></sc-for>
               </div>
             </sc-for>
           </div>
-          <div style="display: flex; flex-direction: column; gap: 2px">
+          <sc-if value="{{ rdHasMen }}" hint-placeholder-val="{{ true }}"><div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">MENTIONED IN · {{ rdMenCount }}</span>
+            <sc-for list="{{ rdMen }}" as="mn" hint-placeholder-count="2"><div class="rmen" onClick="{{ mn.pick }}"><span class="mt">{{ mn.t }}</span><span class="mc">{{ mn.c }}</span></div></sc-for>
+          </div>
+          </sc-if>
+          <sc-if value="{{ rdHasEnt }}" hint-placeholder-val="{{ true }}"><div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">ABOUT</span>
+            <div class="rent"><sc-for list="{{ rdEnt }}" as="en" hint-placeholder-count="2"><span role="link" tabindex="0" onClick="{{ en.pick }}">{{ en.t }}</span></sc-for></div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ sources.length > 0 }}" hint-placeholder-val="{{ true }}" data-r57-src="1"><div style="display: flex; flex-direction: column; gap: 2px">
             <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
             <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
               <div class="prow" onClick="{{ s.pick }}"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
             </sc-for>
-          </div>
+          </div></sc-if>
           <div style="display: flex; flex-direction: column; gap: 2px">
             <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">HISTORY</span>
             <sc-for list="{{ rdHist }}" as="h" hint-placeholder-count="4">
-              <div class="feed"><span class="mono" style="font-size: 11px; color: var(--v2); width: 84px; flex: none">{{ h.k }}</span><span style="flex: 1; color: var(--v11)">{{ h.t }}</span></div>
+              <div class="rrev"><span class="rk">{{ h.k }}</span><span class="rw">{{ h.t }}</span><sc-if value="{{ h.b }}" hint-placeholder-val="{{ false }}"><span class="rb">{{ h.b }}</span></sc-if></div>
             </sc-for>
           </div>
         </div>
@@ -524,7 +621,7 @@ body{margin:0}
           </div>
           <sc-if value="{{ rvAny }}" hint-placeholder-val="{{ true }}">
             <div style="display: flex; flex-direction: column; gap: 14px">
-              <div style="font-size: 13.5px; line-height: 1.55; color: var(--v5)">These two may disagree. Exomem doesn’t pick a side; you decide, and it records why.</div>
+              <div style="font-size: 13.5px; line-height: 1.55; color: var(--v5)">These two notes say different things. Which is right now? The other isn’t deleted: it stays in your vault, marked superseded, and Exomem records why.</div>
               <sc-for list="{{ pair }}" as="p" hint-placeholder-count="2">
                 <div class="card" onClick="{{ p.pick }}" style="cursor: pointer">
                   <div style="display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="background: var(--v1); color: var(--v4); border-radius: 3px; padding: 0 5px">{{ p.tag }}</span><span style="color: var(--v2)">{{ p.when }}</span><span style="margin-left: auto; color: var(--v3)">{{ p.src }}</span></div>
@@ -533,10 +630,10 @@ body{margin:0}
                 </div>
               </sc-for>
               <div style="display: flex; flex-direction: column; gap: 8px">
-                <button type="button" class="btn pri" onClick="{{ rvKeepB }}" style="text-align: left">{{ keepBLabel }}</button>
-                <button type="button" class="btn" onClick="{{ rvKeepA }}" style="text-align: left">{{ keepALabel }}</button>
+                <button type="button" class="btn {{ rvAcls }}" onClick="{{ rvKeepA }}" style="text-align: left">{{ keepALabel }}</button>
+                <button type="button" class="btn {{ rvBcls }}" onClick="{{ rvKeepB }}" style="text-align: left">{{ keepBLabel }}</button>
                 <button type="button" class="btn" onClick="{{ rvBoth }}" style="text-align: left">Both hold, in different situations</button>
-                <div style="display: flex; gap: 14px; padding-top: 2px"><button type="button" class="ghost" onClick="{{ rvFalse }}" style="padding: 2px 0">Not a disagreement</button><button type="button" class="ghost" onClick="{{ rvLater }}" style="padding: 2px 0">Ask me in a week</button></div>
+                <div style="display: flex; gap: 14px; padding-top: 2px"><button type="button" class="ghost" onClick="{{ rvFalse }}" style="padding: 2px 0">Not a disagreement</button><button type="button" class="ghost" onClick="{{ rvLater }}" style="padding: 2px 0">Remind me in a week</button></div>
               </div>
             </div>
           </sc-if>
@@ -594,14 +691,14 @@ body{margin:0}
             <sc-if value="{{ hasSuper }}" hint-placeholder-val="{{ false }}">
               <div class="card"><span class="mono" style="font-size: 11px; color: var(--v2)">{{ supHead }}</span><span onClick="{{ supPick }}" style="font-size: 13px; color: {{ supColor }}; text-decoration: {{ supDeco }}">{{ supersedes }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ supersededOn }}</span></div>
             </sc-if>
-            <div style="display: flex; flex-direction: column; gap: 2px">
+            <sc-if value="{{ sources.length > 0 }}" hint-placeholder-val="{{ true }}" data-r57-src="1"><div style="display: flex; flex-direction: column; gap: 2px">
               <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
               <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
                 <div class="prow" onClick="{{ s.pick }}" style="padding: 10px 0"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
               </sc-for>
-            </div>
+            </div></sc-if>
             <div style="display: flex; flex-direction: column; gap: 2px">
-              <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+              <span data-rd-links="1" class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
               <sc-for list="{{ relsAll }}" as="r" hint-placeholder-count="4">
                 <div class="prow" onClick="{{ r.pick }}" style="padding: 10px 0"><span class="mono" style="font-size: 11px; color: {{ r.col }}; width: 96px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.type }}</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span></div>
               </sc-for>
@@ -633,6 +730,7 @@ body{margin:0}
             <div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="color: var(--v1); letter-spacing: .1em">REVIEW</span><span style="color: var(--v2)">{{ rvPos }}</span><span style="margin-left: auto; display: flex; gap: 2px"><button type="button" class="ghost" onClick="{{ rvPrev }}" aria-label="Previous pair" style="padding: 6px 8px">←</button><button type="button" class="ghost" onClick="{{ rvNext }}" aria-label="Next pair" style="padding: 6px 8px">→</button><button type="button" class="ghost" onClick="{{ toOverview }}" style="padding: 6px 4px">Done</button></span></div>
             <sc-if value="{{ rvAny }}" hint-placeholder-val="{{ true }}">
               <div style="display: flex; flex-direction: column; gap: 8px">
+                <div style="font-size: 13px; line-height: 1.5; color: var(--v5)">Which is right now? The other is kept, marked superseded.</div>
                 <sc-for list="{{ pair }}" as="p" hint-placeholder-count="2">
                   <div class="card" onClick="{{ p.pick }}" style="padding: 10px 12px; gap: 4px">
                     <div style="display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="background: var(--v1); color: var(--v4); border-radius: 3px; padding: 0 5px">{{ p.tag }}</span><span style="color: var(--v2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p.t }}</span><span style="margin-left: auto; color: var(--v3); flex: none">{{ p.when }}</span></div>
@@ -640,11 +738,11 @@ body{margin:0}
                   </div>
                 </sc-for>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding-top: 2px">
-                  <button type="button" class="btn pri" onClick="{{ rvKeepB }}" style="height: 42px">{{ keepBShort }}</button>
-                  <button type="button" class="btn" onClick="{{ rvKeepA }}" style="height: 42px">{{ keepAShort }}</button>
+                  <button type="button" class="btn {{ rvAcls }}" onClick="{{ rvKeepA }}" style="height: 42px">{{ keepAShort }}</button>
+                  <button type="button" class="btn {{ rvBcls }}" onClick="{{ rvKeepB }}" style="height: 42px">{{ keepBShort }}</button>
                   <button type="button" class="btn" onClick="{{ rvBoth }}" style="height: 42px; grid-column: 1 / -1">Both hold, in different situations</button>
                 </div>
-                <div style="display: flex; justify-content: space-between"><button type="button" class="ghost" onClick="{{ rvFalse }}" style="padding: 8px 0">Not a disagreement</button><button type="button" class="ghost" onClick="{{ rvLater }}" style="padding: 8px 0">Ask me in a week</button></div>
+                <div style="display: flex; justify-content: space-between"><button type="button" class="ghost" onClick="{{ rvFalse }}" style="padding: 8px 0">Not a disagreement</button><button type="button" class="ghost" onClick="{{ rvLater }}" style="padding: 8px 0">Remind me in a week</button></div>
               </div>
             </sc-if>
             <sc-if value="{{ rvNone }}" hint-placeholder-val="{{ false }}">
@@ -669,38 +767,59 @@ body{margin:0}
       <article style="padding: 22px 18px 40px; display: flex; flex-direction: column; gap: 14px">
           <div class="mono" style="font-size: 11px; color: var(--v2)">{{ rdFolder }}</div>
           <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
-            <sc-for list="{{ rdChips }}" as="c" hint-placeholder-count="3"><span class="rchip {{ c.c }}">{{ c.t }}</span></sc-for>
+            <div class="rhd"><span class="rtype" data-tip="The kind of note">{{ rdType }}</span><span class="rstat {{ rdStatCls }}" data-tip="{{ rdStatTip }}"><i></i>{{ rdStat }}</span><sc-for list="{{ rdProjects }}" as="pj" hint-placeholder-count="1"><button type="button" class="rproj" onClick="{{ pj.pick }}" data-tip="{{ pj.tip }}">◆ {{ pj.t }}</button></sc-for></div>
           </div>
-          <h1 class="mono" style="margin: 0; font-weight: 500; font-size: {{ rdH1 }}px; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere">{{ rdFile }}</h1>
+          <h1 class="mono" style="margin: 0; font-weight: 500; font-size: {{ rdH1 }}px; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere; text-wrap: balance">{{ rdTitle }}</h1>
           <div class="mono" style="font-size: 11px; color: var(--v2); margin-top: -6px">{{ rdMeta }}</div>
+          <sc-if value="{{ rdHasTags }}" hint-placeholder-val="{{ true }}"><div class="rtags"><sc-for list="{{ rdTags }}" as="tg" hint-placeholder-count="4"><span>{{ tg.t }}</span></sc-for></div></sc-if>
+          <sc-if value="{{ rdHasProps }}" hint-placeholder-val="{{ false }}"><div class="rprops"><sc-for list="{{ rdProps }}" as="pp" hint-placeholder-count="2"><span class="k">{{ pp.k }}</span><span class="v {{ pp.c }}">{{ pp.v }}</span></sc-for></div></sc-if>
           <div class="{{ rdCls }}" style="display: flex; flex-direction: column; gap: 12px">
             <sc-for list="{{ rdBlocks }}" as="b" hint-placeholder-count="6">
               <sc-if value="{{ b.h2 }}" hint-placeholder-val="{{ false }}"><h2>{{ b.t }}</h2></sc-if>
-              <sc-if value="{{ b.p }}" hint-placeholder-val="{{ true }}"><p><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></p></sc-if>
-              <sc-if value="{{ b.obs }}" hint-placeholder-val="{{ false }}"><div class="obs {{ b.fam }}" id="{{ b.anchor }}"><span class="cat"><i class="gl">{{ b.glyph }}</i>{{ b.cat }}</span><div class="ob"><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span><sc-if value="{{ b.hasCtx }}" hint-placeholder-val="{{ false }}"><span class="ctx">{{ b.ctx }}</span></sc-if><sc-if value="{{ b.hasTags }}" hint-placeholder-val="{{ false }}"><span class="tags"><sc-for list="{{ b.tags }}" as="tg" hint-placeholder-count="1"><span class="tg">{{ tg.t }}</span></sc-for></span></sc-if></div></div></sc-if>
-              <sc-if value="{{ b.rel }}" hint-placeholder-val="{{ false }}"><div class="rel"><span class="cat">{{ b.cat }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span></div></sc-if>
+              <sc-if value="{{ b.p }}" hint-placeholder-val="{{ true }}"><p><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></p></sc-if>
+              <sc-if value="{{ b.obs }}" hint-placeholder-val="{{ false }}"><div class="obs {{ b.fam }}" id="{{ b.anchor }}"><span class="cat"><i class="gl">{{ b.glyph }}</i>{{ b.cat }}</span><div class="ob"><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></span><sc-if value="{{ b.hasCtx }}" hint-placeholder-val="{{ false }}"><span class="ctx">{{ b.ctx }}</span></sc-if><sc-if value="{{ b.hasTags }}" hint-placeholder-val="{{ false }}"><span class="tags"><sc-for list="{{ b.tags }}" as="tg" hint-placeholder-count="1"><span class="tg">{{ tg.t }}</span></sc-for></span></sc-if></div></div></sc-if>
+              <sc-if value="{{ b.h3 }}" hint-placeholder-val="{{ false }}"><h3><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></h3></sc-if>
+              <sc-if value="{{ b.li }}" hint-placeholder-val="{{ false }}"><div class="li"><span class="mk">{{ b.mk }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></span></div></sc-if>
+              <sc-if value="{{ b.quote }}" hint-placeholder-val="{{ false }}"><blockquote><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></blockquote></sc-if>
+              <sc-if value="{{ b.code }}" hint-placeholder-val="{{ false }}"><pre>{{ b.t }}</pre></sc-if>
+              <sc-if value="{{ b.table }}" hint-placeholder-val="{{ false }}"><div class="tbl"><div class="tgrid" style="grid-template-columns: {{ b.cols }}"><sc-for list="{{ b.cells }}" as="cc" hint-placeholder-count="8"><span class="{{ cc.c }}">{{ cc.t }}</span></sc-for></div></div></sc-if>
+              <sc-if value="{{ b.img }}" hint-placeholder-val="{{ false }}"><figure class="emi"><img src="{{ b.src }}" alt="{{ b.name }}" loading="lazy"><figcaption>{{ b.name }}</figcaption></figure></sc-if>
+              <sc-if value="{{ b.embed }}" hint-placeholder-val="{{ false }}"><div class="emb"><span class="ek">{{ b.kind }}</span><span class="en">{{ b.name }}</span><span class="es">{{ b.size }}</span></div></sc-if>
+              <sc-if value="{{ b.rel }}" hint-placeholder-val="{{ false }}"><div class="rel"><span class="cat">{{ b.cat }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}" data-tip="{{ g.tip }}">{{ g.t }}</span></sc-for></span></div></sc-if>
             </sc-for>
           </div>
           <div style="height: 1px; background: rgba(var(--v12),.08); margin: 8px 0"></div>
+          <div class="rdmap" role="button" tabindex="0" onClick="{{ toMap }}" aria-label="Show this note on the map"><div class="rdmh"><span>ON THE MAP</span><span class="go">Show on the map →</span></div><div class="rdmc" style="height: {{ mmH }}px"><sc-for list="{{ mmLines }}" as="l" hint-placeholder-count="0"><i class="mml {{ l.c }}" style="left: {{ l.x }}px; top: {{ l.y }}px; width: {{ l.w }}px; transform: rotate({{ l.a }}deg)"></i></sc-for><sc-for list="{{ mmDots }}" as="d" hint-placeholder-count="0"><b class="mmd {{ d.c }}" style="left: {{ d.x }}px; top: {{ d.y }}px; width: {{ d.s }}px; height: {{ d.s }}px"></b></sc-for><sc-for list="{{ mmLabs }}" as="ml" hint-placeholder-count="0"><span class="mmlab" style="left: {{ ml.x }}px; top: {{ ml.y }}px">{{ ml.t }}</span></sc-for><sc-if value="{{ mmMore }}" hint-placeholder-val="{{ false }}"><span class="mmm">{{ mmMore }}</span></sc-if></div></div>
           <div style="display: flex; flex-direction: column; gap: 2px">
-            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+            <span data-rd-links="1" class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
             <sc-for list="{{ rdGroups }}" as="r" hint-placeholder-count="3">
               <div style="display: flex; flex-direction: column; padding: 6px 0; border-bottom: 1px solid rgba(var(--v12),.06)">
                 <span class="mono" style="font-size: 11px; color: {{ r.col }}; padding-bottom: 2px">{{ r.k }}</span>
-                <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="2"><div class="prow" onClick="{{ it.pick }}" style="border: 0; padding: 4px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.t }}</span></div></sc-for>
+                <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="2"><div class="prow" onClick="{{ it.pick }}" data-tip="{{ it.tip }}" style="border: 0; padding: 4px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.t }}</span></div></sc-for>
               </div>
             </sc-for>
           </div>
-          <div style="display: flex; flex-direction: column; gap: 2px">
+          <sc-if value="{{ rdHasMen }}" hint-placeholder-val="{{ true }}"><div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">MENTIONED IN · {{ rdMenCount }}</span>
+            <sc-for list="{{ rdMen }}" as="mn" hint-placeholder-count="2"><div class="rmen" onClick="{{ mn.pick }}"><span class="mt">{{ mn.t }}</span><span class="mc">{{ mn.c }}</span></div></sc-for>
+          </div>
+          </sc-if>
+          <sc-if value="{{ rdHasEnt }}" hint-placeholder-val="{{ true }}"><div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">ABOUT</span>
+            <div class="rent"><sc-for list="{{ rdEnt }}" as="en" hint-placeholder-count="2"><span role="link" tabindex="0" onClick="{{ en.pick }}">{{ en.t }}</span></sc-for></div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ sources.length > 0 }}" hint-placeholder-val="{{ true }}" data-r57-src="1"><div style="display: flex; flex-direction: column; gap: 2px">
             <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
             <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
               <div class="prow" onClick="{{ s.pick }}"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
             </sc-for>
+            <sc-if value="{{ rdHasAtt }}" hint-placeholder-val="{{ false }}"><div class="ratt"><sc-for list="{{ rdAtt }}" as="at" hint-placeholder-count="2"><div class="emb"><span class="ek">{{ at.kind }}</span><span class="en">{{ at.name }}</span><span class="es">{{ at.size }}</span></div></sc-for></div></sc-if></sc-if>
           </div>
           <div style="display: flex; flex-direction: column; gap: 2px">
             <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">HISTORY</span>
             <sc-for list="{{ rdHist }}" as="h" hint-placeholder-count="4">
-              <div class="feed"><span class="mono" style="font-size: 11px; color: var(--v2); width: 84px; flex: none">{{ h.k }}</span><span style="flex: 1; color: var(--v11)">{{ h.t }}</span></div>
+              <div class="rrev"><span class="rk">{{ h.k }}</span><span class="rw">{{ h.t }}</span><sc-if value="{{ h.b }}" hint-placeholder-val="{{ false }}"><span class="rb">{{ h.b }}</span></sc-if></div>
             </sc-for>
           </div>
       </article>
@@ -720,7 +839,7 @@ body{margin:0}
   <sc-if value="{{ r43Large }}" hint-placeholder-val="{{ false }}">
     <div aria-hidden="true" style="position: absolute; left: 0; right: 0; top: {{ gTop }}px; bottom: 0; z-index: 2; pointer-events: none; opacity: .22"><sc-for list="{{ r43Dust }}" as="d" hint-placeholder-count="0"><i style="position: absolute; left: {{ d.x }}%; top: {{ d.y }}%; width: {{ d.s }}px; height: {{ d.s }}px; border-radius: 50%; background: var(--v2)"></i></sc-for></div>
     <div style="position: absolute; left: 50%; transform: translateX(-50%); top: calc({{ gTop }}px + 14px); z-index: 6; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 999px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); font-size: 12.5px; color: var(--v0); white-space: nowrap; box-shadow: 0 10px 30px var(--v15)">
-      <span class="mono" style="color: var(--v2)">{{ r43Shown }} of {{ r43Total }}</span><span>The most-linked notes. Zoom in or search to see the rest.</span>
+      <span class="mono" style="color: var(--v2)">{{ r43Shown }} of {{ r43Total }}</span><span>{{ r43Msg }}</span>
     </div>
   </sc-if>
   <sc-if value="{{ r43Lost }}" hint-placeholder-val="{{ false }}">
@@ -728,27 +847,28 @@ body{margin:0}
       <span>Can’t reach Exomem. Showing your graph as of {{ r43Seen }}. Trying again in {{ r43Retry }}&nbsp;s.</span><button type="button" class="btn" style="height: 28px; flex: none">Try now</button>
     </div>
   </sc-if>
+  <sc-if value="{{ tipOn }}" hint-placeholder-val="{{ false }}"><div class="vtip {{ tipCls }}" role="tooltip" style="left: {{ tipX }}px; top: {{ tipY }}px">{{ tipT }}</div></sc-if>
 </main>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"live":{"editor":"boolean","default":true},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"start":{"editor":"enum","default":"overview","options":["overview","note","why","read","review","types","reviewed","noresults"]},"vault":{"editor":"enum","default":"sample","options":["sample","empty","large"]},"reach":{"editor":"enum","default":"ok","options":["ok","lost"]},"screenH":{"editor":"number","default":844},"$preview":{"width":1440,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"live":{"editor":"boolean","default":true},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"start":{"editor":"enum","default":"overview","options":["overview","note","why","read","review","types","reviewed","noresults"]},"vault":{"editor":"enum","default":"sample","options":["few","sample","large","empty"]},"ringMode":{"editor":"enum","default":"top","options":["top","types","place","all"]},"clStyle":{"editor":"enum","default":"halo","options":["halo","pill","old"]},"hoverStyle":{"editor":"enum","default":"fade","options":["fade","glow","ring"]},"reach":{"editor":"enum","default":"ok","options":["ok","lost"]},"screenH":{"editor":"number","default":844},"$preview":{"width":1440,"height":900}}'>
 // Exomem's graph viewer over a sample vault. One colour: amber lights only what is live, retrieved or current.
 // Overview first; zoom and filter; details on demand. Click a note and the camera moves to it, its links gather
 // around it, labelled by type. Ask why, and the trail that backs it lights up. Disagreements wait for review.
 const W = 1040, H = 700;
 const HUBS = [
-  { t: 'notes/newer-constraint.md', kind: 'decision', status: 'current', domain: 'retrieval', sum: 'Retrieval stays local and on SQLite: FTS5 for keywords, sqlite-vec for vectors. No separate search service to run or keep in sync.', supOn: 'superseded 3 Aug · after benchmark run 014', src: [['sources/bench/run-014.md', '12 Jul'], ['sources/meeting-2026-05-12.md', '12 May']],
+  { t: 'notes/newer-constraint.md', kind: 'insight', status: 'active', domain: 'retrieval', sum: 'Retrieval stays local and on SQLite: FTS5 for keywords, sqlite-vec for vectors. No separate search service to run or keep in sync.', supOn: 'superseded 3 Aug · after benchmark run 014', src: [['sources/bench/run-014.md', '12 Jul'], ['sources/meeting-2026-05-12.md', '12 May']],
     why: 'Benchmark run 014 measured hybrid retrieval on SQLite alone at 864 ms, with 50,000 notes and a cold cache. That took away the reason for a separate search service.' },
-  { t: 'decisions/gpu-batching.md', kind: 'decision', status: 'current', domain: 'embeddings', sum: 'Batch embeddings at 256 on 16 GB cards. VRAM headroom, not throughput, is the bound.', src: [['sources/bench/run-014.md', '12 Jul']],
+  { t: 'decisions/gpu-batching.md', kind: 'insight', status: 'active', domain: 'embeddings', sum: 'Batch embeddings at 256 on 16 GB cards. VRAM headroom, not throughput, is the bound.', src: [['sources/bench/run-014.md', '12 Jul']],
     why: 'In run 014, batches above 256 ran out of VRAM on 16 GB cards while throughput stayed flat.' },
-  { t: 'research/embedding-models.md', kind: 'research', status: 'current', domain: 'research', sum: 'Five embedding models compared on this vault: recall at 10, latency, and size on disk.', src: [['sources/papers/mteb-2026.md', '20 Jun'], ['sources/bench/run-009.md', '24 Jun']],
+  { t: 'research/embedding-models.md', kind: 'research note', status: 'active', domain: 'research', sum: 'Five embedding models compared on this vault: recall at 10, latency, and size on disk.', src: [['sources/papers/mteb-2026.md', '20 Jun'], ['sources/bench/run-009.md', '24 Jun']],
     why: 'It’s a comparison, not a verdict: one paper and one benchmark run, both measured on this vault.' },
-  { t: 'insights/first-latency.md', kind: 'insight', status: 'current', domain: 'latency', sum: 'Cold-start latency is dominated by opening the index, not by retrieval. Warm it when an assistant connects.', src: [['sources/bench/run-014.md', '12 Jul']],
+  { t: 'insights/first-latency.md', kind: 'insight', status: 'active', domain: 'latency', sum: 'Cold-start latency is dominated by opening the index, not by retrieval. Warm it when an assistant connects.', src: [['sources/bench/run-014.md', '12 Jul']],
     why: 'In run 014 most of the first query’s time went to opening the index; warm queries were fast.' },
-  { t: 'sources/bench/run-014.md', kind: 'source', status: 'evidence', domain: 'benchmarks', sum: 'Benchmark run 014: 50,000 notes, hybrid retrieval, 864 ms end to end with a cold cache.', src: [],
+  { t: 'sources/bench/run-014.md', kind: 'source', status: 'recorded', domain: 'benchmarks', sum: 'Benchmark run 014: 50,000 notes, hybrid retrieval, 864 ms end to end with a cold cache.', src: [],
     why: 'It’s evidence, not a conclusion: a recorded benchmark run. Notes cite it; it cites nothing.' },
-  { t: 'decisions/vault-layout.md', kind: 'decision', status: 'current', domain: 'vault', sum: 'Notes live as plain Markdown in the vault; the index is a sidecar that can always be rebuilt from the files.', src: [['sources/meeting-2026-04-02.md', '2 Apr']],
+  { t: 'decisions/vault-layout.md', kind: 'insight', status: 'active', domain: 'vault', sum: 'Notes live as plain Markdown in the vault; the index is a sidecar that can always be rebuilt from the files.', src: [['sources/meeting-2026-04-02.md', '2 Apr']],
     why: 'Decided on 2 Apr: the Markdown files stay the source of truth, so the index can always be rebuilt from them.' },
-  { t: 'research/cli-indexing.md', kind: 'research', status: 'open question', domain: 'indexing', sum: 'Should the CLI index on save or on a schedule? Two benchmarks disagree.', src: [['sources/bench/run-012.md', '5 Jul']],
+  { t: 'research/cli-indexing.md', kind: 'research note', status: 'draft', domain: 'indexing', sum: 'Should the CLI index on save or on a schedule? Two benchmarks disagree.', src: [['sources/bench/run-012.md', '5 Jul']],
     why: 'It isn’t settled. Two benchmarks disagree, so it stays an open question until one of them is superseded.' },
 ];
 const OLD_PLAN = 'notes/old-plan.md';
@@ -772,15 +892,60 @@ const MONTHS = ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', '
 // What the notes say, as Markdown. Links are [[wikilinks]]; observations are "- [category] text".
 // What the notes say, in Exomem's own note format: a lead paragraph, then sections; observations are
 // "- [category] content #tags (context) ^anchor"; relations are "- type [[target]]" under ## Relations.
+// R55: what a real note carries, for the sample vault. Types and statuses are Exomem's registries.
+// R56: sample images embedded in notes (in the product, the vault's own files)
+const IMAGES = { 'run-014-latency.png': "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 260'%3E%3Crect width='640' height='260' fill='%23f4f1ea'/%3E%3Cg font-family='IBM Plex Mono,monospace' font-size='13' fill='%236b665c'%3E%3Ctext x='24' y='34'%3Erun 014 %C2%B7 end-to-end latency, 50,000 notes%3C/text%3E%3Ctext x='24' y='92'%3ESQLite hybrid%3C/text%3E%3Ctext x='24' y='172'%3ESeparate vector DB%3C/text%3E%3Ctext x='24' y='238' font-size='11'%3Ecold%3C/text%3E%3Ctext x='84' y='238' font-size='11'%3Ewarm%3C/text%3E%3C/g%3E%3Crect x='200' y='70' width='330' height='16' rx='3' fill='%238a857a'/%3E%3Crect x='200' y='92' width='17' height='16' rx='3' fill='%23c9c4b8'/%3E%3Crect x='200' y='150' width='348' height='16' rx='3' fill='%238a857a'/%3E%3Crect x='200' y='172' width='16' height='16' rx='3' fill='%23c9c4b8'/%3E%3Cg font-family='IBM Plex Mono,monospace' font-size='12' fill='%231a1814'%3E%3Ctext x='538' y='83'%3E864 ms%3C/text%3E%3Ctext x='224' y='105'%3E41 ms%3C/text%3E%3Ctext x='556' y='163'%3E910 ms%3C/text%3E%3Ctext x='222' y='185'%3E38 ms%3C/text%3E%3C/g%3E%3Crect x='60' y='229' width='14' height='10' rx='2' fill='%238a857a'/%3E%3Crect x='120' y='229' width='14' height='10' rx='2' fill='%23c9c4b8'/%3E%3C/svg%3E" };
+const NOTE_TYPES = { 'research-note': 'Research note', insight: 'Insight', failure: 'Failure', pattern: 'Pattern', experiment: 'Experiment', 'production-log': 'Production log', entity: 'Entity', source: 'Source', evidence: 'Evidence', collection: 'Collection', dataset: 'Dataset card', plan: 'Plan', record: 'Record' };
+const STATUS_CLASS = { active: 'live', recorded: 'live', edited: 'live', published: 'live', reflected: 'live', concluded: 'live', draft: 'pending', planned: 'pending', superseded: 'superseded', archived: 'retired', dropped: 'abandoned' };
+const FOLDER_TYPE = { decisions: 'insight', insights: 'insight', research: 'research-note', patterns: 'pattern', sources: 'source', notes: 'research-note' };
+// A directed link reads differently from its other end.
+const INV = { supports: 'supported by', refines: 'refined by', supersedes: 'superseded by', 'evidenced by': 'evidence for', 'derived from': 'source of', cites: 'cited by', 'depends on': 'needed by', implements: 'implemented by', resolves: 'resolved by', tests: 'tested by', extends: 'extended by', 'part of': 'contains', contains: 'part of', mitigates: 'mitigated by', causes: 'caused by', 'caused by': 'causes', blocks: 'blocked by', answers: 'answered by', 'raises question': 'question raised by', 'used for': 'uses', 'about entity': 'subject of', 'links to': 'linked from', produces: 'produced by', owns: 'owned by', operates: 'operated by', supplies: 'supplied by', 'member of': 'has member', 'located at': 'location of' };
+const META = {
+  'notes/newer-constraint.md': { title: 'Retrieval stays local on SQLite: FTS5 for keywords, sqlite-vec for vectors', type: 'insight', status: 'active', created: '3 Aug 2026', updated: '9 Oct 2026', projects: ['exomem'], tags: ['retrieval', 'sqlite', 'fts5', 'sqlite-vec', 'architecture', 'ops'], entities: ['SQLite', 'sqlite-vec', 'FTS5'], id: '028a096f-91dd-45d7-865e-8e5ea387309a',
+    revs: [['9 Oct', 'Claude Code', 'added the run 014 table'], ['14 Aug', 'Claude', 'linked the cold-start insight'], ['3 Aug', 'Claude', 'created; supersedes the old plan']],
+    mentions: [['research/hybrid-weights.md', 'The weights were tuned on the local SQLite index, as decided in this note.'], ['patterns/supersede-not-delete.md', 'The clearest case: the old vector-database plan stays, superseded by this note.']] },
+  'notes/old-plan.md': { title: 'Run a separate vector database next to the vault', type: 'research-note', status: 'superseded', created: '12 May 2026', updated: '3 Aug 2026', projects: ['exomem'], tags: ['retrieval', 'vector-db', 'architecture'], entities: ['Qdrant'],
+    revs: [['3 Aug', 'Claude', 'superseded by the SQLite decision'], ['12 May', 'Claude', 'created from the 12 May meeting']] },
+  'sources/bench/run-014.md': { title: 'Benchmark run 014: hybrid retrieval at 50,000 notes', type: 'source', status: 'recorded', created: '12 Jul 2026', updated: '12 Jul 2026', projects: ['exomem'], tags: ['benchmark', 'latency', 'retrieval'], entities: ['SQLite'], props: [['source kind', 'benchmark run'], ['captured', '12 Jul 2026 · Claude Code']],
+    att: [['run-014-results.csv', 'CSV', '48 KB'], ['run-014-notes.pdf', 'PDF', '212 KB']],
+    revs: [['12 Jul', 'Claude Code', 'captured with its result files']] },
+  'research/cli-indexing.md': { title: 'Index on save or on a schedule?', type: 'research-note', status: 'draft', created: '5 Jul 2026', updated: '2 Oct 2026', projects: ['exomem', 'cli'], tags: ['indexing', 'cli', 'open-question'] },
+  'research/hybrid-weights.md': { title: 'Does a 0.6 vector share beat 0.5 on the golden queries?', type: 'experiment', status: 'concluded', created: '18 Aug 2026', updated: '29 Aug 2026', projects: ['exomem'], tags: ['ranking', 'rrf', 'golden-queries', 'experiment'],
+    props: [['hypothesis', 'Weighting vectors at 0.6 lifts recall at 10 without hurting exact-name queries.'], ['outcome', 'No: recall at 10 rose 0.4 points, exact-name queries fell 2.1. Kept 0.5.'], ['started', '18 Aug 2026'], ['concluded', '29 Aug 2026'], ['runs', '6']],
+    revs: [['29 Aug', 'Claude Code', 'concluded: kept 0.5'], ['18 Aug', 'Claude Code', 'created with the hypothesis']] },
+  'notes/ocr-pipeline.md': { title: 'The OCR pipeline dropped table rows on two-column pages', type: 'failure', status: 'active', created: '22 Jun 2026', updated: '24 Jun 2026', projects: ['exomem'], tags: ['ocr', 'pdf', 'tables', 'ingest'], entities: ['Tesseract'],
+    props: [['severity', 'moderate'], ['lesson', 'Detect columns before reading tables; check row counts against the source.']] },
+  'patterns/supersede-not-delete.md': { title: 'Supersede, don’t delete: the old note stays for history', type: 'pattern', status: 'active', created: '2 Apr 2026', updated: '3 Aug 2026', projects: ['exomem'], tags: ['governance', 'history', 'supersession'], props: [['pattern type', 'governance']] },
+  'decisions/gpu-batching.md': { title: 'Batch embeddings at 256 on 16 GB cards', entities: ['NVIDIA RTX 4080'] },
+  'research/embedding-models.md': { title: 'Five embedding models compared on this vault' },
+  'insights/first-latency.md': { title: 'Cold start is opening the index, not retrieval' },
+  'decisions/vault-layout.md': { title: 'Notes are plain Markdown; the index is a rebuildable sidecar', entities: ['Obsidian'] },
+};
 const BODIES = {
-  'notes/newer-constraint.md': 'Retrieval stays local and on SQLite. Keywords go through FTS5, vectors through sqlite-vec, and both live in one file next to the vault.\n## Why\n[[sources/bench/run-014.md]] ran hybrid retrieval over 50,000 notes: 864 ms end to end, with a cold cache. That was the last reason for a separate search service, so this replaces [[notes/old-plan.md]].\n## Observations\n- [decision] No separate search service to run, back up or keep in sync #retrieval #ops ^no-search-service\n- [constraint] The first query is slow while the index opens; see [[insights/first-latency.md]] #latency (cold start) ^cold-open\n- [open question] Index on save or on a schedule is still open in [[research/cli-indexing.md]] #indexing ^index-timing\n## Relations\n- supersedes [[notes/old-plan.md]]\n- evidenced_by [[sources/bench/run-014.md]]\n- relates_to [[insights/first-latency.md]]',
+  'notes/newer-constraint.md': '# Retrieval stays local on SQLite\nRetrieval stays local and on SQLite. Keywords go through **FTS5**, vectors through `sqlite-vec`, and both live in *one file* next to the vault.\n## Why\n[[sources/bench/run-014.md]] ran hybrid retrieval over 50,000 notes: 864 ms end to end, with a cold cache. That was the last reason for a separate search service, so this replaces [[notes/old-plan.md]].\n> A second service is a second thing to back up, upgrade and keep in sync. (meeting, 12 May)\n### What it takes\n1. One SQLite file beside the vault, rebuilt from the Markdown if it is ever lost.\n2. FTS5 for keywords and sqlite-vec for vectors, merged with reciprocal rank fusion.\n3. Warm the index when an assistant connects; see [[insights/first-latency.md]].\n### Run 014 in numbers\n| Setup | Notes | Cold | Warm |\n|---|---|---|---|\n| SQLite hybrid | 50,000 | 864 ms | 41 ms |\n| Separate vector DB | 50,000 | 910 ms | 38 ms |\n```sql\nSELECT path, rank FROM notes_fts\nWHERE notes_fts MATCH ?\nORDER BY rank LIMIT 50;\n```\n![[run-014-latency.png]]\nMore on the keyword side in the [SQLite FTS5 docs](https://sqlite.org/fts5.html).\n## Observations\n- [decision] No separate search service to run, back up or keep in sync #retrieval #ops ^no-search-service\n- [constraint] The first query is slow while the index opens; see [[insights/first-latency.md]] #latency (cold start) ^cold-open\n- [open question] Index on save or on a schedule is still open in [[research/cli-indexing.md]] #indexing ^index-timing\n## Relations\n- supersedes [[notes/old-plan.md]]\n- evidenced_by [[sources/bench/run-014.md]]\n- relates_to [[insights/first-latency.md]]',
+  'research/hybrid-weights.md': 'Six runs on the golden queries, vector share 0.5 against 0.6.\n## Result\n- Recall at 10: **+0.4** points at 0.6.\n- Exact-name queries: **−2.1** points at 0.6.\nNot worth it; the weights stay at 0.5. Tuned on the index decided in [[notes/newer-constraint.md]].\n## Observations\n- [finding] A higher vector share trades exact names for a little recall #ranking ^trade-off',
+  'notes/ocr-pipeline.md': 'Pages with two columns came out with table rows missing: the reader took each column as one table.\n## What we changed\n1. Detect columns before reading tables.\n2. Compare row counts with the source and flag a mismatch.\n## Observations\n- [failure] Two-column pages lost table rows in OCR #ocr #tables ^two-columns\n- [technique] Check extracted row counts against the source #ingest ^row-counts',
+  'patterns/supersede-not-delete.md': 'A note that stops being true is superseded, never deleted: the newer note points back, recall prefers it, and the history stays readable.\n## Observations\n- [pattern] Supersede, never delete; recall prefers the newer note #governance ^supersede\n## Relations\n- relates_to [[notes/newer-constraint.md]]',
   'decisions/gpu-batching.md': 'Batch embeddings at 256 on 16 GB cards.\n## Why\nIn [[sources/bench/run-014.md]], batches above 256 ran out of VRAM while throughput stayed flat. VRAM headroom, not throughput, is the bound.\n## Observations\n- [decision] Default batch size is 256 on 16 GB cards #embeddings ^batch-256\n- [method] Model choice comes from [[research/embedding-models.md]] #embeddings ^model-choice\n## Relations\n- evidenced_by [[sources/bench/run-014.md]]\n- derived_from [[research/embedding-models.md]]',
   'research/embedding-models.md': 'Five embedding models compared on this vault: recall at 10, latency, and size on disk.\n## Sources\n[[sources/papers/mteb-2026.md]] for the shortlist, [[sources/bench/run-009.md]] for the numbers on this vault.\n## Observations\n- [finding] A comparison, not a verdict #research ^not-a-verdict\n- [used by] [[decisions/gpu-batching.md]] builds on it #embeddings ^used-by-batching',
   'insights/first-latency.md': 'Cold-start latency is dominated by opening the index, not by retrieval.\n## Why\nIn [[sources/bench/run-014.md]], most of the first query’s time went to opening the index; warm queries were fast.\n## Observations\n- [pattern] Warm the index when an assistant connects #latency (on connect) ^warm-on-connect\n- [explains] The cold number in [[notes/newer-constraint.md]] #latency ^explains-cold\n## Relations\n- evidenced_by [[sources/bench/run-014.md]]\n- refines [[notes/newer-constraint.md]]',
-  'sources/bench/run-014.md': 'Benchmark run 014: 50,000 notes, hybrid retrieval, 864 ms end to end with a cold cache.\n## Setup\n- [fact] 50,000 notes; hybrid retrieval with FTS5 and sqlite-vec #benchmark ^setup-size\n- [fact] Cold cache, timed end to end #benchmark ^setup-timing\n## Cited by\n[[notes/newer-constraint.md]], [[decisions/gpu-batching.md]] and [[insights/first-latency.md]].',
+  'sources/bench/run-014.md': 'Benchmark run 014: 50,000 notes, hybrid retrieval, 864 ms end to end with a cold cache.\n## Setup\n- [fact] 50,000 notes; hybrid retrieval with FTS5 and sqlite-vec #benchmark ^setup-size\n- [fact] Cold cache, timed end to end #benchmark ^setup-timing\n## Result\n![[run-014-latency.png]]\nWarm queries stayed under 40 ms; the cold first query is the whole cost.',
   'decisions/vault-layout.md': 'Notes live as plain Markdown in the vault; the index is a sidecar that can always be rebuilt from the files.\n## Why\nDecided on 2 Apr ([[sources/meeting-2026-04-02.md]]): the Markdown files stay the source of truth.\n## Observations\n- [decision] Deleting the index loses nothing; it rebuilds from the files #vault ^index-is-sidecar',
   'research/cli-indexing.md': 'Should the CLI index on save or on a schedule? Two benchmarks disagree.\n## What disagrees\n[[sources/bench/run-012.md]] favours indexing on save; a later run favours a schedule.\n## Observations\n- [open question] Which matters more here: fresh recall, or instant saves? #indexing ^save-or-schedule',
   'notes/old-plan.md': 'The first plan: run a separate vector database next to the vault.\n## What happened\nBenchmark run 014 showed SQLite alone stays under a second at 50,000 notes.\n## Observations\n- [superseded] Replaced by [[notes/newer-constraint.md]] on 3 Aug; kept for history #retrieval ^replaced\n## Relations\n- superseded_by [[notes/newer-constraint.md]]',
+  'notes/index-rebuild.md': 'Rebuilding the index from scratch takes 41 s for 10,000 notes on a laptop, and nothing is lost: the Markdown files are the source of truth.\n## Steps\n1. Delete the sidecar database.\n2. Exomem notices on the next start and rebuilds from the files.\n3. Recall answers from the old index until the new one is ready.\n## Observations\n- [finding] A full rebuild of 10,000 notes takes about 41 s and needs no network #index ^rebuild-time\n- [technique] Keep answering from the old index while the new one builds #index ^no-downtime\n## Relations\n- depends_on [[decisions/vault-layout.md]]',
+  'insights/rerank-cost.md': 'Reranking the top 50 adds 120 ms to a recall and buys about 3 points of recall at 10; on the top 20 it adds 45 ms for 2 points.\n## So\nRerank the top 20 by default; go to 50 only when the question is long or the first pass is unsure.\n## Observations\n- [insight] Most of reranking\u2019s gain comes from the first 20 results #ranking #latency ^rerank-20\n- [operating constraint] Keep reranking under 50 ms on a laptop #latency ^rerank-budget',
+  'patterns/cache-warm.md': 'Warm the index when an assistant connects, not when it first asks: the first question then costs what every other one does.\n## How\nOpen the database and touch the top pages of each index in the background while the connection settles.\n## Observations\n- [pattern] Warm on connect, so the first recall is never the slow one #latency ^warm-on-connect\n- [finding] Warming takes 300\u2013600 ms and usually finishes before the first question #latency ^warm-time',
+  'decisions/fts5.md': 'Keyword search uses SQLite FTS5 with the porter tokenizer; no separate search engine.\n## Why\nIt lives in the same file as the vectors, rebuilds with the index, and matches exact names that vectors miss.\n## Observations\n- [decision] Keywords go through FTS5 in the same SQLite file #search #sqlite ^fts5\n- [finding] FTS5 finds exact file and function names that embeddings rank low #search ^exact-names',
+  'research/rrf-k.md': 'Reciprocal rank fusion with k = 60 against k = 20 on the golden queries: k = 60 wins by a hair and is the common default.\n| k | recall at 10 | exact names |\n| --- | --- | --- |\n| 20 | 0.81 | 0.92 |\n| 60 | 0.82 | 0.93 |\n## Observations\n- [finding] RRF is not sensitive to k between 20 and 60 on this vault #ranking ^rrf-k\n- [decision] Keep k = 60 #ranking ^keep-60',
+  'sources/issue-212.md': 'GitHub issue 212: \u201cRecall misses notes I saved a minute ago.\u201d Reported with a vault of 3,400 notes.\n## What it showed\nNew notes waited for the next scheduled index run. Saving should index the one note straight away.\n## Observations\n- [fact] Notes saved between index runs were invisible to recall #indexing ^stale-window\n- [question] Index on save, or on a schedule? #indexing ^save-or-schedule',
+  'notes/vault-sync.md': 'Two machines editing the same vault through a sync folder: the index is local to each machine and is never synced.\n## Why\nSyncing a database file mid-write corrupts it; the Markdown syncs fine and each side rebuilds what it needs.\n## Observations\n- [decision] Sync the notes, never the index #sync #vault ^sync-notes-only\n- [failure] A synced database file arrived half-written and would not open #sync ^half-written',
+  'insights/edge-cases.md': 'The notes recall gets wrong are the short ones: a title and one line give the embedding too little to work with.\n## So\nGive keyword matches more weight for notes under 40 words, and show the title in results.\n## Observations\n- [insight] Very short notes are the main source of misses #ranking ^short-notes\n- [technique] Weight keywords up for notes under 40 words #ranking ^short-boost',
+  'decisions/no-gpu-default.md': 'Exomem runs on the CPU by default; a GPU is used when present, never required.\n## Why\nMost people run it on laptops, and embedding a day\u2019s new notes on the CPU takes seconds.\n## Observations\n- [decision] No GPU needed; use one if it is there #hardware ^cpu-default\n- [finding] Embedding 200 new notes on a laptop CPU takes about 9 s #performance ^cpu-time',
+  'research/chunking.md': 'Chunking notes by heading against fixed 512-token windows, on the golden queries.\n## Result\n- By heading: recall at 10 **0.83**, answers quote whole sections.\n- Fixed windows: **0.80**, answers often start mid-sentence.\n## Observations\n- [finding] Chunking by heading beats fixed windows by 3 points #retrieval ^by-heading\n- [decision] Chunk by heading; split only sections over 800 tokens #retrieval ^split-long',
+  'sources/meeting-2026-06-30.md': 'Meeting notes, 30 Jun 2026: indexing and recall latency.\n## Notes\n- Issue 212 is real: saved notes are invisible until the next index run.\n- Agreed to try indexing on save behind a flag.\n- Latency budget for a recall: under a second on a laptop, cold.\n## Observations\n- [decision] Try indexing on save behind a flag #indexing ^index-on-save\n- [operating constraint] A cold recall stays under one second on a laptop #latency ^one-second',
+  'insights/recall-at-10.md': 'Recall at 10 is the number we watch: it says whether the right note is in what the assistant reads, which is all that matters for an answer.\n## Why not precision\nThe assistant reads all ten; a wrong extra note costs little, a missing right one costs the answer.\n## Observations\n- [insight] Recall at 10 predicts answer quality better than precision #evaluation ^recall-10\n- [operating constraint] Every ranking change is checked on the golden queries first #evaluation ^golden-first',
+  'decisions/plugin-route.md': 'Assistants reach Exomem through MCP; each app gets the same tools and the same memory, with no app-specific copies.\n## Why\nOne memory that every connected assistant shares is the point; a per-app fork would drift.\n## Observations\n- [decision] One MCP server, the same tools for every app #mcp ^one-route\n- [operating constraint] Never keep a per-app copy of the memory #mcp ^no-forks'
 };
 // Each kind of observation gets its own component: a mark, a colour rule, a frame.
 const FAM = { decision: ['dec', '◆'], constraint: ['con', '⊣'], 'open question': ['q', '?'], question: ['q', '?'], finding: ['find', '●'], fact: ['fact', '■'], pattern: ['pat', '↻'], method: ['pat', '↻'], superseded: ['sup', '↧'], 'used by': ['rel', '→'], explains: ['rel', '→'], relates: ['rel', '→'] };
@@ -788,7 +953,7 @@ const CUSTOM = ['inspired by', 'blocks release'];
 const SPEEDS = [[0.5, '½×', 'half speed'], [1, '1×', 'normal speed'], [2, '2×', 'double speed']];
 
 // Dark is canonical and so is light: the same viewer on paper, with deep amber.
-const VPAL = {"dark": {"v0": "#ECE9E2", "v1": "#FFB000", "v2": "#858075", "v3": "#5C574D", "v4": "#0A0908", "v5": "#A39E93", "v6": "#1A1815", "v7": "#100E0C", "v8": "#12100E", "v9": "#2A2724", "v10": "#14120F", "v11": "#C9C5BC", "v12": "236,233,226", "v13": "255,176,0", "v14": "10,9,8", "v15": "rgba(0,0,0,.6)"}, "light": {"v0": "#1A1814", "v1": "#A86E00", "v2": "#7A756B", "v3": "#B5AFA3", "v4": "#FAF8F4", "v5": "#6B665C", "v6": "#EFEBE3", "v7": "#FFFFFF", "v8": "#FFFFFF", "v9": "#E5E0D6", "v10": "#FFFFFF", "v11": "#3D3A34", "v12": "26,24,20", "v13": "168,110,0", "v14": "250,248,244", "v15": "rgba(60,50,30,.16)"}};
+const VPAL = {"dark": {"v0": "#ECE9E2", "v1": "#FFB000", "v2": "#858075", "v3": "#5C574D", "v4": "#0A0908", "v5": "#A39E93", "v6": "#1A1815", "v7": "#100E0C", "v8": "#12100E", "v9": "#2A2724", "v10": "#14120F", "v11": "#C9C5BC", "v12": "236,233,226", "v13": "255,176,0", "v14": "10,9,8", "v15": "rgba(0,0,0,.6)", "v16": ".28", "v17": ".08"}, "light": {"v0": "#1A1814", "v1": "#A86E00", "v2": "#7A756B", "v3": "#B5AFA3", "v4": "#FAF8F4", "v5": "#6B665C", "v6": "#EFEBE3", "v7": "#FFFFFF", "v8": "#FFFFFF", "v9": "#E5E0D6", "v10": "#FFFFFF", "v11": "#3D3A34", "v12": "26,24,20", "v13": "168,110,0", "v14": "250,248,244", "v15": "rgba(60,50,30,.16)", "v16": ".14", "v17": ".05"}};
 const base = (t) => t.split('/').pop();
 const stopEv = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
 
@@ -797,7 +962,7 @@ class Component extends DCLogic {
     super(props);
     const s = props.start || 'overview', g = this.graph();
     const mode = s === 'note' || s === 'why' || s === 'read' ? s : (s === 'review' || s === 'reviewed') ? 'review' : 'overview';
-    this.state = { focus: mode === 'note' || mode === 'why' || mode === 'read' ? g.hubs[0] : -1, mode, off: {}, asOf: 11, q: '', searchOpen: false, moreOpen: s === 'types', playing: false, speed: 1,
+    this.state = { focus: mode === 'note' || mode === 'why' || mode === 'read' ? g.hubs[0] : -1, mode, off: {}, asOf: 11, tlUnit: 'week', q: '', searchOpen: false, moreOpen: s === 'types', playing: false, speed: 1,
       ev: [], evN: 0, now: 0, cam: null, drag: false, hist: [], hover: -1, paused: props.live === false, rv: 0, resolved: {}, over: {}, rvLast: null,
       sheet: mode === 'why' || mode === 'review' ? 'open' : 'peek' };
     if (s === 'noresults') this.state = { ...this.state, q: this.props.query ?? 'kubernetes', searchOpen: true };
@@ -805,11 +970,22 @@ class Component extends DCLogic {
   }
   componentDidMount() {
     this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // R57f: Escape steps back one level: a menu closes; the reader or "why" returns to the note; a note goes back
+    this.escK = (e) => {
+      if (e.key !== 'Escape' || this.gone) return;
+      const s = this.state;
+      if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) { try { e.target.blur(); } catch (er) {} if (s.searchOpen) this.setState({ searchOpen: false }); return; }
+      if (s.searchOpen || s.moreOpen || s.muPop || s.thOpen) { this.setState({ searchOpen: false, moreOpen: false, muPop: false, thOpen: false }); return; }
+      if (s.mode === 'read' || s.mode === 'why') { this.setState({ mode: 'note', cam: null, sheet: 'peek' }); return; }
+      if (s.mode === 'note') { const h = [...s.hist], prev = h.pop(); if (prev !== undefined) this.setState({ focus: prev, hist: h, cam: null, hover: -1, showAll: -1 }); else if (s.ret) this.setState({ focus: -1, mode: s.ret.mode, rv: s.ret.rv, ret: null, cam: null, hover: -1, sheet: 'open' }); else this.setState({ focus: -1, mode: 'overview', cam: null, hover: -1, sheet: 'peek' }); return; }
+      if (s.mode === 'review' || s.mode === 'types') this.setState({ mode: 'overview', cam: null, sheet: 'peek' });
+    };
+    try { window.addEventListener('keydown', this.escK); } catch (er) {}
     if (this.props.live === false) return;
     this.fire(150000); this.fire(42000); this.fire(9000);
     this.startLive();
   }
-  componentWillUnmount() { this.gone = true; clearTimeout(this.beatT); clearInterval(this.liveT); clearInterval(this.playT); clearTimeout(this.fadeT); cancelAnimationFrame(this.gRaf); clearTimeout(this.hovT); clearTimeout(this.wheelT); this.musicStop(true); }
+  componentWillUnmount() { this.gone = true; try { window.removeEventListener('keydown', this.escK); } catch (er) {} clearTimeout(this.beatT); clearInterval(this.liveT); clearInterval(this.playT); clearTimeout(this.fadeT); cancelAnimationFrame(this.gRaf); clearTimeout(this.hovT); clearTimeout(this.wheelT); this.musicStop(true); }
   startLive() { clearInterval(this.liveT); this.liveT = setInterval(() => this.fire(), this.reduced ? 9000 : 4200); }
 
   // ---- listening. Opt-in, from a quiet speaker in the corner: the microphone, or a song file. Nothing is recorded or sent.
@@ -867,32 +1043,41 @@ class Component extends DCLogic {
   graph() {
     if (this._g) return this._g;
     const rnd = this.rng(17);
-    const centres = [[300, 300], [180, 520], [560, 180], [700, 430], [470, 560], [860, 220], [880, 560]];
+    // R56: vault sizes: few (about 12 notes), sample (253), large (about 2,000, in a bigger world)
+    const VA = this.props.vault === 'few' ? 'few' : this.props.vault === 'large' ? 'large' : 'sample', SC = VA === 'large' ? 2.6 : 1, Wd = W * SC, Hd = H * SC;
+    const base0 = [[300, 300], [180, 520], [560, 180], [700, 430], [470, 560], [860, 220], [880, 560]];
+    const centres = VA === 'few' ? [[440, 330], [640, 400]] : base0.map(([x, y]) => [x * SC, y * SC]);
+    const grid = new Map(), gk = (x, y) => Math.floor(x / 15) + ',' + Math.floor(y / 15);
+    const roomy = (x, y) => { const cx = Math.floor(x / 15), cy = Math.floor(y / 15); for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const L = grid.get((cx + a) + ',' + (cy + b)); if (L && L.some((p) => (p.x - x) ** 2 + (p.y - y) ** 2 <= 15 * 15)) return false; } return true; };
     const pts = [];
     centres.forEach(([cx, cy], c) => {
-      const k = 30 + Math.floor(rnd() * 16);
+      const k = VA === 'sample' ? 30 + Math.floor(rnd() * 16) : VA === 'few' ? 5 + Math.floor(rnd() * 3) : 260 + Math.floor(rnd() * 60);
       let made = 0, tries = 0;
-      while (made < k && tries < 4000) {
+      while (made < k && tries < (VA === 'large' ? 30000 : 4000)) {
         tries++;
-        const a = rnd() * 6.283, r = Math.abs((rnd() + rnd() + rnd() - 1.5)) * 150;
+        const a = rnd() * 6.283, r = Math.abs((rnd() + rnd() + rnd() - 1.5)) * 150 * (VA === 'large' ? SC : VA === 'few' ? 0.55 : 1);
         const x = cx + Math.cos(a) * r * 1.3, y = cy + Math.sin(a) * r;
-        if (x < 20 || x > W - 20 || y < 40 || y > H - 10) continue;
-        if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 15 * 15)) { pts.push({ x, y, c, t: rnd() }); made++; }
+        if (x < 20 || x > Wd - 20 || y < 40 || y > Hd - 10) continue;
+        if (roomy(x, y)) { const p = { x, y, c, t: rnd() }; pts.push(p); const key = gk(x, y); (grid.get(key) || grid.set(key, []).get(key)).push(p); made++; }
       }
     });
     const hubs = centres.map(([cx, cy], c) => { let best = -1, bd = 1e9; pts.forEach((p, i) => { if (p.c !== c) return; const d = (p.x - cx) ** 2 + (p.y - cy) ** 2; if (d < bd) { bd = d; best = i; } }); pts[best].t = 0; pts[best].hub = c; return best; });
     const E = new Map(), adj = pts.map(() => []);
     const add = (i, j) => { const k = i < j ? i + '-' + j : j + '-' + i; if (i === j || E.has(k)) return; E.set(k, [i, j]); adj[i].push(j); adj[j].push(i); };
+    // nearest two within 80, found through an 80-unit grid (same result as checking every note, much faster)
+    const g80 = new Map(); pts.forEach((p, i) => { const key = Math.floor(p.x / 80) + ',' + Math.floor(p.y / 80); (g80.get(key) || g80.set(key, []).get(key)).push(i); });
+    const near80 = (p) => { const cx = Math.floor(p.x / 80), cy = Math.floor(p.y / 80), out = []; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) (g80.get((cx + a) + ',' + (cy + b)) || []).forEach((j) => out.push(j)); return out; };
     pts.forEach((p, i) => {
-      pts.map((q, j) => [j, (q.x - p.x) ** 2 + (q.y - p.y) ** 2]).filter((a) => a[0] !== i).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([j, d]) => { if (d < 80 * 80) add(i, j); });
+      near80(p).map((j) => [j, (pts[j].x - p.x) ** 2 + (pts[j].y - p.y) ** 2]).filter((a) => a[0] !== i).sort((a, b) => a[1] - b[1] || a[0] - b[0]).slice(0, 2).forEach(([j, d]) => { if (d < 80 * 80) add(i, j); });
       if (rnd() < 0.4) add(i, hubs[p.c]);
     });
     for (let a = 0; a < hubs.length; a++) for (let b = a + 1; b < hubs.length; b++) if (rnd() < 0.5) add(hubs[a], hubs[b]);
     const deg = adj.map((a) => a.length);
-    pts.forEach((p, i) => { p.title = p.hub !== undefined ? HUBS[p.hub].t : NOTES[i % NOTES.length].replace('.md', '') + (i >= NOTES.length ? '-' + (i % 7 + 2) : '') + '.md'; p.dd = (5 + rnd() * 5).toFixed(2); p.dl = (-rnd() * 8).toFixed(2); });
+    pts.forEach((p, i) => { p.title = p.hub !== undefined ? HUBS[p.hub].t : NOTES[i % NOTES.length].replace('.md', '') + (i >= NOTES.length ? '-' + (VA === 'large' ? i : i % 7 + 2) : '') + '.md'; p.dd = (5 + rnd() * 5).toFixed(2); p.dl = (-rnd() * 8).toFixed(2); });
     const old = adj[hubs[0]].find((j) => pts[j].hub === undefined);
     pts[old].title = OLD_PLAN; pts[old].t = 0;
-    const box = { x0: Math.min(...pts.map((p) => p.x)) - 10, x1: Math.max(...pts.map((p) => p.x)) + 10, y0: Math.min(...pts.map((p) => p.y)) - 30, y1: Math.max(...pts.map((p) => p.y)) + 10 };
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), mn = (v) => v.reduce((m, x) => Math.min(m, x), Infinity), mx = (v) => v.reduce((m, x) => Math.max(m, x), -Infinity);
+    const box = { x0: mn(xs) - 10, x1: mx(xs) + 10, y0: mn(ys) - 30, y1: mx(ys) + 10 };
     this._g = { pts, E: [...E.values()], adj, deg, hubs, old, box };
     return this._g;
   }
@@ -958,23 +1143,65 @@ class Component extends DCLogic {
     this.setState({ ev: [ev, ...this.state.ev].slice(0, 4), evN: n + 1, now: Date.now() });
     clearTimeout(this.fadeT); this.fadeT = setTimeout(() => this.setState({ now: Date.now() }), 3700);
   }
-  readNote(i) {
+  readNote(i, to) {
     if (this.justDragged) return;
     const st = this.state, hist = st.focus >= 0 && st.focus !== i ? [...st.hist, st.focus].slice(-12) : st.hist;
     this.setState({ focus: i, mode: 'read', hist, cam: null, searchOpen: false, moreOpen: false, hover: -1 });
+    // R57b: '+N more links' lands on the link list, not the top of the note
+    if (to === 'links') setTimeout(() => { const all = [...document.querySelectorAll('[data-rd-links]')], el = all.find((x) => x.offsetParent !== null); if (el) { let sc = el.parentElement; while (sc && !(sc.scrollHeight > sc.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement; if (sc) sc.scrollTo({ top: Math.max(0, sc.scrollTop + el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 60), behavior: this.reduced ? 'auto' : 'smooth' }); el.classList.add('rdflash'); setTimeout(() => el.classList.remove('rdflash'), 1600); } }, 80);
   }
   // a tiny Markdown reader: headings, paragraphs, observations, [[wikilinks]]
+  // R55: everything a note carries; sample notes without their own entry get honest defaults from their path
+  metaOf(i) {
+    const g = this.graph(), p = g.pts[i], T = p.title, M = META[T] || {}, folder = T.split('/')[0];
+    const hub = p.hub !== undefined ? HUBS[p.hub] : null, nice = base(T).replace('.md', '').replace(/-\d$/, '').replace(/-/g, ' ');
+    const when = this.when(i), status = M.status || (i === g.old ? 'superseded' : 'active');
+    return {
+      title: M.title || (nice.charAt(0).toUpperCase() + nice.slice(1)), type: M.type || FOLDER_TYPE[folder] || 'research-note', status,
+      created: M.created || when, updated: M.updated || when, projects: M.projects || ['exomem'],
+      tags: M.tags || [hub ? hub.domain : folder.replace(/s$/, ''), ...(hub ? [] : [HUBS[p.c] ? HUBS[p.c].domain : 'vault'])].filter((x, k, a) => a.indexOf(x) === k),
+      props: M.props || [], entities: M.entities || [], att: M.att || [], mentions: M.mentions || [], id: M.id,
+      revs: M.revs || [[when.split(' ').slice(0, 2).join(' '), APPS[i % 4][0], 'created']],
+    };
+  }
   md(text, titleIdx, go) {
-    const segs = (line) => line.split(/(\[\[[^\]]+\]\])/).filter(Boolean).map((x) => {
-      const m = x.match(/^\[\[(.+)\]\]$/); if (!m) return { t: x, c: '', pick: () => {} };
-      const i = titleIdx(m[1]); return { t: base(m[1]).replace('.md', ''), c: i >= 0 ? 'wl' : 'wl dead', pick: i >= 0 ? (e) => { stopEv(e); go(i); } : () => {} };
-    });
-    const blank = { fam: '', glyph: '', h2: false, p: false, obs: false, rel: false, t: '', cat: '', segs: [], tags: [], hasTags: false, ctx: '', hasCtx: false, anchor: '' };
-    let sec = '';
-    return text.split('\n').filter((l) => l.trim()).map((l) => {
-      if (l.startsWith('## ')) { sec = l.slice(3).toLowerCase(); return { ...blank, h2: true, t: l.slice(3) }; }
+    // R55: full Markdown. Inline: [[wikilinks]], **bold**, *italic*, `code`, [text](url).
+    const inl = (s) => {
+      const out = []; const re = /(\[\[[^\]]+\]\]|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
+      s.split(re).filter(Boolean).forEach((x) => {
+        let m;
+        if ((m = x.match(/^\[\[(.+)\]\]$/))) { const i = titleIdx(m[1]); out.push({ t: base(m[1]).replace('.md', ''), c: i >= 0 ? 'wl' : 'wl dead', tip: i >= 0 ? '' : 'Not in your vault yet', pick: i >= 0 ? (e) => { stopEv(e); go(i); } : () => {} }); }
+        else if ((m = x.match(/^\*\*(.+)\*\*$/))) out.push({ t: m[1], c: 'b', pick: () => {} });
+        else if ((m = x.match(/^\*(.+)\*$/))) out.push({ t: m[1], c: 'i', pick: () => {} });
+        else if ((m = x.match(/^`(.+)`$/))) out.push({ t: m[1], c: 'cd', pick: () => {} });
+        else if ((m = x.match(/^\[(.+)\]\((.+)\)$/))) { const url = m[2]; out.push({ t: m[1], c: 'xl', pick: (e) => { stopEv(e); try { window.open(url, '_blank', 'noopener'); } catch (er) {} } }); }
+        else out.push({ t: x, c: '', pick: () => {} });
+      });
+      return out;
+    };
+    const blank = { fam: '', glyph: '', h2: false, h3: false, p: false, obs: false, rel: false, li: false, quote: false, code: false, table: false, embed: false, mk: '', t: '', cat: '', segs: [], tags: [], hasTags: false, ctx: '', hasCtx: false, anchor: '', cols: '', cells: [], name: '', kind: '', size: '', img: false, src: '' };
+    const lines = text.split('\n'), out = [];
+    let sec = '', first = true;
+    for (let n = 0; n < lines.length; n++) {
+      const l = lines[n];
+      if (!l.trim()) continue;
+      if (l.startsWith('```')) { const body = []; n++; while (n < lines.length && !lines[n].startsWith('```')) body.push(lines[n++]); out.push({ ...blank, code: true, t: body.join('\n') }); continue; }
+      if (l.startsWith('# ')) { if (first) { first = false; continue; } out.push({ ...blank, h2: true, t: l.slice(2) }); continue; }
+      first = false;
+      if (l.startsWith('## ')) { sec = l.slice(3).toLowerCase(); out.push({ ...blank, h2: true, t: l.slice(3) }); continue; }
+      if (l.startsWith('### ')) { out.push({ ...blank, h3: true, segs: inl(l.slice(4)) }); continue; }
+      if (l.startsWith('|')) {
+        const rows = []; while (n < lines.length && lines[n].startsWith('|')) rows.push(lines[n++]); n--;
+        const cells = (r) => r.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+        const body = rows.filter((r) => !/^\|[\s:|-]+\|$/.test(r));
+        const hd = cells(body[0]), cols = hd.length;
+        out.push({ ...blank, table: true, cols: `repeat(${cols}, auto)`, cells: [...hd.map((t) => ({ t, c: 'th' })), ...body.slice(1).flatMap((r, ri) => cells(r).map((t) => ({ t, c: 'td' + (ri === body.length - 2 ? ' last' : '') })))] }); continue;
+      }
+      const em = l.match(/^!\[\[(.+)\]\]$/);
+      if (em) { const nm = em[1], ext = (nm.split('.').pop() || '').toUpperCase(), isImg = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'SVG'].includes(ext); out.push({ ...blank, embed: !isImg, img: isImg, src: isImg ? (IMAGES[nm] || '') : '', name: nm, kind: ext, size: '' }); continue; }
+      if (l.startsWith('> ')) { out.push({ ...blank, quote: true, segs: inl(l.slice(2)) }); continue; }
       const r = sec === 'relations' && l.match(/^- ([a-z_ ]+) (\[\[.+\]\])$/);
-      if (r) return { ...blank, rel: true, cat: r[1].replace(/_/g, ' '), segs: segs(r[2]) };
+      if (r) { out.push({ ...blank, rel: true, cat: r[1].replace(/_/g, ' '), segs: inl(r[2]) }); continue; }
       const o = l.match(/^- \[([^\]]+)\] (.*)$/);
       if (o) {
         let body = o[2], anchor = '', ctx = '';
@@ -982,29 +1209,48 @@ class Component extends DCLogic {
         const tags = (body.match(/(^|\s)#[\w-]+/g) || []).map((t) => t.trim()); body = body.replace(/(^|\s)#[\w-]+/g, '');
         const cx = body.match(/\s\(([^)]*)\)\s*$/); if (cx) { ctx = cx[1]; body = body.slice(0, cx.index); }
         const fm = FAM[o[1].toLowerCase()] || ['gen', '·'];
-        return { ...blank, obs: true, fam: 'f-' + fm[0], glyph: fm[1], cat: o[1], segs: segs(body.trim()), tags: tags.map((t) => ({ t })), hasTags: tags.length > 0, ctx, hasCtx: !!ctx, anchor };
+        out.push({ ...blank, obs: true, fam: 'f-' + fm[0], glyph: fm[1], cat: o[1], segs: inl(body.trim()), tags: tags.map((t) => ({ t })), hasTags: tags.length > 0, ctx, hasCtx: !!ctx, anchor }); continue;
       }
-      return { ...blank, p: true, segs: segs(l) };
-    });
+      const li = l.match(/^(?:- |(\d+)\. )(.*)$/);
+      if (li) { out.push({ ...blank, li: true, mk: li[1] ? li[1] + '.' : '•', segs: inl(li[2]) }); continue; }
+      out.push({ ...blank, p: true, segs: inl(l) });
+    }
+    return out;
   }
-  focusOn(i) {
+  // R57e: hover follows the pointer exactly: a note or its name under it, or nothing
+  hoverAt(e, phone) {
+    if (phone || e.pointerType !== 'mouse' || e.buttons || this.gest) return;
+    const el = e.target && e.target.closest ? e.target.closest('[data-i]') : null, v = el ? el.getAttribute('data-i') : '', i = v === '' || v == null ? -1 : +v;
+    if (i === this.state.hover) { clearTimeout(this.hovT); return; }
+    clearTimeout(this.hovT); this.hovT = setTimeout(() => { if (!this.gest && this.state.hover !== i) this.setState({ hover: i }); }, i >= 0 ? 60 : 90);
+  }
+  focusOn(i, ret) {
     if (this.justDragged) return;
     const st = this.state, hist = st.focus >= 0 && st.focus !== i ? [...st.hist, st.focus].slice(-12) : st.hist;
-    this.setState({ focus: i, mode: 'note', hist, cam: null, searchOpen: false, moreOpen: false, hover: -1, sheet: 'peek' });
+    this.setState({ focus: i, mode: 'note', hist, cam: null, searchOpen: false, moreOpen: false, hover: -1, sheet: 'peek', ret: ret !== undefined ? ret : st.ret || null, showAll: -1 });
   }
   play() {
     clearInterval(this.playT);
     if (this.state.playing) { this.setState({ playing: false }); return; }
-    const from = this.state.asOf >= 11 ? 0 : Math.floor(this.state.asOf);
+    const from = this.state.asOf >= 11 ? 0 : (this.state.tlUnit || 'month') === 'month' ? Math.floor(this.state.asOf) : this.state.asOf;
     this.setState({ playing: true, asOf: from, focus: -1, mode: this.state.mode === 'review' ? 'review' : 'overview', cam: null });
     this.tickPlay();
   }
+  // R57g: the timeline's grain. asOf runs 0..11 over Nov 2025 → Oct 2026 (its end is today)
+  stepAsOf(dir) { const U = this.state.tlUnit || 'month', s = U === 'day' ? 12 / 365 : U === 'week' ? 12 / 52 : 1; let a = this.state.asOf + dir * s; if (U === 'month') a = Math.round(a); return Math.max(0, Math.min(11, a)); }
+  dayOf(a, U) {
+    const d = new Date(Date.UTC(2025, 10, 1) + Math.round((a + 1) * 365 / 12 - 1) * 86400000);
+    if (U === 'week') d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return `${d.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  }
   tickPlay() {
     clearInterval(this.playT);
-    // quarter-month steps, so the vault grows note by note rather than in monthly jumps
-    const ms = (this.reduced ? 500 : 340) / this.state.speed;
+    // quarter-month steps, so the vault grows note by note rather than in monthly jumps; by week or by day it steps
+    // a week or a day at a time, faster, so a year plays in about half a minute
+    const U = this.state.tlUnit || 'month', st0 = U === 'day' ? 12 / 365 : U === 'week' ? 12 / 52 : 0.25;
+    const ms = (this.reduced ? 500 : U === 'day' ? 70 : U === 'week' ? 220 : 340) / this.state.speed;
     this.playT = setInterval(() => {
-      const a = this.state.asOf + (this.reduced ? 1 : 0.25);
+      const a = this.state.asOf + (this.reduced && U === 'month' ? 1 : st0);
       if (a >= 11) { clearInterval(this.playT); this.setState({ asOf: 11, playing: false }); } else this.setState({ asOf: a });
     }, ms);
   }
@@ -1021,7 +1267,7 @@ class Component extends DCLogic {
   }
   // world → screen. A phone turns the map on its side so it fills a tall screen.
   proj(p, c, phone) { return phone ? { x: p.y * c.k + c.cx, y: p.x * c.k + c.cy } : { x: p.x * c.k + c.cx, y: p.y * c.k + c.cy }; }
-  fitK(d) { const b = this.graph().box, bw = d.phone ? b.y1 - b.y0 : b.x1 - b.x0, bh = d.phone ? b.x1 - b.x0 : b.y1 - b.y0; return Math.min((d.vp.x1 - d.vp.x0 - 24) / bw, (d.vp.y1 - d.vp.y0 - 12) / bh); }
+  fitK(d) { const b = this.graph().box, bw = Math.max(d.phone ? 420 : 620, d.phone ? b.y1 - b.y0 : b.x1 - b.x0), bh = Math.max(d.phone ? 620 : 420, d.phone ? b.x1 - b.x0 : b.y1 - b.y0); /* R56: a small vault is not blown up to fill the stage */ return Math.min((d.vp.x1 - d.vp.x0 - 24) / bw, (d.vp.y1 - d.vp.y0 - 12) / bh); }
   autoCam(st, d, pos, ring) {
     const g = this.graph(), vcx = (d.vp.x0 + d.vp.x1) / 2, vcy = (d.vp.y0 + d.vp.y1) / 2;
     const at = (wx, wy, k, dx = 0) => { const s = this.proj({ x: wx, y: wy }, { k, cx: 0, cy: 0 }, d.phone); return { k, cx: vcx + dx - s.x, cy: vcy - s.y }; };
@@ -1047,7 +1293,33 @@ class Component extends DCLogic {
   gestEnd() { const g = this.gest; if (!g) return; this.gest = null; cancelAnimationFrame(this.gRaf); this.gRaf = 0; this.setState({ cam: g.c, drag: true, hover: -1 }); requestAnimationFrame(() => requestAnimationFrame(() => { if (!this.gone) this.setState({ drag: false }); })); }
   local(e) { const r = e.currentTarget.getBoundingClientRect(), d = this.dims(), sc = r.width / d.gW || 1; return { x: (e.clientX - r.left) / sc, y: (e.clientY - r.top) / sc }; }
 
-  renderVals() {
+  // R53: the theme control (R52). Choice: auto | light | dark, kept in this browser; Auto follows the device.
+  themeCtl(resolved, apply, phone) {
+    const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } return null; };
+    if (this.state.thChoice === undefined) { const c = LS('exomem-theme-choice'); this.state.thChoice = c === 'light' || c === 'dark' || c === 'auto' ? c : 'auto'; }
+    const ch = this.state.thChoice, open = !!this.state.thOpen, L = resolved === 'light';
+    const dev = () => { try { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { return resolved; } };
+    const stop = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
+    const pick = (k) => (e) => { stop(e); LS('exomem-theme-choice', k); this.setState({ thChoice: k, thOpen: false }); const t = k === 'auto' ? dev() : k; if (t !== resolved) apply(t); };
+    const name = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+    return {
+      thChoice: ch, thOpen: open, thAria: 'Theme: ' + name[ch], thTop: 23.5,
+      thToggle: (e) => { stop(e); this.setState({ thOpen: !open }); },
+      thClose: (e) => { stop(e); this.setState({ thOpen: false }); },
+      thKey: (e) => { if (e.key === 'Escape' && open) { stop(e); this.setState({ thOpen: false }); } },
+      thRows: ['auto', 'light', 'dark'].map((k) => ({ k, label: name[k], on: k === ch, pick: pick(k) })),
+      thRaised: L ? '#ffffff' : '#12100e', thHover: L ? '#efebe3' : '#1a1815', thBorder: L ? 'rgba(26,24,20,0.1)' : 'rgba(236,233,226,0.1)',
+      thShadow: L ? 'rgba(60,50,30,0.16)' : 'rgba(0,0,0,0.6)', thFg: L ? '#1a1814' : '#ece9e2', thMuted: L ? '#6b665c' : '#a39e93', thAcc: L ? '#A86E00' : '#FFB000',
+    };
+  }
+  // R57b: on screen a note is its name without .md (attachments keep their extension)
+  stripMd(v) {
+    const rx = /([\w-]+(?:\/[\w.-]+)*)\.md(?=$|[\s·,)\]])/g;
+    const walk = (x) => { if (typeof x === 'string') return x.indexOf('.md') >= 0 ? x.replace(rx, '$1') : x; if (Array.isArray(x)) return x.map(walk); if (x && typeof x === 'object' && Object.getPrototypeOf(x) === Object.prototype) { const o = {}; for (const k in x) o[k] = k === 'copyPath' ? x[k] : walk(x[k]); return o; } return x; };
+    return walk(v);
+  }
+  renderVals() { return this.stripMd(this.renderVals0()); }
+  renderVals0() {
     const g = this.graph(), st = this.state, d = this.dims(), phone = d.phone;
     const mode = st.focus < 0 && (st.mode === 'note' || st.mode === 'why' || st.mode === 'read') ? 'overview' : st.mode;
     const focused = mode === 'note' || mode === 'why' || mode === 'read';
@@ -1065,7 +1337,8 @@ class Component extends DCLogic {
     const pairE = mode === 'review' && Q.length ? this.pairOf(Q[rv]) : null;
     // focus ring
     const typeOf = {}, byOf = {};
-    let nb = new Set(), ring = [], superseded, supersededBy;
+    let nb = new Set(), ring = [], superseded, supersededBy, keep = null, restN = 0;
+    const SA = focused && st.showAll === focus, extra = {}, RM = SA ? 'place' : (this.props.ringMode || 'top'), CAP = phone ? 8 : 12;
     const pos = g.pts.map((p) => ({ x: p.x, y: p.y }));
     const R = phone ? 132 : 175;
     if (focused) {
@@ -1075,7 +1348,17 @@ class Component extends DCLogic {
       superseded = [...nb].find((j) => typeOf[j] === 'supersedes' && !byOf[j]);
       const F = g.pts[focus], ord = (t) => isCore(t) ? TYPES.indexOf(t) : 5;
       ring = [...nb].sort((x, y) => ord(typeOf[x]) - ord(typeOf[y]) || x - y);
-      const side = [ring.filter((_, k) => k % 2 === 0), ring.filter((_, k) => k % 2 === 1)];
+      // R57: a note with many links. The ring holds at most CAP notes, picked by what matters; see ringMode.
+      if (RM !== 'all' && nb.size > CAP) {
+        const pr = (j) => byOf[j] ? 0 : typeOf[j] === 'supersedes' ? 1 : typeOf[j] === 'contradicts' ? 2 : typeOf[j] === 'supports' ? 3 : typeOf[j] === 'refines' ? 4 : 5;
+        const srt = [...nb].sort((a, b) => pr(a) - pr(b) || g.deg[b] - g.deg[a] || a - b);
+        if (RM === 'types') { const rep = {}; srt.forEach((j) => { const t = byOf[j] ? 'superseded by' : typeOf[j]; if (rep[t] === undefined) { rep[t] = j; extra[j] = 0; } else extra[rep[t]]++; }); keep = new Set(Object.values(rep).slice(0, CAP)); }
+        else keep = new Set(srt.slice(0, CAP));
+        restN = nb.size - keep.size;
+        ring = ring.filter((j) => keep.has(j));
+      }
+      const placed0 = RM === 'place' && keep ? [] : ring;
+      const side = [placed0.filter((_, k) => k % 2 === 0), placed0.filter((_, k) => k % 2 === 1)];
       side.forEach((arr, sd) => arr.forEach((j, k) => {
         const n = arr.length, span = Math.min(phone ? 150 : 140, 34 * Math.max(1, n - 1));
         const dg = n === 1 ? 0 : -span / 2 + span * k / (n - 1);
@@ -1089,8 +1372,53 @@ class Component extends DCLogic {
     // camera
     const cam = st.cam || this.autoCam({ ...st, mode }, d, pos, R);
     this.lastCam = cam;
+    // R56: the focus ring keeps its on-screen size at any zoom, so its labels never pile up (zoomed out) or leave the screen (zoomed in)
+    if (focused && st.cam && ring.length && !(RM === 'place' && keep)) { const k0 = this.autoCam({ ...st, mode, cam: null }, d, pos, R).k, f = k0 / cam.k, F0 = g.pts[focus]; ring.forEach((j) => { pos[j] = { ...pos[j], x: F0.x + (pos[j].x - F0.x) * f, y: F0.y + (pos[j].y - F0.y) * f }; }); }
     const fitK = this.fitK(d), S = pos.map((p) => this.proj(p, cam, phone));
+    // R56: level of detail. Up to 600 notes everything draws. A bigger vault draws its 400 most-linked notes zoomed out and,
+    // zoomed in, every note in view (up to 900), plus the note in focus, its links and the pair under review.
+    const big = g.pts.length > 600, lodOut = big && cam.k < fitK * 2;
+    let show = null;
+    if (big) {
+      const byDeg = g.byDeg || (g.byDeg = g.pts.map((_, i) => i).sort((a, b) => g.deg[b] - g.deg[a] || a - b));
+      show = new Uint8Array(g.pts.length); [focus, ...ring, ...(SA ? [...nb] : []), ...(pairE || [])].forEach((i) => { if (i >= 0) show[i] = 1; });
+      if (lodOut) byDeg.slice(0, 400).forEach((i) => { show[i] = 1; });
+      else { let n = 0; const v = d.vp; for (const i of byDeg) { const s = S[i]; if (s.x > v.x0 - 40 && s.x < v.x1 + 40 && s.y > v.y0 - 40 && s.y < v.y1 + 40) { show[i] = 1; if (++n >= 900) break; } } }
+    }
+    const isShown = (i) => !show || show[i] === 1;
+    this._lod = { big, lodOut, total: g.pts.length };
+    // R54: node awareness. Notes may sit close, never on each other (at least G px between edges on screen, so the
+    // drift never closes it). Where a small zoom crowds them, the notes ease apart: hubs, the focus and the review pair
+    // stay put, the rest step aside a few px. Cached per zoom and layout; links and labels follow S.
+    // R56: sizes barely change with zoom (at most ~20% larger zoomed in, ~8% smaller zoomed out); zoom changes space, not size
+    const zs = 0.85 + 0.15 * Math.min(Math.max(cam.k / (fitK || 1), 0.5), 2.5), G = 4;
+    const want = g.pts.map((p, i) => { const s0 = Math.min(12, 3 + 1.6 * Math.sqrt(g.deg[i])) * (g.pts.length < 40 ? 1.6 : 1), sw = nb.has(i) && (!keep || keep.has(i) || SA) ? 8 * (g.pts.length < 40 ? 1.4 : 1) : (pairE && (i === pairE[0] || i === pairE[1])) ? Math.max(s0, 9) : s0; return Math.max(2.5, Math.min(24, sw * zs)); });
+    const rank = (i) => (i === focus ? 0 : pairE && (i === pairE[0] || i === pairE[1]) ? 1 : g.pts[i].hub !== undefined ? 2 : 3);
+    const visN = g.pts.map((_, i) => visible(i) && isShown(i)), visL = []; visN.forEach((v, i) => { if (v) visL.push(i); });
+    const okey = [cam.k.toFixed(3), phone, focus, mode, pairE ? pairE.join('-') : '', visN.map((v) => (v ? 1 : 0)).join('')].join('|');
+    this._off = this._off || {};
+    if (!this._off[okey]) {
+      const P = S.map((s) => ({ x: s.x, y: s.y }));
+      for (let it = 0; it < 30; it++) {
+        let moved = false;
+        for (let ai = 0; ai < visL.length; ai++) { const i = visL[ai]; for (let bj = ai + 1; bj < visL.length; bj++) {
+          const j = visL[bj];
+          let dx = P[j].x - P[i].x, dy = P[j].y - P[i].y, dd = Math.hypot(dx, dy);
+          const need = (want[i] + want[j]) / 2 + G + 0.3;
+          if (dd >= need) continue;
+          if (dd < 0.01) { dx = 1; dy = 0.5; dd = Math.hypot(dx, dy); }
+          const ri = rank(i), rj = rank(j), wi = ri < rj ? 0 : ri > rj ? 1 : 0.5, k = (need - dd) / dd;
+          P[i].x -= dx * k * wi; P[i].y -= dy * k * wi; P[j].x += dx * k * (1 - wi); P[j].y += dy * k * (1 - wi); moved = true;
+        } }
+        if (!moved) break;
+      }
+      if (Object.keys(this._off).length > 60) this._off = {};
+      this._off[okey] = P.map((p, i) => [p.x - S[i].x, p.y - S[i].y]);
+    }
+    this._off[okey].forEach(([ox, oy], i) => { S[i].x += ox; S[i].y += oy; });
     const vp = d.vp;
+    // R57: the pair reads A then B: A is the note on the left (or, stacked, on top)
+    const swapAB = !!pairE && (() => { const a = S[pairE[0]], b = S[pairE[1]]; return Math.abs(a.x - b.x) > 30 ? a.x > b.x : a.y > b.y; })();
     // edges: one element per link, always in the same order, so no line ever slides into another link's place
     const lines = [], arrows = [], elabels = [];
     let sigK = 0;
@@ -1098,11 +1426,14 @@ class Component extends DCLogic {
     const lensOn = mode === 'review';
     const pairKey = pairE ? this.key(pairE[0], pairE[1]) : '';
     const counts = {};
-    const hv = !phone && st.hover >= 0 && visible(st.hover) && !focused ? st.hover : -1;
+    const hv = !phone && st.hover >= 0 && visible(st.hover) && !(focused && st.hover === focus) ? st.hover : -1;
+    // R57h: pointing away from the open note's links focuses the note you point at, as in the overview
+    const hvAway = focused && hv >= 0 && !nb.has(hv) && (this.props.hoverStyle || 'fade') === 'fade';
     this._eb = [];
     g.E.forEach(([i, j], ek) => {
       const t = this.tOf(i, j), shownE = visible(i) && visible(j);
       if (shownE) counts[t] = (counts[t] || 0) + 1;
+      if (!isShown(i) || !isShown(j)) return;
       const p = S[i], q = S[j], dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy), ang = Math.atan2(dy, dx) * 180 / Math.PI;
       const touches = focused && (i === focus || j === focus), other = touches ? (i === focus ? j : i) : -1;
       const off = !!st.off[t], k = this.key(i, j), isContra = this.relType(i, j) === 'contradicts' && !st.resolved[k];
@@ -1111,16 +1442,18 @@ class Component extends DCLogic {
       const core = isCore(t) ? t : 'relates';
       let c, sig = false, rev = false;
       if (!shownE || off || (focused && !touches && (nb.has(i) || nb.has(j)))) c = 'hide';
+      else if (touches && keep && !keep.has(other) && !SA) c = RM === 'place' ? 'faint' : 'hide';
       else if (touches) { c = isTrail ? 'trail' : 't-' + core; if (mode === 'why' && !isTrail) c += ' dim'; if (isTrail && !this.reduced) { sig = true; rev = other === j; } }
       else if (k === pairKey) c = 'pair';
       else if (lensOn && isContra) c = 'lens';
       else if (isLive) { c = 'live'; sig = true; rev = j === live.ids[0]; }
-      else if (focused) c = 'dim';
+      else if (focused) c = hvAway && (i === hv || j === hv) ? (core !== 'relates' ? 'ov-' + core : '') + ' hl' : 'dim';
       else c = (core !== 'relates' ? 'ov-' + core : '') + (hv >= 0 && (i === hv || j === hv) ? ' hl' : '');
       if (beatSet.has(ek) && c !== 'hide' && !touches) { c += ' beat'; sig = true; }
-      lines.push({ x: p.x.toFixed(1), y: p.y.toFixed(1), w: L.toFixed(1), a: ang.toFixed(2), c: c + (rev ? ' rev' : ''), sig, sd: isTrail ? (0.35 * sigK++).toFixed(2) : beatSet.has(ek) ? '0' : (0.15 * sigK++).toFixed(2) });
+      if (hv >= 0 && touches && other === hv && c !== 'hide') c += ' hvln';
+      lines.push({ x: p.x.toFixed(1), y: (p.y - 0.5).toFixed(1), w: L.toFixed(1), a: ang.toFixed(2), c: c + (rev ? ' rev' : ''), sig, sd: isTrail ? (0.35 * sigK++).toFixed(2) : beatSet.has(ek) ? '0' : (0.15 * sigK++).toFixed(2) });
       // the hovered note names each of its links where it runs
-      if (hv >= 0 && (i === hv || j === hv) && c !== 'hide' && elabels.length < 18 && L > 34) {
+      if (hv >= 0 && (i === hv || j === hv) && c !== 'hide' && !focused && elabels.length < 18 && L > 34) {
         // measured from the hovered note outwards; skip a name rather than stack it on another
         const h0 = i === hv ? p : q, h1 = i === hv ? q : p, tw = label(t).length * 5.9 + 8;
         for (const f of [0.55, 0.78, 0.36]) {
@@ -1133,16 +1466,27 @@ class Component extends DCLogic {
     // supersession arrows: one per superseding link, shown when its note is in focus
     g.E.forEach(([i, j]) => {
       if (this.tOf(i, j) !== 'supersedes') return;
-      const touches = focused && (i === focus || j === focus) && visible(i) && visible(j) && !st.off.supersedes;
+      const touchesF = focused && (i === focus || j === focus) && visible(i) && visible(j) && !st.off.supersedes;
+      const touchesH = !touchesF && hv >= 0 && (i === hv || j === hv) && visible(i) && visible(j) && !st.off.supersedes && isShown(i) && isShown(j);
+      const touches = touchesF;
       const other = i === focus ? j : i, fp = S[touches ? focus : i], op = S[touches ? other : j];
-      const dx = op.x - fp.x, dy = op.y - fp.y, ang = Math.atan2(dy, dx) * 180 / Math.PI;
-      arrows.push({ x: (fp.x + dx * 0.62).toFixed(1), y: (fp.y + dy * 0.62).toFixed(1), r: (ang + 45 + (touches && byOf[other] ? 180 : 0)).toFixed(1), c: touches ? '' : 'hide' });
+      const dx = op.x - fp.x, dy = op.y - fp.y, ang = Math.atan2(dy, dx) * 180 / Math.PI, L = Math.hypot(dx, dy), on = touchesF || touchesH;
+      // R57k: one arrowhead, at the end, pointing into the note that replaced the old one (as on the landing)
+      const nwI = this.newer(i, j), oI = nwI === i ? j : i, A = S[oI], N = S[nwI], ux = (N.x - A.x) / (Math.hypot(N.x - A.x, N.y - A.y) || 1), uy = (N.y - A.y) / (Math.hypot(N.x - A.x, N.y - A.y) || 1), back = want[nwI] / 2 + 5;
+      arrows.push({ x: (N.x - ux * back).toFixed(1), y: (N.y - uy * back).toFixed(1), r: (Math.atan2(uy, ux) * 180 / Math.PI + 45).toFixed(1), c: on && L > 24 ? '' : 'hide' });
     });
     const lensNodes = new Set();
     if (lensOn) Q.forEach(([i, j]) => { lensNodes.add(i); lensNodes.add(j); });
-    const zs = 0.55 + 0.45 * Math.min(cam.k, 2.2);
+    // R54: the last guarantee. A note that still has no room after easing apart is drawn smaller; hubs, the focus and
+    // the review pair are sized first, the rest fit around them.
+    const order = g.pts.map((_, i) => i).filter((i) => visN[i]).sort((a, b) => rank(a) - rank(b) || want[b] - want[a] || a - b);
+    const fit = want.slice(), done = new Set();
+    order.forEach((i) => {
+      let r = want[i] / 2;
+      order.forEach((j) => { if (j === i) return; const dd = Math.hypot(S[i].x - S[j].x, S[i].y - S[j].y); if (dd > 40) return; r = Math.min(r, done.has(j) ? dd - fit[j] / 2 - G : dd - 1 - G); });
+      fit[i] = Math.max(2, 2 * r); done.add(i);
+    });
     const nodes = g.pts.map((p, i) => {
-      const s0 = Math.min(14, 3 + g.deg[i] * 0.55);
       let c = p.hub !== undefined ? 'hub' : '';
       if (!visible(i)) c += ' gone';
       else if (i === focus) c += supersededBy !== undefined ? ' focus was' : ' focus';
@@ -1152,17 +1496,17 @@ class Component extends DCLogic {
       else if (hitSet.has(i)) c += ' hit';
       else if (lensOn) c += lensNodes.has(i) ? ' lensn' : ' dim';
       else if (focused && i === superseded && !st.off.supersedes) c += ' old';
-      else if (focused && nb.has(i)) c += st.off[typeOf[i]] || mode === 'why' ? ' dim' : ' nb';
+      else if (focused && nb.has(i)) c += st.off[typeOf[i]] || mode === 'why' || (keep && !keep.has(i) && !SA) ? ' dim' : ' nb';
+      else if (hvAway && g.adj[hv].includes(i)) c += ' hvn';
       else if (focused) c += ' dim';
       else if (hv >= 0 && g.adj[hv].includes(i)) c += ' hvn';
       if (i === hv) c += ' hov';
-      const sw = nb.has(i) ? Math.max(s0, 7) : (pairE && (i === pairE[0] || i === pairE[1])) ? Math.max(s0, 9) : s0;
-      const sz = Math.max(2.5, Math.min(24, sw * zs));
-      return { x: (S[i].x - sz / 2).toFixed(1), y: (S[i].y - sz / 2).toFixed(1), s: sz.toFixed(1), c, title: p.title, dd: p.dd, dl: p.dl,
+      const sz = fit[i];
+      return { i, x: (S[i].x - sz / 2).toFixed(1), y: (S[i].y - sz / 2).toFixed(1), s: sz.toFixed(1), c, title: p.title, dd: p.dd, dl: p.dl,
         pick: (e) => { stopEv(e); if (i === focus && !this.justDragged) this.readNote(i); else this.focusOn(i); },
         over: () => { if (phone || this.gest) return; clearTimeout(this.hovT); this.hovT = setTimeout(() => { if (this.state.hover !== i && !this.gest) this.setState({ hover: i }); }, 70); },
         out: () => { clearTimeout(this.hovT); this.hovT = setTimeout(() => { if (this.state.hover === i) this.setState({ hover: -1 }); }, 140); } };
-    });
+    }).filter((n, i) => isShown(i));
     // labels: one slot per note, fixed order, so a label only ever moves with its own note.
     // Stable labels are placed first; live ones fill gaps and never push the others around; hover floats above.
     const slots = g.pts.map(() => null), placed = [], cw = 6.62;
@@ -1170,31 +1514,74 @@ class Component extends DCLogic {
     const hit = (b) => placed.some((q) => !(b[2] + 4 < q[0] || b[0] > q[2] + 4 || b[3] + 2 < q[1] || b[1] > q[3] + 2));
     const put = (i, b, lab) => { placed.push(b); slots[i] = { rt: '', tag: '', ...lab, x: b[0].toFixed(1), y: b[1].toFixed(1) }; };
     const pickL = (i) => (e) => { stopEv(e); this.focusOn(i); };
-    const around = (i, t, c, rt = '', tag = '') => {
+    const around = (i, t, c, rt = '', tag = '', pref = 0) => {
       if (slots[i]) return false;
       const p = S[i], tw = (t.length + (rt ? rt.length + 1 : 0) + (tag ? tag.length + 2 : 0)) * cw + 10;
-      for (const [dx, dy] of [[10, -18], [10, 6], [-tw - 10, -18], [-tw - 10, 6]]) {
+      // pref: 1 = A of a review pair (left, above first), 2 = B (right, below first), so the pair reads A then B
+      const cand = pref === 1 ? [[-tw - 10, -18], [10, -18], [-tw - 10, 6], [10, 6]] : pref === 2 ? [[10, 6], [10, -18], [-tw - 10, 6], [-tw - 10, -18]] : [[10, -18], [10, 6], [-tw - 10, -18], [-tw - 10, 6]];
+      for (const [dx, dy] of cand) {
         const b = [p.x + dx, p.y + dy, p.x + dx + tw, p.y + dy + 16];
         if (!inView(b) || hit(b)) continue;
         put(i, b, { t, rt, c, tag, pick: pickL(i) }); return true;
       }
       return false;
     };
-    const kindOf = (p) => p.hub !== undefined ? HUBS[p.hub].kind : p.title.split('/')[0].replace(/s$/, '');
-    const short = (i) => phone ? base(g.pts[i].title) : g.pts[i].title;
+    const kindOf = (p) => { const M = META[p.title]; const k = (M && M.type) || FOLDER_TYPE[p.title.split('/')[0]] || 'research-note'; return (NOTE_TYPES[k] || k).toLowerCase(); };
+    const short = (i) => base(g.pts[i].title).replace(/\.md$/, '');
     const cl = g.hubs.map(() => null);
+    let moreLab = null;
+    // R57l: the reader's little map is a crop of the real map: the same positions (turned like the phone map on a
+    // phone), the note's links in the map's styles, nearby notes faint
+    const MM = { mmLines: [], mmDots: [], mmLabs: [], mmMore: '', mmH: 128 };
+    if (focused && mode === 'read') {
+      const W = phone ? 334 : 320, H = MM.mmH, list = ring.slice(0, 12), P0 = (i) => this.proj(g.pts[i], { k: 1, cx: 0, cy: 0 }, phone);
+      const Fw = g.pts[focus], hubN = g.hubs.reduce((b, h) => (b < 0 || Math.hypot(g.pts[h].x - Fw.x, g.pts[h].y - Fw.y) < Math.hypot(g.pts[b].x - Fw.x, g.pts[b].y - Fw.y) ? h : b), -1);
+      const core = [focus, ...list, ...(hubN >= 0 ? [hubN] : [])].map(P0), xs = core.map((q) => q.x), ys = core.map((q) => q.y);
+      let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const bw0 = g.box.x1 - g.box.x0, bh0 = g.box.y1 - g.box.y0, minW = (phone ? bh0 : bw0) * 0.22, minH = (phone ? bw0 : bh0) * 0.16; if (x1 - x0 < minW) { const m = (x0 + x1) / 2; x0 = m - minW / 2; x1 = m + minW / 2; } if (y1 - y0 < minH) { const m = (y0 + y1) / 2; y0 = m - minH / 2; y1 = m + minH / 2; }
+      const pad = 12, s = Math.min((W - 2 * pad) / (x1 - x0), (H - 2 * pad) / (y1 - y0)), ox = (W - (x1 - x0) * s) / 2 - x0 * s, oy = (H - (y1 - y0) * s) / 2 - y0 * s;
+      const at = (i) => { const q = P0(i); return { x: q.x * s + ox, y: q.y * s + oy }; }, inBox = (q) => q.x > 2 && q.x < W - 2 && q.y > 2 && q.y < H - 2;
+      const ln = (a, b, c) => MM.mmLines.push({ x: a.x.toFixed(1), y: a.y.toFixed(1), w: Math.hypot(b.x - a.x, b.y - a.y).toFixed(1), a: (Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI).toFixed(1), c });
+      // the neighbourhood, faint: notes that fall inside the crop, busiest first, and the links between them
+      const ctx = []; for (let i = 0; i < g.pts.length && ctx.length < 400; i++) { if (i === focus || nb.has(i) || !visible(i)) continue; const q = at(i); if (inBox(q)) ctx.push(i); }
+      ctx.sort((a, b) => g.deg[b] - g.deg[a] || a - b); const near = new Set(ctx.slice(0, 70));
+      let ne = 0; g.E.forEach(([i, j]) => { if (ne > 90 || !near.has(i) || !near.has(j)) return; ln(at(i), at(j), 'ms-far'); ne++; });
+      near.forEach((i) => { const q = at(i); MM.mmDots.push({ x: q.x.toFixed(1), y: q.y.toFixed(1), s: 3, c: 'far' }); });
+      const F = at(focus);
+      list.forEach((j) => { const q = at(j), t = byOf[j] ? 'supersedes' : typeOf[j]; ln(F, q, 'ms-' + (isCore(t) ? t : 'relates')); });
+      list.forEach((j) => { const q = at(j); MM.mmDots.push({ x: q.x.toFixed(1), y: q.y.toFixed(1), s: 6, c: '' }); });
+      MM.mmDots.push({ x: F.x.toFixed(1), y: F.y.toFixed(1), s: 9, c: 'me' });
+      g.hubs.forEach((hb, c) => { const q = at(hb); if (q.x > 30 && q.x < W - 30 && q.y > 10 && q.y < H - 4) MM.mmLabs.push({ x: q.x.toFixed(1), y: (q.y - 7).toFixed(1), t: HUBS[c].domain }); });
+      const rest = nb.size - list.length; MM.mmMore = rest > 0 ? `+${rest} more` : '';
+    }
     if (focused) {
       const F = S[focus], t = short(focus), tw = (t.length + 6) * cw + 10;
       put(focus, [F.x - tw / 2, F.y - 34, F.x + tw / 2, F.y - 18], { t, c: 'focus', tag: 'read', pick: (e) => { stopEv(e); this.readNote(focus); } });
       ring.forEach((j) => {
-        const rt = byOf[j] ? 'superseded by' : label(typeOf[j]), tt = g.pts[j].title, c = (trailSet.has(j) ? 'trl' : 'nbl') + (hitSet.has(j) ? ' hitl' : '') + (st.off[typeOf[j]] || (mode === 'why' && !trailSet.has(j)) ? ' dim' : '');
-        if (phone) { around(j, base(tt).replace('.md', ''), c); return; }
-        const p = S[j], w2 = (tt.length + rt.length + 1) * cw + 10;
+        const rt = byOf[j] ? 'superseded by' : label(typeOf[j]), tt = base(g.pts[j].title).replace(/\.md$/, ''), c = (trailSet.has(j) ? 'trl' : 'nbl') + (hitSet.has(j) ? ' hitl' : '') + (st.off[typeOf[j]] || (mode === 'why' && !trailSet.has(j)) ? ' dim' : '');
+        const more = extra[j] ? `  +${extra[j]}` : '';
+        if (phone) { around(j, base(tt).replace('.md', '') + more, c); return; }
+        if (RM === 'place' && keep) { around(j, tt + more, c, rt); return; }
+        const p = S[j], w2 = (tt.length + more.length + rt.length + 1) * cw + 10;
         const b = pos[j].sd === 0 ? [p.x + 10, p.y - 8, p.x + 10 + w2, p.y + 8] : [p.x - 10 - w2, p.y - 8, p.x - 10, p.y + 8];
-        put(j, b, { t: tt, rt, c, pick: pickL(j) });
+        put(j, b, { t: tt + more, rt, c, pick: pickL(j) });
       });
+      if (restN > 0) {
+        // the links that are not on the ring: '+N more links' opens the reader at its full link list;
+        // 'Show all on the map' lights every link in place (Obsidian-style); 'Back to the top 12' returns
+        const t1 = SA ? `all ${nb.size} links` : phone ? `+${restN} more` : `+${restN} more links`, t2 = SA ? `Back to the top ${CAP}` : 'Show all on the map';
+        const w1 = t1.length * cw + 18, w2 = t2.length * cw + 18, gap = 6, tw = w1 + gap + w2;
+        const Rs = R * this.autoCam({ ...st, mode, cam: null }, d, pos, R).k;
+        let x = F.x - tw / 2, y = SA ? (phone ? vp.y1 - 34 : F.y + Rs * 0.98 + 8) : phone ? F.y + Rs + 26 : F.y + Rs * 0.98 + 8;
+        x = Math.max(vp.x0 + 6, Math.min(vp.x1 - tw - 6, x)); y = Math.max(vp.y0 + 6, Math.min(vp.y1 - 26, y));
+        moreLab = [
+          { t: t1, rt: '', tag: '', c: 'morel', x: x.toFixed(1), y: y.toFixed(1), pick: (e) => { stopEv(e); this.readNote(focus, 'links'); } },
+          { t: t2, rt: '', tag: '', c: 'morel mr2', x: (x + w1 + gap).toFixed(1), y: y.toFixed(1), pick: (e) => { stopEv(e); this.setState({ showAll: SA ? -1 : focus, hover: -1 }); } },
+        ];
+        placed.push([x, y, x + tw, y + 20]);
+      }
     }
-    if (pairE) pairE.forEach((i, k) => around(i, short(i), 'hitl', '', k ? 'B' : 'A'));
+    if (pairE) pairE.forEach((i, k) => { const isB = (k ? 1 : 0) ^ (swapAB ? 1 : 0); around(i, short(i), 'hitl', '', k ? 'newer' : 'older', isB ? 2 : 1); });
     if (!focused) g.hubs.forEach((hb, c) => {
       if (!visible(hb)) return;
       const p = S[hb], t = HUBS[c].domain, tw = t.length * 7.6 + 6, b = [p.x - tw / 2, p.y - 32, p.x + tw / 2, p.y - 16];
@@ -1204,19 +1591,32 @@ class Component extends DCLogic {
     g.hubs.filter((h) => h !== focus && !nb.has(h) && visible(h) && (!phone || zoomed)).forEach((i) => around(i, short(i), focused ? 'dim' : ''));
     if (!focused && zoomed && mode !== 'review') {
       // closer in, more notes name themselves, busiest first
-      g.pts.map((p, i) => [i, g.deg[i]]).filter(([i]) => visible(i) && g.pts[i].hub === undefined).sort((a, b) => b[1] - a[1]).slice(0, 48)
+      g.pts.map((p, i) => [i, g.deg[i]]).filter(([i]) => visible(i) && isShown(i) && g.pts[i].hub === undefined).sort((a, b) => b[1] - a[1]).slice(0, 48)
         .forEach(([i]) => { const p = S[i]; if (p.x < vp.x0 || p.x > vp.x1 || p.y < vp.y0 || p.y > vp.y1) return; around(i, base(g.pts[i].title).replace('.md', ''), 'dim'); });
     }
     if (!focused) [...hitSet, ...(bornId >= 0 ? [bornId] : [])].forEach((i) => { if (!visible(i)) return; if (slots[i]) { slots[i] = { ...slots[i], c: 'hitl', rt: i === bornId ? '+ saved' : '' }; return; } around(i, short(i), 'hitl', i === bornId ? '+ saved' : ''); });
     if (hv >= 0) {
       // hover floats above everything and moves nothing
-      const t = g.pts[hv].title, rt = `${kindOf(g.pts[hv])} · ${g.adj[hv].filter(visible).length} links`, tw = (t.length + rt.length + 1) * cw + 10, p = S[hv];
-      const x = p.x + 12 + tw > vp.x1 - 4 ? p.x - 12 - tw : p.x + 12, y = p.y - 22 < vp.y0 ? p.y + 8 : p.y - 22;
-      slots[hv] = { t, rt, tag: '', c: 'hovl', x: x.toFixed(1), y: y.toFixed(1), pick: pickL(hv) };
+      const kd = kindOf(g.pts[hv]), K = kd.charAt(0).toUpperCase() + kd.slice(1), t = base(g.pts[hv].title).replace(/\.md$/, ''), rt = '', tw = (t.length + K.length + 3) * cw + 14, p = S[hv];
+      // R57l: open where there's room: right, left, above, below
+      let x = p.x + 12, y = p.y - 8;
+      for (const [cx2, cy2] of [[p.x + 12, p.y - 8], [p.x - 12 - tw, p.y - 8], [p.x - tw / 2, p.y - 28], [p.x - tw / 2, p.y + 12]]) {
+        const bx = [cx2, cy2, cx2 + tw, cy2 + 16];
+        if (inView(bx) && !hit(bx)) { x = cx2; y = cy2; break; }
+      }
+      if (x + tw > vp.x1 - 4) x = p.x - 12 - tw; if (x < vp.x0 + 4) x = vp.x0 + 4;
+      // a note that already has its name on the map isn't named twice: its own label lights up instead
+      if (slots[hv] && !/(^|\s)hid(\s|$)/.test(slots[hv].c)) {
+        const left = +slots[hv].x < p.x, kk = K;
+        // a name to the left of its note takes the type tag on its far side
+        slots[hv] = left && kk ? { ...slots[hv], c: slots[hv].c + ' hovx', kl: kk } : { ...slots[hv], c: slots[hv].c + ' hovx', k: kk };
+      }
+      else slots[hv] = { t, rt, tag: '', k: K, c: 'hovl', x: x.toFixed(1), y: y.toFixed(1), pick: pickL(hv) };
     }
     const labels = [
-      ...g.pts.map((p, i) => slots[i] || { t: base(p.title), rt: '', tag: '', c: 'hid', x: (S[i].x + 10).toFixed(1), y: (S[i].y - 18).toFixed(1), pick: () => {} }),
-      ...g.hubs.map((hb, c) => cl[c] ? { t: cl[c].t, rt: '', tag: '', c: 'cl', x: cl[c].x, y: cl[c].y, pick: (e) => { stopEv(e); if (this.justDragged) return; const k = Math.max(cam.k, fitK * 2.1); const s0 = this.proj(g.pts[hb], { k, cx: 0, cy: 0 }, phone); this.setState({ cam: { k, cx: (vp.x0 + vp.x1) / 2 - s0.x, cy: (vp.y0 + vp.y1) / 2 - s0.y } }); } }
+      ...g.pts.map((p, i) => slots[i] ? { ...slots[i], i } : { i: '', t: base(p.title), rt: '', tag: '', c: 'hid', x: (S[i].x + 10).toFixed(1), y: (S[i].y - 18).toFixed(1), pick: () => {} }),
+      ...(moreLab || []),
+      ...g.hubs.map((hb, c) => cl[c] ? { t: cl[c].t, rt: '', tag: '', c: 'cl' + ({ halo: ' clh', pill: ' clp' }[this.props.clStyle || 'halo'] || ''), x: cl[c].x, y: cl[c].y, pick: (e) => { stopEv(e); if (this.justDragged) return; const k = Math.max(cam.k, fitK * 2.1); const s0 = this.proj(g.pts[hb], { k, cx: 0, cy: 0 }, phone); this.setState({ cam: { k, cx: (vp.x0 + vp.x1) / 2 - s0.x, cy: (vp.y0 + vp.y1) / 2 - s0.y } }); } }
         : { t: HUBS[c].domain, rt: '', tag: '', c: 'cl hid', x: (S[hb].x - 30).toFixed(1), y: (S[hb].y - 32).toFixed(1), pick: () => {} }),
     ];
     // panel numbers
@@ -1234,7 +1634,7 @@ class Component extends DCLogic {
     let F = {};
     if (focused) {
       const hub = g.pts[focus].hub;
-      const H0 = hub !== undefined ? { ...HUBS[hub] } : { t: g.pts[focus].title, kind: kindOf(g.pts[focus]), status: 'current', sum: 'A note in your vault. Its links and sources are below; open it to read the whole thing.', src: [['sources/meeting-2026-06-30.md', '30 Jun']], why: '' };
+      const H0 = hub !== undefined ? { ...HUBS[hub] } : { t: g.pts[focus].title, kind: kindOf(g.pts[focus]), status: 'active', sum: 'A note in your vault. Its links and sources are below; open it to read the whole thing.', src: g.pts[focus].title.startsWith('sources/') ? [] : [['sources/meeting-2026-06-30.md', '30 Jun']], why: '' };
       if (focus === g.old) H0.sum = OLD_SUM;
       let status = H0.status, supBox = null;
       if (superseded !== undefined) supBox = { head: 'SUPERSEDES', t: g.pts[superseded].title, on: H0.supOn || 'superseded · kept for history', strike: true, pick: () => this.focusOn(superseded) };
@@ -1257,38 +1657,57 @@ class Component extends DCLogic {
       }
       F = {
         focusTitle: H0.t, kind: H0.kind, status, summary: H0.sum,
-        statusColor: status === 'current' ? 'var(--v1)' : 'var(--v5)', statusBorder: status === 'current' ? 'rgba(var(--v13),.5)' : 'rgba(var(--v12),.16)',
+        statusColor: STATUS_CLASS[status] === 'live' ? 'var(--v1)' : 'var(--v5)', statusBorder: STATUS_CLASS[status] === 'live' ? 'rgba(var(--v13),.5)' : 'rgba(var(--v12),.16)',
         hasSuper: !!supBox, supHead: supBox ? supBox.head : '', supersedes: supBox ? supBox.t : '', supersededOn: supBox ? supBox.on : '', supDeco: supBox && supBox.strike ? 'line-through' : 'none', supColor: supBox && supBox.strike ? 'var(--v2)' : 'var(--v0)', supPick: supBox ? supBox.pick : () => {},
         sources: H0.src.map(([t, dd]) => ({ t, d: dd, pick: () => { const i = titleIdx(t); if (i >= 0) this.focusOn(i); } })),
         rels: allRels.slice(0, phone ? 99 : 6).map(relRow), relsAll: allRels.map(relRow), relCount: allRels.length,
-        moreRels: allRels.length > 6 ? `+ ${allRels.length - 6} more on the map` : '', hasMore: !phone && allRels.length > 6,
+        moreRels: allRels.length > 6 ? `+ ${allRels.length - 6} more · in the full note` : '', hasMore: !phone && allRels.length > 6,
         recalled: lastHit ? `${lastHit.verb === 'saved' ? 'linked to a note saved' : 'recalled'} by ${lastHit.app} · ${agoOf(lastHit.at)}` : 'last recalled by Claude · yesterday',
         recalledCol: lastHit && liveFresh && lastHit === live ? 'var(--v1)' : 'var(--v2)',
         whyAnswer, trail, trailCount: trailAll.length > trail.length ? `${trail.length} OF ${trailAll.length}` : String(trail.length), hasDoubt: doubts.length > 0,
         doubtHead: doubts.length > 1 ? `${doubts.length} NOTES DISAGREE` : '1 NOTE DISAGREES', doubtTitle: doubts.length ? g.pts[doubts[0]].title : '',
         doubtReview: () => { const q = this.queue(), k = q.findIndex(([i, j]) => this.key(i, j) === this.key(focus, doubts[0])); this.setState({ mode: 'review', rv: Math.max(0, k), focus: -1, cam: null, sheet: 'open' }); },
-        backLabel: st.hist.length ? '← back' : '← overview',
+        backLabel: st.hist.length ? '← back' : st.ret ? '← review' : '← overview',
         linksBtn: st.sheet === 'open' ? 'Less' : `Links · ${allRels.length}`,
         ...(mode === 'read' ? (() => {
           const T = g.pts[focus].title, go = (i) => this.readNote(i);
           const near = allRels.slice(0, 4).map((j) => `- [${label(typeOf[j])}] [[${g.pts[j].title}]]`).join('\n');
-          const body = BODIES[T] || `${H0.sum}\n## Links\n${near}`;
-          const groups = {}; allRels.forEach((j) => { const k = byOf[j] ? 'superseded by' : label(typeOf[j]); (groups[k] = groups[k] || []).push(j); });
-          const ord = (k) => { const i = TYPES.indexOf(k === 'relates to' ? 'relates' : k); return i < 0 ? 9 : i; };
+          // R57l: links live beside the note; the body is what the note says
+          const body = (BODIES[T] || BODIES[T.replace(/-\d+\.md$/, '.md')] || 'A short note in your vault. Its links, sources and history are beside it.').replace(/\n## Relations\n(?:- [^\n]*(?:\n|$))*/, '\n');
+          // R55: a directed link reads the right way from this end (supports / supported by)
+          const outE = new Set(g.E.map(([a, b]) => a + '>' + b)), relLabel = (j) => { if (byOf[j]) return 'superseded by'; const l = label(typeOf[j]); return outE.has(focus + '>' + j) || l === 'relates to' || l === 'contradicts' ? l : (INV[l] || l); };
+          const groups = {}; allRels.forEach((j) => { const k = relLabel(j); (groups[k] = groups[k] || []).push(j); });
+          const ord = (k) => { const b0 = Object.keys(INV).find((x) => INV[x] === k) || k, i = TYPES.indexOf(b0 === 'relates to' ? 'relates' : b0); return i < 0 ? 9 : i; };
           const edits = 1 + focus % 4, by = APPS[focus % 4][0];
           return {
             rdFolder: T.split('/').slice(0, -1).join(' / ') || 'vault', rdFile: base(T),
-            rdChips: [H0.kind, status, hub !== undefined ? '#' + HUBS[hub].domain : '#' + T.split('/')[0]].map((t, k) => ({ t, c: k === 1 && status === 'current' ? 'cur' : '' })),
-            rdMeta: `created ${this.when(focus)} · edited ${edits} time${edits > 1 ? 's' : ''}, last by ${by}`,
+            ...(() => {
+              const M = this.metaOf(focus), cls = STATUS_CLASS[M.status] || 'live';
+              const mentionsFrom = Object.keys(BODIES).filter((k) => k !== T && BODIES[k].includes('[[' + T + ']]')).map((k) => [k, (BODIES[k].split('\n').find((l) => l.includes('[[' + T + ']]')) || '').replace(/^[-#>\d. ]+/, '').replace(/\[\[([^\]]+)\]\]/g, (m0, x) => base(x).replace('.md', '')).replace(/\s[#^][\w-]+/g, '').replace(/^\[[^\]]+\]\s*/, '')]);
+              const men = [...(M.mentions || []), ...mentionsFrom.filter(([k]) => !(M.mentions || []).some(([m]) => m === k))];
+              const props = [...(M.props || []).map(([k, v]) => ({ k, v, c: '' }))];
+              return {
+                rdTitle: M.title,
+                rdType: NOTE_TYPES[M.type] || M.type, rdStat: M.status, rdStatCls: cls === 'live' ? 'cur' : cls === 'pending' ? 'pend' : cls === 'superseded' ? 'sup' : 'ret',
+                rdStatTip: { live: 'Live: recall uses it', pending: 'Pending: not yet relied on', superseded: 'Superseded: kept for history; recall prefers the newer note' }[cls] || 'Retired: kept, not recalled',
+                rdProjects: M.projects.map((p) => ({ t: p, tip: `Project ${p}: find its notes`, pick: (e) => { stopEv(e); this.setState({ mode: 'note', cam: null, sheet: 'peek', q: p.toLowerCase(), searchOpen: true }); } })),
+                rdMeta: `created ${M.created} · updated ${M.updated} · edited ${M.revs.length} time${M.revs.length > 1 ? 's' : ''}, last by ${M.revs[0][1]}`,
+                rdTags: M.tags.map((x) => ({ t: '#' + x })), rdHasTags: M.tags.length > 0,
+                rdProps: props, rdHasProps: props.length > 0,
+                rdMen: men.map(([k, c]) => ({ t: k, c, pick: () => { const i = titleIdx(k); if (i >= 0) go(i); } })), rdHasMen: men.length > 0, rdMenCount: String(men.length),
+                rdEnt: (M.entities || []).map((x) => ({ t: x, pick: (e) => { stopEv(e); this.setState({ mode: 'note', cam: null, sheet: 'peek', q: x.toLowerCase(), searchOpen: true }); } })), rdHasEnt: (M.entities || []).length > 0,
+                rdAtt: (M.att || []).map(([name, kind, size]) => ({ name, kind, size })), rdHasAtt: (M.att || []).length > 0,
+                rdSrcHead: H0.src.length ? 'Sources' : 'Files',
+                rdRevs: M.revs,
+              };
+            })(),
             rdBlocks: this.md(body, titleIdx, go),
             rdSrc: H0.src.map(([t, dd]) => { const i = titleIdx(t); return { t: base(t), path: t, d: dd, c: i >= 0 ? 'srcc on' : 'srcc', pick: i >= 0 ? (e) => { stopEv(e); go(i); } : () => {} }; }), rdHasSrc: H0.src.length > 0,
-            rdGroups: Object.keys(groups).sort((a, b) => ord(a) - ord(b) || a.localeCompare(b)).map((k) => ({ k, col: TCOL[k === 'relates to' ? 'relates' : k] || 'var(--v2)', items: groups[k].map((j) => ({ t: g.pts[j].title, pick: () => go(j) })) })),
+            rdGroups: Object.keys(groups).sort((a, b) => ord(a) - ord(b) || a.localeCompare(b)).map((k) => ({ k, col: TCOL[k === 'relates to' ? 'relates' : k] || 'var(--v2)', items: groups[k].map((j) => ({ t: g.pts[j].title, tip: g.pts[j].title.length > 34 ? g.pts[j].title.replace(/\.md$/, '') : '', pick: () => go(j) })) })),
+            // R55: the revision history (newest first), then when it was last recalled
             rdHist: [
-              { k: 'created', t: this.when(focus) },
-              ...(superseded !== undefined ? [{ k: 'supersedes', t: base(g.pts[superseded].title) }] : []),
-              ...(supersededBy !== undefined ? [{ k: 'superseded', t: `by ${base(g.pts[supersededBy].title)}` }] : []),
-              { k: 'edited', t: `${edits} time${edits > 1 ? 's' : ''} · last by ${by}` },
-              { k: 'recalled', t: lastHit ? `by ${lastHit.app} · ${agoOf(lastHit.at)}` : 'by Claude · yesterday' },
+              ...this.metaOf(focus).revs.map(([d, who, what]) => ({ k: d, t: what, b: who })),
+              { k: 'recalled', t: lastHit ? `by ${lastHit.app}` : 'by Claude', b: lastHit ? agoOf(lastHit.at) : 'yesterday' },
             ],
             rdPrev: st.hist.length > 0,
           };
@@ -1299,16 +1718,20 @@ class Component extends DCLogic {
     let RV = { rvAny: false, rvNone: mode === 'review', pair: [] };
     if (pairE) {
       const ci = allC.findIndex(([i, j]) => this.key(i, j) === pairKey), cl = CLAIMS[(ci < 0 ? 0 : ci) % CLAIMS.length];
-      const [A, B] = pairE, srcN = (i) => 1 + (i % 3);
-      const act = (how) => () => { const s2 = this.resolveState(this.state, [A, B], how); this.setState({ ...s2, cam: null }); };
+      const [A0, B0] = pairE, A = swapAB ? B0 : A0, B = swapAB ? A0 : B0, srcN = (i) => 1 + (i % 3), nwA = swapAB; // pairOf puts the older first
+      const keep = (how) => () => { const s2 = this.resolveState(this.state, [A0, B0], how); this.setState({ ...s2, cam: null }); };
+      const act = (how) => () => { const h = swapAB ? ({ keepA: 'keepB', keepB: 'keepA' }[how] || how) : how; const s2 = this.resolveState(this.state, [A0, B0], h); this.setState({ ...s2, cam: null }); };
       RV = { rvAny: true, rvNone: false,
-        pair: [[A, 'A', cl[0]], [B, 'B', cl[1]]].map(([i, tag, claim]) => ({ tag, t: g.pts[i].title, when: this.when(i), src: `${srcN(i)} source${srcN(i) > 1 ? 's' : ''}`, claim, pick: () => this.focusOn(i) })),
-        keepBLabel: `B holds · it supersedes A`, keepALabel: `A holds · it supersedes B`, keepBShort: 'B holds', keepAShort: 'A holds',
-        rvKeepB: act('keepB'), rvKeepA: act('keepA'), rvBoth: act('both'), rvFalse: act('false'), rvLater: act('later') };
+        pair: [[A, cl[swapAB ? 1 : 0]], [B, cl[swapAB ? 0 : 1]]].map(([i, claim]) => ({ tag: i === B0 ? 'newer' : 'older', t: g.pts[i].title, when: this.when(i), src: `${srcN(i)} source${srcN(i) > 1 ? 's' : ''}`, claim, pick: () => this.focusOn(i, { mode: 'review', rv }) })),
+        // first button: the newer note is right (the usual case), second: the older one is
+        keepALabel: 'Newer is right · the older becomes superseded', keepBLabel: 'Older is right · the newer becomes superseded', keepAShort: 'Newer is right', keepBShort: 'Older is right',
+        rvAcls: 'pri', rvBcls: '',
+        rvKeepA: keep('keepB'), rvKeepB: keep('keepA'), rvBoth: act('both'), rvFalse: act('false'), rvLater: act('later') };
     }
     const q = st.q.trim().toLowerCase();
     const pool = g.pts.map((p, i) => [i, p]).filter(([i]) => vis[i]);
-    const matches = (q ? pool.filter(([, p]) => p.title.toLowerCase().includes(q)) : pool.filter(([, p]) => p.hub !== undefined)).slice(0, 6);
+    const hay = (p) => { const M = META[p.title] || {}; return [p.title, M.title || '', ...(M.tags || []), ...(M.entities || [])].join(' ').toLowerCase(); };
+    const matches = (q ? pool.filter(([, p]) => hay(p).includes(q)) : pool.filter(([, p]) => p.hub !== undefined)).slice(0, 6);
     const hiddenOther = [...OTHER_TYPES, ...CUSTOM].filter((t) => st.off[t]).length;
     const speed = SPEEDS.find((s) => s[0] === st.speed) || SPEEDS[1];
     const mi = Math.min(11, Math.floor(st.asOf));
@@ -1351,19 +1774,21 @@ class Component extends DCLogic {
       resultsHead: q ? `${matches.length ? 'MATCHES' : 'NO MATCHES'}` : 'START FROM',
       noMatch: !!q && !matches.length, noMatchText: `Nothing matches “${q}” in titles or text, by words or by meaning. Try other words, or a broader one.`,
       ...(() => { const v = this.props.vault ?? 'sample', lost = (this.props.reach ?? 'ok') === 'lost';
-        const dust = []; if (v === 'large') { let s = 7; const r = () => (s = (s * 9301 + 49297) % 233280) / 233280; for (let i = 0; i < 700; i++) dust.push({ x: (r() * 100).toFixed(2), y: (r() * 100).toFixed(2), s: (1.6 + r() * 2.2).toFixed(1) }); }
-        return { r43Empty: v === 'empty', r43Hide: v === 'empty' ? 'r43h' : '', r43Large: v === 'large', r43Lost: lost, r43Dust: dust, r43Shown: new Intl.NumberFormat('en-GB').format(this.props.shown ?? 400), r43Total: new Intl.NumberFormat('en-GB').format(this.props.total ?? 4213), r43Seen: this.props.lastSeen ?? '14:02', r43Retry: this.props.retrySeconds ?? 8 }; })(),
+        const dust = []; if (false) { let s = 7; const r = () => (s = (s * 9301 + 49297) % 233280) / 233280; for (let i = 0; i < 700; i++) dust.push({ x: (r() * 100).toFixed(2), y: (r() * 100).toFixed(2), s: (1.6 + r() * 2.2).toFixed(1) }); }
+        return { r43Empty: v === 'empty', r43Hide: v === 'empty' ? 'r43h' : '', r43Large: !!(this._lod && this._lod.lodOut), r43Lost: lost, r43Dust: dust, r43Shown: new Intl.NumberFormat('en-GB').format(400), r43Msg: phone ? 'Most-linked notes. Zoom in for more.' : 'The most-linked notes. Zoom in or search to see the rest.', r43Total: new Intl.NumberFormat('en-GB').format(this._lod ? this._lod.total : 0), r43Seen: this.props.lastSeen ?? '14:02', r43Retry: this.props.retrySeconds ?? 8 }; })(),
       results: matches.map(([i, p]) => ({ t: p.title, k: kindOf(p), pick: (e) => { stopEv(e); this.focusOn(i); } })),
       openSearch: () => this.setState({ searchOpen: true, moreOpen: false }),
       typeSearch: (e) => this.setState({ q: (e && e.target && e.target.value) || '', searchOpen: true }),
       stop: stopEv,
       bgClick: () => {
         if (this.justDragged) return;
-        if (st.searchOpen || st.moreOpen || st.muPop) this.setState({ searchOpen: false, moreOpen: false, muPop: false });
-        else if (focused) this.setState({ focus: -1, mode: 'overview', cam: null, sheet: 'peek' });
+        clearTimeout(this.hovT);
+        if (st.searchOpen || st.moreOpen || st.muPop) this.setState({ searchOpen: false, moreOpen: false, muPop: false, hover: -1 });
+        else if (focused) this.setState({ focus: -1, mode: 'overview', cam: null, sheet: 'peek', hover: -1, ret: null, hist: [] });
+        else if (st.hover !== -1) this.setState({ hover: -1 });
       },
-      toOverview: (e) => { stopEv(e); this.setState({ focus: -1, mode: 'overview', cam: null, searchOpen: false, moreOpen: false, sheet: 'peek', rvLast: null }); },
-      goBack: (e) => { stopEv(e); const h = [...st.hist]; const prev = h.pop(); if (prev !== undefined) this.setState({ focus: prev, mode: 'note', hist: h, cam: null }); else this.setState({ focus: -1, mode: 'overview', cam: null, sheet: 'peek' }); },
+      toOverview: (e) => { stopEv(e); this.setState({ focus: -1, mode: 'overview', cam: null, searchOpen: false, moreOpen: false, sheet: 'peek', rvLast: null, ret: null, hist: [] }); },
+      goBack: (e) => { stopEv(e); const h = [...st.hist]; const prev = h.pop(); if (prev !== undefined) this.setState({ focus: prev, mode: 'note', hist: h, cam: null, hover: -1, showAll: -1 }); else if (st.ret) this.setState({ focus: -1, mode: st.ret.mode, rv: st.ret.rv, ret: null, hist: [], cam: null, hover: -1, sheet: 'open' }); else this.setState({ focus: -1, mode: 'overview', cam: null, sheet: 'peek', hover: -1 }); },
       readIt: (e) => { stopEv(e); if (focus >= 0) this.readNote(focus); },
       toMap: (e) => { stopEv(e); this.setState({ mode: 'note', cam: null, sheet: 'peek' }); },
       rdBack: (e) => { stopEv(e); const h = [...st.hist]; const prev = h.pop(); if (prev !== undefined) this.setState({ focus: prev, mode: 'read', hist: h }); },
@@ -1381,6 +1806,7 @@ class Component extends DCLogic {
         if (this.ptrs.size === 2) { this.gestStart(); const [a, b] = [...this.ptrs.values()]; this.pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, m: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, c: { ...this.gest.c } }; this.moved = true; }
       },
       pMove: (e) => {
+        this.hoverAt(e, phone);
         if (!this.ptrs || !this.ptrs.has(e.pointerId)) return;
         const p = this.local(e); this.ptrs.set(e.pointerId, p);
         if (this.ptrs.size >= 2 && this.pinch0) {
@@ -1400,7 +1826,7 @@ class Component extends DCLogic {
         if (this.ptrs.size === 1) { const [p] = [...this.ptrs.values()]; this.drag0 = { ...p, c: this.gest ? { ...this.gest.c } : null }; }
         if (!this.ptrs.size) { this.drag0 = null; if (this.moved) { this.justDragged = true; setTimeout(() => { this.justDragged = false; }, 0); } this.moved = false; this.gestEnd(); }
       },
-      pLeave: (e) => { if (e.pointerType === 'mouse' && !e.buttons && this.ptrs && this.ptrs.size) { this.ptrs.clear(); this.drag0 = null; this.moved = false; this.gestEnd(); } },
+      pLeave: (e) => { clearTimeout(this.hovT); if (this.state.hover !== -1) this.setState({ hover: -1 }); if (e.pointerType === 'mouse' && !e.buttons && this.ptrs && this.ptrs.size) { this.ptrs.clear(); this.drag0 = null; this.moved = false; this.gestEnd(); } },
       wheel: (e) => { if (e.cancelable) e.preventDefault(); this.stageEl = e.currentTarget; const p = this.local(e); this.gestStart(); this.gestSet(this.zoomCam(this.gest.c, p.x, p.y, Math.exp(-Math.max(-80, Math.min(80, e.deltaY)) * 0.0026))); clearTimeout(this.wheelT); this.wheelT = setTimeout(() => this.gestEnd(), 180); },
       zoomIn: (e) => { stopEv(e); this.zoomAt((vp.x0 + vp.x1) / 2, (vp.y0 + vp.y1) / 2, 1.5); },
       zoomOut: (e) => { stopEv(e); this.zoomAt((vp.x0 + vp.x1) / 2, (vp.y0 + vp.y1) / 2, 1 / 1.5); },
@@ -1411,17 +1837,42 @@ class Component extends DCLogic {
       liveLine: st.paused ? `Live paused${st.ev.length ? ` · last ${agoOf(st.ev[0].at)}` : ''}` : liveFresh ? `${live.app} ${live.verb === 'saved' ? 'saved a note' : `is recalling ${live.ids.length} notes`}` : (st.ev.length ? (phone ? `Live · last ${agoOf(st.ev[0].at)}` : `Every connected assistant · last activity ${agoOf(st.ev[0].at)}`) : 'Every connected assistant'),
       feedHead: st.paused ? 'LIVE · PAUSED' : 'LIVE',
       // time
-      ticks: MONTHS.map((m, k) => ({ label: `${m} ${k < 2 ? 2025 : 2026}`, c: k === mi ? 'cur' : (k < mi ? 'on' : ''), pick: (e) => { stopEv(e); clearInterval(this.playT); this.setState({ asOf: k, playing: false }); } })),
-      firstMonth: 'Nov 2025', asOfLabel: st.asOf >= 11 ? 'your knowledge, today' : `${phone ? '' : 'your knowledge as it stood in '}${MONTHS[mi]} ${mi < 2 ? 2025 : 2026}`,
+      ticks: MONTHS.map((m, k) => ({ label: `${m} ${k < 2 ? 2025 : 2026}`, p: k === mi ? Math.max(4, Math.round((st.asOf - mi) * 100)) : 100, c: k === mi ? 'cur' + ((st.tlUnit || 'month') !== 'month' && st.asOf < 11 ? ' part' : '') : (k < mi ? 'on' : ''), pick: (e) => { stopEv(e); clearInterval(this.playT); this.setState({ asOf: k, playing: false }); } })),
+      firstMonth: 'Nov 2025', asOfLabel: st.asOf >= 11 ? 'your knowledge, today' : (st.tlUnit || 'month') === 'month' ? `${phone ? '' : 'your knowledge as it stood in '}${MONTHS[mi]} ${mi < 2 ? 2025 : 2026}` : `${st.tlUnit === 'week' ? (phone ? 'week of ' : 'your knowledge, week of ') : (phone ? '' : 'your knowledge on ')}${this.dayOf(st.asOf, st.tlUnit)}`,
+      tlUnits: [['month', 'Month'], ['week', 'Week'], ['day', 'Day']].map(([u, t]) => ({ t: phone ? t[0] : t, on: String((st.tlUnit || 'month') === u), c: (st.tlUnit || 'month') === u ? 'on' : '', pick: (e) => { stopEv(e); this.setState({ tlUnit: u }); if (this.state.playing) setTimeout(() => this.tickPlay(), 0); } })),
+      stepBack: (e) => { stopEv(e); clearInterval(this.playT); this.setState({ playing: false, asOf: this.stepAsOf(-1) }); },
+      stepFwd: (e) => { stopEv(e); clearInterval(this.playT); this.setState({ playing: false, asOf: this.stepAsOf(1) }); },
+      stepBackAria: `One ${st.tlUnit || 'month'} back`, stepFwdAria: `One ${st.tlUnit || 'month'} forward`,
       asOfShort: st.asOf >= 11 ? 'TODAY' : `AS OF ${MONTHS[mi].toUpperCase()} ${mi < 2 ? 2025 : 2026}`,
       togglePlay: (e) => { stopEv(e); this.play(); }, playGlyph: st.playing ? '❚❚' : '▶', playLabel: st.playing ? 'Pause' : 'Play the vault growing',
       speedLabel: speed[1], speedAria: `Playback: ${speed[2]}. Change speed`,
       cycleSpeed: (e) => { stopEv(e); const i = SPEEDS.findIndex((s) => s[0] === this.state.speed); const nx = SPEEDS[(i + 1) % SPEEDS.length][0]; this.setState({ speed: nx }); if (this.state.playing) setTimeout(() => this.tickPlay(), 0); },
-      shownCount: fmt(shown), totalCount: fmt(g.pts.length),
+      countOn: !(this._lod && this._lod.lodOut), shownCount: fmt(this._lod && this._lod.lodOut ? Math.min(400, shown) : shown), totalCount: fmt(g.pts.length),
       vwVars: Object.entries(VPAL[theme]).map(([k, v]) => `--${k}: ${v};`).join(' '),
       themeLabel: theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode',
-      toggleTheme: (e) => { stopEv(e); const t = theme === 'light' ? 'dark' : 'light'; try { localStorage.setItem('exomem-theme', t); } catch (er) {} if (typeof this.props.exitTo === 'function') this.props.exitTo('theme', t); if (!this.gone) this.setState({ theme: t }); },
+      ...this.themeCtl(theme, (t) => { try { localStorage.setItem('exomem-theme', t); } catch (er) {} if (typeof this.props.exitTo === 'function') this.props.exitTo('theme', t); if (!this.gone) this.setState({ theme: t }); }, phone), toggleTheme: (e) => { stopEv(e); const t = theme === 'light' ? 'dark' : 'light'; try { localStorage.setItem('exomem-theme', t); } catch (er) {} if (typeof this.props.exitTo === 'function') this.props.exitTo('theme', t); if (!this.gone) this.setState({ theme: t }); },
       goHome: (e) => { stopEv(e); if (typeof this.props.exitTo === 'function') this.props.exitTo('home'); },
+      ...MM,
+      // R57o: one tooltip for the page: anything with data-tip, after 350 ms, above (or below), kept inside
+      tipOn: !!st.tip, tipT: st.tip ? st.tip.t : '', tipX: st.tip ? st.tip.x : 0, tipY: st.tip ? st.tip.y : 0, tipCls: st.tip && st.tip.below ? 'below' : '',
+      tipOver: (e) => {
+        const el = e.target && e.target.closest ? e.target.closest('[data-tip]') : null, t = el ? el.getAttribute('data-tip') : '';
+        if (!t) return; if (this.tipEl === el) return; this.tipEl = el; clearTimeout(this.tipT);
+        this.tipT = setTimeout(() => {
+          const root = el.closest('.vw'); if (!root || !el.isConnected) return;
+          const R0 = root.getBoundingClientRect(), r = el.getBoundingClientRect(), sc = R0.width / (root.offsetWidth || 1) || 1;
+          const w = Math.min(280, t.length * 6.4 + 20), W = root.offsetWidth;
+          let x = (r.left + r.width / 2 - R0.left) / sc; x = Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, x));
+          const top = (r.top - R0.top) / sc, below = top < 44;
+          this.setState({ tip: { t, x: x.toFixed(1), y: (below ? (r.bottom - R0.top) / sc : top).toFixed(1), below } });
+        }, 350);
+      },
+      tipOut: (e) => {
+        const el = e.target && e.target.closest ? e.target.closest('[data-tip]') : null; if (!el) return;
+        if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+        this.tipEl = null; clearTimeout(this.tipT); if (this.state.tip) this.setState({ tip: null });
+      },
+      hvCls: 'hv-' + (this.props.hoverStyle || 'fade') + (hv >= 0 ? ' hvon' : '') + (focused ? ' hvfoc' : '') + (hvAway ? ' hvaway' : ''),
       muCls: st.muOn ? 'mu' : '', muOn: !!st.muOn, muOff: !st.muOn, muPop: !!st.muPop && !st.muOn,
       musicLabel: st.muOn ? 'Stop listening' : 'Let the graph listen',
       muNote: st.muNote || 'Only while this page is open. Nothing is recorded or sent anywhere.', muNoteColor: st.muErr ? 'var(--v1)' : 'var(--v2)',

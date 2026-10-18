@@ -1,3 +1,4 @@
+import { exomemThemeChoice } from "@/lib/exomem/theme";
 import { NextRequest, NextResponse } from "next/server";
 import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { admitFirstCloudOAuthInviteAtomic, redeemCloudInvite } from "@/lib/exomem-hosted/cloud-admission";
@@ -55,13 +56,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       typeof body.token !== "string" ||
       body.token.length === 0 ||
       Object.keys(body).some(
-        (key) => key !== "token" && key !== "timeZone" && key !== "emailScheme"
+        (key) => key !== "token" && key !== "timeZone" && key !== "emailScheme" && key !== "themeChoice"
       )
     ) {
       throw exomemErrors.invalidRequest();
     }
     const timeZone = normalizeTimeZone(body.timeZone);
     const emailScheme = exomemEmailScheme(body.emailScheme);
+    const themeChoice = exomemThemeChoice(body.themeChoice);
     const transaction = oauthContinuationToken(request);
     const formNonce = oauthFormNonceFromRequest(request);
     if (transaction || formNonce) {
@@ -90,6 +92,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         codeExpiresAt: code.codeExpiresAt,
         timeZone,
         emailScheme,
+        themeChoice,
       });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       // A paid invite is admitted without a code. The continuation stays open, and
@@ -106,11 +109,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
         { status: 200, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } }
       );
-      applySessionCookies(response, session);
+      await applySessionCookies(response, session, request);
       if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = await redeemCloudInvite(body.token, { timeZone, emailScheme });
+    const redeemed = await redeemCloudInvite(body.token, { timeZone, emailScheme, themeChoice });
     const response = NextResponse.json(
       {
         success: true,
@@ -120,7 +123,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       { status: 200 }
     );
-    applySessionCookies(response, redeemed);
+    await applySessionCookies(response, redeemed, request);
     emitAccessEvent({
       event: "access.invite.redeemed",
       outcome: "succeeded",

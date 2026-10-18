@@ -89,7 +89,6 @@ export default function HomeClient({
   channelOn,
   statusPageUrl,
   storageOffered = false,
-  viewerOffered = false,
 }: {
   priceId: string | null;
   /** Whether Home offers an export: the export flag (design.md deviation (s)). */
@@ -488,7 +487,11 @@ export default function HomeClient({
       onSignOut={() => void onSignOut()}
       signingOut={signingOut}
       live={lostAt === null && mode.kind === "home" && isLive(mode.variant)}
-      viewerOffered={viewerOffered && mode.kind === "home"}
+      activityKey={
+        lostAt === null && !activityReadFailed && activityPulse
+          ? activityEventKey(activityPulse)
+          : undefined
+      }
     />
   );
   const dialogs = (
@@ -603,7 +606,7 @@ export default function HomeClient({
         }
       />
       {header}
-      <div className={styles.column}>
+      <div className={`${styles.column} ${styles.homeColumn}`}>
         <StatusBlock
           live={live}
           headline={
@@ -621,151 +624,162 @@ export default function HomeClient({
           }
           activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
         />
-        {message}
-        {lostAt !== null && (
-          <Notice
-            layout="row"
-            action={
-              <Button size="detail" onClick={() => void refreshStatus()}>
-                Try now
-              </Button>
-            }
-          >
-            Can’t reach Exomem.{" "}
-            {lostAt > 0 ? "Showing the last successful read. " : "We will try again. "}{" "}
-            {statusRetryAt
-              ? `Checking again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))} seconds.`
-              : "Trying again."}
-          </Notice>
-        )}
-        {homeNotices.map((notice) => (
-          <Notice
-            key={notice.key}
-            layout="row"
-            attention={notice.attention}
-            action={
-              notice.actions.length ? (
-                <div className={styles.noticeActions}>
-                  {notice.actions.map((action) =>
-                    action === "copy_reference" && account ? (
-                      <Button
-                        key={action}
-                        size="detail"
-                        onClick={() => copyReference(account.supportReference)}
-                        aria-live="polite"
-                      >
-                        <span className={styles.copyLabel}>
-                          <span className={styles.copyReserve} aria-hidden="true">
-                            Copy reference
-                          </span>
-                          <span>{referenceCopied ? "Copied" : "Copy reference"}</span>
-                        </span>
-                      </Button>
-                    ) : action === "status_page" && statusPageUrl ? (
-                      <ButtonLink
-                        key={action}
-                        size="detail"
-                        href={statusPageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {breakCopy.connectError.statusPage}
-                      </ButtonLink>
-                    ) : action === "support" ? (
-                      <ButtonLink key={action} size="detail" href="/exomem/support">
-                        Contact support
-                      </ButtonLink>
-                    ) : null
-                  )}
-                </div>
-              ) : undefined
-            }
-          >
-            {notice.text}
-          </Notice>
-        ))}
-        {first && (
-          <div className={styles.firstNote}>
-            <span className={live ? styles.firstDot : styles.firstDotQuiet} aria-hidden="true" />
-            <div className={styles.firstText}>
-              <span>Your first note</span>
-              <span className={styles.firstMeta}>{first}</span>
-            </div>
-          </div>
-        )}
-        {accountBanner && (
-          <div>
-            <Notice
-              layout="row"
-              action={
-                accountBanner.action ? (
-                  <Button
-                    variant="primary"
-                    size="account"
-                    working={billingBusy}
-                    onClick={() =>
-                      void onBilling(
-                        accountBanner.action === "resubscribe" ? "checkout" : "portal",
-                        "banner"
-                      )
-                    }
-                  >
-                    {bannerLabel[accountBanner.action]}
+        <div className={styles.columns}>
+          <div className={styles.primaryColumn}>
+            {message}
+            {lostAt !== null && (
+              <Notice
+                layout="row"
+                action={
+                  <Button size="detail" onClick={() => void refreshStatus()}>
+                    Try now
                   </Button>
-                ) : undefined
-              }
-            >
-              {accountBanner.text}
-            </Notice>
-            {accountBanner.action && (
-              <div className={styles.billingStatus} role="alert">
-                {billingError?.control === "banner" ? billingError.text : null}
+                }
+              >
+                Can’t reach Exomem.{" "}
+                {lostAt > 0 ? "Showing the last successful read. " : "We will try again. "}{" "}
+                {statusRetryAt
+                  ? `Checking again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))} seconds.`
+                  : "Trying again."}
+              </Notice>
+            )}
+            {homeNotices.map((notice) => (
+              <Notice
+                key={notice.key}
+                layout="row"
+                attention={notice.attention}
+                action={
+                  notice.actions.length ? (
+                    <div className={styles.noticeActions}>
+                      {notice.actions.map((action) =>
+                        action === "copy_reference" && account ? (
+                          <Button
+                            key={action}
+                            size="detail"
+                            onClick={() => copyReference(account.supportReference)}
+                            aria-live="polite"
+                          >
+                            <span className={styles.copyLabel}>
+                              <span className={styles.copyReserve} aria-hidden="true">
+                                Copy reference
+                              </span>
+                              <span>{referenceCopied ? "Copied" : "Copy reference"}</span>
+                            </span>
+                          </Button>
+                        ) : action === "status_page" && statusPageUrl ? (
+                          <ButtonLink
+                            key={action}
+                            size="detail"
+                            href={statusPageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {breakCopy.connectError.statusPage}
+                          </ButtonLink>
+                        ) : action === "support" ? (
+                          <ButtonLink key={action} size="detail" href="/exomem/support">
+                            Contact support
+                          </ButtonLink>
+                        ) : null
+                      )}
+                    </div>
+                  ) : undefined
+                }
+              >
+                {notice.text}
+              </Notice>
+            ))}
+            {first && (
+              <div className={styles.firstNote}>
+                <span
+                  className={live ? styles.firstDot : styles.firstDotQuiet}
+                  aria-hidden="true"
+                />
+                <div className={styles.firstText}>
+                  <span>Your first note</span>
+                  <span className={styles.firstMeta}>{first}</span>
+                </div>
               </div>
             )}
+            {accountBanner && (
+              <div>
+                <Notice
+                  layout="row"
+                  action={
+                    accountBanner.action ? (
+                      <Button
+                        variant="primary"
+                        size="account"
+                        working={billingBusy}
+                        onClick={() =>
+                          void onBilling(
+                            accountBanner.action === "resubscribe" ? "checkout" : "portal",
+                            "banner"
+                          )
+                        }
+                      >
+                        {bannerLabel[accountBanner.action]}
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  {accountBanner.text}
+                </Notice>
+                {accountBanner.action && (
+                  <div className={styles.billingStatus} role="alert">
+                    {billingError?.control === "banner" ? billingError.text : null}
+                  </div>
+                )}
+              </div>
+            )}
+            <ConnectedApps
+              apps={apps}
+              failed={appsFailed}
+              ended={variant === "ended"}
+              checkoutAvailable={billing?.checkoutAvailable ?? false}
+              disconnected={disconnected}
+              onDisconnect={onDisconnect}
+              connectorUrl={status?.connectorUrl ?? null}
+              startLevel={codingLevel}
+              reviewer={reviewer}
+              clock={clock}
+              activeAppId={pulseApp?.id ?? null}
+            />
+            <InvolvementLevels
+              view={levelState}
+              pending={levelPending}
+              message={levelMessage}
+              onChange={(context, level, revision) => void onLevel(context, level, revision)}
+            />
+            <div className={styles.dataSection}>
+              <YourData
+                exportRow={exportRow}
+                exportBusy={exportBusy}
+                exportMessage={exportMessage}
+                downloadBusy={downloadBusy}
+                onExport={() => void onExport()}
+                onDownload={(exportId) => void onDownload(exportId)}
+                deletion={account?.kind ?? null}
+                onDelete={() => setDeleteStep("ask")}
+              />
+            </div>
           </div>
-        )}
-        <ConnectedApps
-          apps={apps}
-          failed={appsFailed}
-          ended={variant === "ended"}
-          checkoutAvailable={billing?.checkoutAvailable ?? false}
-          disconnected={disconnected}
-          onDisconnect={onDisconnect}
-          connectorUrl={status?.connectorUrl ?? null}
-          startLevel={codingLevel}
-          reviewer={reviewer}
-          clock={clock}
-          activeAppId={pulseApp?.id ?? null}
-        />
-        <InvolvementLevels
-          view={levelState}
-          pending={levelPending}
-          message={levelMessage}
-          onChange={(context, level, revision) => void onLevel(context, level, revision)}
-        />
-        <PlanAndAccount
-          plan={planView(variant, account, billing, clock)}
-          storage={storage}
-          email={shownEmail}
-          onBilling={(kind) => void onBilling(kind, "plan")}
-          billingBusy={billingBusy}
-          billingMessage={billingError?.control === "plan" ? billingError.text : null}
-          onStorage={
-            storageOffered && !reviewer && variant === "on" && billing?.source === "paddle"
-              ? () => setStorageOpen(true)
-              : undefined
-          }
-        />
-        <YourData
-          exportRow={exportRow}
-          exportBusy={exportBusy}
-          exportMessage={exportMessage}
-          downloadBusy={downloadBusy}
-          onExport={() => void onExport()}
-          onDownload={(exportId) => void onDownload(exportId)}
-          deletion={account?.kind ?? null}
-          onDelete={() => setDeleteStep("ask")}
-        />
+          <div className={styles.secondaryColumn}>
+            <PlanAndAccount
+              plan={planView(variant, account, billing, clock)}
+              storage={storage}
+              email={shownEmail}
+              onBilling={(kind) => void onBilling(kind, "plan")}
+              billingBusy={billingBusy}
+              billingMessage={billingError?.control === "plan" ? billingError.text : null}
+              onStorage={
+                storageOffered && !reviewer && variant === "on" && billing?.source === "paddle"
+                  ? () => setStorageOpen(true)
+                  : undefined
+              }
+            />
+          </div>
+        </div>
         <div className={styles.footer}>Everything else happens in your assistant.</div>
       </div>
       {dialogs}
