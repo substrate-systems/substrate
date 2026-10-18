@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { TextField } from "@/components/exomem/TextField";
 import {
   HostedBrowserError,
+  EXOMEM_SIGN_IN_EVENT_KEY,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
@@ -82,6 +83,11 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
     })
       .then((result) => {
         token.current = null;
+        try {
+          window.localStorage.setItem(EXOMEM_SIGN_IN_EVENT_KEY, String(Date.now()));
+        } catch {
+          /* Polling still wakes the waiting tab when storage is blocked. */
+        }
         window.location.replace(
           typeof result.destination === "string" ? result.destination : "/exomem/home"
         );

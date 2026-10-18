@@ -94,7 +94,8 @@ describe("theme snapshots cannot cross an authentication response", () => {
     const current = jar
       .getCookiesSync("https://example.test/")
       .find((cookie) => cookie.key === exomemThemeCookieName(themeBindingFromCsrfToken("csrf-b")));
-    assert.equal(current?.expires.toString(), new Date(expiresAt).toString());
+    assert.ok(current?.expires instanceof Date);
+    assert.equal(current.expires.toString(), new Date(expiresAt).toString());
 
     const logout = NextResponse.json({ success: true });
     clearSessionCookies(

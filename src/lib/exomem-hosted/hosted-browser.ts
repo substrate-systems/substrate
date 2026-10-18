@@ -168,3 +168,5 @@ export function friendlyHostedError(error: unknown): string {
   if (error.remediation) return `${error.message} ${error.remediation}`;
   return error.message;
 }
+/** Cross-tab notification carries no identity or destination; the server checks both. */
+export const EXOMEM_SIGN_IN_EVENT_KEY = "exomem-access-session";

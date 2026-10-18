@@ -288,14 +288,22 @@ export function WorkingBar({ label }: { label: string }) {
   );
 }
 
-export function SentCard({ email, app }: { email: string; app?: string }) {
+export function SentCard({
+  email,
+  app,
+  onChange,
+}: {
+  email: string;
+  app?: string;
+  onChange: () => void;
+}) {
   // A long address wraps before a "." or the "@", the separators an address's format fixes,
   // rather than inside a name.
   const pieces = email.split(/(?=[.@])/);
   return (
     <div className={`${styles.panel} ${styles.sent}`}>
       <div className={styles.sentTo}>
-        <span className={styles.panelLabel}>{sentCopy.sentTo}</span>
+        <span className={styles.sentLabel}>{sentCopy.sentTo}</span>
         <span className={styles.sentAddress}>
           {pieces.map((piece, index) => (
             <Fragment key={index}>
@@ -304,9 +312,13 @@ export function SentCard({ email, app }: { email: string; app?: string }) {
             </Fragment>
           ))}
         </span>
+        <button type="button" className={styles.sentChange} onClick={onChange}>
+          Change
+        </button>
       </div>
       <div className={styles.sentNote}>
-        {app ? sentCopy.openHereForApp(app) : sentCopy.openHere}
+        <span>{sentCopy.spam}</span>
+        <span>{app ? sentCopy.openHereForApp(app) : sentCopy.openHere}</span>
       </div>
     </div>
   );

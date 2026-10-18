@@ -28,12 +28,13 @@ describe("optional Exomem HTML theme refresh", () => {
     assert.equal(response.status, 200);
     assert.equal(lookups, 1);
   });
-  for (const input of [
+  const optionalReadCases: { path: string; headers: Record<string, string> }[] = [
     { path: "/api/exomem/account", headers: { accept: "text/html" } },
     { path: "/exomem/email-assets/wordmark.png", headers: { accept: "text/html" } },
     { path: "/exomem/home", headers: { accept: "text/html", "next-router-prefetch": "1" } },
     { path: "/exomem/home", headers: { accept: "text/html", "sec-purpose": "prefetch;prerender" } },
-  ]) {
+  ];
+  for (const input of optionalReadCases) {
     it(`skips optional account reads for ${JSON.stringify(input)}`, async () => {
       const { proxy } = await import("../proxy");
       await proxy(new NextRequest(`https://example.test${input.path}`, { headers: input.headers }));

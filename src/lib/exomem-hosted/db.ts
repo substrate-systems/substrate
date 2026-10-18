@@ -338,9 +338,7 @@ export async function createMagicAccessToken(
     FROM token
     JOIN queued ON queued.token_id = token.id
   `;
-    const row = rows[0] as
-      | { id: string; delivery_id: string; email_normalized: string }
-      | undefined;
+    const row = rows[0] as { id: string; delivery_id: string; email_normalized: string } | undefined;
     return row
       ? { tokenId: row.id, deliveryId: row.delivery_id, emailNormalized: row.email_normalized }
       : null;

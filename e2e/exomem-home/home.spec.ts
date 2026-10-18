@@ -5,6 +5,8 @@
 import { reviewerCopy, startCopy } from "../../src/app/exomem/_journey/copy";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test as base, type Page } from "@playwright/test";
+import { digestSecret, generateExternalToken } from "../../src/lib/exomem-hosted/security";
+import { EXOMEM_THEME_COOKIE_PREFIX } from "../../src/lib/exomem/theme-binding";
 import {
   connectApp,
   createDeletionLink,
@@ -59,6 +61,137 @@ const test = base.extend<object, { database: void }>({
     },
     { scope: "worker", auto: true },
   ],
+});
+
+test("late HTML from the old account cannot replace the new account's first theme", async ({
+  page,
+  context,
+}) => {
+  const oldOwner = await createOwner();
+  const newOwner = await createOwner();
+  await pool.query("UPDATE exomem_tenants SET theme_choice = $2, email_scheme = $2 WHERE id = $1", [
+    oldOwner.tenantId,
+    "dark",
+  ]);
+  await pool.query("UPDATE exomem_tenants SET theme_choice = $2, email_scheme = $2 WHERE id = $1", [
+    newOwner.tenantId,
+    "light",
+  ]);
+  const token = generateExternalToken();
+  await pool.query(
+    `INSERT INTO exomem_access_tokens (
+       purpose, token_digest, browser_challenge_digest, magic_link_generation,
+       user_id, tenant_id, expires_at, delivery_state, delivered_at
+     ) SELECT 'magic_link', $1, $2, magic_link_generation,
+              owner_user_id, id, now() + interval '15 minutes', 'sent', now()
+       FROM exomem_tenants WHERE id = $3`,
+    [digestSecret(token), digestSecret(generateExternalToken()), newOwner.tenantId]
+  );
+  await page.addInitScript(() => {
+    new MutationObserver((_, observer) => {
+      if (!document.body) return;
+      (window as unknown as { themeAtBody: string | null }).themeAtBody =
+        document.documentElement.getAttribute("data-theme");
+      observer.disconnect();
+    }).observe(document, { childList: true, subtree: true });
+  });
+  await signIn(context, oldOwner);
+  await page.goto("/exomem/privacy");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const authPage = await context.newPage();
+  await authPage.goto("/exomem/privacy");
+  let releaseOld!: () => void;
+  const released = new Promise<void>((resolve) => {
+    releaseOld = resolve;
+  });
+  let readOld!: () => void;
+  let readFailed!: (error: unknown) => void;
+  const oldResponseReady = new Promise<void>((resolve, reject) => {
+    readOld = resolve;
+    readFailed = reject;
+  });
+  const heldUrl = (url: URL) =>
+    url.pathname === "/exomem/privacy" && url.searchParams.get("held-theme") === oldOwner.tenantId;
+  await page.route(heldUrl, async (route) => {
+    try {
+      // Node fetch has no browser cookie jar: only fulfillment delivers these real headers.
+      const response = await fetch(route.request().url(), {
+        headers: await route.request().allHeaders(),
+        redirect: "manual",
+      });
+      const headers = Object.fromEntries(response.headers);
+      headers["set-cookie"] = response.headers.getSetCookie().join("\n");
+      delete headers["content-encoding"];
+      delete headers["content-length"];
+      const body = Buffer.from(await response.arrayBuffer());
+      readOld();
+      await released;
+      await route.fulfill({ status: response.status, headers, body });
+    } catch (error) {
+      readFailed(error);
+      await route.abort();
+    }
+  });
+  const navigation = page.goto(`/exomem/privacy?held-theme=${oldOwner.tenantId}`);
+  try {
+    await oldResponseReady;
+    const redeemed = await authPage.evaluate(
+      async (input) => {
+        const response = await fetch("/api/exomem/access/magic-link/redeem", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        return response.status;
+      },
+      { token, expectedEmail: newOwner.email }
+    );
+    expect(redeemed).toBe(200);
+    await authPage.reload();
+    await expect(authPage.locator("html")).toHaveAttribute("data-theme", "light");
+    const newScope = await authPage.locator("html").getAttribute("data-theme-scope");
+    expect(newScope).toBeTruthy();
+    releaseOld();
+    await navigation;
+    await page.unroute(heldUrl);
+    expect(
+      await page.evaluate(() => (window as unknown as { themeAtBody: string | null }).themeAtBody)
+    ).toBe("light");
+    await expect(page.locator("html")).toHaveAttribute("data-theme-scope", newScope!);
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    const account = await page.evaluate(async () => {
+      const response = await fetch("/api/exomem/account");
+      return response.json();
+    });
+    expect(account.account.email).toBe(newOwner.email);
+    const loggedOut = await page.evaluate(async () => {
+      const csrf = document.cookie
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith("exomem_csrf="))!
+        .slice("exomem_csrf=".length);
+      const response = await fetch("/api/exomem/access/logout", {
+        method: "POST",
+        headers: { "x-exomem-csrf": csrf },
+      });
+      return response.status;
+    });
+    expect(loggedOut).toBe(200);
+    expect(
+      (await context.cookies()).filter((cookie) =>
+        cookie.name.startsWith(EXOMEM_THEME_COOKIE_PREFIX)
+      )
+    ).toEqual([]);
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme-scope", "");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  } finally {
+    releaseOld();
+    await navigation.catch(() => {});
+    await page.unroute(heldUrl);
+    await authPage.close();
+  }
 });
 
 test("Home shows the account's own values and calls only routes a Cloud account has", async ({

@@ -55,10 +55,16 @@
   line-height: 1;
 }
 
-.headerEmail {
+.headerControls {
   position: absolute;
   right: var(--gutter);
-  top: 32px;
+  top: 23.5px;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  z-index: 3;
+}
+.headerEmail {
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
@@ -290,31 +296,50 @@
    above it as on the price card, and the note under a hairline as on the scopes card. The
    whole address shows, so a person can check it for a typo. */
 .sent {
-  gap: 14px;
+  gap: 10px;
+  border-radius: var(--r-pop);
 }
 
 .sentTo {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 12px;
+  font: 400 12.5px/1.5 var(--font-mono-exo);
 }
 
 .sentAddress {
   font-family: var(--font-mono-exo);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
+  min-width: 0;
+  flex: 1;
   color: var(--fg-primary);
   overflow-wrap: anywhere;
 }
 
 .sentNote {
-  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
   border-top: 1px solid var(--exo-border-card);
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--fg-secondary);
+}
+
+.sentLabel {
+  flex: none;
+  color: var(--fg-secondary);
+}
+.sentChange {
+  min-height: 40px;
+  padding: 0 8px;
+  margin-right: -8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .scopes {

@@ -14,6 +14,7 @@ import { Button } from "./Button";
 import { FlowField } from "./FlowField";
 import { Mark } from "./Mark";
 import { Wordmark } from "./Wordmark";
+import { ThemeToggle } from "./ThemeToggle";
 import { Collapse, Crossfade, Skeleton, Swap } from "./Transitions";
 import {
   formatCheckoutMoney,
@@ -341,10 +342,20 @@ export function CheckoutInline({
     <main className={`brand-exomem ${styles.page}`} data-alive-surface>
       <FlowField kind={paying || paid ? "hold" : "quiet"} activity={activity} checkout />
       <header className={styles.header}>
-        <a href="/exomem/home" className={styles.wordmark} aria-label="Exomem home">
+        <a
+          href="/exomem/home"
+          className={styles.wordmark}
+          aria-label="Exomem home"
+          data-graph-clear
+        >
           <Wordmark />
         </a>
-        <span className={styles.email}>{email}</span>
+        <span className={styles.headerControls} data-graph-header>
+          <ThemeToggle align="end" />
+          <span className={styles.email} data-graph-clear>
+            {email}
+          </span>
+        </span>
       </header>
       <section className={styles.content}>
         <div className={styles.heading}>

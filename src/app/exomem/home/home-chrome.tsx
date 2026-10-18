@@ -50,6 +50,7 @@ function WebSvg({
       id={id}
       state={live ? "live" : "cut"}
       walk
+      clearHeader
       viewBox={`0 0 ${layout.width} ${layout.height}`}
     >
       <defs>
@@ -93,30 +94,29 @@ export function HomeHeader({
   onSignOut,
   signingOut,
   live = true,
-  viewerOffered = false,
+  activityKey,
 }: {
   email: string | null;
   onSignOut: () => void;
   signingOut: boolean;
   live?: boolean;
-  viewerOffered?: boolean;
+  activityKey?: string;
 }) {
   return (
-    <header className={styles.header}>
+    <header className={`${styles.header} ${styles.homeHeader}`}>
       <span className={styles.headerStart}>
-        <span className={styles.wordmark}>
-          <Wordmark state={live ? "rest" : "off"} />
-        </span>
-        <nav aria-label="Exomem" className={styles.nav}>
-          <span aria-current="page" className={styles.navCurrent}>
-            Home
-          </span>
-          {viewerOffered && <a href="/exomem/viewer">The map</a>}
-        </nav>
+        <a
+          className={styles.wordmark}
+          href="/exomem/home"
+          aria-label="Exomem home"
+          data-graph-clear
+        >
+          <Wordmark state={live ? "rest" : "off"} activityKey={activityKey} />
+        </a>
       </span>
       <span className={styles.headerEnd}>
         <ThemeToggle />
-        <span className={styles.account}>
+        <span className={styles.account} data-graph-clear>
           {email && (
             <span className={styles.email}>
               <span className={styles.emailAddress} title={email}>

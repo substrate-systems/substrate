@@ -25,6 +25,21 @@ test("follows the device until a theme is picked, on the Exomem ground", async (
 
   await page.reload();
   await expect(root(page)).toHaveAttribute("data-theme", "light");
+  const control = page.getByRole("button", { name: "Theme: Auto", exact: true });
+  await control.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitemradio", { name: "Auto", exact: true })).toBeFocused();
+  await expect(page.getByRole("menuitemradio", { name: "Auto", exact: true })).toHaveAttribute(
+    "aria-checked",
+    "true"
+  );
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitemradio", { name: "Dark", exact: true })).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(page.getByRole("menuitemradio", { name: "Auto", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(control).toBeFocused();
+  await expect(page.getByRole("menu")).toHaveCount(0);
 });
 
 test("applies a stored light preference over a dark device before any app code runs", async ({
@@ -54,9 +69,15 @@ test("applies a stored light preference over a dark device before any app code r
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 248, 244)");
 });
 
-test("follows the toggle across navigation and reload", async ({ page }) => {
+test("keeps a menu preference across navigation and reload", async ({ page }) => {
   await page.goto("/exomem/design-system");
-  await page.getByRole("button", { name: "Switch to light mode" }).first().click();
+  await page.getByRole("button", { name: "Theme: Auto", exact: true }).first().click();
+  await expect(page.getByRole("menuitemradio", { name: "Auto", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Theme: Light", exact: true }).first()).toBeFocused();
   await expect(root(page)).toHaveAttribute("data-theme", "light");
 
   await page.goto("/exomem");

@@ -57,8 +57,12 @@ test.describe("private Exomem operator", () => {
     await expect(page.getByRole("status")).toHaveText("The paid invitation is queued.");
     expect(inviteBodies).toEqual([{ email: "invitee@example.com", kind: "standard" }]);
 
-    expect(await page.evaluate(() => localStorage.length)).toBe(0);
-    expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+    // Theme preferences can persist; the operator bearer must never enter browser storage.
+    const storedEntries = await page.evaluate(() => [
+      ...Object.entries(localStorage),
+      ...Object.entries(sessionStorage),
+    ]);
+    expect(JSON.stringify(storedEntries)).not.toContain(BEARER);
     await page.reload();
     await expect(page.getByLabel("Admin bearer")).toBeVisible();
   });

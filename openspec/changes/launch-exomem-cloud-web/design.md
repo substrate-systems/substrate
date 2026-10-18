@@ -9,6 +9,7 @@ The current round 57 batch uses one product-code author and one independent inte
 
 `docs/exomem-design/CANON.md` selects the latest board, props and reference image. Older kickoff documents remain historical context.
 Home adopts the landing's 1056 px frame with 656 px and 368 px columns separated by 32 px. Its header has no tabs.
+Home keeps its existing 15 px account and sign-out text for readability, with the current 17 px wordmark and theme targets.
 The interactive map and Home constellation card are deferred together. The right column starts with plan and account without an empty preview slot.
 Other signed-in pages keep their current boards where the canon leaves a shared frame undecided.
 
