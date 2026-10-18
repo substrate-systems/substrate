@@ -5,12 +5,14 @@
  * `exomem_cloud_cells` row under a plain capacity check.
  */
 
+import { type ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import { randomBytes } from "node:crypto";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
-import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { executeExomemSql, initializeExomemTheme, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 import { FIRST_PAYMENT_SOURCE_STATES, LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -139,6 +141,7 @@ async function createCloudCell(
     recipient: string;
     recipientTimeZone: string | null;
     recipientEmailScheme: ExomemEmailScheme | null;
+    recipientThemeChoice?: ExomemThemeChoice | null;
     /** Who invited them, for email 18; `null` for a self-serve start. */
     inviterName: string | null;
   }
@@ -159,6 +162,7 @@ async function createCloudCell(
       recipient: input.recipient,
       recipientTimeZone: input.recipientTimeZone,
       recipientEmailScheme: input.recipientEmailScheme,
+      recipientThemeChoice: input.recipientThemeChoice,
       tenantId: input.tenantId,
       payload: {
         version: 1,
@@ -173,6 +177,59 @@ async function createCloudCell(
   return cell.cell_id;
 }
 
+type CloudAdmissionOwner = { id: string; created_at: string };
+
+/** Keep the shared-user foreign keys compatible until Release B repoints them. */
+async function resolveCloudAdmissionOwner(
+  tx: ExomemSql,
+  email: string
+): Promise<CloudAdmissionOwner | undefined> {
+  const { rows } = await tx`
+    WITH canonical AS (
+      SELECT id, created_at::text AS created_at FROM exomem_users
+      WHERE email = ${email} AND deleted_at IS NULL
+    ), shared AS (
+      INSERT INTO users (email, email_verified_at)
+      SELECT ${email}, now()
+      WHERE NOT EXISTS (SELECT 1 FROM exomem_users WHERE email = ${email})
+      ON CONFLICT (email) DO UPDATE
+      -- Return the shared UUID without changing another product's identity fields.
+      SET email = users.email
+      WHERE users.deleted_at IS NULL
+        -- A stale shared address must never recover a live identity with a new email.
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_users AS identity WHERE identity.id = users.id
+            AND (identity.deleted_at IS NULL OR identity.email IS NOT NULL)
+        )
+      RETURNING id, created_at::text AS created_at
+    )
+    SELECT id, created_at FROM canonical
+    UNION ALL
+    SELECT id, created_at FROM shared
+  `;
+  return rows[0] as CloudAdmissionOwner | undefined;
+}
+
+/** Lock the tenant first, as deletion does, then recheck the verified address. */
+async function verifyCloudAdmissionIdentity(
+  tx: ExomemSql,
+  owner: CloudAdmissionOwner,
+  email: string
+): Promise<boolean> {
+  const { rows } = await tx`
+    INSERT INTO exomem_users (id, email, email_verified_at, created_at)
+    VALUES (${owner.id}::uuid, ${email}, now(), ${owner.created_at})
+    ON CONFLICT (id) DO UPDATE
+    SET email = EXCLUDED.email,
+        email_verified_at = COALESCE(exomem_users.email_verified_at, now()),
+        deleted_at = NULL
+    WHERE (exomem_users.deleted_at IS NULL AND exomem_users.email = EXCLUDED.email)
+       OR (exomem_users.deleted_at IS NOT NULL AND exomem_users.email IS NULL)
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
 export type RedeemCloudInviteInput = {
   tokenDigest: Buffer;
   sessionDigest: Buffer;
@@ -182,6 +239,7 @@ export type RedeemCloudInviteInput = {
   timeZone?: string | null;
   /** The redeeming page's email scheme, already normalized. An invitation records none. */
   emailScheme?: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
 };
 
 export type RedeemedCloudAccess = {
@@ -237,16 +295,7 @@ export async function redeemCloudInviteAtomic(
     const timeZone = input.timeZone ?? invite.recipient_time_zone;
     const emailScheme = input.emailScheme ?? null;
 
-    const ownerResult = await tx`
-      INSERT INTO users (email, email_verified_at)
-      VALUES (${invite.email_normalized}, now())
-      ON CONFLICT (email) DO UPDATE
-      SET email = EXCLUDED.email,
-          email_verified_at = COALESCE(users.email_verified_at, now())
-      WHERE users.deleted_at IS NULL
-      RETURNING id
-    `;
-    const owner = ownerResult.rows[0] as { id: string } | undefined;
+    const owner = await resolveCloudAdmissionOwner(tx, invite.email_normalized);
     if (!owner) throw exomemErrors.accessTokenInvalid();
 
     if (await ownerHasAdmissionBlock(tx, owner.id)) throw exomemErrors.accessTokenInvalid();
@@ -261,14 +310,16 @@ export async function redeemCloudInviteAtomic(
       invite.marketplace_reviewer_purpose
     );
     if (existing === REFUSED) throw exomemErrors.accessTokenInvalid();
+    if (!(await verifyCloudAdmissionIdentity(tx, owner, invite.email_normalized))) {
+      throw exomemErrors.accessTokenInvalid();
+    }
 
     let tenantId: string;
     if (existing) {
       await tx`
         UPDATE exomem_tenants
         SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
-            time_zone = COALESCE(${timeZone}, time_zone),
-            email_scheme = COALESCE(${emailScheme}, email_scheme)
+            time_zone = COALESCE(${timeZone}, time_zone)
         WHERE id = ${existing.id}::uuid
       `;
       await clearLifecycleDeletionBlock(tx, existing.id);
@@ -283,6 +334,8 @@ export async function redeemCloudInviteAtomic(
       if (!tenant) throw exomemErrors.accessTokenInvalid();
       tenantId = tenant.id;
     }
+
+    await initializeExomemTheme(tx, tenantId, input.themeChoice ?? null, emailScheme);
 
     // D1/D4: a complimentary invite starts running; a paid invite is
     // awaiting_checkout and starts stopped, holding its capacity slot from
@@ -339,6 +392,7 @@ export async function redeemCloudInviteAtomic(
       recipient: invite.email_normalized,
       recipientTimeZone: timeZone,
       recipientEmailScheme: emailScheme,
+      recipientThemeChoice: input.themeChoice,
       // The hold reminder reads the inviter's name from this invitation when
       // it is sent, so deleting the inviter's account also removes it there.
       inviterName: null,
@@ -467,7 +521,7 @@ export type RedeemedCloudBrowserAccess = RedeemedCloudAccess & SessionMaterial;
  */
 export async function redeemCloudInvite(
   token: string,
-  options: { timeZone?: string | null; emailScheme?: ExomemEmailScheme | null } = {}
+  options: { timeZone?: string | null; emailScheme?: ExomemEmailScheme | null; themeChoice?: ExomemThemeChoice | null } = {}
 ): Promise<RedeemedCloudBrowserAccess> {
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
@@ -479,6 +533,7 @@ export async function redeemCloudInvite(
     sessionExpiresAt: session.expiresAt,
     timeZone: options.timeZone ?? null,
     emailScheme: options.emailScheme ?? null,
+    themeChoice: options.themeChoice ?? null,
   });
   if (!row) throw exomemErrors.accessTokenInvalid();
   return { ...row, ...session };
@@ -519,6 +574,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   timeZone?: string | null;
   /** The redeeming page's email scheme, already normalized. */
   emailScheme?: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
 }): Promise<CloudOAuthInviteAdmission | null> {
   try {
     // Security review finding 15: without this, an OAuth transaction minted
@@ -585,16 +641,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       const timeZone = input.timeZone ?? invite.recipient_time_zone;
       const emailScheme = input.emailScheme ?? null;
 
-      const ownerResult = await tx`
-        INSERT INTO users (email, email_verified_at)
-        VALUES (${invite.email_normalized}, now())
-        ON CONFLICT (email) DO UPDATE
-        SET email = EXCLUDED.email,
-            email_verified_at = COALESCE(users.email_verified_at, now())
-        WHERE users.deleted_at IS NULL
-        RETURNING id
-      `;
-      const owner = ownerResult.rows[0] as { id: string } | undefined;
+      const owner = await resolveCloudAdmissionOwner(tx, invite.email_normalized);
       if (!owner) throw new CloudOAuthAdmissionRejected();
 
       if (await ownerHasAdmissionBlock(tx, owner.id)) throw new CloudOAuthAdmissionRejected();
@@ -606,14 +653,16 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         invite.marketplace_reviewer_purpose
       );
       if (existing === REFUSED) throw new CloudOAuthAdmissionRejected();
+      if (!(await verifyCloudAdmissionIdentity(tx, owner, invite.email_normalized))) {
+        throw new CloudOAuthAdmissionRejected();
+      }
 
       let tenantId: string;
       if (existing) {
         await tx`
           UPDATE exomem_tenants
           SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
-              time_zone = COALESCE(${timeZone}, time_zone),
-              email_scheme = COALESCE(${emailScheme}, email_scheme)
+              time_zone = COALESCE(${timeZone}, time_zone)
           WHERE id = ${existing.id}::uuid
         `;
         await clearLifecycleDeletionBlock(tx, existing.id);
@@ -628,6 +677,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         if (!tenant) throw new CloudOAuthAdmissionRejected();
         tenantId = tenant.id;
       }
+
+      await initializeExomemTheme(tx, tenantId, input.themeChoice ?? null, emailScheme);
 
       const isComplimentary = invite.entitlement_source === "complimentary";
       const desiredCellState = isComplimentary ? "running" : "stopped";
@@ -675,6 +726,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         recipient: invite.email_normalized,
         recipientTimeZone: timeZone,
         recipientEmailScheme: emailScheme,
+      recipientThemeChoice: input.themeChoice,
         // See redeemCloudInviteAtomic's matching call.
         inviterName: null,
       });

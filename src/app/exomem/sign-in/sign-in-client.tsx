@@ -7,7 +7,7 @@ import {
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import { currentExomemTheme } from "@/lib/exomem/theme";
+import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
 import styles from "../_journey/journey.module.css";
 import { failureCopy, startCopy } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
@@ -78,6 +78,7 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
       ...(emailRequired ? { expectedEmail: email } : {}),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       emailScheme: currentExomemTheme(document.documentElement),
+      themeChoice: currentExomemThemeChoice(document.documentElement),
     })
       .then((result) => {
         token.current = null;

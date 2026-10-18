@@ -134,7 +134,7 @@ describe(
       __setExomemSqlForTests(sql);
     });
     beforeEach(async () => {
-      await pool.query("TRUNCATE users CASCADE");
+      await pool.query("TRUNCATE exomem_users, users CASCADE");
       await pool.query("TRUNCATE exomem_rate_limit_buckets");
       callbacks.length = 0;
       registrationFails = false;

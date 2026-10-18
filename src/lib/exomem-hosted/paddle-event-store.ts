@@ -266,20 +266,20 @@ export function createSqlExomemPaddleEventStore(
         ),
         payment_failed_email AS (
           INSERT INTO exomem_email_outbox (
-            kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, tenant_id,
+            kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
             payload_ciphertext
           )
           SELECT 'payment_failed',
                  'payment-failed:' || decision.tenant_id::text || ':' || ${graceStartedAt}::text,
                  owner.email,
                  tenant.time_zone,
-                 tenant.email_scheme,
+                 tenant.email_scheme, tenant.theme_choice,
                  tenant.id,
                  ${paymentFailedPayload}::jsonb
           FROM projected
           JOIN decision ON decision.entitlement_id = projected.id
           JOIN exomem_tenants AS tenant ON tenant.id = decision.tenant_id
-          JOIN users AS owner ON owner.id = tenant.owner_user_id
+          JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
           WHERE ${mayStartGrace}::boolean
             AND decision.prior_source_state IS DISTINCT FROM 'past_due'
             AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
@@ -302,7 +302,7 @@ export function createSqlExomemPaddleEventStore(
           JOIN LATERAL (
             SELECT invite.id AS invite_id
             FROM exomem_tenants AS owned
-            JOIN users AS owner ON owner.id = owned.owner_user_id
+            JOIN exomem_users AS owner ON owner.id = owned.owner_user_id
             JOIN exomem_invites AS invite ON invite.email_normalized = owner.email
             WHERE owned.id = decision.tenant_id
               AND invite.kind = 'friend'

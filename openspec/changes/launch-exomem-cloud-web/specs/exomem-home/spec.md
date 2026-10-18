@@ -51,6 +51,52 @@ The signed-in Home surface SHALL render one of preparing, awaiting-payment, read
 
 ## ADDED Requirements
 
+### Requirement: Exomem theme follows an explicit account choice
+
+Exomem SHALL offer Auto, Light and Dark through one shared control. Auto follows the device; explicit choices remain selected across device changes.
+The account SHALL store the selected mode separately from its effective colour scheme. A known account choice SHALL apply before first paint.
+Browser state MUST remain scoped to the account and reset on sign-out or account switching. Theme changes MUST NOT reload the page or remount live graphs.
+
+#### Scenario: Owner changes the theme
+
+- **WHEN** an owner selects Light or Dark
+- **THEN** every Exomem surface applies that theme immediately and remembers the account choice
+- **AND** a later email sends that scheme without an alternate colour-scheme media block
+
+#### Scenario: Owner selects Auto
+
+- **WHEN** the device changes its colour scheme while Auto is selected
+- **THEN** the page follows the device without a reload
+- **AND** future email uses the last effective base scheme and supports the alternate scheme
+
+#### Scenario: A different account signs in
+
+- **WHEN** the browser switches to another account
+- **THEN** its first paint uses that account's known preference rather than the previous account's browser cache
+
+#### Scenario: Preference service is unavailable
+
+- **WHEN** the optional pre-paint preference lookup exceeds its bounded deadline
+- **THEN** the page uses a valid same-account snapshot or anonymous Auto fallback without blocking authentication
+- **AND** a failed save never claims that the account preference was persisted
+
+### Requirement: Home follows the current frame without fabricated map data
+
+Home SHALL use the current approved desktop frame, responsive columns and header without tabs.
+It SHALL omit the deferred map preview without reserving empty space or substituting sample graph data.
+The wordmark SHALL respond only to newly observed real activity and SHALL remain still under reduced motion.
+
+#### Scenario: Owner opens Home before the map preview ships
+
+- **WHEN** Home renders a known account state
+- **THEN** its existing controls use the current frame and actual account data
+- **AND** the deferred map card creates no blank slot or dead navigation action
+
+#### Scenario: Initial activity history loads
+
+- **WHEN** Home receives its first historical activity response
+- **THEN** it shows the reported facts without replaying an activity ripple
+
 ### Requirement: Home offers Cloud plugin downloads and manual connection
 
 Home SHALL link to the current released Claude and OpenAI Cloud plugin ZIPs and their official installation guides. These links SHALL remain available after either provider is connected. Home SHALL retain the configured MCP address and involvement instructions for manual connection. Guidance MUST qualify provider plan and workspace limits and MUST NOT imply unverified directory publication.

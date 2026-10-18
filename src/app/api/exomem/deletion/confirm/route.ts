@@ -35,7 +35,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
       }
     );
-    clearSessionCookies(response);
+    clearSessionCookies(response, request);
     return response;
   } catch (error) {
     const response = safeErrorResponse(error);

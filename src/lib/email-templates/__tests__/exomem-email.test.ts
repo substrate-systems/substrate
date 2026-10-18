@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { JSDOM } from "jsdom";
 import { exomemTokens } from "@/lib/exomem/design-tokens";
 import { renderExomemMagicLinkEmail } from "../exomem-access";
 import { exomemEmailSchemeQuery, exomemSenderName } from "../exomem-email";
@@ -160,4 +161,24 @@ describe("Exomem emails", () => {
     assert.equal(reminder(7).subject, "7 days until your Exomem is deleted");
     assert.equal(reminder(1).subject, "1 day until your Exomem is deleted");
   });
+});
+
+describe("explicit account email theme", () => {
+  for (const themeChoice of ["light", "dark"] as const) {
+    it(`keeps an explicit ${themeChoice} email in that scheme without a device override`, () => {
+      const email = renderExomemMagicLinkEmail({
+        accessUrl: "https://example.test/sign-in",
+        expiresAt: new Date(Date.now() + 60_000),
+        scheme: themeChoice === "light" ? "dark" : "light",
+        themeChoice,
+      });
+      const html = new JSDOM(email.htmlContent).window.document;
+      assert.equal(
+        html.querySelector('meta[name="color-scheme"]')?.getAttribute("content"),
+        themeChoice
+      );
+      assert.equal(email.htmlContent.includes("prefers-color-scheme"), false);
+      assert.equal(html.querySelectorAll("img").length, 2);
+    });
+  }
 });

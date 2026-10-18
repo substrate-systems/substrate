@@ -1,5 +1,7 @@
 # Exomem — design handoff
 
+> **Start with [`CANON.md`](CANON.md).** It names the one board, props and image that are canonical for every screen and state, and it wins over anything below.
+
 **Status:** design locked 12 Oct 2026 after 38 review rounds. This folder is everything needed to build it: the rules, the design system, every surface and state, the copy, and what the backend must provide.
 **Product:** Exomem, an epistemic knowledge base served over MCP, plus Exomem Cloud. By Substrate Systems.
 **Positioning:** "Grows with you. Stays true." Exomem is *an epistemic knowledge base*: one memory for every assistant and every session a person connects. Never write a fixed number of assistants ("4 assistants" is banned).
@@ -203,7 +205,7 @@ Source: `R28-Emails.dc.html` (template and catalogue), `R12-Lifecycle.dc.html` (
 9. Small print — every time limit, computed at send, in the reader's time zone; say what happens if ignored.
 10. Footer — "Exomem by Substrate Systems". Service emails, no unsubscribe.
 
-Each email is built on the scheme the person had on the site, and on dark when that is unknown. The other scheme applies through `prefers-color-scheme` in mail apps that report one. Inviters get exactly two emails: used (12) and ended unused (13). Full catalogue: **Appendix B**.
+Each email follows the person's theme choice (see CANON.md, Theme): on Auto it is built on the scheme the site showed, or dark when that is unknown, and the other scheme applies through `prefers-color-scheme` in mail apps that report one; on a picked Light or Dark it is sent in that scheme only. Inviters get exactly two emails: used (12) and ended unused (13). Full catalogue: **Appendix B**.
 
 ### 3.5 Graph viewer (new route, e.g. `/exomem/graph`)
 

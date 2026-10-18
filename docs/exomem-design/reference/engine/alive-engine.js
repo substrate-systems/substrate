@@ -20,7 +20,7 @@
       this.N = (g.n || []).map(([x, y, r]) => ({ x, y, r: r || 3 }));
       this.E = (g.e || []).filter(([i, j]) => this.N[i] && this.N[j]);
       this.adj = this.N.map(() => []); this.E.forEach(([i, j], k) => { this.adj[i].push([j, k]); this.adj[j].push([i, k]); });
-      this.ink = svg.getAttribute('data-ink') || '#ECE9E2'; this.amber = svg.getAttribute('data-amber') || '#FFB000';
+      this.ink = svg.getAttribute('data-ink') || '#ECE9E2'; this.amber = svg.getAttribute('data-amber') || '#FFB000'; this.lit = new Set((svg.getAttribute('data-lit') || '').split(',').filter((v) => v !== '').map(Number));   // notes already amber at rest: the hover leaves them as they are
       const vb = (svg.getAttribute('viewBox') || '0 0 100 100').split(/[ ,]+/).map(Number); this.vb = vb;
       const en = (svg.getAttribute('data-entry') || '').split(',').map(Number); this.entry = en.length === 2 && !isNaN(en[0]) ? { x: en[0], y: en[1] } : { x: vb[0] + vb[2] / 2, y: vb[1] + vb[3] };
       this.reduced = reducedQ();
@@ -203,8 +203,8 @@
     }
     light(i, ms) {
       const p = this.N[i]; if (!p) return;
-      const halo = this.dot(p, p.r + 6, { fill: this.k < 1 ? '#FFB000' : this.amber, opacity: 0 }, this.evt), core = this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.evt), t0 = performance.now();
-      this.items.push({ el: core, step: () => { const s = (performance.now() - t0) / ms, a = s < 0.15 ? s / 0.15 : s > 0.7 ? Math.max(0, (1 - s) / 0.3) : 1; core.setAttribute('opacity', a.toFixed(2)); halo.setAttribute('opacity', ((this.k < 1 ? 0.3 : 0.16) * a).toFixed(3)); if (s >= 1) { core.remove(); halo.remove(); return false; } } });
+      const halo = this.dot(p, p.r + 6, { fill: this.amber, opacity: 0 }, this.evt), core = this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.evt), t0 = performance.now();
+      this.items.push({ el: core, step: () => { const s = (performance.now() - t0) / ms, a = s < 0.15 ? s / 0.15 : s > 0.7 ? Math.max(0, (1 - s) / 0.3) : 1; core.setAttribute('opacity', a.toFixed(2)); halo.setAttribute('opacity', ((this.k < 1 ? 0.18 : 0.16) * a).toFixed(3)); if (s >= 1) { core.remove(); halo.remove(); return false; } } });
     }
     nearest(p, ok) { let b = 0, bd = 1e9; this.N.forEach((q, i) => { if (ok && !ok(i)) return; const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2; if (d < bd) { bd = d; b = i; } }); return b; }
     route(a, b, ok, eok) { const prev = new Map([[a, -1]]), q = [a]; while (q.length) { const u = q.shift(); if (u === b) break; for (const [v] of this.adj[u]) if (!prev.has(v) && (!ok || ok(v) || v === b) && (!eok || eok(u, v))) { prev.set(v, u); q.push(v); } } if (!prev.has(b)) return eok ? null : ok ? this.route(a, b) : [a, b]; const out = []; for (let u = b; u !== -1; u = prev.get(u)) out.unshift(u); return out; }
@@ -249,12 +249,12 @@
         this.hovI = want; this.hovK = this.reduced ? 1 : 0; while (this.hov.firstChild) this.hov.firstChild.remove();
         if (want >= 0) {
           const p = this.N[want], nb = this.adj[want].map(([j]) => j);
-          this.hovEls = { links: nb.map((j) => this.line(...this.trim(want, j), { stroke: this.amber, 'stroke-width': 1, opacity: 0 }, this.hov)), wake: nb.map((j) => this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)), halo: this.dot(p, p.r + 6, { fill: this.k < 1 ? '#FFB000' : this.amber, opacity: 0 }, this.hov), core: this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.hov) };
+          this.hovEls = { links: nb.map((j) => this.line(...this.trim(want, j), { stroke: this.amber, 'stroke-width': 1, opacity: 0 }, this.hov)), wake: nb.filter((j) => !this.lit.has(j)).map((j) => this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)), halo: this.dot(p, p.r + 6, { fill: this.amber, opacity: 0 }, this.hov), core: this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.hov) };
         }
       }
       if (this.hovI >= 0 && this.hovEls) {
         this.hovK = this.reduced ? 1 : this.hovK + (1 - this.hovK) * 0.16; const k = this.hovK, E = this.hovEls;
-        E.core.setAttribute('opacity', k.toFixed(2)); E.halo.setAttribute('opacity', ((this.k < 1 ? 0.3 : 0.16) * k).toFixed(3));
+        E.core.setAttribute('opacity', k.toFixed(2)); E.halo.setAttribute('opacity', ((this.k < 1 ? 0.18 : 0.16) * k).toFixed(3));
         E.links.forEach((el) => el.setAttribute('opacity', ((this.k < 1 ? 0.8 : 0.45) * k).toFixed(3))); E.wake.forEach((el) => el.setAttribute('opacity', (0.62 * this.k * k).toFixed(3)));
       }
     }
@@ -286,7 +286,7 @@
   };
   const M = window.__exoAlive = {
     trim: trimSvg,
-    scan() { document.querySelectorAll('svg[data-alive],svg[data-graph],svg[data-exo-graph]').forEach(trimSvg); document.querySelectorAll('svg[data-alive]').forEach((svg) => { const m = svg.getAttribute('data-alive'); if (svg.__alive && (svg.__alive.mode !== m || svg.__alive.dead)) { svg.__alive.root.remove(); svg.__alive.amb.remove(); cancelAnimationFrame(svg.__alive.raf); svg.__alive = null; } if (!svg.__alive && m && m !== 'off' && m !== 'shipped') svg.__alive = new Alive(svg); }); },
+    scan() { document.querySelectorAll('svg[data-alive],svg[data-graph],svg[data-exo-graph]').forEach(trimSvg); document.querySelectorAll('svg[data-alive]').forEach((svg) => { const m = svg.getAttribute('data-alive'), ik = (svg.getAttribute('data-ink') || '') + '|' + (svg.getAttribute('data-amber') || ''); if (svg.__alive && (svg.__alive.mode !== m || svg.__alive.dead || (svg.__alive.ik !== undefined && svg.__alive.ik !== ik))) { svg.__alive.root.remove(); svg.__alive.amb.remove(); cancelAnimationFrame(svg.__alive.raf); svg.__alive = null; } if (!svg.__alive && m && m !== 'off' && m !== 'shipped') { svg.__alive = new Alive(svg); svg.__alive.ik = ik; } }); },   // R53: a theme change (new ink or amber) restarts the engine in the new colours, no remount needed
     fire(sel, ev) { document.querySelectorAll(sel).forEach((svg) => { try { if (svg.__alive) svg.__alive.event(ev); } catch (e) {} }); },
   };
   setInterval(() => M.scan(), 400); M.scan();

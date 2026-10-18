@@ -7,6 +7,8 @@
  * response never depends on the outcome.
  */
 
+import { type ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import { createHash } from "node:crypto";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
@@ -158,6 +160,7 @@ async function enqueueStartLinkEmail(
     emailNormalized: string;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
     link: StartLinkMaterial;
     invite: { inviteId: string; expiresAt: string };
   }
@@ -168,6 +171,7 @@ async function enqueueStartLinkEmail(
     recipient: input.emailNormalized,
     recipientTimeZone: input.timeZone,
     recipientEmailScheme: input.emailScheme,
+    recipientThemeChoice: input.themeChoice,
     payload: {
       version: 1,
       inviteId: input.invite.inviteId,
@@ -200,11 +204,13 @@ export async function startSelfServeAtomic(input: {
   timeZone: string | null;
   /** Absent is unknown: the emails are dark. */
   emailScheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
   mode: "waitlist" | "open";
   randomBytes?: RandomBytesSource;
 }): Promise<StartOutcome> {
   const link = mintStartLink(input.randomBytes);
   const emailScheme = input.emailScheme ?? null;
+  const themeChoice = input.themeChoice ?? "auto";
   return withExomemTransaction(async (tx) => {
     await lockCloudCapacity(tx);
 
@@ -239,6 +245,7 @@ export async function startSelfServeAtomic(input: {
         emailNormalized: input.emailNormalized,
         timeZone,
         emailScheme,
+        themeChoice,
         link,
         invite,
       });
@@ -268,6 +275,7 @@ export async function startSelfServeAtomic(input: {
           emailNormalized: input.emailNormalized,
           timeZone: input.timeZone,
           emailScheme,
+          themeChoice,
           link,
           invite,
         });
@@ -295,7 +303,7 @@ export async function startSelfServeAtomic(input: {
       await tx`
         /* exomem:start-waitlist-keep-place */
         UPDATE exomem_waitlist_entries
-        SET email_scheme = COALESCE(${emailScheme}, email_scheme), updated_at = now()
+        SET email_scheme = COALESCE(${emailScheme}, email_scheme), theme_choice = ${themeChoice}, updated_at = now()
         WHERE id = ${entry.id}::uuid
       `;
       entryId = entry.id;
@@ -307,8 +315,8 @@ export async function startSelfServeAtomic(input: {
       }
       const inserted = await tx`
         /* exomem:start-waitlist-join */
-        INSERT INTO exomem_waitlist_entries (email_normalized, time_zone, email_scheme)
-        VALUES (${input.emailNormalized}, NULL, ${emailScheme})
+        INSERT INTO exomem_waitlist_entries (email_normalized, time_zone, email_scheme, theme_choice)
+        VALUES (${input.emailNormalized}, NULL, ${emailScheme}, ${themeChoice})
         RETURNING id
       `;
       entryId = (inserted.rows[0] as { id: string }).id;
@@ -321,6 +329,7 @@ export async function startSelfServeAtomic(input: {
       recipient: input.emailNormalized,
       recipientTimeZone: timeZone,
       recipientEmailScheme: emailScheme,
+      recipientThemeChoice: themeChoice,
       payload: { version: 1, entryId },
       expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
     });
@@ -360,11 +369,11 @@ export async function promoteWaitlistedPeople(
   const owners = await executeExomemSql`
     /* exomem:promote-settle-owners */
     DELETE FROM exomem_waitlist_entries AS entry
-    USING users
-    JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+    USING exomem_users
+    JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
     WHERE entry.admitted_at IS NULL
-      AND users.email = entry.email_normalized
-      AND users.deleted_at IS NULL
+      AND exomem_users.email = entry.email_normalized
+      AND exomem_users.deleted_at IS NULL
       AND tenant.status IN ('provisioning', 'active', 'suspended')
       AND tenant.deleted_at IS NULL
     RETURNING entry.id
@@ -377,7 +386,7 @@ export async function promoteWaitlistedPeople(
       await lockCloudCapacity(tx);
       const oldest = await tx`
         /* exomem:promote-oldest-waiting */
-        SELECT id, email_normalized::text AS email_normalized, time_zone, email_scheme
+        SELECT id, email_normalized::text AS email_normalized, time_zone, email_scheme, theme_choice
         FROM exomem_waitlist_entries
         WHERE admitted_at IS NULL
         ORDER BY created_at, id
@@ -389,6 +398,7 @@ export async function promoteWaitlistedPeople(
             id: string;
             email_normalized: string;
             time_zone: string | null;
+            theme_choice?: ExomemThemeChoice | null;
             email_scheme: ExomemEmailScheme | null;
           }
         | undefined;
@@ -411,6 +421,7 @@ export async function promoteWaitlistedPeople(
         emailNormalized: entry.email_normalized,
         timeZone: entry.time_zone,
         emailScheme: entry.email_scheme,
+        themeChoice: entry.theme_choice,
         link,
         invite,
       });
@@ -475,10 +486,10 @@ export async function pruneStaleSelfServeRecords(limit = 500): Promise<SelfServe
           )
           AND NOT EXISTS (
             SELECT 1
-            FROM users
-            JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
-            WHERE users.email = candidate.email_normalized
-              AND users.deleted_at IS NULL
+            FROM exomem_users
+            JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
+            WHERE exomem_users.email = candidate.email_normalized
+              AND exomem_users.deleted_at IS NULL
               AND tenant.status IN ('provisioning', 'active', 'suspended')
               AND tenant.deleted_at IS NULL
           )

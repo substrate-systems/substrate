@@ -134,6 +134,7 @@ async function resetFleet(): Promise<void> {
   await pool!.query("DELETE FROM exomem_entitlements");
   await pool!.query("DELETE FROM exomem_cloud_cells");
   await pool!.query("DELETE FROM exomem_tenants");
+  await pool!.query("DELETE FROM exomem_users");
   await pool!.query("DELETE FROM users");
   await pool!.query("DELETE FROM exomem_cloud_capacity");
 }

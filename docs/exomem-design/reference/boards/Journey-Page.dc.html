@@ -10,6 +10,8 @@
 <helmet>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
 <style>
+.thb:hover,.thb[aria-expanded="true"]{background:var(--thhov) !important;color:var(--thfg) !important}.thb:focus-visible,.thr:focus-visible{outline:2px solid var(--thacc);outline-offset:2px}.thr:hover{background:var(--thhov) !important;color:var(--thfg) !important}@media (prefers-reduced-motion: no-preference){.thm{animation:thIn .15s ease-out both}}@keyframes thIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
 .jp .jhome{all:unset;display:block;line-height:0;border-radius:4px;cursor:pointer}.jp .jhome:disabled{cursor:default}.jp.t-dark .jhome:focus-visible{outline:2px solid transparent;outline-offset:3px;box-shadow:0 0 0 4px rgba(255,176,0,.9)}.jp.t-light .jhome:focus-visible{outline:2px solid transparent;outline-offset:3px;box-shadow:0 0 0 4px rgba(168,110,0,.9)}
 
 /* Exomem text selection (R45) */.jp.t-dark ::selection{background:rgba(255,176,0,.3);color:#ECE9E2}.jp.t-light ::selection{background:rgba(168,110,0,.3);color:#1A1814}
@@ -26,8 +28,8 @@
 .jp.ck:hover::-webkit-scrollbar-thumb{background-color:rgba(var(--sbj),.26)}
 .jp.ck::-webkit-scrollbar-thumb:hover{background-color:rgba(var(--sbj),.42);border-width:3px}
 .jp.ck::-webkit-scrollbar-thumb:active{background-color:var(--acj);border-width:3px}
-.jp.al.t-light{--glow:rgba(255,176,0,.5)}
-.jp.al.t-light .gn.c0,.jp.al.t-light .gn.on{box-shadow:0 0 9px 1px rgba(255,176,0,.55)}
+/* R53: in light every amber is the gold; a lit note gets the flat gold halo, as the engine draws it */.jp.al.t-light{--glow:rgba(168,110,0,.3)}
+.jp.al.t-light .gn.c0,.jp.al.t-light .gn.on{box-shadow:0 0 0 5px rgba(168,110,0,.18)}
 .jp.al.t-light .ge.cn:not(.nw) .gi,.jp.al.t-light .ge.cn.gr .gi{opacity:.85}
 .jp.al.t-light .ge.on .gi{opacity:.85}
 body{margin:0}
@@ -39,7 +41,7 @@ body{margin:0}
 .s-connecting .fl{animation:jLine 1.8s ease-in-out var(--ld) infinite}
 /* graph + web */
 .ge{position:absolute;height:1px;transform-origin:0 50%}
-.gi{width:100%;height:100%;background:var(--fg);opacity:.075;transform-origin:0 50%;transition:background .55s ease,opacity .55s ease}
+.gi{width:100%;height:100%;background:var(--fg);opacity:.09;transform-origin:0 50%;transition:background .55s ease,opacity .55s ease}
 .ge.on .gi{background:var(--acc);opacity:.62}
 .gn{position:absolute;border-radius:50%;background:var(--fg);opacity:.24;transition:background .55s ease,opacity .55s ease,transform .55s cubic-bezier(.2,.8,.2,1),box-shadow .55s ease}
 .gn.near{opacity:.6}
@@ -50,7 +52,7 @@ body{margin:0}
 .m-web.s-connecting .ge:not(.nw) .gi,.m-web.s-connecting .ge.gr .gi{animation:jGlow 1.4s ease-out var(--dd) both}
 .s-connecting .gn{animation:jHit 1s ease-out var(--nd) both}
 .s-connected .gi{animation:jLive 2.6s ease-out both}
-.s-connected .gn{animation:jNodeRest 2.6s ease-out both}
+/* R53: backwards, not both: once a note has come to rest it takes its class styles again, so hover lights it after connecting too */.s-connected .gn{animation:jNodeRest 2.6s ease-out backwards}
 .gp{position:absolute;top:-1.5px;left:0;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--acc);box-shadow:0 0 6px var(--acc);opacity:0}
 .s-connected .ge.sg .gp{animation:jSig 1.5s cubic-bezier(.45,0,.55,1) both}
 .s-connected .gn.hub{animation:jHubIn 1.4s ease-out both,jHub 2.8s ease-in-out 1.4s infinite alternate}
@@ -91,7 +93,7 @@ body{margin:0}
 @keyframes jSig{0%{left:0;opacity:0}15%{opacity:1}85%{opacity:1}100%{left:100%;opacity:0}}
 @keyframes jRest{0%{transform:scaleX(1);background:var(--acc);opacity:.34}100%{transform:scaleX(1);background:var(--fg);opacity:.1}}
 @keyframes jHit{0%{background:var(--fg);opacity:.24;transform:scale(1)}28%{background:var(--acc);opacity:1;transform:scale(1.9);box-shadow:0 0 11px var(--acc)}100%{background:var(--acc);opacity:.75;transform:scale(1);box-shadow:0 0 0 transparent}}
-@keyframes jNodeRest{0%{background:var(--acc);opacity:.75}100%{background:var(--fg);opacity:.3}}
+@keyframes jNodeRest{0%{background:var(--acc);opacity:.75}}
 @keyframes jHubIn{0%{background:var(--acc);opacity:.75;box-shadow:0 0 0 transparent}100%{background:var(--acc);opacity:.7;box-shadow:0 0 5px var(--acc)}}
 @keyframes jHub{0%{background:var(--acc);opacity:.7;box-shadow:0 0 5px var(--acc)}100%{background:var(--acc);opacity:1;box-shadow:0 0 11px var(--acc)}}
 @keyframes jTravel{0%{transform:translateX(0);opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:translateX(var(--pw));opacity:0}}
@@ -127,13 +129,13 @@ body{margin:0}
 .gn.c1{opacity:.62;transition-duration:.3s}.gn.c0{background:var(--acc);opacity:1;transform:scale(1.55);box-shadow:0 0 10px var(--glow);transition-duration:.3s}
 .ge.cn:not(.nw) .gi,.ge.cn.gr .gi{background:var(--acc);opacity:.45;transition:background .3s ease,opacity .3s ease}
 .t-light .gn.c1{opacity:.62}
-.t-light .gi{opacity:.12}.t-light .gn{opacity:.3}.t-light .gn.near{opacity:.62}
+.t-light .gi{opacity:.09}/* R53: the field's links match the strength of Home's header graph (about 1.2:1 against the page) in both themes */.t-light .gn{opacity:.3}.t-light .gn.near{opacity:.62}
 .jp:not(.lb).t-light .gn.c0,.jp:not(.lb).t-light .gn.on{opacity:1}.t-light .fd{opacity:.16}
 .wk2{animation:jpBlink 1.4s ease-in-out infinite}@keyframes jpBlink{0%,100%{opacity:1}50%{opacity:.3}}
 @media (prefers-reduced-motion: reduce){.jp *{animation:none !important;transition:none !important}}
 </style>
 </helmet>
-<main onMouseMove="{{ onMove }}" onMouseLeave="{{ onLeave }}" onPointerDown="{{ onTap }}" class="jp {{ offCls }} {{ ckCls }} {{ aliveCls }} {{ lbCls }} t-{{ theme }} s-{{ phase }} m-{{ mode }} k-{{ kind }} {{ rmCls }}" style="--acc: {{accent}}; --fg: {{fg}}; --tint: {{tint}}; --glow: {{glow}}; --pw: {{ pw }}px; width: {{ vw }}px; height: {{ vh }}px; position: relative; overflow: hidden; background: {{bg}}; color: {{fg}}; font-family: Inter, system-ui, sans-serif">
+<main onMouseMove="{{ onMove }}" onMouseLeave="{{ onLeave }}" onPointerDown="{{ onTap }}" class="jp {{ offCls }} {{ ckCls }} {{ aliveCls }} {{ lbCls }} t-{{ theme }} s-{{ phase }} m-{{ mode }} k-{{ kind }} {{ rmCls }}" style="--acc: {{accent}}; --fg: {{fg}}; --tint: {{tint}}; --glow: {{glow}}; --pw: {{ pw }}px; width: {{ vw }}px; height: {{ vh }}px; position: relative; overflow: hidden; background: {{bg}}; color: {{fg}}; font-family: Inter, system-ui, sans-serif"><sc-if value="{{ thPhone }}" hint-placeholder-val="{{ false }}"><div class="jth" style="position: absolute; right: {{ gutter }}px; top: {{ thTop }}px; z-index: 30; line-height: 0"><span class="thc" onKeyDown="{{ thKey }}" style="position: relative; display: inline-flex; flex: none; --thhov: {{ thHover }}; --thfg: {{ thFg }}; --thacc: {{ thAcc }}"><button type="button" class="thb" onClick="{{ thToggle }}" aria-label="{{ thAria }}" title="{{ thAria }}" aria-haspopup="menu" aria-expanded="{{ thOpen ? 'true' : 'false' }}" style="width: 40px; height: 40px; margin: -6px; border-radius: 50%; border: 0; background: transparent; color: {{ thMuted }}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background .15s ease, color .15s ease"><sc-if value="{{ thChoice === 'auto' }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ thChoice === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ thChoice === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if></button><sc-if value="{{ thOpen }}" hint-placeholder-val="{{ false }}"><span onClick="{{ thClose }}" style="position: fixed; inset: 0; z-index: 300"></span><span class="thm" role="menu" aria-label="Theme" style="position: absolute; top: calc(100% + 10px); right: -8px; z-index: 301; width: 172px; box-sizing: border-box; padding: 4px; background: {{ thRaised }}; border: 1px solid {{ thBorder }}; border-radius: 10px; box-shadow: 0 20px 50px -10px {{ thShadow }}; display: flex; flex-direction: column; gap: 2px; text-align: left"><sc-for list="{{ thRows }}" as="r"><button type="button" class="thr" role="menuitemradio" aria-checked="{{ r.on ? 'true' : 'false' }}" onClick="{{ r.pick }}" style="display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; box-sizing: border-box; padding: 0 10px; border: 0; border-radius: 7px; background: {{ r.on ? thHover : 'transparent' }}; color: {{ r.on ? thFg : thMuted }}; font: 400 13.5px/1 Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; cursor: pointer; text-align: left"><sc-if value="{{ r.k === 'auto' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ r.k === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ r.k === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if><span style="flex: 1; text-align: left">{{ r.label }}</span><sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><span style="font: 400 12px/1 'IBM Plex Mono', monospace">✓</span></sc-if></button></sc-for></span></sc-if></span></div></sc-if><sc-if value="{{ !thPhone }}" hint-placeholder-val="{{ true }}"><div class="jth" style="position: absolute; right: {{ gutter }}px; top: {{ thTop }}px; z-index: 30; line-height: 0"><span class="thc" onKeyDown="{{ thKey }}" style="position: relative; display: inline-flex; flex: none; --thhov: {{ thHover }}; --thfg: {{ thFg }}; --thacc: {{ thAcc }}"><button type="button" class="thb" onClick="{{ thToggle }}" aria-label="{{ thAria }}" title="{{ thAria }}" aria-haspopup="menu" aria-expanded="{{ thOpen ? 'true' : 'false' }}" style="width: 36px; height: 36px; margin: -4px; border-radius: 50%; border: 0; background: transparent; color: {{ thMuted }}; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background .15s ease, color .15s ease"><sc-if value="{{ thChoice === 'auto' }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ thChoice === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ thChoice === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if></button><sc-if value="{{ thOpen }}" hint-placeholder-val="{{ false }}"><span onClick="{{ thClose }}" style="position: fixed; inset: 0; z-index: 300"></span><span class="thm" role="menu" aria-label="Theme" style="position: absolute; top: calc(100% + 10px); right: -8px; z-index: 301; width: 172px; box-sizing: border-box; padding: 4px; background: {{ thRaised }}; border: 1px solid {{ thBorder }}; border-radius: 10px; box-shadow: 0 20px 50px -10px {{ thShadow }}; display: flex; flex-direction: column; gap: 2px; text-align: left"><sc-for list="{{ thRows }}" as="r"><button type="button" class="thr" role="menuitemradio" aria-checked="{{ r.on ? 'true' : 'false' }}" onClick="{{ r.pick }}" style="display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; box-sizing: border-box; padding: 0 10px; border: 0; border-radius: 7px; background: {{ r.on ? thHover : 'transparent' }}; color: {{ r.on ? thFg : thMuted }}; font: 400 13.5px/1 Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; cursor: pointer; text-align: left"><sc-if value="{{ r.k === 'auto' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="6.00" fill="none" stroke="currentColor" stroke-width="1.425"/><path d="M7.5 1.50 A6.00 6.00 0 0 0 7.5 13.50 Z" fill="currentColor"/></svg></sc-if><sc-if value="{{ r.k === 'light' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="3.00" fill="none" stroke="currentColor" stroke-width="1.425"/><line x1="12.60" y1="7.50" x2="14.40" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="11.11" x2="12.38" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="12.60" x2="7.50" y2="14.40" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="11.11" x2="2.62" y2="12.38" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="2.40" y1="7.50" x2="0.60" y2="7.50" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="3.89" y1="3.89" x2="2.62" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="7.50" y1="2.40" x2="7.50" y2="0.60" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/><line x1="11.11" y1="3.89" x2="12.38" y2="2.62" stroke="currentColor" stroke-width="1.425" stroke-linecap="round"/></svg></sc-if><sc-if value="{{ r.k === 'dark' }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true"><path d="M9.00 1.50 A6.00 6.00 0 1 0 13.50 9.00 A4.68 4.68 0 0 1 9.00 1.50 Z" fill="none" stroke="currentColor" stroke-width="1.425" stroke-linejoin="round"/></svg></sc-if><span style="flex: 1; text-align: left">{{ r.label }}</span><sc-if value="{{ r.on }}" hint-placeholder-val="{{ false }}"><span style="font: 400 12px/1 'IBM Plex Mono', monospace">✓</span></sc-if></button></sc-for></span></sc-if></span></div></sc-if>
   <sc-for list="{{ lines }}" as="l" hint-placeholder-count="0">
     <div class="fl" style="left: {{ l.x }}px; top: {{ l.y }}px; width: {{ l.w }}px; transform: rotate({{ l.a }}deg); --ld: {{ l.d }}s"></div>
   </sc-for>
@@ -150,7 +152,7 @@ body{margin:0}
   <div class="jhd" style="position: absolute; left: {{ gutter }}px; top: 29px; line-height: 0; color: {{fg}}"><button type="button" class="jhome" onClick="{{ homeAct }}" disabled="{{ homeOff }}" aria-label="{{ homeLabel }}" title="{{ homeTitle }}"><svg viewBox="2.30 -27.92 139.90 28.40" height="17" aria-hidden="true"><g transform="translate(-6.642 -32.782) scale(0.7843)"><circle cx="13.6" cy="8.4" r="2.2" fill="currentColor"/><circle cx="18.8" cy="8.4" r="2.2" fill="currentColor"/><circle cx="24" cy="8.4" r="2.2" fill="currentColor"/><circle cx="29.2" cy="8.4" r="2.2" fill="currentColor"/><circle cx="34.4" cy="8.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="13.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="18.8" r="2.2" fill="currentColor"/><circle cx="13.6" cy="29.2" r="2.2" fill="currentColor"/><circle cx="13.6" cy="34.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="39.6" r="2.2" fill="currentColor"/><circle cx="18.8" cy="39.6" r="2.2" fill="currentColor"/><circle cx="24" cy="39.6" r="2.2" fill="currentColor"/><circle cx="29.2" cy="39.6" r="2.2" fill="currentColor"/><circle cx="34.4" cy="39.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="18.8" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="24" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="29.2" cy="24" r="2.2" style="fill: var(--acc)"/></g><path d="M25.8 0.0 33.480000000000004 -10.48 26.12 -20.64H31.2L33.92 -16.72L36.08 -13.6H36.32L38.44 -16.72L41.16 -20.64H45.879999999999995L38.480000000000004 -10.64L46.24 0.0H41.120000000000005L38.04 -4.44L35.92 -7.48H35.68L33.6 -4.44L30.560000000000002 0.0ZM60.0 0.48Q57.72 0.48 55.9 -0.28Q54.08 -1.04 52.82 -2.44Q51.56 -3.84 50.88 -5.84Q50.2 -7.84 50.2 -10.32Q50.2 -12.8 50.88 -14.8Q51.56 -16.8 52.82 -18.200000000000003Q54.08 -19.6 55.9 -20.36Q57.72 -21.12 60.0 -21.12Q62.28 -21.12 64.1 -20.36Q65.92 -19.6 67.18 -18.200000000000003Q68.44 -16.8 69.12 -14.8Q69.8 -12.8 69.8 -10.32Q69.8 -7.84 69.12 -5.84Q68.44 -3.84 67.18 -2.44Q65.92 -1.04 64.1 -0.28Q62.28 0.48 60.0 0.48ZM60.0 -2.96Q62.4 -2.96 63.82000000000001 -4.42Q65.24000000000001 -5.88 65.24000000000001 -8.76V-11.88Q65.24000000000001 -14.76 63.82000000000001 -16.22Q62.4 -17.68 60.0 -17.68Q57.6 -17.68 56.18 -16.22Q54.76 -14.76 54.76 -11.88V-8.76Q54.76 -5.88 56.18 -4.42Q57.6 -2.96 60.0 -2.96ZM73.76 0.0V-20.64H77.48V-17.96H77.68Q78.16 -19.28 79.06 -20.200000000000003Q79.96 -21.12 81.64 -21.12Q83.28 -21.12 84.18 -20.22Q85.08 -19.32 85.32 -17.76H85.48Q86.04 -19.16 87.03999999999999 -20.14Q88.03999999999999 -21.12 89.92 -21.12Q92.32 -21.12 93.25999999999999 -19.44Q94.2 -17.76 94.2 -14.52V0.0H90.48V-13.96Q90.48 -16.12 89.96000000000001 -16.94Q89.44 -17.76 88.28 -17.76Q87.24 -17.76 86.53999999999999 -17.060000000000002Q85.84 -16.36 85.84 -14.96V0.0H82.12V-13.96Q82.12 -16.12 81.62 -16.94Q81.12 -17.76 79.96 -17.76Q78.88 -17.76 78.18 -17.060000000000002Q77.48 -16.36 77.48 -14.96V0.0ZM108.44 0.48Q106.08 0.48 104.19999999999999 -0.28Q102.32 -1.04 101.03999999999999 -2.44Q99.76 -3.84 99.08000000000001 -5.82Q98.4 -7.8 98.4 -10.28Q98.4 -12.76 99.1 -14.760000000000002Q99.8 -16.76 101.06 -18.18Q102.32 -19.6 104.12 -20.36Q105.92 -21.12 108.12 -21.12Q110.28 -21.12 112.03999999999999 -20.380000000000003Q113.8 -19.64 115.03999999999999 -18.28Q116.28 -16.92 116.94 -15.040000000000001Q117.6 -13.16 117.6 -10.88V-9.24H102.8V-8.56Q102.8 -6.12 104.32 -4.58Q105.84 -3.04 108.52 -3.04Q110.52 -3.04 111.94 -3.9Q113.36 -4.76 114.24000000000001 -6.2L116.96000000000001 -3.8000000000000003Q115.92 -2.0 113.78 -0.76Q111.64 0.48 108.44 0.48ZM108.12 -17.8Q106.96000000000001 -17.8 105.98 -17.4Q105.0 -17.0 104.3 -16.259999999999998Q103.6 -15.52 103.19999999999999 -14.52Q102.8 -13.52 102.8 -12.32V-12.040000000000001H113.16V-12.44Q113.16 -14.88 111.78 -16.34Q110.4 -17.8 108.12 -17.8ZM121.76 0.0V-20.64H125.48V-17.96H125.68Q126.16 -19.28 127.06 -20.200000000000003Q127.96 -21.12 129.64 -21.12Q131.28 -21.12 132.18 -20.22Q133.08 -19.32 133.32 -17.76H133.48Q134.04 -19.16 135.04 -20.14Q136.04 -21.12 137.92000000000002 -21.12Q140.32 -21.12 141.26 -19.44Q142.2 -17.76 142.2 -14.52V0.0H138.48V-13.96Q138.48 -16.12 137.95999999999998 -16.94Q137.44 -17.76 136.28 -17.76Q135.24 -17.76 134.54000000000002 -17.060000000000002Q133.84 -16.36 133.84 -14.96V0.0H130.12V-13.96Q130.12 -16.12 129.62 -16.94Q129.12 -17.76 127.96 -17.76Q126.88 -17.76 126.18 -17.060000000000002Q125.48 -16.36 125.48 -14.96V0.0Z" fill="currentColor"/></svg></button>
 </div>
   <sc-if value="{{ showHeaderEmail }}" hint-placeholder-val="{{ false }}">
-    <div class="jhd" style="position: absolute; right: {{ gutter }}px; top: 32px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}">{{ email }}</div>
+    <div class="jhd" style="position: absolute; right: {{ gutter + 40 }}px; top: 32px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}">{{ email }}</div>
   </sc-if>
 
   <div class="jcol" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: {{ colPad }}; box-sizing: border-box">
@@ -253,10 +255,11 @@ body{margin:0}
 
         <sc-if value="{{ showSent }}" hint-placeholder-val="{{ false }}">
           <div style="width: 100%; box-sizing: border-box; background: {{panel}}; border: 1px solid {{line}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px">
-            <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Sent to</span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ email }}</span></div>
+            <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Sent to</span><span style="display: flex; align-items: baseline; gap: 12px; min-width: 0"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ email }}</span><sc-if value="{{ sentR49 }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ changeEmail }}" style="border: 0; background: transparent; padding: 12px 6px; margin: -12px -6px; color: {{muted}}; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer">Change</button></sc-if></span></div>
             <sc-if value="{{ sentLink }}" hint-placeholder-val="{{ true }}"><div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Link works for</span><span class="cd">{{ linkLeft }}</span></div>
             <div style="height: 2px; border-radius: 2px; background: {{line}}; overflow: hidden"><div style="height: 100%; width: {{ linkPct }}%; background: {{fg}}; opacity: .5"></div></div></sc-if>
-            <div style="color: {{muted}}; line-height: 1.5">{{ sentHint }}</div>
+            <sc-if value="{{ sentOld }}" hint-placeholder-val="{{ false }}"><div style="color: {{muted}}; line-height: 1.5">{{ sentHint }}</div></sc-if>
+            <sc-if value="{{ sentR49 }}" hint-placeholder-val="{{ true }}"><div style="display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid {{line}}"><sc-for list="{{ sentNotes }}" as="sn" hint-placeholder-count="2"><div style="display: flex; gap: 10px; color: {{muted}}; line-height: 1.5; text-align: left"><span aria-hidden="true">–</span><span>{{ sn }}</span></div></sc-for></div></sc-if>
           </div>
         </sc-if>
 
@@ -341,7 +344,7 @@ body{margin:0}
   <sc-if value="{{ hasFooter }}" hint-placeholder-val="{{ true }}"><div style="position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{muted}}; opacity: 0.8">{{ footer }}</div></sc-if>
 </main>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"checkout":{"editor":"enum","default":"inline","options":["overlay","inline"]},"checkoutState":{"editor":"enum","default":"auto","options":["auto","loading","ready","paying","slow","failed","paid","unavailable"]},"ckBuyer":{"editor":"enum","default":"person","options":["person","business"]},"ckFields":{"editor":"enum","default":"exomem","options":["exomem","paddle"]},"ckScroll":{"editor":"enum","default":"top","options":["top","end"]},"ckSummary":{"editor":"enum","default":"hero","options":["hero","steps","included"]},"sentCopy":{"editor":"enum","default":"shipped","options":["shipped","proposed"]},"alive":{"editor":"enum","default":"loop","options":["shipped","current","loop","tide","tideloop"]},"activity":{"editor":"enum","default":"off","options":["off","on"]},"hover":{"editor":"enum","default":"glow","options":["glow","push","clear"]},"step":{"editor":"enum","default":"auto","options":["auto","signedout","linkexpired","linkused","ratelimited","waitlist","unreachable","invite","accepting","invitebad","inviteexisting","inviteapplied","invitekept","connecterror","reviewer","reviewerfail","sent","subscribe","paying","confirming","choose","waiting","other","joined","connect","preparing","readonly","ended","paused","suspended","expired","connecting","handback","declined","kept"]},"app":{"editor":"enum","default":"Claude Code","options":["Claude Code","Claude","ChatGPT","Codex","web"]},"joined":{"editor":"enum","default":"Claude","options":["Claude","ChatGPT"]},"sequence":{"editor":"enum","default":"app","options":["app","web","connect"]},"inviteOnly":{"editor":"boolean","default":false},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"joinedApp":{"editor":"enum","default":"none","options":["none","Claude","ChatGPT","other"]},"level":{"editor":"enum","default":"default","options":["default","off","light","balanced","maximal"]},"invite":{"editor":"enum","default":"none","options":["none","friend","covered"]},"inviter":{"editor":"text","default":"Alex"},"inviteNote":{"editor":"text","default":"This is what I’ve been building. I’d love to know what you think."},"inviteEmail":{"editor":"text","default":"maria@example.com"},"usualPrice":{"editor":"text","default":"€15"},"friendPrice":{"editor":"text","default":"€10"},"discountMonths":{"editor":"number","default":0},"sides":{"editor":"enum","default":"none","options":["none","chain"]},"screenH":{"editor":"number","default":844},"graceDays":{"editor":"number","default":14},"retentionDays":{"editor":"number","default":30},"reference":{"editor":"text","default":"EX-7Q4M"},"field":{"editor":"enum","default":"web","options":["web","graph","stars"]},"mark":{"editor":"enum","default":"dot","options":["dot","held","cut"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"still":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#FFB000","options":["#FFB000","#FF6B3D","#FFF1D6","#E8C47C","#C6F26B"]},"email":{"editor":"text","default":"reader@example.com"},"price":{"editor":"text","default":""},"bg":{"editor":"color","default":"#0A0908"},"panel":{"editor":"color","default":"#12100E"},"fg":{"editor":"color","default":"#ECE9E2"},"muted":{"editor":"color","default":"#A39E93"},"$preview":{"width":1280,"height":820}}'>
+<script type="text/x-dc" data-dc-script data-props='{"checkout":{"editor":"enum","default":"inline","options":["overlay","inline"]},"checkoutState":{"editor":"enum","default":"auto","options":["auto","loading","ready","paying","slow","failed","paid","unavailable"]},"ckBuyer":{"editor":"enum","default":"person","options":["person","business"]},"ckFields":{"editor":"enum","default":"exomem","options":["exomem","paddle"]},"ckScroll":{"editor":"enum","default":"top","options":["top","end"]},"ckSummary":{"editor":"enum","default":"hero","options":["hero","steps","included"]},"sentCopy":{"editor":"enum","default":"r49","options":["r49","shipped","proposed"]},"alive":{"editor":"enum","default":"loop","options":["shipped","current","loop","tide","tideloop"]},"activity":{"editor":"enum","default":"off","options":["off","on"]},"hover":{"editor":"enum","default":"glow","options":["glow","push","clear"]},"step":{"editor":"enum","default":"auto","options":["auto","signedout","linkexpired","linkused","ratelimited","waitlist","unreachable","invite","accepting","invitebad","inviteexisting","inviteapplied","invitekept","connecterror","reviewer","reviewerfail","sent","subscribe","paying","confirming","choose","waiting","other","joined","connect","preparing","readonly","ended","paused","suspended","expired","connecting","handback","declined","kept"]},"app":{"editor":"enum","default":"Claude Code","options":["Claude Code","Claude","ChatGPT","Codex","web"]},"joined":{"editor":"enum","default":"Claude","options":["Claude","ChatGPT"]},"sequence":{"editor":"enum","default":"app","options":["app","web","connect"]},"inviteOnly":{"editor":"boolean","default":false},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"joinedApp":{"editor":"enum","default":"none","options":["none","Claude","ChatGPT","other"]},"level":{"editor":"enum","default":"default","options":["default","off","light","balanced","maximal"]},"invite":{"editor":"enum","default":"none","options":["none","friend","covered"]},"inviter":{"editor":"text","default":"Alex"},"inviteNote":{"editor":"text","default":"This is what I’ve been building. I’d love to know what you think."},"inviteEmail":{"editor":"text","default":"maria@example.com"},"usualPrice":{"editor":"text","default":"€15"},"friendPrice":{"editor":"text","default":"€10"},"discountMonths":{"editor":"number","default":0},"sides":{"editor":"enum","default":"none","options":["none","chain"]},"screenH":{"editor":"number","default":844},"graceDays":{"editor":"number","default":14},"retentionDays":{"editor":"number","default":30},"reference":{"editor":"text","default":"EX-7Q4M"},"field":{"editor":"enum","default":"web","options":["web","graph","stars"]},"mark":{"editor":"enum","default":"dot","options":["dot","held","cut"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"still":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#FFB000","options":["#FFB000","#FF6B3D","#FFF1D6","#E8C47C","#C6F26B"]},"email":{"editor":"text","default":"reader@example.com"},"price":{"editor":"text","default":""},"bg":{"editor":"color","default":"#0A0908"},"panel":{"editor":"color","default":"#12100E"},"fg":{"editor":"color","default":"#ECE9E2"},"muted":{"editor":"color","default":"#A39E93"},"$preview":{"width":1280,"height":820}}'>
 // Every number on this page is computed at render: the link clock, the resend clock, the price (from Paddle, or nothing).
 const AUTO = [['signedout', 3400], ['sent', 3800], ['connect', 3800], ['connecting', 2700], ['handback', 4800]];
 // Started on the web: the start page, then Claude's consent page (the app changes mid-way), then back to the start page.
@@ -394,7 +397,7 @@ const RESEND_MS = 60 * 1000;
       this.N = (g.n || []).map(([x, y, r]) => ({ x, y, r: r || 3 }));
       this.E = (g.e || []).filter(([i, j]) => this.N[i] && this.N[j]);
       this.adj = this.N.map(() => []); this.E.forEach(([i, j], k) => { this.adj[i].push([j, k]); this.adj[j].push([i, k]); });
-      this.ink = svg.getAttribute('data-ink') || '#ECE9E2'; this.amber = svg.getAttribute('data-amber') || '#FFB000';
+      this.ink = svg.getAttribute('data-ink') || '#ECE9E2'; this.amber = svg.getAttribute('data-amber') || '#FFB000'; this.lit = new Set((svg.getAttribute('data-lit') || '').split(',').filter((v) => v !== '').map(Number));   // notes already amber at rest: the hover leaves them as they are
       const vb = (svg.getAttribute('viewBox') || '0 0 100 100').split(/[ ,]+/).map(Number); this.vb = vb;
       const en = (svg.getAttribute('data-entry') || '').split(',').map(Number); this.entry = en.length === 2 && !isNaN(en[0]) ? { x: en[0], y: en[1] } : { x: vb[0] + vb[2] / 2, y: vb[1] + vb[3] };
       this.reduced = reducedQ();
@@ -577,8 +580,8 @@ const RESEND_MS = 60 * 1000;
     }
     light(i, ms) {
       const p = this.N[i]; if (!p) return;
-      const halo = this.dot(p, p.r + 6, { fill: this.k < 1 ? '#FFB000' : this.amber, opacity: 0 }, this.evt), core = this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.evt), t0 = performance.now();
-      this.items.push({ el: core, step: () => { const s = (performance.now() - t0) / ms, a = s < 0.15 ? s / 0.15 : s > 0.7 ? Math.max(0, (1 - s) / 0.3) : 1; core.setAttribute('opacity', a.toFixed(2)); halo.setAttribute('opacity', ((this.k < 1 ? 0.3 : 0.16) * a).toFixed(3)); if (s >= 1) { core.remove(); halo.remove(); return false; } } });
+      const halo = this.dot(p, p.r + 6, { fill: this.amber, opacity: 0 }, this.evt), core = this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.evt), t0 = performance.now();
+      this.items.push({ el: core, step: () => { const s = (performance.now() - t0) / ms, a = s < 0.15 ? s / 0.15 : s > 0.7 ? Math.max(0, (1 - s) / 0.3) : 1; core.setAttribute('opacity', a.toFixed(2)); halo.setAttribute('opacity', ((this.k < 1 ? 0.18 : 0.16) * a).toFixed(3)); if (s >= 1) { core.remove(); halo.remove(); return false; } } });
     }
     nearest(p, ok) { let b = 0, bd = 1e9; this.N.forEach((q, i) => { if (ok && !ok(i)) return; const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2; if (d < bd) { bd = d; b = i; } }); return b; }
     route(a, b, ok, eok) { const prev = new Map([[a, -1]]), q = [a]; while (q.length) { const u = q.shift(); if (u === b) break; for (const [v] of this.adj[u]) if (!prev.has(v) && (!ok || ok(v) || v === b) && (!eok || eok(u, v))) { prev.set(v, u); q.push(v); } } if (!prev.has(b)) return eok ? null : ok ? this.route(a, b) : [a, b]; const out = []; for (let u = b; u !== -1; u = prev.get(u)) out.unshift(u); return out; }
@@ -623,12 +626,12 @@ const RESEND_MS = 60 * 1000;
         this.hovI = want; this.hovK = this.reduced ? 1 : 0; while (this.hov.firstChild) this.hov.firstChild.remove();
         if (want >= 0) {
           const p = this.N[want], nb = this.adj[want].map(([j]) => j);
-          this.hovEls = { links: nb.map((j) => this.line(...this.trim(want, j), { stroke: this.amber, 'stroke-width': 1, opacity: 0 }, this.hov)), wake: nb.map((j) => this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)), halo: this.dot(p, p.r + 6, { fill: this.k < 1 ? '#FFB000' : this.amber, opacity: 0 }, this.hov), core: this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.hov) };
+          this.hovEls = { links: nb.map((j) => this.line(...this.trim(want, j), { stroke: this.amber, 'stroke-width': 1, opacity: 0 }, this.hov)), wake: nb.filter((j) => !this.lit.has(j)).map((j) => this.dot(this.N[j], this.N[j].r, { fill: this.ink, opacity: 0 }, this.hov)), halo: this.dot(p, p.r + 6, { fill: this.amber, opacity: 0 }, this.hov), core: this.dot(p, p.r + 0.8, { fill: this.amber, opacity: 0 }, this.hov) };
         }
       }
       if (this.hovI >= 0 && this.hovEls) {
         this.hovK = this.reduced ? 1 : this.hovK + (1 - this.hovK) * 0.16; const k = this.hovK, E = this.hovEls;
-        E.core.setAttribute('opacity', k.toFixed(2)); E.halo.setAttribute('opacity', ((this.k < 1 ? 0.3 : 0.16) * k).toFixed(3));
+        E.core.setAttribute('opacity', k.toFixed(2)); E.halo.setAttribute('opacity', ((this.k < 1 ? 0.18 : 0.16) * k).toFixed(3));
         E.links.forEach((el) => el.setAttribute('opacity', ((this.k < 1 ? 0.8 : 0.45) * k).toFixed(3))); E.wake.forEach((el) => el.setAttribute('opacity', (0.62 * this.k * k).toFixed(3)));
       }
     }
@@ -660,7 +663,7 @@ const RESEND_MS = 60 * 1000;
   };
   const M = window.__exoAlive = {
     trim: trimSvg,
-    scan() { document.querySelectorAll('svg[data-alive],svg[data-graph],svg[data-exo-graph]').forEach(trimSvg); document.querySelectorAll('svg[data-alive]').forEach((svg) => { const m = svg.getAttribute('data-alive'); if (svg.__alive && (svg.__alive.mode !== m || svg.__alive.dead)) { svg.__alive.root.remove(); svg.__alive.amb.remove(); cancelAnimationFrame(svg.__alive.raf); svg.__alive = null; } if (!svg.__alive && m && m !== 'off' && m !== 'shipped') svg.__alive = new Alive(svg); }); },
+    scan() { document.querySelectorAll('svg[data-alive],svg[data-graph],svg[data-exo-graph]').forEach(trimSvg); document.querySelectorAll('svg[data-alive]').forEach((svg) => { const m = svg.getAttribute('data-alive'), ik = (svg.getAttribute('data-ink') || '') + '|' + (svg.getAttribute('data-amber') || ''); if (svg.__alive && (svg.__alive.mode !== m || svg.__alive.dead || (svg.__alive.ik !== undefined && svg.__alive.ik !== ik))) { svg.__alive.root.remove(); svg.__alive.amb.remove(); cancelAnimationFrame(svg.__alive.raf); svg.__alive = null; } if (!svg.__alive && m && m !== 'off' && m !== 'shipped') { svg.__alive = new Alive(svg); svg.__alive.ik = ik; } }); },   // R53: a theme change (new ink or amber) restarts the engine in the new colours, no remount needed
     fire(sel, ev) { document.querySelectorAll(sel).forEach((svg) => { try { if (svg.__alive) svg.__alive.event(ev); } catch (e) {} }); },
   };
   setInterval(() => M.scan(), 400); M.scan();
@@ -820,7 +823,44 @@ class Component extends DCLogic {
   trimSeg(a, b, ra, rb) { const L = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / L, uy = (b.y - a.y) / L; if (L <= ra + rb + 1) return [a, b]; return [{ x: a.x + ux * ra, y: a.y + uy * ra }, { x: b.x - ux * rb, y: b.y - uy * rb }]; }
   seg(a, b) {
     const dx = b.x - a.x, dy = b.y - a.y;
-    return { x: a.x.toFixed(1), y: a.y.toFixed(1), w: Math.hypot(dx, dy).toFixed(1), a: (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2) };
+    // R55: the link box is 1 px tall and turns about its left-middle, so its top sits half a pixel above the centre line
+    return { x: a.x.toFixed(1), y: (a.y - 0.5).toFixed(1), w: Math.hypot(dx, dy).toFixed(1), a: (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2) };
+  }
+  // R53: subtle breathing room. A note that would touch the wordmark or the theme control is nudged just clear (10 px), to the nearest side.
+  clearHeader(pts) {
+    const { vw, phone } = this.dims(), g = phone ? 16 : 40, M = 10, r = 5;
+    const boxes = [[g, 29, g + 84, 46], phone ? [vw - 50, 17.5, vw - 10, 57.5] : [vw - 72, 19.5, vw - 36, 55.5]].map(([a, b, c, d]) => [a - M - r, b - M - r, c + M + r, d + M + r]);
+    pts.forEach((p) => boxes.forEach(([a, b, c, d]) => {
+      if (!(p.x > a && p.x < c && p.y > b && p.y < d)) return;
+      const opts = [[p.x - a, () => { p.x = a; }], [c - p.x, () => { p.x = c; }], [p.y - b, () => { p.y = b; }], [d - p.y, () => { p.y = d; }]]
+        .filter(([, f], i) => (i === 0 ? a > 8 : i === 1 ? c < vw - 8 : i === 2 ? b > 8 : true)).sort((u, v) => u[0] - v[0]);
+      if (opts.length) opts[0][1]();
+    }));
+  }
+  // R54: node awareness. Notes may sit close, never on each other: any pair nearer than dmin (centre to centre) is
+  // pushed apart evenly, kept inside the page and clear of the header (clearHeader), until nothing moves.
+  spread(pts, dmin) {
+    const { vw, vh } = this.dims();
+    for (let it = 0; it < 60; it++) {
+      let moved = false;
+      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i], b = pts[j];
+        let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+        if (d >= dmin) continue;
+        if (d < 0.01) { dx = 1; dy = 0.5; d = Math.hypot(dx, dy); }
+        const k = (dmin - d) / 2 / d + 0.001;
+        a.x -= dx * k; a.y -= dy * k; b.x += dx * k; b.y += dy * k; moved = true;
+      }
+      pts.forEach((p) => { p.x = Math.min(vw - 8, Math.max(8, p.x)); p.y = Math.min(vh - 8, Math.max(8, p.y)); });
+      this.clearHeader(pts);
+      if (!moved) break;
+    }
+  }
+  // R56: is any part of this link under the theme button's hover circle (plus 3 px)? Then it isn't drawn.
+  underCtl(a, b) {
+    const { vw, phone } = this.dims(), cx = phone ? vw - 30 : vw - 54, cy = phone ? 37.5 : 37.5, R = (phone ? 20 : 18) + 3;
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((cx - a.x) * dx + (cy - a.y) * dy) / L2));
+    return Math.hypot(a.x + t * dx - cx, a.y + t * dy - cy) < R;
   }
   field() {
     const { vw, vh, phone } = this.dims();
@@ -843,8 +883,11 @@ class Component extends DCLogic {
       if (this.blocked(x, y)) continue;
       if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > (phone ? 40 : 60) ** 2)) pts.push({ x, y });
     }
+    this.clearHeader(pts);
+    this.spread(pts, 14);
     const cx = vw / 2, cy = vh / 2;
-    const dots = pts.map((p) => { const sz = 2 + rnd() * 2.2; return { x: (p.x - sz / 2).toFixed(1), y: (p.y - sz / 2).toFixed(1), s: sz.toFixed(1), tw: (rnd() * 6).toFixed(2), td: (3 + rnd() * 4).toFixed(2), wd: (Math.hypot(p.x - cx, p.y - cy) / 1100).toFixed(2) }; });
+    // R53: dots get a whole-pixel size and position, so the browser can't snap one into an oval
+    const dots = pts.map((p) => { const sz = Math.max(2, Math.round(2 + rnd() * 2.2)), dx = Math.round(p.x - sz / 2), dy = Math.round(p.y - sz / 2); p.x = dx + sz / 2; p.y = dy + sz / 2; return { x: String(dx), y: String(dy), s: String(sz), tw: (rnd() * 6).toFixed(2), td: (3 + rnd() * 4).toFixed(2), wd: (Math.hypot(p.x - cx, p.y - cy) / 1100).toFixed(2) }; });
     const lines = [];
     pts.forEach((p, i) => {
       if (i % 3) return;
@@ -866,11 +909,13 @@ class Component extends DCLogic {
       if (this.blocked(x, y)) continue;
       if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > minD * minD)) pts.push({ x, y });
     }
+    this.clearHeader(pts);
     const E = [], seen = new Set(), adj = pts.map(() => []);
     const maxL = phone ? 110 : (web ? 150 : 165);
     pts.forEach((p, i) => {
       pts.map((q, j) => [j, (q.x - p.x) ** 2 + (q.y - p.y) ** 2]).filter((a) => a[0] !== i).sort((a, b) => a[1] - b[1]).slice(0, web ? 3 : 2).forEach(([j, d]) => {
         if (Math.sqrt(d) > maxL) return;
+        if (this.underCtl(pts[i], pts[j])) return;
         const k = i < j ? i + '-' + j : j + '-' + i;
         if (seen.has(k)) return;
         seen.add(k); E.push([i, j]); adj[i].push(j); adj[j].push(i);
@@ -896,6 +941,7 @@ class Component extends DCLogic {
         if (bot >= 0) link(ids[ids.length - 1], bot);
       });
     }
+    this.spread(pts, 18);
     const cx = vw / 2, cy = vh / 2;
     const depth = pts.map(() => -1);
     const q = pts.map((p, i) => [i, Math.hypot(p.x - cx, p.y - cy)]).sort((a, b) => a[1] - b[1]).slice(0, 7).map((o) => o[0]);
@@ -910,8 +956,10 @@ class Component extends DCLogic {
     const adjBase = pts.map(() => []);
     E.forEach(([i, j], k) => { if (base[k]) { adjBase[i].push(j); adjBase[j].push(i); } });
     const nodes = pts.map((p, i) => {
-      const s = p.rail ? 2.4 : web ? Math.min(9, 2.6 + deg[i] * 0.95) : 2.4 + rnd() * 1.8;
-      return { x: (p.x - s / 2).toFixed(1), y: (p.y - s / 2).toFixed(1), s: s.toFixed(1), nd: (depth[i] * stepT + 0.22).toFixed(2), hub: hubs.has(i) && !p.rail };
+      const s0 = p.rail ? 2.4 : web ? Math.min(9, 2.6 + deg[i] * 0.95) : 2.4 + rnd() * 1.8;
+      // R53: whole-pixel size and position. A fractional box gets snapped to pixels on each axis separately, which turned some notes into ovals.
+      const s = Math.max(2, Math.round(s0)), nx = Math.round(p.x - s / 2), ny = Math.round(p.y - s / 2); p.x = nx + s / 2; p.y = ny + s / 2;
+      return { x: String(nx), y: String(ny), s: String(s), nd: (depth[i] * stepT + 0.22).toFixed(2), hub: hubs.has(i) && !p.rail };
     });
     // Round 41: with a direction on, a link stops at each note's edge, so no line shows through a note
     const trim = true, rad = nodes.map((n) => +n.s / 2 + 1);
@@ -928,6 +976,13 @@ class Component extends DCLogic {
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
   }
   mmss(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+  // the inbox button: a known webmail by domain; on a phone, any address can open the mail app
+  inbox(email) { return this.webmail(email) || (this.dims().phone ? { name: 'your email app' } : null); }
+  webmail(email) {
+    const d = (String(email || '').split('@')[1] || '').toLowerCase();
+    const M = { 'gmail.com': 'Gmail', 'googlemail.com': 'Gmail', 'outlook.com': 'Outlook', 'hotmail.com': 'Outlook', 'live.com': 'Outlook', 'msn.com': 'Outlook', 'icloud.com': 'iCloud Mail', 'me.com': 'iCloud Mail', 'mac.com': 'iCloud Mail', 'proton.me': 'Proton Mail', 'protonmail.com': 'Proton Mail', 'pm.me': 'Proton Mail', 'yahoo.com': 'Yahoo Mail', 'fastmail.com': 'Fastmail' };
+    return M[d] ? { name: M[d] } : null;
+  }
   go(step) {
     clearTimeout(this.t); clearTimeout(this.t2);
     if (step === 'reviewed') { this.setState({ reviewerIn: true, switched: false }); step = this.webStart() ? 'choose' : 'connect'; }
@@ -961,7 +1016,7 @@ class Component extends DCLogic {
   }
   // Dark is the canonical look; light is the same page on paper, with a deep amber that keeps 3:1.
   pal() {
-    const light = this.props.theme === 'light';
+    const light = (this.state.thTheme || this.props.theme) === 'light';
     const pick = (k, d, l) => { const v = this.props[k]; return v && v !== d ? v : (light ? l : d); };
     return { light, accent: pick('accent', '#FFB000', '#A86E00'), bg: pick('bg', '#0A0908', '#FAF8F4'), panel: pick('panel', '#12100E', '#FFFFFF'),
       fg: pick('fg', '#ECE9E2', '#1A1814'), muted: pick('muted', '#A39E93', '#6B665C') };
@@ -1051,6 +1106,11 @@ class Component extends DCLogic {
         Object.assign(c, { title: 'We can’t reach Exomem', lede: 'Your connection or our server stopped answering. Nothing you did is lost.', notice: `Trying again in ${this.props.retrySeconds ?? 8}\u00a0s. If it keeps happening, our status page says why.`, noticeEdge: this.pal().muted, primary: 'Try now', primaryStep: '', secondary: 'Status page ↗', secondaryStep: '' });
         break;
       case 'sent':
+        if ((this.props.sentCopy ?? 'r49') === 'r49') {
+          const wm49 = this.inbox(email);
+          Object.assign(c, { title: 'Check your email', lede: 'Open the email from Exomem to continue, on any device.', sent: true, primary: wm49 ? `Open ${wm49.name} ↗` : 'Send again', primaryStep: wm49 ? '' : 'sent', secondary: wm49 ? 'Send again' : '', secondaryStep: wm49 ? 'sent' : '' });
+          break;
+        }
         const pr = (this.props.sentCopy ?? 'shipped') === 'proposed';
         Object.assign(c, { title: 'Check your email', lede: pr ? `We sent an email to ${email}. It says what happens next. You can close this tab.` : 'We emailed a sign-in link to the address your Exomem is tied to. No password needed.', sent: true, primary: pr ? 'Send it again' : 'Send another link', primaryStep: 'sent', secondary: 'Use a different email', secondaryStep: 'signedout' });
         break;
@@ -1106,6 +1166,25 @@ class Component extends DCLogic {
     }
     return { c, email };
   }
+  // R53: the theme control (R52). Choice: auto | light | dark, kept in this browser; Auto follows the device.
+  themeCtl(resolved, apply, phone) {
+    const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } return null; };
+    if (this.state.thChoice === undefined) { const c = LS('exomem-theme-choice'); this.state.thChoice = c === 'light' || c === 'dark' || c === 'auto' ? c : 'auto'; }
+    const ch = this.state.thChoice, open = !!this.state.thOpen, L = resolved === 'light';
+    const dev = () => { try { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { return resolved; } };
+    const stop = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
+    const pick = (k) => (e) => { stop(e); LS('exomem-theme-choice', k); this.setState({ thChoice: k, thOpen: false }); const t = k === 'auto' ? dev() : k; if (t !== resolved) apply(t); };
+    const name = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+    return {
+      thChoice: ch, thOpen: open, thAria: 'Theme: ' + name[ch], thTop: 23.5,
+      thToggle: (e) => { stop(e); this.setState({ thOpen: !open }); },
+      thClose: (e) => { stop(e); this.setState({ thOpen: false }); },
+      thKey: (e) => { if (e.key === 'Escape' && open) { stop(e); this.setState({ thOpen: false }); } },
+      thRows: ['auto', 'light', 'dark'].map((k) => ({ k, label: name[k], on: k === ch, pick: pick(k) })),
+      thRaised: L ? '#ffffff' : '#12100e', thHover: L ? '#efebe3' : '#1a1815', thBorder: L ? 'rgba(26,24,20,0.1)' : 'rgba(236,233,226,0.1)',
+      thShadow: L ? 'rgba(60,50,30,0.16)' : 'rgba(0,0,0,0.6)', thFg: L ? '#1a1814' : '#ece9e2', thMuted: L ? '#6b665c' : '#a39e93', thAcc: L ? '#A86E00' : '#FFB000',
+    };
+  }
   renderVals() {
     const accent = this.pal().accent;
     const fg = this.pal().fg;
@@ -1139,7 +1218,7 @@ class Component extends DCLogic {
     const left = LINK_MS - (this.state.now - this.state.sentAt);
     const resendLeft = RESEND_MS - (this.state.now - this.state.sentAt);
     let primary = c.primary, primaryDisabled = step === 'connecting' || step === 'ratelimited';
-    if (step === 'sent' && resendLeft > 0) { primary = `${(this.props.sentCopy ?? 'shipped') === 'proposed' ? 'Send it again' : 'Send another link'} in ${this.mmss(resendLeft)}`; primaryDisabled = true; }
+    let sec49 = c.secondary; if (step === 'sent' && (this.props.sentCopy ?? 'r49') === 'r49') { if (resendLeft > 0) { if (this.inbox(email)) sec49 = `Send again in ${this.mmss(resendLeft)}`; else { primary = `Send again in ${this.mmss(resendLeft)}`; primaryDisabled = true; } } } else if (step === 'sent' && resendLeft > 0) { primary = `${(this.props.sentCopy ?? 'shipped') === 'proposed' ? 'Send it again' : 'Send another link'} in ${this.mmss(resendLeft)}`; primaryDisabled = true; }
     const scopes = [
       { mark: '✓', text: 'Recall what you’ve kept', note: '', color: fg, deco: 'none' },
       { mark: c.readOnly ? '–' : '✓', text: 'Save new things, with their source', note: c.readOnly ? 'paused' : '', color: c.readOnly ? (this.pal().muted) : fg, deco: c.readOnly ? 'line-through' : 'none' },
@@ -1172,7 +1251,7 @@ class Component extends DCLogic {
       hasPrimary: !!c.primary, primary, primaryDisabled, primaryOpacity: primaryDisabled && (step === 'sent' || step === 'ratelimited') ? 0.55 : 1, soloSecondary: !c.primary && !!c.secondary,
       homeAct: (this.__home = () => { if (!c.signedIn) return; this.props.exitTo && this.props.exitTo('home', { reviewer: !!this.state.reviewerIn, connected: this.state.connected || [], friend: this.inviteInfo().on && !this.inviteInfo().covered ? this.inviteInfo().by : '', coding: (this.state.connected || []).includes('other') ? (this.state.level || 'balanced') : '', price: this.inviteInfo().now ? `${this.inviteInfo().now} a month` : '' }); }), homeOff: !c.signedIn || typeof this.props.exitTo !== 'function', homeLabel: c.signedIn ? 'Exomem, go to Home' : 'Exomem', homeTitle: c.signedIn ? 'Home' : '',
       primaryAct: () => { if (step === 'waiting') { openApp(this.state.joinedApp || 'Claude'); return; } if (c.primaryStep === 'home') { this.props.exitTo && this.props.exitTo('home', { reviewer: !!this.state.reviewerIn, connected: this.state.connected || [], friend: this.inviteInfo().on && !this.inviteInfo().covered ? this.inviteInfo().by : '', coding: (this.state.connected || []).includes('other') ? (this.state.level || 'balanced') : '', price: this.inviteInfo().now ? `${this.inviteInfo().now} a month` : '' }); return; } if (c.primaryStep && !primaryDisabled) this.go(c.primaryStep); },
-      hasSecondary: !!c.secondary, secondary: c.secondary,
+      hasSecondary: !!c.secondary, secondary: sec49,
       secondaryAct: () => { if (c.secondaryStep === 'home') { if (c.signedIn && this.props.exitTo) { const h = this.__home; if (h) h(); } return; } if (c.secondaryStep) this.go(c.secondaryStep); },
       showSignedIn: c.signedIn && (phone || ['connect', 'preparing', 'readonly', 'subscribe', 'choose', 'waiting', 'joined', 'invite', 'other', 'inviteexisting', 'inviteapplied', 'invitekept', 'connecterror'].includes(step)),
       showInvite: c.invite, inviteOnly: this.props.inviteOnly === true || this.props.inviteOnly === 'true',
@@ -1205,7 +1284,7 @@ class Component extends DCLogic {
         return { blockH: phone && vh < 720 ? 56 : 74, levelName: L.name, blockChars: new Intl.NumberFormat('en-GB').format(L.block.length), showTune: !!c.tune, levelDesc: L.desc, levelBlock: L.block, blockLabel: this.state.copiedBlock ? 'Copied' : 'Copy',
           levels: LEVELS.map((l) => ({ name: l.name, on: l.key === cur, bg: l.key === cur ? fg : 'transparent', fg: l.key === cur ? (this.pal().bg) : (this.pal().muted), pick: () => this.setState({ level: l.key, copiedBlock: false }) })),
           copyBlock: () => { try { const r = navigator.clipboard && navigator.clipboard.writeText(L.block); if (r && r.catch) r.catch(() => {}); } catch (e) {} this.setState({ copiedBlock: true }); clearTimeout(this.tb); this.tb = setTimeout(() => this.setState({ copiedBlock: false }), 1800); } }; })(),
-      ...(() => { const L = this.pal().light; return { theme: L ? 'light' : 'dark', pTheme: L ? 'light' : 'dark', pBg: L ? '#FFFFFF' : '#14120F', pFg: L ? '#1A1814' : '#ECE9E2', pMuted: L ? '#6B665C' : '#858075', pField: L ? '#F6F4EF' : '#0E0C0B', pRgb: L ? '26,24,20' : '236,233,226', pBtnFg: L ? '#FFFFFF' : '#0A0908', pBtnBg: L ? '#1A1814' : '#ECE9E2', scrim: L ? 'rgba(26,24,20,0.28)' : 'rgba(0,0,0,0.62)' }; })(),
+      thPhone: this.dims().phone, ...this.themeCtl(this.pal().light ? 'light' : 'dark', (t) => { try { localStorage.setItem('exomem-theme', t); } catch (e) {} if (typeof this.props.exitTo === 'function') this.props.exitTo('theme', t); else this.setState({ thTheme: t }); }, this.dims().phone), ...(() => { const L = this.pal().light; return { theme: L ? 'light' : 'dark', pTheme: L ? 'light' : 'dark', pBg: L ? '#FFFFFF' : '#14120F', pFg: L ? '#1A1814' : '#ECE9E2', pMuted: L ? '#6B665C' : '#858075', pField: L ? '#F6F4EF' : '#0E0C0B', pRgb: L ? '26,24,20' : '236,233,226', pBtnFg: L ? '#FFFFFF' : '#0A0908', pBtnBg: L ? '#1A1814' : '#ECE9E2', scrim: L ? 'rgba(26,24,20,0.28)' : 'rgba(0,0,0,0.62)' }; })(),
       // The field is a web: notes near the pointer ease aside, their neighbours follow a little, and all of it settles back. Quiet on phones, while paying, and with reduced motion.
       onMove: (e) => {
         if (Date.now() - (this.__tapAt || 0) < 2000) return;
@@ -1225,7 +1304,7 @@ class Component extends DCLogic {
       },
       offCls: (['unreachable', 'ended', 'paused', 'suspended', 'expired'].includes(this.state.step) ? 'off' : '') + (this.state.step === 'unreachable' ? ' cut' : ''),
       aliveKey: (this.__uid = this.__uid || 'k' + Math.random().toString(36).slice(2, 8)), aliveMode: __aliveAttr, aliveGraph: __aliveGraph, aliveEntry: __aliveEntry,
-      sentLink: (this.props.sentCopy ?? 'shipped') !== 'proposed', sentHint: (this.props.sentCopy ?? 'shipped') === 'proposed' ? 'Not there in a few minutes? Look in spam, or send it again.' : 'Open it on this device. It brings you back here.',
+      sentLink: !['proposed', 'r49'].includes(this.props.sentCopy ?? 'r49'), sentR49: (this.props.sentCopy ?? 'r49') === 'r49', sentOld: (this.props.sentCopy ?? 'r49') !== 'r49', changeEmail: () => this.go('signedout'), sentNotes: ['Nothing after a minute? Look in spam.', this.webStart() ? 'Open it in this browser and this tab moves on by itself.' : `Open it in this browser to finish connecting ${this.props.app ?? 'your app'}.`], sentHint: (this.props.sentCopy ?? 'shipped') === 'proposed' ? 'Not there in a few minutes? Look in spam, or send it again.' : 'Open it on this device. It brings you back here.',
       ...(() => {
         // Round 42: inline checkout. Our summary and Paddle's frame on one surface; the overlay is not opened.
         const inl = (this.props.checkout ?? 'inline') === 'inline' && ['subscribe', 'paying', 'confirming'].includes(this.state.step);

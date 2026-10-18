@@ -13,6 +13,8 @@
  * -- finds the column already set and enqueues nothing.
  */
 
+import { type ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "./cloud-config";
 import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
@@ -52,7 +54,7 @@ export async function sendCloudCancellationNoticeOnce(
       /* exomem-cloud:claim-cancellation-notice */
       UPDATE exomem_cloud_cells AS cell
       SET cancellation_notice_sent_at = now()
-      FROM exomem_tenants AS tenant, users AS owner, exomem_entitlements AS entitlement
+      FROM exomem_tenants AS tenant, exomem_users AS owner, exomem_entitlements AS entitlement
       WHERE cell.tenant_id = ${tenantId}::uuid
         AND cell.desired_state = 'read_only'
         AND cell.cancellation_notice_sent_at IS NULL
@@ -61,13 +63,14 @@ export async function sendCloudCancellationNoticeOnce(
         AND entitlement.source_state = 'cancelled'
         AND tenant.id = cell.tenant_id
         AND owner.id = tenant.owner_user_id
-      RETURNING owner.email::text AS email, tenant.time_zone, tenant.email_scheme, cell.cell_id,
+      RETURNING owner.email::text AS email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice, cell.cell_id,
                 cell.cancellation_notice_sent_at::text AS claimed_at
     `;
     const claimed = rows[0] as
       | {
           email: string;
           time_zone: string | null;
+          theme_choice?: ExomemThemeChoice | null;
           email_scheme: ExomemEmailScheme | null;
           cell_id: string;
           claimed_at: string;
@@ -82,6 +85,7 @@ export async function sendCloudCancellationNoticeOnce(
       recipient: claimed.email,
       timeZone: claimed.time_zone,
       emailScheme: claimed.email_scheme,
+      themeChoice: claimed.theme_choice,
       now,
     });
     return true;

@@ -34,6 +34,7 @@ import {
   __resetPgSqlPoolForTests,
   __transactionWithClientForTests,
   query,
+  queryWithin,
   sql,
   transaction,
   type TransactionClient,
@@ -393,5 +394,53 @@ describe("pg-sql transaction() error handling (unit)", () => {
       (err: unknown) => err === socketError
     );
     assert.deepEqual(client.releasedWith, [true]);
+  });
+});
+
+
+describe("optional PostgreSQL reads release abandoned work", () => {
+  it("returns a late checkout without sending its query after the budget expires", async () => {
+    let complete: ((client: TransactionClient) => void) | undefined;
+    let released = 0;
+    const read = queryWithin(
+      "SELECT 1",
+      [],
+      10,
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        })
+    );
+    await assert.rejects(read, /timed out/);
+    complete!({
+      query: async () => {
+        throw new Error("abandoned query must not run");
+      },
+      release: () => {
+        released += 1;
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(released, 1);
+  });
+  it("discards an active timed-out connection rather than returning its running query to the pool", async () => {
+    const releases: Array<Error | boolean | undefined> = [];
+    let stop: ((error: Error) => void) | undefined;
+    const client: TransactionClient = {
+      query: () =>
+        new Promise((_resolve, reject) => {
+          stop = reject;
+        }),
+      release: (discard) => {
+        releases.push(discard);
+        stop?.(new Error("connection closed"));
+      },
+    };
+    await assert.rejects(
+      queryWithin("SELECT pg_sleep(1)", [], 10, async () => client),
+      /timed out/
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(releases, [true]);
   });
 });

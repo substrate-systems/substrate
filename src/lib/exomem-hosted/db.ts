@@ -1,3 +1,4 @@
+import type { ExomemThemeChoice } from "@/lib/exomem/theme";
 import { Pool, type PoolClient } from "pg";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { sql as pgSql } from "../db/pg-sql";
@@ -198,7 +199,7 @@ export async function createInviteRecord(
       AND EXISTS (
         SELECT 1
         FROM exomem_tenants AS tenant
-        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
         LEFT JOIN exomem_oauth_account_blocks AS block
           ON block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
         WHERE owner.email = ${input.emailNormalized}
@@ -252,11 +253,11 @@ export async function createMagicAccessToken(
   const { rows } = await sql`
     /* exomem:create-magic-access-token */
     WITH owner AS (
-      SELECT users.id AS user_id, tenant.id AS tenant_id
-      FROM users
-      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
-      WHERE users.email = ${input.emailNormalized}
-        AND users.deleted_at IS NULL
+      SELECT exomem_users.id AS user_id, tenant.id AS tenant_id
+      FROM exomem_users
+      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
+      WHERE exomem_users.email = ${input.emailNormalized}
+        AND exomem_users.deleted_at IS NULL
         AND tenant.status IN ('provisioning', 'active', 'suspended')
         AND tenant.deleted_at IS NULL
     ), generation AS (
@@ -381,12 +382,12 @@ export async function expireInvalidMagicLinkDeliveries(limit = 100): Promise<num
           OR token.revoked_at IS NOT NULL
           OR NOT EXISTS (
             SELECT 1
-            FROM users
+            FROM exomem_users
             JOIN exomem_tenants AS tenant
-              ON tenant.owner_user_id = users.id
+              ON tenant.owner_user_id = exomem_users.id
              AND tenant.id = token.tenant_id
-            WHERE users.id = token.user_id
-              AND users.deleted_at IS NULL
+            WHERE exomem_users.id = token.user_id
+              AND exomem_users.deleted_at IS NULL
               AND tenant.status IN ('provisioning', 'active', 'suspended')
               AND tenant.deleted_at IS NULL
               AND token.magic_link_generation = tenant.magic_link_generation
@@ -433,7 +434,7 @@ export async function claimMagicLinkDelivery(input: {
       SELECT outbox.id
       FROM exomem_access_delivery_outbox AS outbox
       JOIN exomem_access_tokens AS token ON token.id = outbox.token_id
-      JOIN users ON users.id = token.user_id AND users.deleted_at IS NULL
+      JOIN exomem_users ON exomem_users.id = token.user_id AND exomem_users.deleted_at IS NULL
       JOIN exomem_tenants AS tenant
         ON tenant.id = token.tenant_id
        AND tenant.owner_user_id = token.user_id
@@ -472,7 +473,7 @@ export async function claimMagicLinkDelivery(input: {
     )
     SELECT claimed.id AS delivery_id,
            claimed.token_id,
-           users.email::text AS email_normalized,
+           exomem_users.email::text AS email_normalized,
            tenant.time_zone,
            tenant.email_scheme,
            claimed.expires_at,
@@ -481,7 +482,7 @@ export async function claimMagicLinkDelivery(input: {
            claimed.attempts
     FROM claimed
     JOIN exomem_access_tokens AS token ON token.id = claimed.token_id
-    JOIN users ON users.id = token.user_id
+    JOIN exomem_users ON exomem_users.id = token.user_id
     JOIN exomem_tenants AS tenant ON tenant.id = token.tenant_id
   `;
   const row = rows[0] as
@@ -614,6 +615,7 @@ export type RedeemMagicAccessTokenInput = {
   timeZone?: string | null;
   /** The signing-in page's email scheme, already normalized. */
   emailScheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 };
 
 export async function redeemMagicAccessTokenAtomic(
@@ -627,7 +629,7 @@ export async function redeemMagicAccessTokenAtomic(
       SELECT token.id, token.user_id, token.tenant_id,
              COALESCE(token.browser_challenge_digest = ${input.browserChallengeDigest}, false) AS browser_challenge_matched
       FROM exomem_access_tokens AS token
-      JOIN users ON users.id = token.user_id AND users.deleted_at IS NULL
+      JOIN exomem_users ON exomem_users.id = token.user_id AND exomem_users.deleted_at IS NULL
       JOIN exomem_tenants AS tenant
         ON tenant.id = token.tenant_id
        AND tenant.owner_user_id = token.user_id
@@ -636,7 +638,7 @@ export async function redeemMagicAccessTokenAtomic(
        AND token.magic_link_generation = tenant.magic_link_generation
       WHERE token.token_digest = ${input.tokenDigest}
         AND CASE WHEN ${input.expectedEmailNormalized ?? null}::text IS NOT NULL
-          THEN users.email = ${input.expectedEmailNormalized ?? null}
+          THEN exomem_users.email = ${input.expectedEmailNormalized ?? null}
           ELSE token.browser_challenge_digest = ${input.browserChallengeDigest}
         END
         AND token.purpose = 'magic_link'
@@ -670,8 +672,7 @@ export async function redeemMagicAccessTokenAtomic(
     ),
     browser_recorded AS (
       UPDATE exomem_tenants AS tenant
-      SET time_zone = COALESCE(${input.timeZone ?? null}::text, tenant.time_zone),
-          email_scheme = COALESCE(${input.emailScheme ?? null}::text, tenant.email_scheme)
+      SET time_zone = COALESCE(${input.timeZone ?? null}::text, tenant.time_zone)
       FROM consumed
       WHERE tenant.id = consumed.tenant_id
         AND (${input.timeZone ?? null}::text IS NOT NULL
@@ -688,14 +689,19 @@ export async function redeemMagicAccessTokenAtomic(
           browser_challenge_matched: boolean;
         }
       | undefined;
-    return row
-      ? {
-          userId: row.user_id,
-          tenantId: row.tenant_id,
-          sessionId: row.session_id,
-          browserChallengeMatched: row.browser_challenge_matched,
-        }
-      : null;
+    if (!row) return null;
+    await initializeExomemTheme(
+      tx,
+      row.tenant_id,
+      input.themeChoice ?? null,
+      input.emailScheme ?? null
+    );
+    return {
+      userId: row.user_id,
+      tenantId: row.tenant_id,
+      sessionId: row.session_id,
+      browserChallengeMatched: row.browser_challenge_matched,
+    };
   });
 }
 
@@ -705,22 +711,26 @@ export type ExomemSessionRow = {
   tenantId: string;
   csrfDigest: Buffer;
   expiresAt: string;
+  themeChoice?: ExomemThemeChoice | null;
+  emailScheme?: ExomemEmailScheme | null;
   reviewerCredentialId?: string | null;
   reviewerCredentialKind?: "provider_review" | "internal_canary" | "cloud_provider_review" | null;
 };
 
 export async function findExomemSessionByDigest(
-  sessionDigest: Buffer
+  sessionDigest: Buffer,
+  execute: ExomemSql = sql
 ): Promise<ExomemSessionRow | null> {
-  const { rows } = await sql`
+  const { rows } = await execute`
     /* exomem:find-session */
     SELECT session.id,
            session.user_id,
            session.tenant_id,
            session.csrf_digest,
-           session.expires_at, session.reviewer_credential_id, reviewer_credential.credential_kind
+           session.expires_at, session.reviewer_credential_id, reviewer_credential.credential_kind,
+           tenant.theme_choice, tenant.email_scheme
     FROM exomem_sessions AS session
-    JOIN users ON users.id = session.user_id AND users.deleted_at IS NULL
+    JOIN exomem_users ON exomem_users.id = session.user_id AND exomem_users.deleted_at IS NULL
     JOIN exomem_tenants AS tenant
       ON tenant.id = session.tenant_id
      AND tenant.owner_user_id = session.user_id
@@ -754,6 +764,8 @@ export async function findExomemSessionByDigest(
         expires_at: string;
         reviewer_credential_id: string | null;
         credential_kind: ExomemSessionRow["reviewerCredentialKind"];
+        theme_choice: ExomemThemeChoice | null;
+        email_scheme: ExomemEmailScheme | null;
       }
     | undefined;
   return row
@@ -761,6 +773,8 @@ export async function findExomemSessionByDigest(
         id: row.id,
         userId: row.user_id,
         tenantId: row.tenant_id,
+        themeChoice: row.theme_choice ?? null,
+        emailScheme: row.email_scheme ?? null,
         csrfDigest: Buffer.from(row.csrf_digest),
         expiresAt: row.expires_at,
         reviewerCredentialId: row.reviewer_credential_id ?? null,
@@ -798,20 +812,21 @@ export async function createDeletionConfirmationToken(input: {
   emailNormalized: string;
   timeZone: string | null;
   emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 } | null> {
   const { rows } = await sql`
     /* exomem:create-deletion-confirmation */
     WITH owner AS (
-      SELECT users.id AS user_id,
-             users.email,
+      SELECT exomem_users.id AS user_id,
+             exomem_users.email,
              tenant.id AS tenant_id,
              tenant.time_zone,
-             tenant.email_scheme
-      FROM users
-      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
-      WHERE users.id = ${input.userId}
+             tenant.email_scheme, tenant.theme_choice
+      FROM exomem_users
+      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
+      WHERE exomem_users.id = ${input.userId}
         AND tenant.id = ${input.tenantId}
-        AND users.deleted_at IS NULL
+        AND exomem_users.deleted_at IS NULL
         AND tenant.status IN ('provisioning', 'active', 'suspended')
       FOR UPDATE OF tenant
     ),
@@ -839,7 +854,7 @@ export async function createDeletionConfirmationToken(input: {
       ON CONFLICT (token_digest) DO NOTHING
       RETURNING id, user_id
     )
-    SELECT created.id, owner.email, owner.time_zone, owner.email_scheme
+    SELECT created.id, owner.email, owner.time_zone, owner.email_scheme, owner.theme_choice
     FROM created
     JOIN owner ON owner.user_id = created.user_id
   `;
@@ -850,6 +865,7 @@ export async function createDeletionConfirmationToken(input: {
         emailNormalized: String(row.email).toLowerCase(),
         timeZone: row.time_zone ? String(row.time_zone) : null,
         emailScheme: (row.email_scheme as ExomemEmailScheme | null) ?? null,
+        themeChoice: (row.theme_choice as ExomemThemeChoice | null) ?? null,
       }
     : null;
 }
@@ -1255,4 +1271,50 @@ export async function pruneStaleRateLimitBuckets(
     RETURNING bucket.key_digest
   `;
   return rows.length;
+}
+
+/** Authenticated redemption imports a browser choice only while the account is uninitialized. */
+export async function initializeExomemTheme(
+  tx: ExomemSql,
+  tenantId: string,
+  choice: ExomemThemeChoice | null,
+  effective: ExomemEmailScheme | null
+): Promise<void> {
+  await tx`
+    UPDATE exomem_tenants
+    SET theme_choice = COALESCE(theme_choice, ${choice}, 'auto'),
+        email_scheme = CASE WHEN COALESCE(theme_choice, ${choice}, 'auto') IN ('light', 'dark')
+          THEN COALESCE(theme_choice, ${choice}) ELSE COALESCE(${effective}, email_scheme) END
+    WHERE id = ${tenantId}::uuid
+  `;
+}
+
+export async function saveExomemTheme(input: {
+  tenantId: string;
+  userId: string;
+  themeChoice: ExomemThemeChoice;
+  emailScheme: ExomemEmailScheme;
+  initialize?: boolean;
+  effectiveOnly?: boolean;
+}): Promise<{
+  themeChoice: ExomemThemeChoice | null;
+  emailScheme: ExomemEmailScheme | null;
+} | null> {
+  const { rows } = await sql`
+    UPDATE exomem_tenants
+    SET theme_choice = CASE WHEN ${input.effectiveOnly ?? false}
+          OR (${input.initialize ?? false} AND theme_choice IS NOT NULL)
+          THEN theme_choice ELSE ${input.themeChoice} END,
+        email_scheme = CASE
+          WHEN ${input.effectiveOnly ?? false} AND theme_choice IS DISTINCT FROM 'auto' THEN email_scheme
+          WHEN ${input.initialize ?? false} AND theme_choice IS NOT NULL THEN email_scheme
+          ELSE ${input.emailScheme} END
+    WHERE id = ${input.tenantId}::uuid AND owner_user_id = ${input.userId}::uuid
+      AND deleted_at IS NULL AND status NOT IN ('deleted', 'deletion_pending')
+    RETURNING theme_choice, email_scheme
+  `;
+  const row = rows[0] as
+    | { theme_choice: ExomemThemeChoice | null; email_scheme: ExomemEmailScheme | null }
+    | undefined;
+  return row ? { themeChoice: row.theme_choice, emailScheme: row.email_scheme } : null;
 }

@@ -1,3 +1,4 @@
+import { type ExomemThemeChoice } from "@/lib/exomem/theme";
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { after } from "next/server";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
@@ -44,6 +45,7 @@ export type AccessDependencies = {
     emailNormalized: string;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
     mode: "waitlist" | "open";
   }) => Promise<StartOutcome>;
   createMagicAccessToken: (
@@ -146,7 +148,8 @@ async function queueOwnerSignInLink(
   emailNormalized: string,
   browserChallengeDigest: Buffer,
   timeZone: string | null,
-  emailScheme: ExomemEmailScheme | null
+  emailScheme: ExomemEmailScheme | null,
+  themeChoice: ExomemThemeChoice | null
 ): Promise<string | null> {
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
@@ -163,6 +166,7 @@ async function queueOwnerSignInLink(
       timeZone,
       // Delivery-only too; this never changes the account's email scheme.
       emailScheme,
+      themeChoice,
     })
   );
   const created = await deps.createMagicAccessToken({
@@ -205,6 +209,7 @@ export async function requestStart(
     browserChallengeDigest: Buffer;
     timeZone: string | null;
     emailScheme: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
     browserKey?: string;
   },
   dependencies?: Partial<AccessDependencies>
@@ -238,7 +243,8 @@ export async function requestStart(
         emailNormalized,
         input.browserChallengeDigest,
         input.timeZone,
-        input.emailScheme
+        input.emailScheme,
+        input.themeChoice ?? null
       );
       if (deliveryId) {
         return { accepted: true, deliveryId };
@@ -250,6 +256,7 @@ export async function requestStart(
             emailNormalized,
             timeZone: input.timeZone,
             emailScheme: input.emailScheme,
+            themeChoice: input.themeChoice,
             mode,
           });
         } catch {
@@ -272,6 +279,7 @@ export async function redeemMagicLink(
     expectedEmail?: string;
     timeZone?: string | null;
     emailScheme?: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
   },
   dependencies?: Partial<AccessDependencies>
 ): Promise<RedeemedMagicAccess & SessionMaterial> {
@@ -298,6 +306,7 @@ export async function redeemMagicLink(
     sessionExpiresAt: session.expiresAt,
     timeZone: input.timeZone ?? null,
     emailScheme: input.emailScheme ?? null,
+    themeChoice: input.themeChoice ?? null,
   });
   if (!row)
     throw expectedEmailNormalized === null

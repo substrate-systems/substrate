@@ -1,3 +1,4 @@
+import { exomemThemeChoice } from "@/lib/exomem/theme";
 import { NextRequest, NextResponse } from "next/server";
 import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { uniformAccessStartResponse } from "@/lib/exomem-hosted/access-recovery";
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
 // Room for an email address, a Turnstile token (at most 2048 characters), a
 // time zone name and an email scheme.
 const MAX_BODY_BYTES = 8 * 1024;
-const BODY_KEYS = new Set(["email", "turnstileToken", "timeZone", "emailScheme"]);
+const BODY_KEYS = new Set(["email", "turnstileToken", "timeZone", "emailScheme", "themeChoice"]);
 const NO_STORE = { "cache-control": "no-store" } as const;
 
 /**
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       email: fields.email,
       timeZone: normalizeTimeZone(fields.timeZone),
       emailScheme: exomemEmailScheme(fields.emailScheme),
+      themeChoice: exomemThemeChoice(fields.themeChoice),
       requestId,
       resend: false,
     });

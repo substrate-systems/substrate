@@ -25,6 +25,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       email: prior?.email ?? "",
       timeZone: prior?.timeZone ?? null,
       emailScheme: prior?.emailScheme ?? null,
+      themeChoice: prior?.themeChoice ?? null,
       requestId,
       resend: true,
     });

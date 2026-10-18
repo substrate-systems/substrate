@@ -256,7 +256,7 @@ export async function loadExomemAccountView(
 ): Promise<ExomemAccountView> {
   const { rows } = await executeExomemSql`
     /* exomem:account-view */
-    SELECT users.email,
+    SELECT exomem_users.email,
            tenant.time_zone,
            tenant.support_reference,
            entitlement.source,
@@ -275,7 +275,7 @@ export async function loadExomemAccountView(
            credential.expires_at AS reviewer_expires_at,
            friend_offer.inviter_name AS friend_inviter_name
     FROM exomem_tenants AS tenant
-    JOIN users ON users.id = tenant.owner_user_id
+    JOIN exomem_users ON exomem_users.id = tenant.owner_user_id
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
     LEFT JOIN exomem_invites AS friend_offer ON friend_offer.id = tenant.friend_offer_invite_id
     LEFT JOIN exomem_marketplace_reviewer_credentials AS credential

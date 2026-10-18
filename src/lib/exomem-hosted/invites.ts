@@ -434,18 +434,18 @@ async function findUsableInvitation(digest: Buffer): Promise<{
              owner.offer_decision
       FROM exomem_invites AS invite
       LEFT JOIN LATERAL (
-        SELECT users.id AS user_id, entitlement.source, entitlement.source_state,
+        SELECT exomem_users.id AS user_id, entitlement.source, entitlement.source_state,
                entitlement.provider_subscription_ref, entitlement.provider_environment,
                entitlement.provider_price_id, entitlement.provider_discount_id,
                offer.id AS offer_invite_id, offer.consumed_at IS NOT NULL AS offer_consumed,
                offer.consumed_by_user_id AS offer_consumed_by_user_id,
                offer.decision AS offer_decision
-        FROM users
-        JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+        FROM exomem_users
+        JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
         JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         LEFT JOIN exomem_invites AS offer ON offer.id = tenant.friend_offer_invite_id
-        WHERE users.email = invite.email_normalized
-          AND users.deleted_at IS NULL
+        WHERE exomem_users.email = invite.email_normalized
+          AND exomem_users.deleted_at IS NULL
           AND tenant.status IN ('provisioning', 'active', 'suspended')
           AND tenant.deleted_at IS NULL
           AND EXISTS (
@@ -673,7 +673,7 @@ export async function decideInvitation(
                (invite.revoked_at IS NULL AND invite.expires_at > now()) AS live,
                owner.email = invite.email_normalized AS same_address
         FROM exomem_invites AS invite
-        JOIN users AS owner ON owner.id = ${input.session.userId}::uuid
+        JOIN exomem_users AS owner ON owner.id = ${input.session.userId}::uuid
         WHERE invite.token_digest = ${digest}
         FOR UPDATE OF invite
       `;

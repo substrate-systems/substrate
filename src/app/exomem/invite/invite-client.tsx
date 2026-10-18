@@ -10,7 +10,7 @@ import {
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
 import type { InvitationDecision, InvitationInspection } from "@/lib/exomem-hosted/invites";
-import { currentExomemTheme } from "@/lib/exomem/theme";
+import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
 import { signOut } from "../_journey/account-actions";
 import { failureCopy, inviteCopy, TRY_AGAIN } from "../_journey/copy";
 import { JourneyPage } from "../_journey/JourneyPage";
@@ -160,6 +160,7 @@ export default function InviteClient() {
         token: token.current,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         emailScheme: currentExomemTheme(document.documentElement),
+        themeChoice: currentExomemThemeChoice(document.documentElement),
       });
       token.current = null;
       window.location.replace(

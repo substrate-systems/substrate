@@ -12,6 +12,7 @@ import {
   consumeDeletionConfirmationAtomic,
   createDeletionConfirmationToken,
   createMagicAccessToken,
+  findExomemSessionByDigest,
   markMagicLinkDeliverySent,
   pruneStaleRateLimitBuckets,
   rateLimitHasRoom,
@@ -143,7 +144,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE TABLE users CASCADE");
+    await pool.query("TRUNCATE TABLE exomem_users, users CASCADE");
     await pool.query("TRUNCATE TABLE exomem_oauth_clients CASCADE");
     await pool.query("TRUNCATE TABLE rate_limit_events");
     await pool.query("TRUNCATE TABLE exomem_rate_limit_buckets");
@@ -829,6 +830,82 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     });
     assert.equal(mismatched?.tenantId, TENANT);
     assert.equal(mismatched?.browserChallengeMatched, false);
+  });
+
+  it("uses the canonical address for magic-link request, delivery and redemption while preserving an existing session", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "old@example.test"]);
+    await pool.query(
+      "INSERT INTO exomem_tenants (id, owner_user_id, status) VALUES ($1, $2, 'active')",
+      [TENANT, USER]
+    );
+    const sharedBefore = await pool.query("SELECT * FROM users WHERE id = $1", [USER]);
+    const existingDigest = randomBytes(32);
+    const existing = await pool.query(
+      `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id`,
+      [USER, TENANT, existingDigest, randomBytes(32)]
+    );
+    await pool.query("UPDATE exomem_users SET email = 'canonical@example.test' WHERE id = $1", [
+      USER,
+    ]);
+    const tokenDigest = randomBytes(32);
+    const browserChallengeDigest = randomBytes(32);
+    const input = {
+      tokenDigest,
+      browserChallengeDigest,
+      expiresAt: new Date(Date.now() + 15 * 60_000),
+      deliverySecretCiphertext: {
+        version: 1 as const,
+        algorithm: "A256GCM" as const,
+        iv: "opaque-iv",
+        ciphertext: "opaque-ciphertext",
+        tag: "opaque-tag",
+      },
+    };
+    assert.equal(
+      await createMagicAccessToken({ ...input, emailNormalized: "old@example.test" }),
+      null
+    );
+    const created = await createMagicAccessToken({
+      ...input,
+      emailNormalized: "canonical@example.test",
+    });
+    assert.ok(created);
+    const leaseOwner = randomUUID();
+    const delivery = await claimMagicLinkDelivery({ leaseOwner, deliveryId: created.deliveryId });
+    assert.equal(delivery?.emailNormalized, "canonical@example.test");
+    assert.equal(
+      await markMagicLinkDeliverySent({ deliveryId: created.deliveryId, leaseOwner }),
+      true
+    );
+    const redemption = {
+      tokenDigest,
+      browserChallengeDigest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60_000),
+    };
+    assert.equal(
+      await redeemMagicAccessTokenAtomic({
+        ...redemption,
+        expectedEmailNormalized: "old@example.test",
+      }),
+      null
+    );
+    const redeemed = await redeemMagicAccessTokenAtomic({
+      ...redemption,
+      expectedEmailNormalized: "canonical@example.test",
+    });
+    assert.equal(redeemed?.userId, USER);
+    assert.equal(redeemed?.tenantId, TENANT);
+    const session = await findExomemSessionByDigest(existingDigest);
+    assert.equal(session?.id, existing.rows[0]!.id);
+    assert.equal(session?.userId, USER);
+    assert.equal(session?.tenantId, TENANT);
+    assert.deepEqual(
+      (await pool.query("SELECT * FROM users WHERE id = $1", [USER])).rows,
+      sharedBefore.rows
+    );
   });
 
   for (const unavailable of ["expired", "revoked", "generation", "tenant", "pending"] as const) {

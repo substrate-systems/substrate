@@ -55,7 +55,7 @@
     },
     "Home-Page.dc.html": {
       "h": 1760,
-      "title": "Home \u00b7 single, try state + device",
+      "title": "Home \u00b7 canonical from round 50: two columns, map preview (try state, device, mapVault)",
       "w": 1280,
       "x": 5138,
       "y": 23460
@@ -695,6 +695,15 @@
       "is_interactive": false,
       "title": "Round 47 \u00b7 what changed, where to check",
       "page": "page-r47"
+    },
+    "R52-Theme-Control.dc.html": {
+      "h": 2172,
+      "w": 2006,
+      "x": 0,
+      "y": 0,
+      "is_interactive": false,
+      "title": "Round 52 \u00b7 Theme control, decided: the button shows your theme; a tap opens Auto, Light, Dark. Our own glyphs.",
+      "page": "page-r49"
     }
   },
   "createdOnFiles": {
@@ -980,7 +989,8 @@
     "R44-Writing-E-Light.dc.html",
     "R45-Review.dc.html",
     "R46-Review.dc.html",
-    "R47-Review.dc.html"
+    "R47-Review.dc.html",
+    "R52-Theme-Control.dc.html"
   ],
   "pages": [
     {
@@ -1038,6 +1048,10 @@
     {
       "id": "page-r47",
       "name": "Round 47 \u00b7 Check these"
+    },
+    {
+      "id": "page-r49",
+      "name": "Round 51 \u00b7 Theme control"
     }
   ],
   "title": "Exomem Identity & Journey"

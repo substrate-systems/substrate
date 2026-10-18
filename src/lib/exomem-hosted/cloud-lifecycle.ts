@@ -15,6 +15,8 @@
  * or "provider-paused" or "manually suspended" actually allow.
  */
 
+import { type ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
@@ -471,13 +473,13 @@ export async function reconcileCloudCellDesiredState(
       if (deletion && !accountDeleted) {
         const { rows: owners } = await tx`
           /* exomem-cloud:deleted-email-owner */
-          SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme
+          SELECT owner.email::text AS email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice
           FROM exomem_tenants AS tenant
-          JOIN users AS owner ON owner.id = tenant.owner_user_id
+          JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
           WHERE tenant.id = ${tenantId}::uuid
         `;
         const owner = owners[0] as
-          | { email: string; time_zone: string | null; email_scheme: ExomemEmailScheme | null }
+          | { email: string; time_zone: string | null; theme_choice?: ExomemThemeChoice | null; email_scheme: ExomemEmailScheme | null }
           | undefined;
         if (owner) {
           await enqueueDeletedEmail(tx, {
@@ -486,6 +488,7 @@ export async function reconcileCloudCellDesiredState(
             recipient: owner.email,
             timeZone: owner.time_zone,
             emailScheme: owner.email_scheme,
+            themeChoice: owner.theme_choice,
           });
         }
       }

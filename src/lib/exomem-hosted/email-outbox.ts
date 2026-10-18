@@ -15,6 +15,8 @@
  * `exomem_email_outbox_kind_check` constraint.
  */
 
+import type { ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import { randomUUID } from "node:crypto";
 import { sendTransactionalEmail, type SendTransactionalEmailResult } from "@/lib/brevo";
 import {
@@ -75,6 +77,7 @@ type EmailRenderInput<P, C> = {
   timeZone: string | null;
   /** Their email scheme, from the same source; `null` renders dark. */
   emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
   now: Date;
   publicBaseUrl: string;
 };
@@ -84,6 +87,7 @@ export type ExomemEmailAddressee = {
   email: string;
   timeZone: string | null;
   emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 };
 
 /**
@@ -298,10 +302,16 @@ type OwnerRow = {
   owner_email: string;
   time_zone: string | null;
   email_scheme: ExomemEmailScheme | null;
+  theme_choice?: ExomemThemeChoice | null;
 };
 
 function ownerOf(row: OwnerRow): ExomemEmailAddressee {
-  return { email: row.owner_email, timeZone: row.time_zone, emailScheme: row.email_scheme };
+  return {
+    email: row.owner_email,
+    timeZone: row.time_zone,
+    emailScheme: row.email_scheme,
+    themeChoice: row.theme_choice ?? null,
+  };
 }
 
 /**
@@ -340,11 +350,11 @@ async function endedPeriodStillHolds(
 ): Promise<EndedContext | null> {
   const { rows } = await tx`
     /* exomem:email-ended-period-still-holds */
-    SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme,
+    SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice,
            entitlement.source_occurred_at, now() AS checked_at
     FROM exomem_cloud_cells AS cell
     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
-    JOIN users AS owner ON owner.id = tenant.owner_user_id
+    JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
     WHERE cell.cell_id = ${payload.cellId}
       AND cell.desired_state = 'read_only'
@@ -418,6 +428,7 @@ type UsableInvitation = {
   timeZone: string | null;
   /** The same: an invitation records no scheme, and never the inviter's. */
   emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
 };
 
 /**
@@ -429,20 +440,32 @@ type UsableInvitation = {
 async function accountPreferences(
   tx: ExomemSql,
   email: string
-): Promise<{ timeZone: string | null; emailScheme: ExomemEmailScheme | null }> {
+): Promise<{
+  timeZone: string | null;
+  emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
+}> {
   // A user owns at most one tenant (exomem_tenants.owner_user_id is UNIQUE).
   const { rows } = await tx`
     /* exomem:email-account-preferences */
-    SELECT tenant.time_zone, tenant.email_scheme
-    FROM users
-    JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
-    WHERE users.email = ${email}
-      AND users.deleted_at IS NULL
+    SELECT tenant.time_zone, tenant.email_scheme, tenant.theme_choice
+    FROM exomem_users
+    JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
+    WHERE exomem_users.email = ${email}
+      AND exomem_users.deleted_at IS NULL
   `;
   const row = rows[0] as
-    | { time_zone: string | null; email_scheme: ExomemEmailScheme | null }
+    | {
+        time_zone: string | null;
+        email_scheme: ExomemEmailScheme | null;
+        theme_choice?: ExomemThemeChoice | null;
+      }
     | undefined;
-  return { timeZone: row?.time_zone ?? null, emailScheme: row?.email_scheme ?? null };
+  return {
+    timeZone: row?.time_zone ?? null,
+    emailScheme: row?.email_scheme ?? null,
+    themeChoice: row?.theme_choice ?? null,
+  };
 }
 
 /**
@@ -512,6 +535,7 @@ const EXOMEM_EMAILS = {
         now: input.now,
         timeZone: input.timeZone,
         scheme: input.emailScheme,
+        themeChoice: input.themeChoice,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -526,6 +550,7 @@ const EXOMEM_EMAILS = {
         expiresAt: new Date(input.payload.expiresAt),
         timeZone: input.timeZone,
         scheme: input.emailScheme,
+        themeChoice: input.themeChoice,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -544,7 +569,8 @@ const EXOMEM_EMAILS = {
       `;
       return rows.length === 1 ? true : null;
     },
-    render: ({ emailScheme }) => renderExomemWaitlistEmail({ scheme: emailScheme }),
+    render: ({ emailScheme, themeChoice }) =>
+      renderExomemWaitlistEmail({ scheme: emailScheme, themeChoice }),
     claimedLast: true,
     failsWhenRefused: true,
   }),
@@ -577,7 +603,7 @@ const EXOMEM_EMAILS = {
     ): Promise<{ owner: ExomemEmailAddressee; inviterName: string | null } | null> => {
       const { rows } = await tx`
         /* exomem:email-hold-reminder-still-unpaid */
-        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme,
+        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice,
                (
                  SELECT invite.inviter_name
                  FROM exomem_invites AS invite
@@ -587,7 +613,7 @@ const EXOMEM_EMAILS = {
                ) AS inviter_name
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
-        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
         JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
         WHERE cell.cell_id = ${payload.cellId}
           AND cell.desired_state = 'stopped'
@@ -598,13 +624,14 @@ const EXOMEM_EMAILS = {
       return row ? { owner: ownerOf(row), inviterName: row.inviter_name } : null;
     },
     addressee: (context) => context.owner,
-    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemHoldReminderEmail({
         setupUrl: new URL("/exomem/setup", `${publicBaseUrl}/`).toString(),
         holdEndsAt: new Date(payload.holdEndsAt),
         inviterName: context.inviterName,
         timeZone,
         scheme: emailScheme,
+        themeChoice,
       }),
   }),
   /**
@@ -630,7 +657,7 @@ const EXOMEM_EMAILS = {
                owner.id AS owner_user_id,
                tenant.id AS tenant_id,
                tenant.time_zone,
-               tenant.email_scheme,
+               tenant.email_scheme, tenant.theme_choice,
                entitlement.source,
                entitlement.provider_next_billed_at,
                EXISTS (
@@ -639,7 +666,7 @@ const EXOMEM_EMAILS = {
                ) AS connected
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
-        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
         JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
         WHERE cell.cell_id = ${payload.cellId}
           AND cell.ready
@@ -667,7 +694,7 @@ const EXOMEM_EMAILS = {
       };
     },
     addressee: (context) => context.owner,
-    render: async ({ context, timeZone, emailScheme, publicBaseUrl }) =>
+    render: async ({ context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemReadyEmail({
         homeUrl: homeUrl(publicBaseUrl),
         // No name is stored for an owner yet.
@@ -678,6 +705,7 @@ const EXOMEM_EMAILS = {
           : { ...(await readyPlan(context.account)), nextPaymentAt: context.nextPaymentAt },
         timeZone,
         scheme: emailScheme,
+        themeChoice,
       }),
   }),
   /**
@@ -690,10 +718,10 @@ const EXOMEM_EMAILS = {
     stillHolds: async (tx, payload): Promise<{ owner: ExomemEmailAddressee } | null> => {
       const { rows } = await tx`
         /* exomem:email-payment-failed-still-past-due */
-        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme
+        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice
         FROM exomem_entitlements AS entitlement
         JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
-        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
         WHERE entitlement.tenant_id = ${payload.tenantId}::uuid
           AND entitlement.source = 'paddle'
           AND entitlement.source_state = 'past_due'
@@ -704,7 +732,7 @@ const EXOMEM_EMAILS = {
       return row ? { owner: ownerOf(row) } : null;
     },
     addressee: (context) => context.owner,
-    render: ({ payload, timeZone, emailScheme, publicBaseUrl }) => {
+    render: ({ payload, timeZone, emailScheme, themeChoice, publicBaseUrl }) => {
       const days = exomemPaddleDunningDays();
       return renderExomemPaymentFailedEmail({
         billingUrl: homeUrl(publicBaseUrl),
@@ -714,6 +742,7 @@ const EXOMEM_EMAILS = {
             : new Date(Date.parse(payload.graceStartedAt) + days.value * 86_400_000),
         timeZone,
         scheme: emailScheme,
+        themeChoice,
       });
     },
   }),
@@ -723,7 +752,7 @@ const EXOMEM_EMAILS = {
       readShape(value, { cellId: "cellId", endedAt: "instant", reminderScheduled: "boolean" }),
     stillHolds: endedPeriodStillHolds,
     addressee: (context) => context.owner,
-    render: ({ payload, context, timeZone, emailScheme, now, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, themeChoice, now, publicBaseUrl }) =>
       renderExomemSubscriptionEndedEmail({
         exportUrl: exportUrl(publicBaseUrl),
         supportUrl: supportUrl(publicBaseUrl),
@@ -733,6 +762,7 @@ const EXOMEM_EMAILS = {
         reminderScheduled: payload.reminderScheduled,
         timeZone,
         scheme: emailScheme,
+        themeChoice,
       }),
   }),
   /**
@@ -750,7 +780,7 @@ const EXOMEM_EMAILS = {
       return period.checkedAt < remindAt ? new NotYet(remindAt) : period;
     },
     addressee: (context) => context.owner,
-    render: ({ context, timeZone, emailScheme, now, publicBaseUrl }) =>
+    render: ({ context, timeZone, emailScheme, themeChoice, now, publicBaseUrl }) =>
       renderExomemDeletionReminderEmail({
         exportUrl: exportUrl(publicBaseUrl),
         supportUrl: supportUrl(publicBaseUrl),
@@ -759,6 +789,7 @@ const EXOMEM_EMAILS = {
         now,
         timeZone,
         scheme: emailScheme,
+        themeChoice,
       }),
   }),
   /**
@@ -797,12 +828,13 @@ const EXOMEM_EMAILS = {
         return new NotYet(new Date(row.recheck_at));
       return { finishedAt: new Date(row.finished_at) };
     },
-    render: ({ context, timeZone, emailScheme, now }) =>
+    render: ({ context, timeZone, emailScheme, themeChoice, now }) =>
       renderExomemDeletedEmail({
         deletedAt: context.finishedAt,
         now,
         timeZone,
         scheme: emailScheme,
+        themeChoice,
       }),
   }),
   /** Email 02: a standard operator invitation. */
@@ -820,6 +852,7 @@ const EXOMEM_EMAILS = {
         now: input.now,
         timeZone: input.context.timeZone ?? input.timeZone,
         scheme: input.context.emailScheme ?? input.emailScheme,
+        themeChoice: input.context.themeChoice ?? input.themeChoice,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -828,7 +861,7 @@ const EXOMEM_EMAILS = {
   friend_invitation: defineEmail({
     readPayload: readFriendInvitationPayload,
     stillHolds: (tx, payload) => namedInvitation(tx, payload, "friend"),
-    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemFriendInvitationEmail({
         acceptUrl: invitationUrl({ publicBaseUrl, payload }),
         inviterName: context.inviterName,
@@ -837,6 +870,7 @@ const EXOMEM_EMAILS = {
         expiresAt: new Date(payload.expiresAt),
         timeZone: context.timeZone ?? timeZone,
         scheme: context.emailScheme ?? emailScheme,
+        themeChoice: context.themeChoice ?? themeChoice,
         usualPrice: { amount: payload.usualAmount, currencyCode: payload.usualCurrency },
         friendPrice: { amount: payload.friendAmount, currencyCode: payload.friendCurrency },
       }),
@@ -847,7 +881,7 @@ const EXOMEM_EMAILS = {
   covered_invitation: defineEmail({
     readPayload: readStartLinkPayload,
     stillHolds: (tx, payload) => namedInvitation(tx, payload, "covered"),
-    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemCoveredInvitationEmail({
         acceptUrl: invitationUrl({ publicBaseUrl, payload }),
         inviterName: context.inviterName,
@@ -856,6 +890,7 @@ const EXOMEM_EMAILS = {
         expiresAt: new Date(payload.expiresAt),
         timeZone: context.timeZone ?? timeZone,
         scheme: context.emailScheme ?? emailScheme,
+        themeChoice: context.themeChoice ?? themeChoice,
       }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
@@ -864,7 +899,7 @@ const EXOMEM_EMAILS = {
   invitation_reminder: defineEmail({
     readPayload: readStartLinkPayload,
     stillHolds: (tx, payload) => namedInvitation(tx, payload, "friend"),
-    render: ({ payload, context, timeZone, emailScheme, publicBaseUrl }) =>
+    render: ({ payload, context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemInvitationReminderEmail({
         acceptUrl: invitationUrl({ publicBaseUrl, payload }),
         inviterName: context.inviterName,
@@ -872,6 +907,7 @@ const EXOMEM_EMAILS = {
         leadDays: INVITATION_REMINDER_LEAD_DAYS,
         timeZone: context.timeZone ?? timeZone,
         scheme: context.emailScheme ?? emailScheme,
+        themeChoice: context.themeChoice ?? themeChoice,
       }),
   }),
   /** Email 12, to the inviter: the friend invitation was used with the friend price. */
@@ -885,6 +921,7 @@ const EXOMEM_EMAILS = {
       usedAt: Date;
       timeZone: string | null;
       emailScheme: ExomemEmailScheme | null;
+      themeChoice?: ExomemThemeChoice | null;
     } | null> => {
       const { rows } = await tx`
         /* exomem:email-invitation-used */
@@ -907,7 +944,7 @@ const EXOMEM_EMAILS = {
           }
         : null;
     },
-    render: ({ context, timeZone, emailScheme }) =>
+    render: ({ context, timeZone, emailScheme, themeChoice }) =>
       renderExomemInvitationUsedEmail({
         inviteeName: context.inviteeName,
         usedAt: context.usedAt,
@@ -915,6 +952,7 @@ const EXOMEM_EMAILS = {
         friendPrice: null,
         timeZone: context.timeZone ?? timeZone,
         scheme: context.emailScheme ?? emailScheme,
+        themeChoice: context.themeChoice ?? themeChoice,
       }),
   }),
   /** Email 13, to the inviter: the friend invitation ended unused. */
@@ -928,6 +966,7 @@ const EXOMEM_EMAILS = {
       issuedAt: Date;
       expiredAt: Date;
       emailScheme: ExomemEmailScheme | null;
+      themeChoice?: ExomemThemeChoice | null;
     } | null> => {
       const { rows } = await tx`
         /* exomem:email-invitation-ended */
@@ -954,16 +993,17 @@ const EXOMEM_EMAILS = {
             inviteeName: row.invitee_name,
             issuedAt: new Date(row.created_at),
             expiredAt: new Date(row.expires_at),
-            emailScheme: (await accountPreferences(tx, row.inviter_email)).emailScheme,
+            ...(await accountPreferences(tx, row.inviter_email)),
           }
         : null;
     },
-    render: ({ context, emailScheme }) =>
+    render: ({ context, emailScheme, themeChoice }) =>
       renderExomemInvitationEndedEmail({
         inviteeName: context.inviteeName,
         issuedAt: context.issuedAt,
         expiredAt: context.expiredAt,
         scheme: context.emailScheme ?? emailScheme,
+        themeChoice: context.themeChoice ?? themeChoice,
       }),
   }),
 };
@@ -982,6 +1022,7 @@ export type EnqueueExomemEmailInput<K extends ExomemEmailKind> = {
   recipient: string;
   recipientTimeZone: string | null;
   recipientEmailScheme: ExomemEmailScheme | null;
+  recipientThemeChoice?: ExomemThemeChoice | null;
   /** The account the email is about, so account deletion removes it whatever its address. */
   tenantId?: string;
   payload: PayloadOf<K>;
@@ -1012,7 +1053,7 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
   const { rows } = await tx`
     /* exomem:enqueue-email */
     INSERT INTO exomem_email_outbox (
-      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, tenant_id,
+      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
       payload_ciphertext, not_before, expires_at
     ) VALUES (
       ${input.kind},
@@ -1020,6 +1061,7 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
       ${input.recipient},
       ${input.recipientTimeZone},
       ${input.recipientEmailScheme},
+      ${input.recipientThemeChoice ?? null},
       ${input.tenantId ?? null}::uuid,
       ${envelope}::jsonb,
       COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
@@ -1038,6 +1080,7 @@ type LeasedEmail = {
   recipient: string;
   timeZone: string | null;
   emailScheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
   definition: AnyDefinition;
   payload: unknown;
   context: unknown;
@@ -1091,7 +1134,7 @@ async function claimNextEmail(
   return withExomemTransaction(async (tx) => {
     const { rows } = await tx`
       /* exomem:claim-email */
-      SELECT id, kind, recipient::text AS recipient, recipient_time_zone, recipient_email_scheme,
+      SELECT id, kind, recipient::text AS recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice,
              payload_ciphertext, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
       FROM exomem_email_outbox
       WHERE (state = 'pending' AND not_before <= now())
@@ -1107,6 +1150,7 @@ async function claimNextEmail(
           recipient: string;
           recipient_time_zone: string | null;
           recipient_email_scheme: ExomemEmailScheme | null;
+          recipient_theme_choice: ExomemThemeChoice | null;
           payload_ciphertext: SecretEnvelope | string;
           expired: boolean;
         }
@@ -1166,6 +1210,7 @@ async function claimNextEmail(
       email: row.recipient,
       timeZone: row.recipient_time_zone,
       emailScheme: row.recipient_email_scheme,
+      themeChoice: row.recipient_theme_choice,
     };
     // The row records where this attempt went, so support and account
     // deletion find it under the address that received it.
@@ -1177,6 +1222,7 @@ async function claimNextEmail(
           recipient = ${to.email},
           recipient_time_zone = ${to.timeZone},
           recipient_email_scheme = ${to.emailScheme},
+          recipient_theme_choice = ${to.themeChoice ?? null},
           lease_owner = ${leaseOwner}::uuid,
           lease_expires_at = now() + (${LEASE_SECONDS} * interval '1 second'),
           updated_at = now()
@@ -1189,6 +1235,7 @@ async function claimNextEmail(
         recipient: to.email,
         timeZone: to.timeZone,
         emailScheme: to.emailScheme,
+        themeChoice: to.themeChoice ?? null,
         definition,
         payload,
         context,
@@ -1298,7 +1345,7 @@ export async function clearSettledEmailRecipients(limit = 500): Promise<number> 
       LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
     )
     UPDATE exomem_email_outbox AS outbox
-    SET recipient = NULL, recipient_time_zone = NULL, recipient_email_scheme = NULL,
+    SET recipient = NULL, recipient_time_zone = NULL, recipient_email_scheme = NULL, recipient_theme_choice = NULL,
         payload_ciphertext = NULL
     FROM settled
     WHERE outbox.id = settled.id
@@ -1385,6 +1432,7 @@ export async function drainExomemEmailOutbox(
         context: email.context,
         timeZone: email.timeZone,
         emailScheme: email.emailScheme,
+        themeChoice: email.themeChoice,
         now: deps.now(),
         publicBaseUrl,
       });

@@ -20,6 +20,8 @@
  * (src/lib/exomem/design-tokens.ts). Server only.
  */
 
+import { effectiveExomemTheme, type ExomemThemeChoice } from "@/lib/exomem/theme";
+
 import { exomemTokens, type ExomemTokenMap } from "@/lib/exomem/design-tokens";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 
@@ -79,6 +81,7 @@ export type ExomemEmailSlots = {
    * media block. `null` is dark: no scheme is recorded.
    */
   base: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
   /** Slot 1: "Exomem", or "<name> via Exomem" when a person sent it. */
   sentBy?: { personName: string } | null;
   /** Slot 1: 45 characters or fewer, except named friend invitations (design.md). */
@@ -229,14 +232,17 @@ function schemeImages(
   base: ExomemEmailScheme,
   files: Record<ExomemEmailScheme, string>,
   attributes: { width: number; height: number; alt: string; style: string },
-  linkUrl: string
+  linkUrl: string,
+  alternate = true
 ): string {
   const other = otherScheme(base);
   const img = (scheme: ExomemEmailScheme) =>
     `<a href="${escapeHtml(linkUrl)}" style="display: block; text-decoration: none;"><img src="${escapeHtml(`${assetBaseUrl}${EXOMEM_EMAIL_ASSET_PATH}/${files[scheme]}`)}" width="${attributes.width}" height="${attributes.height}" alt="${escapeHtml(attributes.alt)}" style="${attributes.style}"></a>`;
   return (
     `<div class="x-img-${base}">${img(base)}</div>` +
-    `<!--[if !mso]><!--><div class="x-img-${other}" style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${img(other)}</div><!--<![endif]-->`
+    (alternate
+      ? `<!--[if !mso]><!--><div class="x-img-${other}" style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${img(other)}</div><!--<![endif]-->`
+      : "")
   );
 }
 
@@ -282,12 +288,16 @@ const PREHEADER_FILLER = "\u034f\u200c\u00a0".repeat(60);
  * load from the configured public base URL.
  */
 export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail {
-  const scheme = slots.base ?? "dark";
+  const automatic = slots.themeChoice !== "light" && slots.themeChoice !== "dark";
+  const scheme = effectiveExomemTheme(slots.themeChoice ?? "auto", slots.base === "light");
   const other = otherScheme(scheme);
   const palette = exomemTokens();
   const assetBaseUrl = exomemPublicBaseUrlFromEnv();
   const p = (...roles: Role[]) => paint(palette, scheme, roles);
-  const schemeBlock = `@media ${exomemEmailSchemeQuery(other)} {\n    ${otherSchemeRules(palette, scheme)}\n  }`;
+  const schemes = automatic ? `${scheme} ${other}` : scheme;
+  const schemeBlock = automatic
+    ? `@media ${exomemEmailSchemeQuery(other)} {\n    ${otherSchemeRules(palette, scheme)}\n  }`
+    : "";
 
   const frame = p("frame");
   const card = p("card", "cardBorder", "primary");
@@ -311,7 +321,8 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
         alt: "Exomem",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
       },
-      WORDMARK_URL
+      WORDMARK_URL,
+      automatic
     ),
     "line-height: 0; font-size: 0;"
   );
@@ -409,7 +420,8 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       alt: "",
       style: "display: block; border: 0; width: 100%; max-width: 600px; height: auto;",
     },
-    slots.action?.url ?? WORDMARK_URL
+    slots.action?.url ?? WORDMARK_URL,
+    automatic
   );
 
   const htmlContent = `<!doctype html>
@@ -417,11 +429,11 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="${scheme} ${other}">
-  <meta name="supported-color-schemes" content="${scheme} ${other}">
+  <meta name="color-scheme" content="${schemes}">
+  <meta name="supported-color-schemes" content="${schemes}">
   <title>${escapeHtml(slots.subject)}</title>
   <style>
-  :root { color-scheme: ${scheme} ${other}; supported-color-schemes: ${scheme} ${other}; }
+  :root { color-scheme: ${schemes}; supported-color-schemes: ${schemes}; }
   body { margin: 0; padding: 0; }
   ${schemeBlock}
   @media (max-width: 480px) {

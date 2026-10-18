@@ -184,3 +184,23 @@ Tasks 11.1–11.5 have local implementation and browser evidence in PR #246.
 The actual Sandbox subscription passed decline, retry, signed payment delivery and readiness polling.
 These checks do not close independent review, release or production acceptance in task 11.8.
 Tasks 11.6 and 11.9 retain the paired Source activity dependency; task 11.10 retains Live catalogue acceptance.
+
+## 12. Current design canon and account preferences
+
+The round 57 export supersedes older design studies. `docs/exomem-design/CANON.md` selects the current boards and their states.
+This delivery includes the core website, account theme and email appearance, the sign-in card, and permanent account-email changes.
+The interactive map and Home constellation preview are deferred together. Home omits that card without reserving empty space.
+The separate `enable-exomem-email-change` change owns identity isolation and account-address changes. Existing Cloud flags and operational dependencies retain their owners.
+
+- [x] 12.1 Import the public-safe canon and correct its reference paths.
+- [ ] 12.2 Build the Home frame and responsive columns, without header tabs or the deferred map card.
+- [ ] 12.3 Deliver one accessible Auto, Light and Dark control on every Exomem surface.
+- [ ] 12.4 Store account theme choices, apply them before paint, and migrate existing browser preferences.
+- [ ] 12.5 Carry the selected choice and effective scheme into every email renderer and delivery path.
+- [ ] 12.6 Apply current graph colour, note geometry, header clearance and real-event wordmark motion.
+- [ ] 12.7 Build the sign-in card, address correction, inbox actions and authenticated same-browser continuation.
+- [ ] 12.8 Complete integrated browser and accessibility acceptance against the current canon.
+- [ ] 12.9 Complete exact independent review, required CI, compatible release and read-only production verification.
+
+Run one test worker, build or browser session at a time. Below 3 GiB of Windows physical headroom, stop owned heavy work and continue lightweight work.
+Required full CI runs remotely. Local write checks use isolated data and blocked external sends and payments.

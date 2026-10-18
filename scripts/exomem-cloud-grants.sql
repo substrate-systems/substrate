@@ -355,7 +355,13 @@ BEGIN
     IF to_regprocedure('exomem_cloud_reviewer_authorized(uuid,uuid,uuid,text)') IS NOT NULL THEN
       GRANT SELECT (owner_user_id, marketplace_reviewer_purpose, desired_state, deleted_at)
         ON exomem_tenants TO exomem_gateway;
-      GRANT SELECT (id, deleted_at) ON users TO exomem_gateway;
+      IF to_regclass('exomem_users') IS NOT NULL THEN
+        REVOKE SELECT (id, deleted_at) ON users FROM exomem_gateway;
+        GRANT SELECT (id, deleted_at) ON exomem_users TO exomem_gateway;
+      ELSE
+        -- Partial upgrades still run migration 0058's shared-user predicate.
+        GRANT SELECT (id, deleted_at) ON users TO exomem_gateway;
+      END IF;
       GRANT SELECT (tenant_id, source, source_state, effective_state,
         provider_customer_ref, provider_subscription_ref, provider_transaction_ref)
         ON exomem_entitlements TO exomem_gateway;

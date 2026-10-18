@@ -1,0 +1,51 @@
+[
+  {
+    "id": "gmail",
+    "name": "Gmail",
+    "domains": ["gmail.com", "googlemail.com"],
+    "mxSuffixes": ["google.com", "googlemail.com"],
+    "urlTemplate": "https://mail.google.com/mail/?authuser={address}#search/from%3A{sender}+in%3Aanywhere"
+  },
+  {
+    "id": "outlook",
+    "name": "Outlook",
+    "domains": ["outlook.com", "hotmail.com", "live.com", "msn.com"],
+    "mxSuffixes": [],
+    "urlTemplate": "https://outlook.live.com/mail/0/"
+  },
+  {
+    "id": "outlook-work",
+    "name": "Outlook",
+    "domains": [],
+    "mxSuffixes": ["mail.protection.outlook.com"],
+    "urlTemplate": "https://outlook.office.com/mail/"
+  },
+  {
+    "id": "icloud",
+    "name": "iCloud Mail",
+    "domains": ["icloud.com", "me.com", "mac.com"],
+    "mxSuffixes": [],
+    "urlTemplate": "https://www.icloud.com/mail"
+  },
+  {
+    "id": "proton",
+    "name": "Proton Mail",
+    "domains": ["proton.me", "protonmail.com", "pm.me"],
+    "mxSuffixes": [],
+    "urlTemplate": "https://mail.proton.me/u/0/inbox"
+  },
+  {
+    "id": "yahoo",
+    "name": "Yahoo Mail",
+    "domains": ["yahoo.com"],
+    "mxSuffixes": [],
+    "urlTemplate": "https://mail.yahoo.com/"
+  },
+  {
+    "id": "fastmail",
+    "name": "Fastmail",
+    "domains": ["fastmail.com"],
+    "mxSuffixes": [],
+    "urlTemplate": "https://app.fastmail.com/mail/Inbox"
+  }
+]

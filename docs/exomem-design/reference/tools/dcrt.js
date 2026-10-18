@@ -58,7 +58,9 @@
     el.childNodes.forEach(wire);
   }
   // Morph `from` (live) into `to` (fresh); keep live nodes where the shape matches.
-  function same(a, b) { return a.nodeType === b.nodeType && (a.nodeType !== 1 || (a.nodeName === b.nodeName && !!a.__dc === !!b.__dc && (!a.__dc || a.__dc.sig === b.__dc.sig))); }
+  // R53: a child whose props differ only in `theme` keeps living and re-renders in place (the real site flips CSS variables; nothing reloads)
+  const themeOnly = (a, b) => { if (a.name !== b.name) return false; const x = { ...a.props }, y = { ...b.props }; delete x.theme; delete y.theme; return JSON.stringify(x) === JSON.stringify(y); };
+  function same(a, b) { return a.nodeType === b.nodeType && (a.nodeType !== 1 || (a.nodeName === b.nodeName && !!a.__dc === !!b.__dc && (!a.__dc || a.__dc.sig === b.__dc.sig || themeOnly(a.__dc, b.__dc)))); }
   function morphKids(parent, fresh) {
     const live = [...parent.childNodes];
     fresh.forEach((f, i) => {
@@ -71,13 +73,31 @@
   }
   function morph(l, f) {
     if (l.nodeType === 3) { if (l.nodeValue !== f.nodeValue) l.nodeValue = f.nodeValue; return; }
-    if (l.__dc) return;  // a child component renders itself
+    if (l.__dc) { if (f.__dc && l.__dc.sig !== f.__dc.sig && l.__inst) { l.__dc = f.__dc; l.__inst.props = { ...(l.__defaults || {}), ...f.__dc.props }; if (l.__inst.__render) l.__inst.__render(); } return; }  // a child component renders itself
     [...l.attributes].forEach((a) => { if (!f.hasAttribute(a.name)) l.removeAttribute(a.name); });
     [...f.attributes].forEach((a) => { if (l.getAttribute(a.name) !== a.value) l.setAttribute(a.name, a.value); });
     l.__h = f.__h; wire(l);
     morphKids(l, [...f.childNodes]);
   }
   const files = () => window.__files || {};
+  // R57: each component's CSS applies only inside that component (not inside components it imports), like CSS modules,
+  // so two boards on one page can both use a class called .pt or .hub. :root/html/body rules, @keyframes and
+  // @font-face stay global.
+  function splitTop(css) { const out = []; let d = 0, s = 0; for (let i = 0; i < css.length; i++) { const c = css[i]; if (c === '{') d++; else if (c === '}') { d--; if (d === 0) { out.push(css.slice(s, i + 1)); s = i + 1; } } else if (c === ';' && d === 0) { out.push(css.slice(s, i + 1)); s = i + 1; } } if (css.slice(s).trim()) out.push(css.slice(s)); return out; }
+  function scopeCss(css, name) {
+    const G = [], L = [], isG = (sel) => /(^|[\s,>~+(])(:root|html|body)(?![\w-])/.test(sel);
+    const walk = (blocks, g, l) => blocks.forEach((b) => {
+      const t = b.trim(); if (!t) return;
+      const at = t.match(/^@([\w-]+)/);
+      if (at) {
+        if (['media', 'supports', 'container', 'layer'].includes(at[1]) && t.includes('{')) { const head = t.slice(0, t.indexOf('{')), body = t.slice(t.indexOf('{') + 1, t.lastIndexOf('}')), g2 = [], l2 = []; walk(splitTop(body), g2, l2); if (g2.length) g.push(head + '{' + g2.join('\n') + '}'); if (l2.length) l.push(head + '{' + l2.join('\n') + '}'); return; }
+        g.push(t); return;
+      }
+      (isG(t.slice(0, t.indexOf('{'))) ? g : l).push(t);
+    });
+    walk(splitTop(css.replace(/\/\*[\s\S]*?\*\//g, '')), G, L);
+    return G.join('\n') + '\n@scope ([data-dcs="' + name.replace(/["\\]/g, '') + '"]) to ([data-dcs]) {\n' + L.join('\n') + '\n}';
+  }
   const injected = new Set();
   function mount(name, props, host) {
     const txt = files()[name];
@@ -85,7 +105,8 @@
     const doc = new DOMParser().parseFromString(txt, 'text/html');
     const x = doc.querySelector('x-dc');
     const helm = x.querySelector('helmet');
-    if (helm && !injected.has(name)) { injected.add(name); [...helm.children].forEach((c) => document.head.appendChild(c.cloneNode(true))); }
+    if (helm && !injected.has(name)) { injected.add(name); [...helm.children].forEach((c) => { const n = c.cloneNode(true); if (n.tagName === 'STYLE') n.textContent = scopeCss(n.textContent, name); document.head.appendChild(n); }); }
+    host.setAttribute('data-dcs', name);
     if (helm) helm.remove();
     const sc = doc.querySelector('script[data-dc-script]');
     let meta = {}; try { meta = JSON.parse(sc.getAttribute('data-props') || '{}'); } catch (e) {}
@@ -99,6 +120,7 @@
       const vals = inst.renderVals(); const out = []; tpl.forEach((c) => build(c, vals, out));
       morphKids(host, out);
     };
+    host.__inst = inst; host.__defaults = defaults;
     inst.__render(); inst.__mountedOnce = true;
     inst.componentDidMount && inst.componentDidMount();
   }

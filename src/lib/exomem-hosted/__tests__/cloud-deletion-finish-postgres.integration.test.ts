@@ -114,6 +114,7 @@ async function resetFleet(): Promise<void> {
     "exomem_cloud_cells",
     "exomem_oauth_account_blocks",
     "exomem_tenants",
+    "exomem_users",
     "users",
     "exomem_cloud_capacity",
   ]) {
@@ -647,6 +648,15 @@ async function assertFinishedReceipt(
   );
   assert.deepEqual(consent.rows[0], { grants: 0, families: 0, tokens: 0 });
 
+  const identity = await pool!.query(
+    "SELECT id, email, email_verified_at, deleted_at FROM exomem_users WHERE id = $1",
+    [tenant.userId]
+  );
+  assert.equal(identity.rows[0]!.id, tenant.userId);
+  assert.equal(identity.rows[0]!.email, null);
+  assert.equal(identity.rows[0]!.email_verified_at, null);
+  assert.notEqual(identity.rows[0]!.deleted_at, null);
+
   // The shared Substrate account and its email stay.
   const user = await pool!.query("SELECT email, deleted_at FROM users WHERE id = $1", [
     tenant.userId,
@@ -875,7 +885,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     const { enqueueReadyEmails } = await import("../lifecycle-emails");
     assert.deepEqual(await enqueueReadyEmails(), { enqueued: 1 }, "sanity: email 03 is queued");
     const newAddress = `moved-${randomUUID()}@example.test`;
-    await pool!.query("UPDATE users SET email = $1 WHERE id = $2", [newAddress, tenant.userId]);
+    await pool!.query("UPDATE exomem_users SET email = $1 WHERE id = $2", [newAddress, tenant.userId]);
 
     await confirmCloudDeletion(tenant, (tenantId) =>
       finishCloudAccountDeletion(tenantId, withPaddle(fakePaddle()))
@@ -1361,6 +1371,11 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     });
     assert.ok(readmitted);
     assert.equal(readmitted!.tenantId, tenant.tenantId);
+    const identity = await pool!.query(
+      "SELECT id, email, deleted_at FROM exomem_users WHERE id = $1",
+      [tenant.userId]
+    );
+    assert.deepEqual(identity.rows, [{ id: tenant.userId, email: tenant.email, deleted_at: null }]);
     assert.notEqual(readmitted!.cellId, tenant.cellId);
     const cell = await pool!.query(
       "SELECT desired_state FROM exomem_cloud_cells WHERE cell_id = $1",
@@ -1381,6 +1396,11 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     // account block refuses either step.
     const readmitted = await admitCloudTenant({ source: "complimentary", email: tenant.email });
     assert.equal(readmitted.tenantId, tenant.tenantId);
+    const identity = await pool!.query(
+      "SELECT id, email, deleted_at FROM exomem_users WHERE id = $1",
+      [tenant.userId]
+    );
+    assert.deepEqual(identity.rows, [{ id: tenant.userId, email: tenant.email, deleted_at: null }]);
   });
 
   it("refuses to finish while an older Cloud cell row is still live", async () => {

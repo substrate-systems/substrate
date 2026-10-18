@@ -63,9 +63,9 @@ async function readCloudCapacity(
         AND observed_at <= statement_timestamp()
     ),
     cell_owners AS (
-      SELECT users.email
-      FROM users
-      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+      SELECT exomem_users.email
+      FROM exomem_users
+      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = exomem_users.id
       JOIN exomem_cloud_cells AS cell
         ON cell.tenant_id = tenant.id AND cell.desired_state <> 'deleted'
     ),

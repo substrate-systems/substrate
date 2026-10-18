@@ -318,8 +318,8 @@ export async function signInLinkFor(email: string): Promise<string> {
        SELECT outbox.id, outbox.token_id, outbox.secret_ciphertext
        FROM exomem_access_delivery_outbox AS outbox
        JOIN exomem_access_tokens AS token ON token.id = outbox.token_id
-       JOIN users ON users.id = token.user_id
-       WHERE users.email = $1 AND outbox.state = 'pending'
+       JOIN exomem_users ON exomem_users.id = token.user_id
+       WHERE exomem_users.email = $1 AND outbox.state = 'pending'
        ORDER BY outbox.created_at DESC LIMIT 1
      ), sent AS (
        UPDATE exomem_access_delivery_outbox AS outbox
