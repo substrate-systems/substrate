@@ -44,6 +44,11 @@ Both operations lock the same request. Cancellation before confirmation prevents
 Confirmation checks expiry, the original identity and email uniqueness. It updates the email and invalidates old sign-in links through the existing generation.
 Active sessions and OAuth grants stay valid. Collision responses are generic, and matching addresses never merge accounts.
 Deletion cancels pending changes and scrubs their personal data through the existing deletion workflow.
+The B migration owns an immediate tenant-status trigger that deletes email-change records and receipt-contact projections on `deletion_pending` or `deleted`.
+This preserves cleanup when application code rolls back to A. The trigger leaves the principal and outbox alone.
+Every change email carries its tenant identifier, so the existing terminal outbox scrub removes both fixed recipients before the deletion notice.
+Request, confirmation and receipt workers lock the tenant first and recheck eligibility. Late completions update only an existing matching lease and version.
+They never recreate purged rows. Immediate cleanup preserves fresh records created after re-admission, including within one transaction.
 After capturing any fixed-recipient deletion notice, deletion also clears the Exomem identity's email and verification time in the scrub transaction.
 The shared identity remains unchanged. Tombstones preserve foreign-key history without retaining another permanent copy of a deleted account's address.
 
