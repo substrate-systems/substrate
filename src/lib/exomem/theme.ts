@@ -245,11 +245,6 @@ export async function setExomemThemeChoice(
   return saved && currentVersion === version;
 }
 
-/** Compatibility for the current control until the three-choice control is ported. */
-export function setExomemTheme(root: HTMLElement, theme: ExomemTheme): void {
-  void setExomemThemeChoice(root, theme);
-}
-
 export function followDeviceTheme(root: HTMLElement): () => void {
   const reapply = () => {
     applyExomemTheme(root);
