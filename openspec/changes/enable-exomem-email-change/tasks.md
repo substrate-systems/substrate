@@ -8,14 +8,19 @@
 
 ## Release B: email changes
 
-- [ ] 2.1 Verify that deployments older than A cannot expose stale email authentication.
+- [x] 2.1 Verify that deployments older than A cannot expose stale email authentication.
 - [x] 2.2 Repoint the eight identity foreign keys and create new identities only within Exomem.
 - [x] 2.3 Add request, confirmation and cancellation routes with atomic, expiring single-use state.
-- [ ] 2.4 Deliver the Home dialogs and the two fixed-recipient emails through the existing outbox.
+- [x] 2.4 Deliver the Home dialogs and the two fixed-recipient emails through the existing outbox.
 - [x] 2.5 Preserve sessions and grants, invalidate old sign-in links, and scrub pending changes during deletion.
 - [x] 2.6 Synchronize the existing provider customer with explicit pending, conflict and failed states.
-- [ ] 2.7 Verify race, replay, collision, provider failure and persistence behaviour in the isolated application.
-- [ ] 2.8 Complete independent review, browser acceptance, required CI, normal release and read-only production verification.
+- [x] 2.7 Verify race, replay, collision, provider failure and persistence behaviour in the isolated application.
+- [x] 2.8 Complete independent review, browser acceptance, required CI, normal release and read-only production verification.
 - [ ] 2.9 Remove the temporary admission and deletion bridges after the rollback window closes.
 
-Implementation checks use isolated data. Release, deployment protection and browser acceptance remain in the unchecked tasks.
+Release A shipped in PR #264. Release B shipped in PR #265 on 2026-10-18 after the complete deployment fence check and execution drain.
+Independent source review, isolated PostgreSQL probes, browser workflows and required CI support the checked tasks.
+Read-only production checks confirmed the released source, production target, retained fence and public routes.
+
+Native inbox behavior, received HTML, live provider permission and production-volume query plans remain unverified.
+Task 2.9 remains open for rollback-window cleanup.
