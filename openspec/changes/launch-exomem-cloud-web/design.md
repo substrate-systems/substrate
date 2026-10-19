@@ -12,8 +12,9 @@ Home adopts the landing's 1056 px frame with 656 px and 368 px columns separated
 Home keeps its existing 15 px account and sign-out text for readability, with the current 17 px wordmark and theme targets.
 The interactive map and Home constellation card are deferred together. The right column starts with plan and account without an empty preview slot.
 Other signed-in pages keep their current boards where the canon leaves a shared frame undecided.
-The landing keeps the existing neutral release-plan story and matching labels, with the current board geometry and motion.
-This public example excludes personal names and private note paths. It does not reproduce a private memory.
+The landing tells the canonical Reykjavík story: the hotel booking supersedes the Airbnb, with matching notes and answer rows.
+This invented travel example uses the sample persona Maria, keeps the current board geometry and motion, and does not reproduce private notes.
+The “How it works” diagrams centre within their columns at every viewport; their headings and copy remain left-aligned.
 Phone flow columns centre between the 84 px header clearance and 150 px bottom band. Desktop columns centre in the full viewport.
 Tall states preserve header and origin clearance when those bands cannot contain the complete column without scrolling.
 
@@ -233,6 +234,8 @@ This is the single list of places the build departs from the boards. Each is del
 | (ar) | Home's first-note card omits the note path drawn in the R57 `first-note` frame. | The existing Home activity contract forbids note titles, paths, queries and content. The card uses only the permitted saving actor and time. | Recorded 2026-10-19 under the existing content-free activity contract |
 | (as) | Home's storage dialog offers manual packs with a price preview and explicit confirmation. It omits automatic growth and removal. Payment confirmation shows “Making room” until the matching disk observation proves completion. | The `add-manual-cloud-storage` contract requires these steps. The R57 `room` and `room-done` frames assume automatic purchases, removable capacity and immediate completion. | Recorded 2026-10-19 under the existing manual storage contract |
 | (at) | The unreachable Journey frame omits "Status page ↗" and its status-page sentence when no valid HTTPS status URL is configured. | The existing `EXOMEM_STATUS_PAGE_URL` setting supplies this action. An unconfigured destination must not appear usable. The retry countdown and action remain. | Recorded 2026-10-19 under the existing configuration contract |
+| (au) | The landing's install Copy button keeps the width of "Copied" at rest. | The board sizes it to the current word, so the button and the row beside it would jump on a click. The standing rule allows no state change flashes. | Recorded 2026-10-19 under the standing no-flash rule |
+| (av) | The landing's living map scales its 720 × 300 drawing to the width of its frame. | The board draws it at a fixed 720 px in a frame about 706 px wide, so it cuts about 14 px from the right edge. Scaling keeps the whole drawing and the hub centred, at about 98% size at 1280 px and smaller on narrower desktops. | Recorded 2026-10-19 under the board's fluid layout |
 
 ### Approved new copy
 

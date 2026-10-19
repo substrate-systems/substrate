@@ -4,6 +4,7 @@
   display: block;
   width: 100%;
   max-width: 250px;
+  align-self: center;
   height: auto;
   --d: 3.6s;
 }
@@ -24,7 +25,7 @@
   fill: color-mix(in srgb, var(--fg-primary) 35%, var(--bg-base));
 }
 .fieldNode {
-  fill: color-mix(in srgb, var(--fg-primary) 12%, var(--bg-base));
+  fill: color-mix(in srgb, var(--fg-primary) 12%, var(--bg-section));
 }
 
 /* The board's motions (.pt, .pp, .mz, .br). Reduced motion stops them: the light is hidden

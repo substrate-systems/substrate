@@ -445,7 +445,9 @@ export default function ExomemPage() {
               <h2 className={`${styles.h2} ${styles.cloudTitle}`}>We run it. You own it.</h2>
               <p className={`${styles.cloudLede} ${responsive.deskOnly}`}>
                 The same open-source engine, hosted for you. Your vault is plain Markdown
-                {exportOffered ? " and you can export it any time, even after you stop paying" : ""}
+                {exportOffered
+                  ? ", and you can export it any time, even after you stop paying"
+                  : ""}
                 .
               </p>
               <div className={styles.cloudCta}>
