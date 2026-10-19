@@ -48,6 +48,12 @@
   font-size: 18px;
 }
 
+/* Phase changes focus the title for reading, without a control ring. */
+.modal .title:focus {
+  outline: none;
+  box-shadow: none;
+}
+
 /* Home dialog boards use the font's normal heading line height. */
 .top .title {
   line-height: normal;
