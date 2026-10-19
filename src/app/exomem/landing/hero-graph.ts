@@ -1,5 +1,5 @@
-// The hero's illustration: a small vault of twelve notes that answers "what is our
-// current release plan?". The same notes and links are laid out wide on desktop (Landing-Page board)
+// The hero's illustration uses invented travel notes to answer "where are we staying
+// in Reykjavík?". The same notes and links are laid out wide on desktop (Landing-Page board)
 // and tall on a phone (R20-Mobile); the coordinates are the boards'. The vault is a
 // drawing, not anyone's data.
 
@@ -15,18 +15,18 @@ export type NoteRole =
 export type HeroNote = { path: string; role: NoteRole; answer?: 1 | 2 | 3 };
 
 export const HERO_NOTES: readonly HeroNote[] = [
-  { path: "Demo/build-notes.md", role: "note" },
-  { path: "Demo/test-plan.md", role: "note" },
-  { path: "Demo/interface.md", role: "answer", answer: 2 },
-  { path: "API", role: "entity" },
-  { path: "Demo/old-checklist.md", role: "superseded" },
-  { path: "Demo/release-checklist.md", role: "answer", answer: 3 },
-  { path: "Release", role: "entity" },
-  { path: "Demo/api-contract.md", role: "answer", answer: 1 },
-  { path: "Demo/resource-budget.md", role: "note" },
-  { path: "Demo/review-notes.md", role: "note" },
-  { path: "Demo/design-review.md", role: "note" },
-  { path: "Demo/deployment.md", role: "note" },
+  { path: "trip/flights.md", role: "note" },
+  { path: "trip/car-rental.md", role: "note" },
+  { path: "trip/itinerary.md", role: "answer", answer: 2 },
+  { path: "Travel", role: "entity" },
+  { path: "trip/airbnb-laugavegur.md", role: "superseded" },
+  { path: "trip/hotel-borg.md", role: "answer", answer: 3 },
+  { path: "Reykjavík", role: "entity" },
+  { path: "sources/booking-email.md", role: "answer", answer: 1 },
+  { path: "trip/budget.md", role: "note" },
+  { path: "notes/restaurants.md", role: "note" },
+  { path: "sources/travel-chat.md", role: "note" },
+  { path: "trip/packing-list.md", role: "note" },
 ];
 
 /** The note the answer settles on, and the plan it replaced. */

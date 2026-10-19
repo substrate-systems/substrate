@@ -425,7 +425,7 @@ export function HeroPanel({ latency }: { latency: string }) {
           <span className={styles.app}>
             Claude<span className={responsive.deskOnly}> ›</span>
           </span>{" "}
-          <span className={styles.q}>what is our current release plan?</span>
+          <span className={styles.q}>where are we staying in Reykjavík?</span>
         </span>
         <span className={`${styles.row} ${styles.r3} ${styles.latency}`}>{latency}</span>
       </div>
@@ -449,7 +449,7 @@ export function HeroPanel({ latency }: { latency: string }) {
             → <span className={responsive.deskOnly}>{answer}</span>
             <span className={responsive.phoneOnly}>{noteName(answer)}</span>
           </span>
-          <span className={styles.current}>approved · current</span>
+          <span className={styles.current}>booked 2 May · current</span>
         </div>
         <div className={`${styles.row} ${styles.r2} ${styles.answerRow} ${styles.old}`}>
           <span className={styles.struck}>

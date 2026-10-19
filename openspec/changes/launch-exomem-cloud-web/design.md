@@ -12,8 +12,8 @@ Home adopts the landing's 1056 px frame with 656 px and 368 px columns separated
 Home keeps its existing 15 px account and sign-out text for readability, with the current 17 px wordmark and theme targets.
 The interactive map and Home constellation card are deferred together. The right column starts with plan and account without an empty preview slot.
 Other signed-in pages keep their current boards where the canon leaves a shared frame undecided.
-The landing keeps the existing neutral release-plan story and matching labels, with the current board geometry and motion.
-This public example excludes personal names and private note paths. It does not reproduce a private memory.
+The landing tells the canonical Reykjavík story: the hotel booking supersedes the Airbnb, with matching notes and answer rows.
+This invented travel example keeps the current board geometry and motion, excludes personal names, and does not reproduce private notes.
 Phone flow columns centre between the 84 px header clearance and 150 px bottom band. Desktop columns centre in the full viewport.
 Tall states preserve header and origin clearance when those bands cannot contain the complete column without scrolling.
 
