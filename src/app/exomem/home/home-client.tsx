@@ -81,10 +81,6 @@ function visibleNow(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
 }
 
-function goToSignIn() {
-  window.location.replace("/exomem/sign-in");
-}
-
 export default function HomeClient({
   priceId,
   exportOffered,
@@ -146,6 +142,11 @@ export default function HomeClient({
   const [pageMessage, setPageMessage] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
+  const signOutResult = useRef<Promise<boolean> | null>(null);
+  const goToSignIn = useCallback(async () => {
+    // Wait for logout: late unauthorized reads redirect only when that logout failed.
+    if (!(await signOutResult.current)) window.location.replace("/exomem/sign-in");
+  }, []);
   const [deleteStep, setDeleteStep] = useState<DeleteStep | null>(null);
   const [storageOpen, setStorageOpen] = useState(false);
   const [deleteMinutes, setDeleteMinutes] = useState<number | null>(null);
@@ -210,7 +211,7 @@ export default function HomeClient({
         return null;
       }
     });
-  }, []);
+  }, [goToSignIn]);
 
   // A failed read keeps an account read before; with none, Home says it is unknown.
   const accountKnown = useRef(false);
@@ -233,7 +234,7 @@ export default function HomeClient({
       if (error instanceof SignedOutError) goToSignIn();
       else if (mounted.current && !accountKnown.current) setAccountRead("failed");
     }
-  }, []);
+  }, [goToSignIn]);
 
   const refreshEmailAccount = useCallback(() => {
     void refreshAccount();
@@ -249,7 +250,7 @@ export default function HomeClient({
       if (error instanceof SignedOutError) goToSignIn();
       else if (mounted.current) setAppsFailed(true);
     }
-  }, []);
+  }, [goToSignIn]);
 
   const refreshLevels = useCallback(async () => {
     if (!channelOn) return;
@@ -259,7 +260,7 @@ export default function HomeClient({
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
     }
-  }, [channelOn]);
+  }, [channelOn, goToSignIn]);
 
   const refreshActivity = useCallback(async () => {
     if (!channelOn) return;
@@ -277,10 +278,11 @@ export default function HomeClient({
       if (error instanceof SignedOutError) goToSignIn();
       else if (mounted.current) setActivityReadFailed(true);
     }
-  }, [channelOn]);
+  }, [channelOn, goToSignIn]);
 
   // Status: on load, then quickly while the cell changes state, else every 30 s.
   useEffect(() => {
+    if (signedOut) return;
     mounted.current = true;
     let cancelled = false;
     let timer: number | undefined;
@@ -310,13 +312,13 @@ export default function HomeClient({
       mounted.current = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [refreshStatus, refreshAccount]);
+  }, [refreshStatus, refreshAccount, signedOut]);
 
   // The rest of Home reads once the page knows it is Home, and again on a return to the
   // tab, unless the last full read is under 30 s old.
   const lastFullRead = useRef(0);
   useEffect(() => {
-    if (!inHome) return;
+    if (!inHome || signedOut) return;
     async function load() {
       lastFullRead.current = Date.now();
       await Promise.all([refreshApps(), refreshLevels(), refreshActivity()]);
@@ -339,7 +341,15 @@ export default function HomeClient({
       window.clearInterval(activityTimer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [inHome, refreshStatus, refreshAccount, refreshApps, refreshLevels, refreshActivity]);
+  }, [
+    inHome,
+    signedOut,
+    refreshStatus,
+    refreshAccount,
+    refreshApps,
+    refreshLevels,
+    refreshActivity,
+  ]);
 
   // "12 s ago" ticks in the browser.
   useEffect(() => {
@@ -355,10 +365,16 @@ export default function HomeClient({
     if (signingOut) return;
     setSigningOut(true);
     setPageMessage(null);
-    const ok = await signOut().catch(() => false);
+    const result = signOut().catch(() => false);
+    signOutResult.current = result;
+    const ok = await result;
     setSigningOut(false);
-    if (ok) setSignedOut(true);
-    else setPageMessage("We could not sign you out. Your session is still active. Try again.");
+    if (ok) {
+      setSignedOut(true);
+    } else {
+      signOutResult.current = null;
+      setPageMessage("We could not sign you out. Your session is still active. Try again.");
+    }
   }
 
   async function onBilling(kind: "portal" | "checkout", control: BillingControl) {

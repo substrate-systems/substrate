@@ -5,7 +5,7 @@ import { Button } from "@/components/exomem/Button";
 import { Mark } from "@/components/exomem/Mark";
 import { Modal } from "@/components/exomem/Modal";
 import { RadioCard } from "@/components/exomem/RadioCard";
-import { Collapse, Swap } from "@/components/exomem/Transitions";
+import { Swap } from "@/components/exomem/Transitions";
 import { HostedBrowserError, postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import { formatMoney } from "@/lib/exomem/money";
 import { storageReply, type CloudStorageOperation } from "@/lib/exomem/storage-contract";
@@ -376,11 +376,11 @@ export function StorageDialog({
             )}
           </div>
         </Swap>
-        <Collapse open={message !== null}>
+        {message !== null && (
           <p className={styles.text} role="status">
             {message}
           </p>
-        </Collapse>
+        )}
         {phase !== "applied" && (
           <Button variant="ghost" size="dialog" onClick={onClose}>
             {pending || phase === "payment_required" ? "Close" : "Cancel"}
