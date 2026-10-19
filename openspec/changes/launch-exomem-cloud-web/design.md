@@ -14,6 +14,7 @@ The interactive map and Home constellation card are deferred together. The right
 Other signed-in pages keep their current boards where the canon leaves a shared frame undecided.
 The landing tells the canonical Reykjavík story: the hotel booking supersedes the Airbnb, with matching notes and answer rows.
 This invented travel example keeps the current board geometry and motion, excludes personal names, and does not reproduce private notes.
+The “How it works” diagrams centre within their columns at every viewport; their headings and copy remain left-aligned.
 Phone flow columns centre between the 84 px header clearance and 150 px bottom band. Desktop columns centre in the full viewport.
 Tall states preserve header and origin clearance when those bands cannot contain the complete column without scrolling.
 

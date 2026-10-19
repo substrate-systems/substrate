@@ -4,6 +4,7 @@
   display: block;
   width: 100%;
   max-width: 250px;
+  align-self: center;
   height: auto;
   --d: 3.6s;
 }
