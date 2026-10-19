@@ -234,6 +234,7 @@ This is the single list of places the build departs from the boards. Each is del
 | (ar) | Home's first-note card omits the note path drawn in the R57 `first-note` frame. | The existing Home activity contract forbids note titles, paths, queries and content. The card uses only the permitted saving actor and time. | Recorded 2026-10-19 under the existing content-free activity contract |
 | (as) | Home's storage dialog offers manual packs with a price preview and explicit confirmation. It omits automatic growth and removal. Payment confirmation shows “Making room” until the matching disk observation proves completion. | The `add-manual-cloud-storage` contract requires these steps. The R57 `room` and `room-done` frames assume automatic purchases, removable capacity and immediate completion. | Recorded 2026-10-19 under the existing manual storage contract |
 | (at) | The unreachable Journey frame omits "Status page ↗" and its status-page sentence when no valid HTTPS status URL is configured. | The existing `EXOMEM_STATUS_PAGE_URL` setting supplies this action. An unconfigured destination must not appear usable. The retry countdown and action remain. | Recorded 2026-10-19 under the existing configuration contract |
+| (au) | The landing's install Copy button keeps the width of "Copied" at rest. | The board sizes it to the current word, so the button and the row beside it would jump on a click. The standing rule allows no state change flashes. | Recorded 2026-10-19 under the standing no-flash rule |
 
 ### Approved new copy
 

@@ -103,7 +103,7 @@ export const HERO_LINKS: readonly { from: number; to: number; kind: LinkKind }[]
 type Label = {
   x: number;
   y: number;
-  anchor?: "start" | "middle";
+  anchor?: "start" | "middle" | "end";
   tone: "ink" | "muted" | "amber";
   /** Phone: the name shows only while the note is hovered or tapped. */
   onDemand?: boolean;
@@ -187,9 +187,9 @@ export const DESKTOP_LAYOUT: HeroLayout = {
   contradictsWidth: 1.2,
   supersedesWidth: 1.6,
   supersedes: {
-    d: "M 170 214 Q 245 158 324.2 193.4",
-    length: 170,
-    arrow: "M 319.8 187.2 L 324.2 193.4 L 316.5 194.5",
+    d: "M 170 214 Q 245 158 321.3 192.1",
+    length: 166,
+    arrow: "M 317.6 185.1 L 321.3 192.1 L 313.6 194.0",
     label: { x: 208, y: 168, anchor: "start", size: 9 },
   },
   strike: { x1: 94.8, x2: 237.2, y: 234, width: 1 },
@@ -201,15 +201,15 @@ export const PHONE_LAYOUT: HeroLayout = {
   gridStart: 12,
   notes: [
     { x: 58, y: 46, label: { x: 58, y: 34, tone: "ink", onDemand: true } },
-    { x: 186, y: 28, label: { x: 186, y: 16, tone: "ink", onDemand: true } },
+    { x: 186, y: 28, label: { x: 186, y: 12, tone: "ink", onDemand: true } },
     { x: 300, y: 64, label: { x: 276, y: 46, tone: "ink" } },
     { x: 26, y: 128, label: { x: 26, y: 116, tone: "ink", onDemand: true } },
     { x: 86, y: 196, label: { x: 92, y: 220, tone: "muted" } },
     { x: 262, y: 176, label: { x: 262, y: 204, tone: "amber" } },
-    { x: 334, y: 214, label: { x: 308, y: 238, anchor: "middle", tone: "ink", onDemand: true } },
+    { x: 334, y: 214, label: { x: 350, y: 240, anchor: "end", tone: "ink", onDemand: true } },
     { x: 174, y: 292, label: { x: 174, y: 318, tone: "ink" } },
     { x: 36, y: 300, label: { x: 36, y: 288, tone: "ink", onDemand: true } },
-    { x: 310, y: 326, label: { x: 284, y: 314, tone: "ink", onDemand: true } },
+    { x: 310, y: 326, label: { x: 352, y: 314, anchor: "end", tone: "ink", onDemand: true } },
     { x: 100, y: 372, label: { x: 100, y: 360, tone: "ink", onDemand: true } },
     { x: 236, y: 384, label: { x: 236, y: 372, tone: "ink", onDemand: true } },
   ],

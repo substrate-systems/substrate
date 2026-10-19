@@ -66,6 +66,14 @@ const REMEMBER_LINKS = [
   [222, 40],
 ] as const;
 
+/** Each source square's top edge, and its line to the note, drawn between the two edges. */
+const REMEMBER_SOURCES = [
+  { y: 11, line: [30.46, 21.06, 132.36, 57.96] },
+  { y: 39, line: [30.94, 47.08, 132.04, 59.28] },
+  { y: 67, line: [30.94, 72.92, 132.04, 60.72] },
+  { y: 95, line: [30.46, 98.94, 132.36, 62.04] },
+] as const;
+
 /** Four sources feed one note, which links on; the source being kept runs in amber. */
 export function RememberDrawing() {
   const svg = useAliveGraph("landing-remember", "live", REMEMBER_GRAPH);
@@ -79,7 +87,7 @@ export function RememberDrawing() {
       data-graph={REMEMBER_GRAPH}
       data-hover="glow"
     >
-      {[11, 39, 67, 95].map((y) => (
+      {REMEMBER_SOURCES.map(({ y, line: [x1, y1, x2, y2] }) => (
         <g key={y}>
           <rect
             x="15"
@@ -91,10 +99,10 @@ export function RememberDrawing() {
             stroke="rgba(var(--ink-rgb), .18)"
           />
           <line
-            x1="31"
-            y1={y + 7}
-            x2="132"
-            y2="60"
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
             stroke={AMBER}
             strokeOpacity={y === 39 ? 0.75 : 0.18}
             strokeWidth={y === 39 ? 1.6 : 1}

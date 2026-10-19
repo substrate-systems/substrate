@@ -57,9 +57,16 @@ type GraphProps = {
 };
 
 function HeroGraph({ layout, shortNames, className, active, onActive }: GraphProps) {
+  // Pulses stop at each note's drawn edge; entity squares keep the engine's default radius.
+  // The supersedes curve is drawn on its own, so no pulse runs its straight chord.
   const graph = JSON.stringify({
-    n: layout.notes.map(({ x, y }) => [x, y, layout.noteRadius]),
-    e: HERO_LINKS.map(({ from, to }) => [from, to]),
+    n: layout.notes.map(({ x, y }, index) => {
+      const { role, answer } = HERO_NOTES[index];
+      if (answer) return [x, y, layout.answerRadius[answer]];
+      if (role === "superseded") return [x, y, layout.supersededRadius];
+      return role === "entity" ? [x, y] : [x, y, layout.noteRadius];
+    }),
+    e: HERO_LINKS.filter(({ kind }) => kind !== "supersedes").map(({ from, to }) => [from, to]),
   });
   const svg = useAliveGraph(`hero-${layout.width}`, "live", graph);
   useLayoutEffect(() => {

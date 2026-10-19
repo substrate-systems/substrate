@@ -21,6 +21,9 @@
   background: transparent;
   color: var(--fg-secondary);
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 .button:hover,
 .button[aria-expanded="true"] {
@@ -61,6 +64,17 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  animation: menuIn 0.15s ease-out both;
+}
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .end .menu,
 .end .error {
