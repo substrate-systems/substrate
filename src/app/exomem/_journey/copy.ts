@@ -23,7 +23,7 @@ export const startCopy = {
   },
   app: (app: string) => ({
     title: `Connect ${app} to your memory`,
-    lede: "Sign in with the email your Exomem is tied to.",
+    lede: "Sign in with the email your Exomem is tied to. You’ll come straight back here.",
     primary: "Email me a sign-in link",
   }),
   emailLabel: "Email",

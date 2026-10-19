@@ -41,9 +41,9 @@ test("email sign-in stays centered through an unreachable service and recovery",
   // A lost network connection is the failure this case exercises.
   await page.route("**/api/exomem/access/start", (route) => route.abort("failed"));
   await send.click();
-  const unreachable = page.getByRole("heading", { name: "Can’t reach Exomem." });
+  const unreachable = page.getByRole("heading", { name: "We can’t reach Exomem" });
   await expect(unreachable).toBeFocused();
-  await expect(page.getByRole("status")).toContainText("Can’t reach Exomem.");
+  await expect(page.getByRole("status")).toContainText("We can’t reach Exomem");
   await expectJourneyCentered(page);
   const retry = page.getByRole("button", { name: "Try now", exact: true });
   const failedButton = await retry.boundingBox();

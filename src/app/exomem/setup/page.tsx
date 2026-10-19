@@ -12,6 +12,7 @@ import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
+import { statusPageUrl } from "../_journey/status-page";
 import SetupClient, { type SetupFacts } from "./setup-client";
 import { setupScreen } from "./setup-screen";
 
@@ -78,5 +79,5 @@ export default async function SetupPage({
   if (!facts) redirect("/exomem/sign-in");
   const returned = (await searchParams)._ptxn;
   if (typeof returned === "string") facts.returnedTransactionId = returned;
-  return <SetupClient facts={facts} />;
+  return <SetupClient facts={facts} statusPageUrl={statusPageUrl()} />;
 }

@@ -6,9 +6,9 @@ import { TextField } from "@/components/exomem/TextField";
 import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
 import { inboxProvider, inboxProviderForDomain, inboxUrl } from "@/lib/exomem/inbox";
 import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
-import { failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
+import { breakCopy, failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
-import { SentCard, StepActions, StepHeading, StepNotice } from "./parts";
+import { openElsewhere, SentCard, StepActions, StepHeading, StepNotice } from "./parts";
 import { ChallengeError, useTurnstile } from "./turnstile";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
@@ -24,6 +24,8 @@ const SITE_KEY = process.env.NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY?.trim() || nu
 type StartFlowProps = {
   context: StartContext;
   reviewerEnabled: boolean;
+  /** The maintained HTTPS status page; absent configuration draws no status action. */
+  statusPageUrl: string | null;
   /** The frame the page draws around the steps. */
   frame: { app?: AppTile; footer?: string | null };
   /** A notice to show over the form when it first appears (signed out, a spent link). */
@@ -93,6 +95,7 @@ function clock(ms: number): string {
 export function StartFlow({
   context,
   reviewerEnabled,
+  statusPageUrl,
   frame,
   notice,
   focusHeading = false,
@@ -131,6 +134,11 @@ export function StartFlow({
   );
 
   const waitLeft = retryAt - now;
+  const resendLabel = sending
+    ? "Sending…"
+    : waitLeft > 0
+      ? sentCopy.resendIn(clock(waitLeft))
+      : sentCopy.resend;
   const formNonce = context.kind === "app" ? context.nonce : undefined;
   const sentDomain = sentEmail.slice(sentEmail.lastIndexOf("@") + 1).toLowerCase();
   const provider =
@@ -348,36 +356,61 @@ export function StartFlow({
       {step === "unreachable" ? (
         <>
           <StepHeading
-            title="Can’t reach Exomem."
-            lede="Your memories are safe. We can’t reach Exomem right now."
+            title="We can’t reach Exomem"
+            lede="Your connection or our server stopped answering. Nothing you did is lost."
           />
-          {challenge}
-          <StepNotice>Checking again in {retryIn} seconds.</StepNotice>
+          <div className={styles.group}>
+            {challenge}
+            <StepNotice>
+              Trying again in {retryIn}
+              {"\u00a0"}s.
+              {statusPageUrl ? " If it keeps happening, our status page says why." : null}
+            </StepNotice>
+          </div>
           <StepActions
             primary={{
               label: sending ? "Trying…" : "Try now",
               working: sending,
               onClick: () => void send(),
             }}
-            secondary={{
-              label: "Back to sign-in",
-              onClick: () => {
-                setFocusStep(true);
-                setStep("form");
-              },
-            }}
-          />
-        </>
-      ) : step === "sent" || step === "limited" ? (
-        <>
-          <StepHeading
-            title={step === "limited" ? "Give it a moment" : sentCopy.title}
-            lede={
-              step === "limited"
-                ? "Use the latest email you received, or check your spam folder. You can request another email when the wait ends."
-                : sentCopy.lede
+            secondary={
+              statusPageUrl
+                ? {
+                    label: breakCopy.connectError.statusPage,
+                    onClick: () => openElsewhere(statusPageUrl),
+                  }
+                : null
             }
           />
+        </>
+      ) : step === "limited" ? (
+        <>
+          <StepHeading
+            title="That’s enough links for now"
+            lede="Use the latest email you received, or check your spam folder. You can request another email when the wait ends."
+          />
+          <div className={styles.group}>
+            {challenge}
+            <StepNotice alert={!!failure}>
+              {failure ??
+                (waitLeft > 0
+                  ? `You can ask for another in ${clock(waitLeft)}. Not there? Look in spam.`
+                  : "You can ask for another now. Not there? Look in spam.")}
+            </StepNotice>
+          </div>
+          <StepActions
+            primary={{
+              label: resendLabel,
+              working: sending,
+              disabled: waitLeft > 0,
+              onClick: () => void send(),
+            }}
+            secondary={{ label: sentCopy.differentEmail, onClick: changeAddress }}
+          />
+        </>
+      ) : step === "sent" ? (
+        <>
+          <StepHeading title={sentCopy.title} lede={sentCopy.lede} />
           <div className={styles.group}>
             <SentCard
               email={sentEmail}
@@ -411,11 +444,7 @@ export function StartFlow({
                 working={sending}
                 onClick={() => void send()}
               >
-                {sending
-                  ? "Sending…"
-                  : waitLeft > 0
-                    ? sentCopy.resendIn(clock(waitLeft))
-                    : sentCopy.resend}
+                {resendLabel}
               </Button>
             </div>
           </div>
