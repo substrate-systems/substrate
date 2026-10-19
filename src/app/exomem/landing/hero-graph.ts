@@ -18,14 +18,14 @@ export const HERO_NOTES: readonly HeroNote[] = [
   { path: "trip/flights.md", role: "note" },
   { path: "trip/car-rental.md", role: "note" },
   { path: "trip/itinerary.md", role: "answer", answer: 2 },
-  { path: "Travel", role: "entity" },
+  { path: "Maria", role: "entity" },
   { path: "trip/airbnb-laugavegur.md", role: "superseded" },
   { path: "trip/hotel-borg.md", role: "answer", answer: 3 },
   { path: "Reykjavík", role: "entity" },
   { path: "sources/booking-email.md", role: "answer", answer: 1 },
   { path: "trip/budget.md", role: "note" },
   { path: "notes/restaurants.md", role: "note" },
-  { path: "sources/travel-chat.md", role: "note" },
+  { path: "sources/chat-with-maria.md", role: "note" },
   { path: "trip/packing-list.md", role: "note" },
 ];
 
