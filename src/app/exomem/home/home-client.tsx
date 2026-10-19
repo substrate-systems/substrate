@@ -587,7 +587,17 @@ export default function HomeClient({
       : null;
   const status_ = statusCopy(variant, reviewer, facts, clock);
   const storage = storageView(status?.storage ?? null, clock);
-  const homeNotices = notices(variant, account, storage, exportOffered, statusPageUrl !== null);
+  const canAddStorage =
+    storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
+  const openStorage = () => setStorageOpen(true);
+  const homeNotices = notices(
+    variant,
+    account,
+    storage,
+    exportOffered,
+    statusPageUrl !== null,
+    canAddStorage
+  );
   const first = isLive(variant) ? firstNoteLine(facts, clock) : null;
   const accountBanner = banner(variant, account, billing, clock, exportOffered);
   const exportSummary = status?.exportSummary;
@@ -689,6 +699,10 @@ export default function HomeClient({
                           >
                             {breakCopy.connectError.statusPage}
                           </ButtonLink>
+                        ) : action === "storage" ? (
+                          <Button key={action} size="detail" onClick={openStorage}>
+                            Add storage
+                          </Button>
                         ) : action === "support" ? (
                           <ButtonLink key={action} size="detail" href="/exomem/support">
                             Contact support
@@ -796,11 +810,7 @@ export default function HomeClient({
               onBilling={(kind) => void onBilling(kind, "plan")}
               billingBusy={billingBusy}
               billingMessage={billingError?.control === "plan" ? billingError.text : null}
-              onStorage={
-                storageOffered && !reviewer && variant === "on" && billing?.source === "paddle"
-                  ? () => setStorageOpen(true)
-                  : undefined
-              }
+              onStorage={canAddStorage ? openStorage : undefined}
             />
           </div>
         </div>

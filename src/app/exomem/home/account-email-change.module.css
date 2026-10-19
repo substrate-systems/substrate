@@ -29,13 +29,6 @@
 .actions > button,
 .done > button {
   width: 100%;
-  height: 46px;
-  font-size: 13.5px;
-}
-
-.actions > button:last-child {
-  height: 40px;
-  font-size: 13px;
 }
 
 .status {
