@@ -87,20 +87,16 @@ test("a returning owner's emailed link signs them in once, after they continue",
   await expect(opened).toHaveURL(/\/exomem\/home$/);
   await expect(page).toHaveURL(/\/exomem\/home$/);
 
-  // The same link pasted into the first tab: spent, and the page says so and offers the form.
+  // The same link pasted into the first tab: spent, with one browser-bound resend.
   await page.goto(link);
   await page.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
   // The page took the token out of the address bar before anything else.
   expect(new URL(page.url()).hash).toBe("");
-  await expect(
-    page.getByRole("heading", { name: "This sign-in link was already used" })
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "This link was already used" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Email me a new link", exact: true })
   ).toBeVisible();
   await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
-  await page.getByRole("button", { name: "Use a different email", exact: true }).click();
-  await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
 });
 
 test("Change returns to the submitted address and focuses its field", async ({ page }) => {
@@ -119,8 +115,11 @@ test("a forged tab notification cannot advance a different signed-in account", a
   const other = await seedOwner("ready");
   await startWithEmail(page, expected.email);
   await context.addCookies(other.cookies);
-  const checked = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/api/exomem/access/session"
+  // Observe a new request: the sent view's unauthenticated poll can still be in flight.
+  const checked = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/exomem/access/session" &&
+      request.method() === "POST"
   );
   await page.evaluate(() =>
     window.dispatchEvent(
@@ -130,7 +129,9 @@ test("a forged tab notification cannot advance a different signed-in account", a
       })
     )
   );
-  expect(await (await checked).json()).toEqual({ authenticated: false });
+  const response = await (await checked).response();
+  expect(response?.status()).toBe(200);
+  expect(await response!.json()).toEqual({ authenticated: false });
   await expect(page.getByRole("heading", { name: sentCopy.title })).toBeVisible();
 });
 
@@ -151,13 +152,18 @@ test("a replaced app request cannot advance the original waiting tab", async ({
   const replacement = await context.newPage();
   await replacement.goto(authorizeRequest(client).url);
   await context.addCookies(owner.cookies);
-  const checked = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/api/exomem/access/session"
+  // Read the post-cookie exchange rather than an older unauthenticated poll.
+  const checked = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/exomem/access/session" &&
+      request.method() === "POST"
   );
   await page.evaluate(() =>
     window.dispatchEvent(new StorageEvent("storage", { key: "exomem-access-session" }))
   );
-  expect(await (await checked).json()).toEqual({ authenticated: true, destination: null });
+  const response = await (await checked).response();
+  expect(response?.status()).toBe(200);
+  expect(await response!.json()).toEqual({ authenticated: true, destination: null });
   await expect(page.getByRole("heading", { name: sentCopy.title })).toBeVisible();
   await replacement.close();
 });

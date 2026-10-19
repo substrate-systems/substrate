@@ -42,7 +42,13 @@ type Mode =
  * token in the fragment, which never reaches a server log; the page takes it out of
  * the address bar first, and redeems it only when the person presses Continue.
  */
-export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boolean }) {
+export default function SignInClient({
+  reviewerEnabled,
+  statusPageUrl,
+}: {
+  reviewerEnabled: boolean;
+  statusPageUrl: string | null;
+}) {
   const started = useRef(false);
   const token = useRef<string | null>(null);
   const [mode, setMode] = useState<Mode>("checking");
@@ -131,8 +137,7 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
     redeem();
   }
 
-  if (mode === "expired" || mode === "used")
-    return <AccessRecovery state={mode} onChangeAddress={() => setMode("form")} />;
+  if (mode === "expired" || mode === "used") return <AccessRecovery state={mode} />;
 
   if (mode === "checking") {
     return <JourneyPage kind="hold" stepKey="checking" />;
@@ -199,6 +204,7 @@ export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boo
       focusHeading={mode !== "form"}
       context={{ kind: "web" }}
       reviewerEnabled={reviewerEnabled}
+      statusPageUrl={statusPageUrl}
       frame={{}}
       notice={
         mode === "form"

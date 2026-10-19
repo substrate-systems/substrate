@@ -5,7 +5,7 @@ import { Button } from "@/components/exomem/Button";
 import { Mark } from "@/components/exomem/Mark";
 import { Modal } from "@/components/exomem/Modal";
 import { RadioCard } from "@/components/exomem/RadioCard";
-import { Collapse, Swap } from "@/components/exomem/Transitions";
+import { Swap } from "@/components/exomem/Transitions";
 import { HostedBrowserError, postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import { formatMoney } from "@/lib/exomem/money";
 import { storageReply, type CloudStorageOperation } from "@/lib/exomem/storage-contract";
@@ -242,7 +242,7 @@ export function StorageDialog({
   const title =
     phase === "applied" ? "More storage added" : phase === "paid" ? "Making room" : "More storage";
   return (
-    <Modal open onClose={onClose} title={title} width={420} phoneFullWidth>
+    <Modal open onClose={onClose} title={title} width={420} phoneFullWidth placement="top">
       <div ref={content} className={styles.content}>
         <Swap k={phase} block>
           <div className={styles.content}>
@@ -279,7 +279,7 @@ export function StorageDialog({
                 {quantity !== null ? (
                   <Button
                     variant="primary"
-                    size="page"
+                    size="dialog"
                     working={busy}
                     onClick={() => void preview()}
                   >
@@ -308,12 +308,17 @@ export function StorageDialog({
                     <dd>{formatMoney(operation.quote.due, { ledger: true })}</dd>
                   </div>
                 </dl>
-                <Button variant="primary" size="page" working={busy} onClick={() => void confirm()}>
+                <Button
+                  variant="primary"
+                  size="dialog"
+                  working={busy}
+                  onClick={() => void confirm()}
+                >
                   {busy
                     ? "Adding storage…"
                     : `Add ${gigabytes(operation.addedBytes)} GB · ${formatMoney(operation.quote.due)} now`}
                 </Button>
-                <Button variant="ghost" onClick={() => setOperation(null)}>
+                <Button variant="ghost" size="dialog" onClick={() => setOperation(null)}>
                   Choose another amount
                 </Button>
               </>
@@ -364,20 +369,20 @@ export function StorageDialog({
                   You now have {gigabytes(operation.capacityBytes)} GB. Saving carries on. Paddle
                   sends the receipt.
                 </p>
-                <Button variant="primary" size="page" onClick={onClose}>
+                <Button variant="primary" size="dialog" onClick={onClose}>
                   Done
                 </Button>
               </>
             )}
           </div>
         </Swap>
-        <Collapse open={message !== null}>
+        {message !== null && (
           <p className={styles.text} role="status">
             {message}
           </p>
-        </Collapse>
+        )}
         {phase !== "applied" && (
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" size="dialog" onClick={onClose}>
             {pending || phase === "payment_required" ? "Close" : "Cancel"}
           </Button>
         )}

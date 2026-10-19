@@ -365,7 +365,7 @@ function EmailChangeDialog({
             <p className={home.dialogText}>Close this and choose Change to request new links.</p>
           )}
           <div className={styles.done}>
-            <Button variant="primary" size="page" onClick={onClose}>
+            <Button variant="primary" size="dialog" onClick={onClose}>
               Done
             </Button>
           </div>
@@ -399,10 +399,10 @@ function EmailChangeDialog({
             </p>
           )}
           <div className={styles.actions}>
-            <Button type="submit" variant="primary" size="page" working={busy}>
+            <Button type="submit" variant="primary" size="dialog" working={busy}>
               {busy ? "Queuing the links…" : "Send the links"}
             </Button>
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" size="dialog" onClick={onClose}>
               Cancel
             </Button>
           </div>

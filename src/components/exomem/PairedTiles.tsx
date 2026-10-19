@@ -56,7 +56,7 @@ export function PairedTiles({ state, app, onMotionComplete }: PairedTilesProps) 
         <>
           <div className={styles.tile} title={app.name} style={{ fontSize: app.glyphSize }}>
             <span aria-hidden="true">{app.glyph}</span>
-            <span className={styles.appName}>{app.name}</span>
+            <span className="sr-only">{app.name}</span>
           </div>
           <svg className={styles.pair} height="10" aria-hidden="true">
             <line className={styles.pl} x1="4" y1="5" x2="100%" y2="5" strokeWidth="1.5" />

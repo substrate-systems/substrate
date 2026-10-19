@@ -325,6 +325,7 @@ function Consent({
         focusHeading={current === "switched"}
         context={{ kind: "app", app: name, nonce, requestLife }}
         reviewerEnabled={request.reviewerEnabled}
+        statusPageUrl={statusPageUrl}
         frame={{ app: tile, footer }}
         notice={
           current === "switched" && request.email

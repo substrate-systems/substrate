@@ -106,14 +106,6 @@
   }
 }
 
-.appName {
-  max-width: 52px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-  line-height: 1;
-}
 .stopped .pl {
   stroke-dasharray: 3 5;
 }

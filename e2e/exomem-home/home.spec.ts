@@ -252,6 +252,28 @@ test("Home shows the account's own values and calls only routes a Cloud account 
   );
 });
 
+test("sign-out keeps its confirmation through the next Home poll and leaves assistants connected", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const owner = await createOwner();
+  const app = await connectApp(owner, { platform: "claude" });
+  await openHome(page, owner);
+  await expect(page.getByRole("heading", { name: "Your memory is on", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  const confirmation = page.getByRole("dialog", { name: "Signed out", exact: true });
+  await expect(confirmation).toBeVisible();
+  expect((await page.request.get("/api/exomem/account")).status()).toBe(401);
+  expect(await grantRevoked(app)).toBe(false);
+
+  // Allow the real background reads to settle after their 30-second poll deadline.
+  await page.waitForTimeout(35_000);
+  await expect(confirmation).toBeVisible();
+  await expect(page).toHaveURL(/\/exomem\/home$/);
+  await confirmation.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page).toHaveURL(/\/exomem$/);
+});
+
 test("new activity highlights only its authenticated app for three seconds", async ({ page }) => {
   const owner = await createOwner();
   const first = await connectApp(owner, { platform: "claude", name: "First connection" });

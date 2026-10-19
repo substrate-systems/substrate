@@ -134,8 +134,10 @@
   text-wrap: balance;
 }
 
-.title:focus {
+/* Step changes focus the title for reading, without a control ring. */
+.page .title:focus {
   outline: none;
+  box-shadow: none;
 }
 
 .lede {

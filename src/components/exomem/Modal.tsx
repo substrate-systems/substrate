@@ -19,7 +19,7 @@ type ModalProps = {
   width?: 360 | 400 | 420;
   /** Home's storage board uses the whole phone width. */
   phoneFullWidth?: boolean;
-  /** The email-change frames start 120 px below the top of the viewport. */
+  /** Home dialog frames start 120 px below the top of the viewport. */
   placement?: "center" | "top";
 };
 

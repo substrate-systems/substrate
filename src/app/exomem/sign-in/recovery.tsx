@@ -8,13 +8,7 @@ import { failureCopy, sentCopy } from "../_journey/copy";
 import { StepActions, StepHeading, StepNotice } from "../_journey/parts";
 
 /** The proven browser can resend without learning an address from the receipt. */
-export function AccessRecovery({
-  state,
-  onChangeAddress,
-}: {
-  state: "expired" | "used";
-  onChangeAddress: () => void;
-}) {
+export function AccessRecovery({ state }: { state: "expired" | "used" }) {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState(false);
@@ -55,13 +49,15 @@ export function AccessRecovery({
           sent
             ? sentCopy.title
             : state === "expired"
-              ? "This sign-in link has expired"
-              : "This sign-in link was already used"
+              ? "This link has expired"
+              : "This link was already used"
         }
         lede={
           sent
             ? sentCopy.lede
-            : `Sign-in links work once, for ${OWNER_SIGN_IN_TTL_MS / 60_000} minutes.`
+            : state === "expired"
+              ? `Sign-in links work once, for ${OWNER_SIGN_IN_TTL_MS / 60_000} minutes.`
+              : "Each link works once. If you opened it on another device, you’re signed in there. To sign in here, ask for a new one."
         }
       />
       <StepNotice alert visible={failure}>
@@ -78,7 +74,6 @@ export function AccessRecovery({
           disabled: wait > 0,
           onClick: () => void resend(),
         }}
-        secondary={{ label: "Use a different email", onClick: onChangeAddress }}
       />
     </JourneyPage>
   );

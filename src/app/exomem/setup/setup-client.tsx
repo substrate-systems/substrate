@@ -157,7 +157,13 @@ function JoinedLevels({ app }: { app: ListedApp }) {
   );
 }
 
-export default function SetupClient({ facts }: { facts: SetupFacts }) {
+export default function SetupClient({
+  facts,
+  statusPageUrl,
+}: {
+  facts: SetupFacts;
+  statusPageUrl: string | null;
+}) {
   const [focusHeading, setFocusHeading] = useState(false);
   const [phase, setPhase] = useState<Phase>(facts.screen);
   const [waitingFor, setWaitingFor] = useState<PluginApp>("claude");
@@ -280,6 +286,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
         focusHeading
         context={{ kind: "web" }}
         reviewerEnabled={facts.reviewerEnabled}
+        statusPageUrl={statusPageUrl}
         frame={{}}
         notice={{ text: startCopy.switched(facts.email), attention: false }}
       />

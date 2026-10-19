@@ -10,9 +10,10 @@ type Variant = "primary" | "secondary" | "quiet" | "amber" | "ghost";
  * a row's action on Home · account: the row size at 12.5 px, Home's billing and export
  * actions (500 when filled) · detail: h 36 and at least 112 wide, the action of a line
  * under a row or of a notice. A ghost button is panel (back links, "Copy path") or page:
- * a flow page's quiet second action under its main one.
+ * a flow page's quiet second action under its main one. Dialog actions use the Home
+ * boards' 46 px primary, 44 px secondary and 40 px quiet controls.
  */
-type Size = "panel" | "page" | "landing" | "row" | "account" | "detail";
+type Size = "panel" | "page" | "landing" | "row" | "account" | "detail" | "dialog";
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
   ref?: Ref<HTMLButtonElement>;
@@ -34,6 +35,7 @@ function buttonClasses(variant: Variant, size: Size): string {
     variant !== "secondary" && styles[variant],
     variant !== "ghost" && size !== "panel" && styles[size],
     variant === "ghost" && size === "page" && styles.ghostPage,
+    variant === "ghost" && size === "dialog" && styles.ghostDialog,
   ]
     .filter(Boolean)
     .join(" ");

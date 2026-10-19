@@ -791,30 +791,6 @@
   color: var(--fg-secondary);
 }
 
-.dialogError {
-  min-height: 2lh;
-}
-
-.dialogActions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.dialogCancel {
-  height: 40px;
-  border: 0;
-  background: transparent;
-  color: var(--fg-secondary);
-  font-family: var(--font-mono-exo);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.dialogCancel:hover {
-  color: var(--fg-primary);
-}
-
 /* Cancel beside a row's confirm button (Home board): as tall as the row's actions. */
 .rowCancel {
   min-height: 44px;

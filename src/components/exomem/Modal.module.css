@@ -48,7 +48,13 @@
   font-size: 18px;
 }
 
-/* The email-change board uses the font's normal heading line height. */
+/* Phase changes focus the title for reading, without a control ring. */
+.modal .title:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Home dialog boards use the font's normal heading line height. */
 .top .title {
   line-height: normal;
 }

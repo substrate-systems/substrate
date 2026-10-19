@@ -33,13 +33,17 @@ export function DeleteDialog({
       onClose={onClose}
       title={sent ? "Check your email" : "Delete your Exomem?"}
       width={400}
+      placement="top"
+      phoneFullWidth
     >
       {sent ? (
         <>
           <p className={styles.dialogText}>
             {`Nothing is deleted until you open the link.${lasts} Ignore it and your Exomem stays.`}
           </p>
-          <Button onClick={onClose}>Done</Button>
+          <Button size="dialog" onClick={onClose}>
+            Done
+          </Button>
         </>
       ) : (
         <>
@@ -56,17 +60,17 @@ export function DeleteDialog({
               </>
             )}
           </p>
-          <p className={`${styles.dialogText} ${styles.dialogError}`} role="alert">
-            {step === "failed" ? "That didn’t finish. Try again in a minute." : ""}
-          </p>
-          <div className={styles.dialogActions}>
-            <Button variant="primary" size="page" working={step === "sending"} onClick={onSend}>
-              {step === "sending" ? "Sending…" : "Email me a confirmation link"}
-            </Button>
-            <button type="button" className={styles.dialogCancel} onClick={onClose}>
-              Cancel
-            </button>
-          </div>
+          {step === "failed" && (
+            <p className={styles.dialogText} role="alert">
+              That didn’t finish. Try again in a minute.
+            </p>
+          )}
+          <Button variant="primary" size="dialog" working={step === "sending"} onClick={onSend}>
+            {step === "sending" ? "Sending…" : "Email me a confirmation link"}
+          </Button>
+          <Button variant="ghost" size="dialog" onClick={onClose}>
+            Cancel
+          </Button>
         </>
       )}
     </Modal>
@@ -76,11 +80,20 @@ export function DeleteDialog({
 /** After sign-out: the assistants keep their connections. */
 export function SignedOutDialog({ open, onDone }: { open: boolean; onDone: () => void }) {
   return (
-    <Modal open={open} onClose={onDone} title="Signed out" width={360}>
+    <Modal
+      open={open}
+      onClose={onDone}
+      title="Signed out"
+      width={360}
+      placement="top"
+      phoneFullWidth
+    >
       <p className={styles.dialogText}>
         Your assistants stay connected. Signing out only ends this browser’s session.
       </p>
-      <Button onClick={onDone}>OK</Button>
+      <Button size="dialog" onClick={onDone}>
+        OK
+      </Button>
     </Modal>
   );
 }

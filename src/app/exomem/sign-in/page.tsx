@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
+import { statusPageUrl } from "../_journey/status-page";
 import SignInClient from "./sign-in-client";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default function SignInPage() {
-  return <SignInClient reviewerEnabled={marketplaceReviewerAccessEnabled()} />;
+  return (
+    <SignInClient
+      reviewerEnabled={marketplaceReviewerAccessEnabled()}
+      statusPageUrl={statusPageUrl()}
+    />
+  );
 }

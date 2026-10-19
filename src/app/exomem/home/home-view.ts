@@ -414,8 +414,8 @@ export type HomeNotice = {
   text: string;
   /** Amber edge: a live state that needs the person now. */
   attention: boolean;
-  /** In order; none for a notice that only informs. */
-  actions: ("copy_reference" | "status_page" | "support")[];
+  /** Fixed Home controls, in order; none for a notice that only informs. */
+  actions: ("copy_reference" | "status_page" | "support" | "storage")[];
 };
 
 export function notices(
@@ -425,7 +425,9 @@ export function notices(
   /** False while the export flag is off; see `banner`. */
   exportOffered: boolean,
   /** Whether a status page is configured, for the trouble notice's "Status page ↗". */
-  statusPageOffered: boolean
+  statusPageOffered: boolean,
+  /** The same current eligibility that offers storage in Plan and account. */
+  canAddStorage: boolean
 ): HomeNotice[] {
   const list: HomeNotice[] = [];
   const reference = account?.supportReference ?? null;
@@ -463,13 +465,12 @@ export function notices(
       actions: ["support"],
     });
   }
-  // Storage add-ons are hidden at launch, so neither notice offers them.
   if (storage.state === "known" && storage.fraction >= 1) {
     list.push({
       key: "full",
       text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room. Nothing is ever deleted to make space.`,
       attention: true,
-      actions: [],
+      actions: canAddStorage ? ["storage"] : [],
     });
   } else if (storage.state === "known" && storage.fraction >= 0.8) {
     list.push({
@@ -477,7 +478,7 @@ export function notices(
       // Floor: a disk that is not full never reads as 100%.
       text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.`,
       attention: false,
-      actions: [],
+      actions: canAddStorage ? ["storage"] : [],
     });
   }
   return list;

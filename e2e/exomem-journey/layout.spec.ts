@@ -651,9 +651,9 @@ for (const step of STEPS) {
         if (box) expect(box.y + box.height).toBeLessThanOrEqual(foot.y);
       }
     }
-    // The small phones are there for the fit; the theme checks run at the drawn sizes,
-    // 1440 and 390 × 844.
-    if (width < 390 || page.viewportSize()!.height < 844) return;
+    // Small phones check the fit. Theme checks also run on shorter desktops,
+    // including the canonical 1280 × 820 viewport, and phones at 390 × 844.
+    if (width < 390 || (test.info().project.use.isMobile && viewport.height < 844)) return;
 
     for (const theme of ["dark", "light"] as const) {
       // The page's own switch does the same: the step stays where it is.
