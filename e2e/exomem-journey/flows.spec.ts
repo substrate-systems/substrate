@@ -64,6 +64,12 @@ test("a new person goes from their email to checkout", async ({ page }) => {
 
   await startWithEmail(page, email);
   await expect(page.getByText(email)).toBeVisible();
+  // No provider serves example.test, so a phone offers its own mail app.
+  if (test.info().project.use.isMobile)
+    await expect(page.getByRole("link", { name: "Open your email app ↗" })).toHaveAttribute(
+      "href",
+      /^intent:/
+    );
 
   await page.goto(await startLinkFor(email));
   await expect(page.getByRole("heading", { name: inviteCopy.standardTitle })).toBeVisible();

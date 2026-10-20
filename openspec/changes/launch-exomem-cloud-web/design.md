@@ -236,6 +236,7 @@ This is the single list of places the build departs from the boards. Each is del
 | (at) | The unreachable Journey frame omits "Status page ↗" and its status-page sentence when no valid HTTPS status URL is configured. | The existing `EXOMEM_STATUS_PAGE_URL` setting supplies this action. An unconfigured destination must not appear usable. The retry countdown and action remain. | Recorded 2026-10-19 under the existing configuration contract |
 | (au) | The landing's install Copy button keeps the width of "Copied" at rest. | The board sizes it to the current word, so the button and the row beside it would jump on a click. The standing rule allows no state change flashes. | Recorded 2026-10-19 under the standing no-flash rule |
 | (av) | The landing's living map scales its 720 × 300 drawing to the width of its frame. | The board draws it at a fixed 720 px in a frame about 706 px wide, so it cuts about 14 px from the right edge. Scaling keeps the whole drawing and the hub centred, at about 98% size at 1280 px and smaller on narrower desktops. | Recorded 2026-10-19 under the board's fluid layout |
+| (aw) | Home's "Manage billing" opens Paddle's hosted billing portal in the same tab, with no Exomem screen in between. | The boards label the button but draw no destination. Paddle's portal is where an owner changes the card or plan or cancels; inline checkout stays inside Exomem. | Approved by the owner 2026-10-20 |
 
 ### Approved new copy
 

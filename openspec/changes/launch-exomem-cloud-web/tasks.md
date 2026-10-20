@@ -205,7 +205,7 @@ The separate `enable-exomem-email-change` change owns identity isolation and acc
 The core website and account email change shipped through PRs #264 and #265 on 2026-10-18.
 Their source review, scoped browser acceptance, required CI and read-only production checks are complete.
 Tasks 12.7–12.9 remain open for native inbox actions and full-canon acceptance.
-Native inbox actions still need the pending implementation decision and physical-device acceptance.
+Native inbox actions are built for an unknown provider on a phone and still need physical-device acceptance.
 
 Run one test worker, build or browser session at a time. Below 3 GiB of Windows physical headroom, stop owned heavy work and continue lightweight work.
 Required full CI runs remotely. Local write checks use isolated data and blocked external sends and payments.

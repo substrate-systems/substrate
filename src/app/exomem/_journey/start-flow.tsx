@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { TextField } from "@/components/exomem/TextField";
 import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
-import { inboxProvider, inboxProviderForDomain, inboxUrl } from "@/lib/exomem/inbox";
+import { inboxProvider, inboxProviderForDomain, inboxUrl, phoneMailApp } from "@/lib/exomem/inbox";
 import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
 import { breakCopy, failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
@@ -91,6 +91,10 @@ function clock(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function emailDomain(address: string): string {
+  return address.slice(address.lastIndexOf("@") + 1).toLowerCase();
+}
+
 /** Start with your email, check your email, and the reviewer sign-in beside them. */
 export function StartFlow({
   context,
@@ -113,6 +117,7 @@ export function StartFlow({
     id: string | null;
   } | null>(null);
   const requestVersion = useRef(0);
+  const discovery = useRef<AbortController | null>(null);
   const [sentVersion, setSentVersion] = useState(0);
   const form = useRef<HTMLFormElement>(null);
   const focusEmail = useRef(false);
@@ -140,11 +145,20 @@ export function StartFlow({
       ? sentCopy.resendIn(clock(waitLeft))
       : sentCopy.resend;
   const formNonce = context.kind === "app" ? context.nonce : undefined;
-  const sentDomain = sentEmail.slice(sentEmail.lastIndexOf("@") + 1).toLowerCase();
-  const provider =
-    inboxProviderForDomain(sentDomain) ??
-    (discoveredProvider?.domain === sentDomain ? inboxProvider(discoveredProvider.id) : null);
+  const sentDomain = emailDomain(sentEmail);
+  const discovered = discoveredProvider?.domain === sentDomain ? discoveredProvider : null;
+  const provider = inboxProviderForDomain(sentDomain) ?? inboxProvider(discovered?.id ?? null);
   const inbox = inboxUrl(provider?.id ?? null, sentEmail);
+  // Once the lookup finds no provider, a phone opens its own mail app. The sent step renders
+  // only after a send in this browser, so the server never reads navigator here.
+  const mailApp =
+    step === "sent" && discovered && !provider ? phoneMailApp(navigator.userAgent) : null;
+  const inboxAction =
+    provider && inbox
+      ? { href: inbox, label: `Open ${provider.name} ↗`, newTab: true }
+      : mailApp
+        ? { href: mailApp, label: "Open your email app ↗", newTab: false }
+        : null;
   useEffect(() => {
     if (step === "form" && focusEmail.current) {
       form.current?.querySelector<HTMLInputElement>('input[name="email"]')?.focus();
@@ -154,15 +168,18 @@ export function StartFlow({
   useEffect(
     () => () => {
       requestVersion.current += 1;
+      discovery.current?.abort();
     },
     []
   );
-  useEffect(() => {
-    if ((step !== "sent" && step !== "limited") || !sentEmail) return;
-    const domain = sentEmail.slice(sentEmail.lastIndexOf("@") + 1).toLowerCase();
-    const known = inboxProviderForDomain(domain);
-    if (known) return;
+
+  /** Looks up the inbox while the email sends, so the sent step opens with its button. */
+  function discoverInbox(address: string) {
+    const domain = emailDomain(address);
+    if (inboxProviderForDomain(domain)) return;
+    discovery.current?.abort();
     const controller = new AbortController();
+    discovery.current = controller;
     fetch(`/api/exomem/access/inbox?domain=${encodeURIComponent(domain)}`, {
       cache: "no-store",
       signal: controller.signal,
@@ -177,9 +194,11 @@ export function StartFlow({
               null,
           });
       })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [step, sentEmail]);
+      // A failed lookup settles as unknown; the inbox button is only a shortcut.
+      .catch(() => {
+        if (!controller.signal.aborted) setDiscoveredProvider({ domain, id: null });
+      });
+  }
   useEffect(() => {
     if ((step !== "sent" && step !== "limited") || !sentEmail) return;
     const version = requestVersion.current;
@@ -276,6 +295,7 @@ export function StartFlow({
     const version = ++requestVersion.current;
     const address = email;
     setSending(true);
+    discoverInbox(address);
     let outcome: StartOutcome;
     try {
       const token = await challengeToken();
@@ -423,22 +443,23 @@ export function StartFlow({
             {failure ?? failureCopy.generic}
           </StepNotice>
           <div className={styles.actions}>
-            {inbox && provider && (
+            {inboxAction && (
               <div className={styles.primary}>
+                {/* A web inbox opens in a new tab. The phone's mail app opens from this tab,
+                    which stays and still moves on by itself. */}
                 <ButtonLink
                   variant="primary"
                   size="page"
-                  href={inbox}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={inboxAction.href}
+                  {...(inboxAction.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                 >
-                  Open {provider.name} ↗
+                  {inboxAction.label}
                 </ButtonLink>
               </div>
             )}
-            <div className={inbox ? undefined : styles.primary}>
+            <div className={inboxAction ? undefined : styles.primary}>
               <Button
-                variant={inbox ? "ghost" : "primary"}
+                variant={inboxAction ? "ghost" : "primary"}
                 size="page"
                 disabled={waitLeft > 0}
                 working={sending}
