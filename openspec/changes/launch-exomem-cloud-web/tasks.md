@@ -81,9 +81,11 @@
 - [x] 5.14 Test with real PostgreSQL roles: tenant isolation, column grants, token scope, refusal after deletion
 - [ ] 5.15 Rehearse on a local cluster with the real gateway: levels, activity, storage, export on running and stopped cells
 - [ ] 5.16 Run a dedicated security review of the token mint, the export delivery path and the ledger fields
-  - The 2026-10-16 review covers the token mint, the ledger fields and the web side of export. The cell controller's export delivery waits on PR #1708.
+  - The 2026-10-16 review covers the token mint, the ledger fields and the web side of export. The delivery path still needs the rollout rehearsal and dedicated security review in `add-cloud-owner-export` task 4.3.
 
-Tasks 5.10–5.12 and 5.15 wait on the cell export in the Exomem repository (PR #1708, not merged). Exports stay off until it ships, and tasks 6.5 and 10.3 follow it. The web side of export (tasks 5.6 and 8.8) is on main behind `EXOMEM_CLOUD_EXPORTS_ENABLED`.
+Exomem PR #1708 is merged; tasks 5.10–5.12 and 5.15 retain their rollout acceptance dependencies.
+Keep `EXOMEM_CLOUD_EXPORTS_ENABLED` off until `add-cloud-owner-export` task 4.3 passes and the operator authorizes enablement.
+Tasks 6.5 and 10.3 follow that rollout. The web side of export (tasks 5.6 and 8.8) is on main behind the flag.
 
 ## 6. Emails
 
@@ -206,6 +208,7 @@ The core website and account email change shipped through PRs #264 and #265 on 2
 Their source review, scoped browser acceptance, required CI and read-only production checks are complete.
 Tasks 12.7–12.9 remain open for native inbox actions and full-canon acceptance.
 Native inbox actions are built for an unknown provider on a phone and still need physical-device acceptance.
+Known providers still use web-inbox links; native app opening remains unverified.
 
-Run one test worker, build or browser session at a time. Below 3 GiB of Windows physical headroom, stop owned heavy work and continue lightweight work.
+Run one test worker, build or browser session at a time, within the current resource allocation.
 Required full CI runs remotely. Local write checks use isolated data and blocked external sends and payments.
