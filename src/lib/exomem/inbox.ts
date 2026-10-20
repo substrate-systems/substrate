@@ -24,7 +24,8 @@ export function inboxUrl(providerId: string | null, address: string): string | n
  * `mailto:` opens a new message, not the inbox.
  */
 export function phoneMailApp(userAgent: string): string | null {
-  // Platform tokens of the user-agent string, a closed set that the browsers fix.
+  // User-agent platform tokens, because Safari and Firefox expose no client hints. An iPad in
+  // desktop mode reports a Mac and gets the desktop behaviour.
   if (/\b(?:iPhone|iPad|iPod)\b/.test(userAgent)) return "message://";
   if (/\bAndroid\b/.test(userAgent))
     return "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_EMAIL;end";

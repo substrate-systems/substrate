@@ -176,7 +176,7 @@ export function StartFlow({
   /** Looks up the inbox while the email sends, so the sent step opens with its button. */
   function discoverInbox(address: string) {
     const domain = emailDomain(address);
-    if (inboxProviderForDomain(domain) || discoveredProvider?.domain === domain) return;
+    if (inboxProviderForDomain(domain)) return;
     discovery.current?.abort();
     const controller = new AbortController();
     discovery.current = controller;

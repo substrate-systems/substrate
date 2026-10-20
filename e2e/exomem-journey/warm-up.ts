@@ -18,6 +18,7 @@ const ROUTES: { path: string; method: "GET" | "POST" }[] = [
   { path: "/api/exomem/oauth/authorize/complete", method: "POST" },
   { path: "/api/exomem/oauth/authorize/decline", method: "POST" },
   { path: "/api/exomem/access/start", method: "POST" },
+  { path: "/api/exomem/access/inbox?domain=example.test", method: "GET" },
   { path: "/api/exomem/access/magic-link/redeem", method: "POST" },
   { path: "/api/exomem/access/inspect", method: "POST" },
   { path: "/api/exomem/access/redeem", method: "POST" },
