@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { FadeIn, Swap } from "@/components/exomem/Transitions";
@@ -297,28 +297,25 @@ export function SentCard({
   app?: string;
   onChange: () => void;
 }) {
-  // A long address wraps before a "." or the "@", the separators an address's format fixes,
-  // rather than inside a name.
-  const pieces = email.split(/(?=[.@])/);
+  const notes = [sentCopy.spam, app ? sentCopy.openHereForApp(app) : sentCopy.openHere];
   return (
     <div className={`${styles.panel} ${styles.sent}`}>
       <div className={styles.sentTo}>
         <span className={styles.sentLabel}>{sentCopy.sentTo}</span>
-        <span className={styles.sentAddress}>
-          {pieces.map((piece, index) => (
-            <Fragment key={index}>
-              {index > 0 ? <wbr /> : null}
-              {piece}
-            </Fragment>
-          ))}
+        <span className={styles.sentWhere}>
+          <span className={styles.sentAddress}>{email}</span>
+          <button type="button" className={styles.sentChange} onClick={onChange}>
+            Change
+          </button>
         </span>
-        <button type="button" className={styles.sentChange} onClick={onChange}>
-          Change
-        </button>
       </div>
       <div className={styles.sentNote}>
-        <span>{sentCopy.spam}</span>
-        <span>{app ? sentCopy.openHereForApp(app) : sentCopy.openHere}</span>
+        {notes.map((note) => (
+          <span key={note} className={styles.sentNoteLine}>
+            <span aria-hidden="true">–</span>
+            <span>{note}</span>
+          </span>
+        ))}
       </div>
     </div>
   );

@@ -261,7 +261,7 @@
   gap: 6px;
 }
 
-/* A panel's small label above its value: the price card's, and the sent card's "To". */
+/* A panel's small label above its value: the price card's. */
 .panelLabel {
   font-family: var(--font-mono-exo);
   font-size: 11px;
@@ -301,9 +301,8 @@
   color: var(--fg-secondary);
 }
 
-/* "Check your email": the address the link went to is what the eye lands on, with its label
-   above it as on the price card, and the note under a hairline as on the scopes card. The
-   whole address shows, so a person can check it for a typo. */
+/* "Check your email" (the Journey board's round 49 card): "Sent to" on the left, the address
+   and Change together on the right, then the notes under a hairline, each after a dash. */
 .sent {
   gap: 10px;
   border-radius: var(--r-pop);
@@ -312,16 +311,28 @@
 .sentTo {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   font: 400 12.5px var(--font-mono-exo);
 }
 
-.sentAddress {
-  font-family: var(--font-mono-exo);
+.sentWhere {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   min-width: 0;
-  flex: 1;
+}
+
+.sentAddress {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--fg-primary);
-  overflow-wrap: anywhere;
+}
+
+.sentNoteLine {
+  display: flex;
+  gap: 10px;
 }
 
 .sentNote {
