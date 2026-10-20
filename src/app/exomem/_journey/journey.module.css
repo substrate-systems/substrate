@@ -261,7 +261,7 @@
   gap: 6px;
 }
 
-/* A panel's small label above its value: the price card's, and the sent card's "To". */
+/* A panel's small label above its value: the price card's. */
 .panelLabel {
   font-family: var(--font-mono-exo);
   font-size: 11px;
@@ -333,7 +333,6 @@
 .sentNoteLine {
   display: flex;
   gap: 10px;
-  text-align: left;
 }
 
 .sentNote {
