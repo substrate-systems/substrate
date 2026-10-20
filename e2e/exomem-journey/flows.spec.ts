@@ -403,7 +403,6 @@ test("a 500 from Connect is not reported as nothing changed", async ({ page, con
   const served: number[] = [];
   await page.route("**/api/exomem/oauth/authorize/complete", async (route) => {
     served.push((await route.fetch()).status());
-    await new Promise((resolve) => setTimeout(resolve, 2100));
     await route.fulfill({
       status: 500,
       contentType: "application/json",
