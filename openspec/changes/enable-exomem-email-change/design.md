@@ -30,6 +30,9 @@ A newly verified invitation may restore a deleted tombstone needed by the shared
 
 Release B follows protection and draining of deployments older than A. It repoints the eight foreign keys and creates new identities only in `exomem_users`.
 Release B enables email changes. The temporary admission and deletion bridges remain through the rollback window, then a cleanup task removes them.
+Task 2.9 may remove them on or after 2026-10-25.
+The cleanup removes the four temporary triggers for admission, re-admission, identity scrubbing and theme scrubbing, with their functions.
+The email-change cleanup trigger stays in place.
 Rollback returns to A without reverting the identity schema or restoring shared-email authentication.
 
 The split prevents an older deployment from authenticating a previous address after it changes. Its cost is a second release and temporary admission compatibility.
