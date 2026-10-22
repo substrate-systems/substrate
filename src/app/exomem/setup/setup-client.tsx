@@ -169,6 +169,7 @@ export default function SetupClient({
   const [focusHeading, setFocusHeading] = useState(false);
   const [phase, setPhase] = useState<Phase>(facts.screen);
   const [waitingFor, setWaitingFor] = useState<PluginApp>("claude");
+  const [waitingUrl, setWaitingUrl] = useState<string | null>(null);
   const [joined, setJoined] = useState<ListedApp | null>(null);
   const [connected, setConnected] = useState<Set<string>>(new Set());
   const [failure, setFailure] = useState<string | null>(null);
@@ -360,6 +361,7 @@ export default function SetupClient({
                 setPhase("other");
                 return;
               }
+              setWaitingUrl(installUrl);
               openElsewhere(installUrl);
               setPhase("waiting");
             }
@@ -396,6 +398,7 @@ export default function SetupClient({
               onClick: () => {
                 setFocusHeading(true);
                 if (settings) {
+                  setWaitingUrl(settings);
                   openElsewhere(settings);
                   setPhase("waiting");
                 } else setPhase("other");
@@ -415,7 +418,7 @@ export default function SetupClient({
     }
     case "waiting": {
       const name = CLIENT_PLATFORM_NAMES[waitingFor];
-      const installUrl = facts.listings[waitingFor] ?? facts.settings[waitingFor];
+      const installUrl = waitingUrl;
       body = (
         <>
           <StepHeading

@@ -332,11 +332,23 @@ const STEPS: Step[] = [
     name: "setup-waiting",
     open: async (page, context) => {
       await signedIn(context, "ready");
+      const listingRequests: string[] = [];
+      await context.route("https://chatgpt.com/**", async (route) => {
+        listingRequests.push(route.request().url());
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>ChatGPT listing fixture</title>",
+        });
+      });
       await page.goto("/exomem/setup");
       const listing = page.waitForEvent("popup");
       await page.getByRole("button", { name: /^ChatGPT/ }).click();
       const popup = await listing;
       await expect(popup).toHaveURL(
+        "https://chatgpt.com/plugins/plugin_asdk_app_6abe2a682100819192eac21debffc1d4"
+      );
+      expect(listingRequests).toContain(
         "https://chatgpt.com/plugins/plugin_asdk_app_6abe2a682100819192eac21debffc1d4"
       );
       await popup.close();
