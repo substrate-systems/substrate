@@ -24,28 +24,17 @@ const PHONE_LEDE_START =
   "The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it";
 const proof = proofFigures(recallBenchmarks);
 
-export const metadata = {
-  ...buildMetadata({
-    // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
-    // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
-    // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
-    // flagged over-long titles elsewhere.
-    title: "Exomem — MCP memory server over your Markdown knowledge base",
-    description: `${PHONE_LEDE_START}.`,
-    path: "/exomem",
-    ogImage: "/exomem/social/og-image.png",
-    standaloneTitle: true,
-  }),
-  // Exomem subtree uses its own "E" monogram as the favicon (matches /exomem/og lockup).
-  icons: {
-    icon: [
-      { url: "/exomem/icons/favicon.ico", sizes: "any" },
-      { url: "/exomem/icons/favicon.svg", type: "image/svg+xml" },
-    ],
-    apple: "/exomem/icons/apple-touch-icon.png",
-  },
-  manifest: "/exomem/icons/site.webmanifest",
-};
+export const metadata = buildMetadata({
+  // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
+  // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
+  // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
+  // flagged over-long titles elsewhere.
+  title: "Exomem — MCP memory server over your Markdown knowledge base",
+  description: `${PHONE_LEDE_START}.`,
+  path: "/exomem",
+  ogImage: "/exomem/social/og-image.png",
+  standaloneTitle: true,
+});
 
 const GITHUB = "https://github.com/Artexis10/exomem";
 const PYPI = "https://pypi.org/project/exomem/";
@@ -244,29 +233,38 @@ export default function ExomemPage() {
             <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
               <Wordmark height={17} />
             </span>
-            <Link href="/" className={`${styles.byline} ${responsive.deskOnly}`}>
+            <Link href="/" className={`exo-link-ts ${styles.byline} ${responsive.deskOnly}`}>
               by Substrate Systems
             </Link>
           </div>
           <nav className={styles.nav} aria-label="Exomem">
-            <a href="#lp-true" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+            <a
+              href="#lp-true"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
               How it works
             </a>
-            <a href="#lp-proof" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+            <a
+              href="#lp-proof"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
               Benchmarks
             </a>
-            <a href="#lp-cloud" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+            <a
+              href="#lp-cloud"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
               Cloud
             </a>
             <a
               href={GITHUB}
               {...external}
-              className={`${styles.sectionLink} ${responsive.deskOnly}`}
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
             >
               GitHub
             </a>
             <ThemeToggle />
-            <Link href={SIGN_IN} className={styles.signIn}>
+            <Link href={SIGN_IN} className={`exo-link-ts ${styles.signIn}`}>
               Sign in
             </Link>
           </nav>
@@ -299,7 +297,10 @@ export default function ExomemPage() {
                   <span className={responsive.deskOnly}>
                     <PipInstall look="hero" />
                   </span>
-                  <a href="#lp-doors" className={`${styles.runLink} ${responsive.phoneOnly}`}>
+                  <a
+                    href="#lp-doors"
+                    className={`exo-link-ts ${styles.runLink} ${responsive.phoneOnly}`}
+                  >
                     Run it yourself, free →
                   </a>
                 </div>
@@ -423,15 +424,15 @@ export default function ExomemPage() {
                   Open source. Runs on your machine with any MCP client, Cursor included.
                 </div>
                 <div className={styles.sourceLinks}>
-                  <a href={GITHUB} {...external} className={phone.hitArea}>
+                  <a href={GITHUB} {...external} className={`exo-link-ts ${phone.hitArea}`}>
                     GitHub
                   </a>
                   {" · "}
-                  <a href={PYPI} {...external} className={phone.hitArea}>
+                  <a href={PYPI} {...external} className={`exo-link-ts ${phone.hitArea}`}>
                     PyPI
                   </a>
                   {" · "}
-                  <a href={README} {...external} className={phone.hitArea}>
+                  <a href={README} {...external} className={`exo-link-ts ${phone.hitArea}`}>
                     README
                   </a>
                 </div>
@@ -491,14 +492,14 @@ export default function ExomemPage() {
           <nav className={styles.footerLinks} aria-label="Exomem pages">
             {footerLinks.map(({ label, href, external: isExternal }) =>
               href.startsWith("/") ? (
-                <Link key={label} href={href} className={phone.hitArea}>
+                <Link key={label} href={href} className={`exo-link-ts ${phone.hitArea}`}>
                   {label}
                 </Link>
               ) : (
                 <a
                   key={label}
                   href={href}
-                  className={phone.hitArea}
+                  className={`exo-link-ts ${phone.hitArea}`}
                   {...(isExternal ? external : {})}
                 >
                   {label}
