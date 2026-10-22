@@ -6,7 +6,10 @@ import { Button, ButtonLink } from "@/components/exomem/Button";
 import { SegmentedSwitch } from "@/components/exomem/SegmentedSwitch";
 import phone from "@/components/exomem/phone.module.css";
 import { INVOLVEMENT_LEVELS, involvementLevel } from "@/components/exomem/involvement-levels";
-import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
+import {
+  CLIENT_PLATFORM_LISTING_URLS,
+  CLIENT_PLATFORM_NAMES,
+} from "@/lib/exomem-hosted/client-platforms";
 import type { HomeApp, LevelKey } from "./home-api";
 import { count, type Clock } from "./home-format";
 import { appGlyph, appMeta } from "./home-view";
@@ -29,11 +32,12 @@ const CLOUD_PLUGINS = [
   },
   {
     name: CLIENT_PLATFORM_NAMES.openai,
+    listing: CLIENT_PLATFORM_LISTING_URLS.openai,
     download:
       "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip",
     guide: "https://help.openai.com/en/articles/20001256-plugins-in-chatgpt",
     instructions:
-      "A workspace administrator with upload access can use “Admin console” → “Plugins” → “Add” → “Upload plugin”. Account connection follows installation.",
+      "Open the public listing to connect ChatGPT. To review a newer package, a workspace administrator can create a draft from the ZIP.",
   },
 ];
 
@@ -230,6 +234,11 @@ function AddAnotherApp({
           <span>{plugin.name}</span>
           <span className={styles.hintText}>{plugin.instructions}</span>
           <div className={styles.pluginActions}>
+            {"listing" in plugin && (
+              <ButtonLink href={plugin.listing} size="row">
+                Open {plugin.name} listing
+              </ButtonLink>
+            )}
             <ButtonLink href={plugin.download} size="row">
               Download {plugin.name} ZIP
             </ButtonLink>

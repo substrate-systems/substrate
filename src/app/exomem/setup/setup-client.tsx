@@ -55,6 +55,8 @@ export type SetupFacts = {
   mcpAddress: string | null;
   /** The assistants' own connector pages; null when not configured. */
   settings: Record<PluginApp, string | null>;
+  /** Published plugin listings, separate from settings used to reconnect an app. */
+  listings: Partial<Record<PluginApp, string>>;
   /** Whether sign-in offers the app reviewer's entry, as the sign-in page does. */
   reviewerEnabled: boolean;
   /** The price checkout charges, previewed in the browser; null shows no amount. */
@@ -352,10 +354,15 @@ export default function SetupClient({
             setFocusHeading(true);
             setWaitingFor(platform);
             if (isConnected) setPhase("again");
-            else if (facts.settings[platform]) {
-              openElsewhere(facts.settings[platform]!);
+            else {
+              const installUrl = facts.listings[platform] ?? facts.settings[platform];
+              if (!installUrl) {
+                setPhase("other");
+                return;
+              }
+              openElsewhere(installUrl);
               setPhase("waiting");
-            } else setPhase("other");
+            }
           },
         };
       });
@@ -408,7 +415,7 @@ export default function SetupClient({
     }
     case "waiting": {
       const name = CLIENT_PLATFORM_NAMES[waitingFor];
-      const settings = facts.settings[waitingFor];
+      const installUrl = facts.listings[waitingFor] ?? facts.settings[waitingFor];
       body = (
         <>
           <StepHeading
@@ -417,8 +424,11 @@ export default function SetupClient({
           />
           <StepActions
             primary={
-              settings
-                ? { label: `Open ${name} again ↗`, onClick: () => openElsewhere(settings) }
+              installUrl
+                ? {
+                    label: `Open ${name} again ↗`,
+                    onClick: () => openElsewhere(installUrl),
+                  }
                 : null
             }
             secondary={{

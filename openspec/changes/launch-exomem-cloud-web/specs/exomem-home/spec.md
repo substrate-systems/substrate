@@ -99,12 +99,18 @@ The wordmark SHALL respond only to newly observed real activity and SHALL remain
 
 ### Requirement: Home offers Cloud plugin downloads and manual connection
 
-Home SHALL link to the current released Claude and OpenAI Cloud plugin ZIPs and their official installation guides. These links SHALL remain available after either provider is connected. Home SHALL retain the configured MCP address and involvement instructions for manual connection. Guidance MUST qualify provider plan and workspace limits and MUST NOT imply unverified directory publication.
+Home SHALL link to the current released Claude and OpenAI Cloud plugin ZIPs and their official installation guides. These links SHALL remain available after either provider is connected. When an OpenAI plugin listing is published, Home SHALL link directly to that listing while retaining the ZIP for workspace-managed installation. Home SHALL retain the configured MCP address and involvement instructions for manual connection. Guidance MUST qualify provider plan and workspace limits and MUST NOT imply unverified package approval or directory publication.
 
 #### Scenario: Both providers are already connected
 
 - **WHEN** the owner opens "Add another app" after connecting both providers
 - **THEN** Home still offers both Cloud plugin downloads and the manual connection instructions
+
+#### Scenario: The owner opens the published OpenAI plugin
+
+- **WHEN** the owner opens "Add another app"
+- **THEN** Home links directly to the published ChatGPT listing and keeps the ZIP upload path available
+- **AND** Home does not claim that a newer ZIP has been approved for that listing
 
 ### Requirement: Export is a plain ZIP kept for a limited time
 

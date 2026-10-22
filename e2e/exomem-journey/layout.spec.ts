@@ -333,7 +333,13 @@ const STEPS: Step[] = [
     open: async (page, context) => {
       await signedIn(context, "ready");
       await page.goto("/exomem/setup");
+      const listing = page.waitForEvent("popup");
       await page.getByRole("button", { name: /^ChatGPT/ }).click();
+      const popup = await listing;
+      await expect(popup).toHaveURL(
+        "https://chatgpt.com/plugins/plugin_asdk_app_6abe2a682100819192eac21debffc1d4"
+      );
+      await popup.close();
       await heading(page, waitingCopy.title("ChatGPT"));
     },
   },

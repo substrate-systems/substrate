@@ -9,6 +9,11 @@
  */
 export const CLIENT_PLATFORM_NAMES = { claude: "Claude", openai: "ChatGPT" } as const;
 
+/** The published ChatGPT listing; ZIP releases remain a separate workspace install path. */
+export const CLIENT_PLATFORM_LISTING_URLS = {
+  openai: "https://chatgpt.com/plugins/plugin_asdk_app_6abe2a682100819192eac21debffc1d4",
+} as const;
+
 // The approved letter glyphs map to the schema's closed client_platform set.
 export const CLIENT_PLATFORM_GLYPHS = { claude: "C", openai: "G" } as const;
 

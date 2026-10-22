@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
+import { CLIENT_PLATFORM_LISTING_URLS } from "@/lib/exomem-hosted/client-platforms";
 import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
 import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
@@ -54,11 +55,12 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
     keptUntil: account.keptUntil,
     supportReference: account.supportReference,
     mcpAddress: mcpAddress(),
-    // Where "Open Claude ↗" and "Open ChatGPT ↗" go: configuration, as on the consent page.
+    // Reconnection returns to client settings, while initial installation can use a public listing.
     settings: {
       claude: connectorSettingsUrl("claude", false).value,
       openai: connectorSettingsUrl("openai", false).value,
     },
+    listings: { openai: CLIENT_PLATFORM_LISTING_URLS.openai },
     reviewerEnabled: marketplaceReviewerAccessEnabled(),
     priceId: exomemCheckoutPriceId(),
     friendOffer: account.plan.friendPrice,
