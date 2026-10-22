@@ -24,28 +24,17 @@ const PHONE_LEDE_START =
   "The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it";
 const proof = proofFigures(recallBenchmarks);
 
-export const metadata = {
-  ...buildMetadata({
-    // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
-    // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
-    // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
-    // flagged over-long titles elsewhere.
-    title: "Exomem — MCP memory server over your Markdown knowledge base",
-    description: `${PHONE_LEDE_START}.`,
-    path: "/exomem",
-    ogImage: "/exomem/social/og-image.png",
-    standaloneTitle: true,
-  }),
-  // Exomem subtree uses its own "E" monogram as the favicon (matches /exomem/og lockup).
-  icons: {
-    icon: [
-      { url: "/exomem/icons/favicon.ico", sizes: "any" },
-      { url: "/exomem/icons/favicon.svg", type: "image/svg+xml" },
-    ],
-    apple: "/exomem/icons/apple-touch-icon.png",
-  },
-  manifest: "/exomem/icons/site.webmanifest",
-};
+export const metadata = buildMetadata({
+  // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
+  // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
+  // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
+  // flagged over-long titles elsewhere.
+  title: "Exomem — MCP memory server over your Markdown knowledge base",
+  description: `${PHONE_LEDE_START}.`,
+  path: "/exomem",
+  ogImage: "/exomem/social/og-image.png",
+  standaloneTitle: true,
+});
 
 const GITHUB = "https://github.com/Artexis10/exomem";
 const PYPI = "https://pypi.org/project/exomem/";
