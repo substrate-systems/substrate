@@ -21,7 +21,15 @@ const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
 const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
 
 // The Cloud distribution contract fixes these two ZIP targets; latest selects the current release.
-const CLOUD_PLUGINS = [
+type CloudPlugin = {
+  name: string;
+  download: string;
+  guide: string;
+  instructions: string;
+  listing?: string;
+};
+
+const CLOUD_PLUGINS: CloudPlugin[] = [
   {
     name: CLIENT_PLATFORM_NAMES.claude,
     download:
@@ -234,11 +242,11 @@ function AddAnotherApp({
           <span>{plugin.name}</span>
           <span className={styles.hintText}>{plugin.instructions}</span>
           <div className={styles.pluginActions}>
-            {"listing" in plugin && (
+            {plugin.listing ? (
               <ButtonLink href={plugin.listing} size="row">
                 Open {plugin.name} listing
               </ButtonLink>
-            )}
+            ) : null}
             <ButtonLink href={plugin.download} size="row">
               Download {plugin.name} ZIP
             </ButtonLink>
