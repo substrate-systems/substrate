@@ -233,29 +233,38 @@ export default function ExomemPage() {
             <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
               <Wordmark height={17} />
             </span>
-            <Link href="/" className={`${styles.byline} ${responsive.deskOnly}`}>
+            <Link href="/" className={`exo-link-ts ${styles.byline} ${responsive.deskOnly}`}>
               by Substrate Systems
             </Link>
           </div>
           <nav className={styles.nav} aria-label="Exomem">
-            <a href="#lp-true" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+            <a
+              href="#lp-true"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
               How it works
             </a>
-            <a href="#lp-proof" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+            <a
+              href="#lp-proof"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
               Benchmarks
             </a>
-            <a href="#lp-cloud" className={`${styles.sectionLink} ${responsive.deskOnly}`}>
+            <a
+              href="#lp-cloud"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
               Cloud
             </a>
             <a
               href={GITHUB}
               {...external}
-              className={`${styles.sectionLink} ${responsive.deskOnly}`}
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
             >
               GitHub
             </a>
             <ThemeToggle />
-            <Link href={SIGN_IN} className={styles.signIn}>
+            <Link href={SIGN_IN} className={`exo-link-ts ${styles.signIn}`}>
               Sign in
             </Link>
           </nav>
@@ -288,7 +297,10 @@ export default function ExomemPage() {
                   <span className={responsive.deskOnly}>
                     <PipInstall look="hero" />
                   </span>
-                  <a href="#lp-doors" className={`${styles.runLink} ${responsive.phoneOnly}`}>
+                  <a
+                    href="#lp-doors"
+                    className={`exo-link-ts ${styles.runLink} ${responsive.phoneOnly}`}
+                  >
                     Run it yourself, free →
                   </a>
                 </div>
@@ -412,15 +424,15 @@ export default function ExomemPage() {
                   Open source. Runs on your machine with any MCP client, Cursor included.
                 </div>
                 <div className={styles.sourceLinks}>
-                  <a href={GITHUB} {...external} className={phone.hitArea}>
+                  <a href={GITHUB} {...external} className={`exo-link-ts ${phone.hitArea}`}>
                     GitHub
                   </a>
                   {" · "}
-                  <a href={PYPI} {...external} className={phone.hitArea}>
+                  <a href={PYPI} {...external} className={`exo-link-ts ${phone.hitArea}`}>
                     PyPI
                   </a>
                   {" · "}
-                  <a href={README} {...external} className={phone.hitArea}>
+                  <a href={README} {...external} className={`exo-link-ts ${phone.hitArea}`}>
                     README
                   </a>
                 </div>
@@ -480,14 +492,14 @@ export default function ExomemPage() {
           <nav className={styles.footerLinks} aria-label="Exomem pages">
             {footerLinks.map(({ label, href, external: isExternal }) =>
               href.startsWith("/") ? (
-                <Link key={label} href={href} className={phone.hitArea}>
+                <Link key={label} href={href} className={`exo-link-ts ${phone.hitArea}`}>
                   {label}
                 </Link>
               ) : (
                 <a
                   key={label}
                   href={href}
-                  className={phone.hitArea}
+                  className={`exo-link-ts ${phone.hitArea}`}
                   {...(isExternal ? external : {})}
                 >
                   {label}
