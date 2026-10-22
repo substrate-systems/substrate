@@ -138,6 +138,7 @@ Tasks 6.5 and 10.3 follow that rollout. The web side of export (tasks 5.6 and 8.
 - [x] 10.13 Update public-subscription Terms with 18+ eligibility and accurate Turnstile/Brevo privacy disclosure
 - [x] 10.14 Offer released Cloud plugin ZIPs and qualified installation guidance from Home, including when both providers are connected
 - [x] 10.15 Clarify journey app tiles and origins, center expired requests, link the wordmark and bound optional checkout email acquisition
+- [ ] 10.16 Link the published ChatGPT listing directly while retaining ZIP upload guidance and separating listing state from newer package approval
 
 These corrections follow the launch polish merge because both batches change subscribe. Their production release follows independent review and acceptance.
 

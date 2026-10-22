@@ -250,6 +250,10 @@ test("Home shows the account's own values and calls only routes a Cloud account 
     "href",
     "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip"
   );
+  await expect(page.getByRole("link", { name: "Open ChatGPT listing" })).toHaveAttribute(
+    "href",
+    "https://chatgpt.com/plugins/plugin_asdk_app_6abe2a682100819192eac21debffc1d4"
+  );
 });
 
 test("sign-out keeps its confirmation through the next Home poll and leaves assistants connected", async ({

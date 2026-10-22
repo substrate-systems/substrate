@@ -30,6 +30,7 @@ import {
   unknownAppCopy,
   waitingCopy,
 } from "../../src/app/exomem/_journey/copy";
+import { CLIENT_PLATFORM_LISTING_URLS } from "../../src/lib/exomem-hosted/client-platforms";
 import {
   authorizeRequest,
   seedCapacity,
@@ -98,6 +99,19 @@ async function answerApps(context: BrowserContext) {
       route.fulfill({ contentType: "text/plain", body: "the app" })
     );
   }
+}
+
+async function stubChatGPTListing(context: BrowserContext): Promise<string[]> {
+  const requests: string[] = [];
+  await context.route("https://chatgpt.com/**", async (route) => {
+    requests.push(route.request().url());
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><title>ChatGPT listing fixture</title>",
+    });
+  });
+  return requests;
 }
 
 async function consentFor(
@@ -332,8 +346,14 @@ const STEPS: Step[] = [
     name: "setup-waiting",
     open: async (page, context) => {
       await signedIn(context, "ready");
+      const listingRequests = await stubChatGPTListing(context);
       await page.goto("/exomem/setup");
+      const listing = page.waitForEvent("popup");
       await page.getByRole("button", { name: /^ChatGPT/ }).click();
+      const popup = await listing;
+      await expect(popup).toHaveURL(CLIENT_PLATFORM_LISTING_URLS.openai);
+      expect(listingRequests).toContain(CLIENT_PLATFORM_LISTING_URLS.openai);
+      await popup.close();
       await heading(page, waitingCopy.title("ChatGPT"));
     },
   },
@@ -675,6 +695,7 @@ for (const step of STEPS) {
 test("reduced motion stops the journey's motion", async ({ page, context }) => {
   // The waiting step blinks its live dot; the content fades in on every step.
   await signedIn(context, "ready");
+  await stubChatGPTListing(context);
   await page.goto("/exomem/setup");
   await page.getByRole("button", { name: /^ChatGPT/ }).click();
   await heading(page, waitingCopy.title("ChatGPT"));
