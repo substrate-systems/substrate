@@ -86,6 +86,7 @@ export function PlanAndAccount({
 }
 
 export function YourData({
+  importControl,
   exportRow,
   exportBusy,
   exportMessage,
@@ -95,6 +96,7 @@ export function YourData({
   deletion,
   onDelete,
 }: {
+  importControl?: ReactNode;
   /** Null while export is not released: the row is left out, not shown dead. */
   exportRow: ExportView | null;
   exportBusy: boolean;
@@ -117,6 +119,7 @@ export function YourData({
   }, [detail?.kind]);
   return (
     <Section title="Your data">
+      {importControl}
       {exportRow && (
         <>
           <div className={styles.row}>

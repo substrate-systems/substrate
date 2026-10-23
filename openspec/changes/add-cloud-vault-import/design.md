@@ -4,30 +4,52 @@ See proposal.md. Existing Cloud OAuth lookup, browser sessions, SQL transactions
 
 ## Goals / Non-Goals
 
-The batch establishes C5 and its authenticated API. It does not build the browser uploader, controller Jobs, or an operator restore endpoint.
+The foundation establishes C5 and its authenticated API. The remaining browser delivery adds Home upload, progress, retries, cancellation, and discard. Controller Jobs remain in Exomem. This change does not expose an operator restore endpoint.
 
 ## Decisions
+
+### Browser transport
+
+Use `age-encryption` 0.3.1 and `modern-tar` 0.8.6 for browser encryption and TAR creation. Pin both versions. Reuse the existing noble incremental SHA-256 implementation. Do not implement encryption or an archive writer in application code.
+
+Stream selected files through TAR and age into a ciphertext-only sink. Compute the digest over that ciphertext once. Prepare C5 upload parts only after encryption finishes. Upload each exact byte range without cookies, authorization headers, or a referrer. Report the opaque ETags through the authenticated same-origin API.
+
+Use the browser's origin-private filesystem for the ciphertext sink. Never buffer the complete plaintext or ciphertext in application memory. Keep the file and part receipts during page-session retries. Delete the file after accepted completion, cancellation, or disposal. Navigation attempts local cleanup; an interrupted browser can retain only ciphertext in its site storage. Clearing that site storage removes such remnants. An unavailable or full browser store is a visible upload failure, not an empty import.
+
+Within a page session, a failed part retries against the same ciphertext. Successful parts retain their receipts. New encryption cannot resume an earlier upload because age generates fresh randomness. A reload must recover the original ciphertext or clearly restart the import; it must never claim a successful resume from matching filenames.
+
+Home must show observed controller state. An accepted API request is not completed import or restored readiness. Cancellation and discard remain requests until the controller reports their outcomes.
+
+Home offers document import with that name and explains that filing still needs Adoption Studio. It does not label this control as managed-vault migration. Authentication expiry returns the person to sign-in. Other permission or availability errors remain visible without assuming the account has signed out. Unknown controller observations remain unknown, not successful completion.
+
+### Existing managed vaults
+
+Folder adoption stages documents and creates governed Sources. It does not migrate active note identities, history, collection lineage, or existing references. Home must distinguish these intents.
+
+Managed-vault migration reuses canonical portability and requires a separate preview and accepted application plan. The preview must include source and destination work. Keeping the old vault outside active recall is replacement, not consolidation. A populated destination must retain useful access to its work or explicitly select a replacement with that consequence shown.
+
+The current C5 public API still refuses `restore`. Do not enable a managed migration action until its store admission, conflict handling, and recovery contract is implemented. The source image or a successful archive restore alone does not prove destination store admission. This dependency does not block the existing additive browser transport.
 
 ### C5 schema and authority
 
 `exomem_cloud_imports` has these columns. Nullable columns default to NULL; request state defaults to `requested`.
 
-| Column | PostgreSQL type | Writer |
-| --- | --- | --- |
-| import_id | uuid PRIMARY KEY DEFAULT gen_random_uuid() | Substrate INSERT |
-| cell_id | text NOT NULL REFERENCES exomem_cloud_cells(cell_id) ON DELETE RESTRICT | Substrate INSERT |
-| kind | text NOT NULL: adopt, restore, archive_members | Substrate INSERT |
-| declared_bytes, declared_files | bigint NOT NULL, nonnegative | Substrate INSERT |
-| requested_state | text NOT NULL: requested, uploaded, cancelled, discard_requested | Substrate |
-| part_etags | jsonb nullable array of {part_number: integer, etag: string} | Substrate |
-| ciphertext_sha256 | text nullable, 64 lowercase hexadecimal characters | Substrate |
-| ciphertext_bytes | bigint nullable, nonnegative | Substrate |
-| recipient, upload_id | text nullable | cellctl |
-| part_urls | jsonb nullable array of {part_number: integer, url: string, part_size_bytes: integer} | cellctl |
-| urls_expire_at | timestamptz nullable | cellctl |
-| observed_state | text nullable: key_ready, importing, cleanup_running, cleanup_stopping, cleanup_discard_stopping, cleanup_pending, done, failed, expired, discarded | cellctl |
-| error_code | text nullable | cellctl |
-| created_at, updated_at | timestamptz NOT NULL DEFAULT now() | database |
+| Column                         | PostgreSQL type                                                                                                                                     | Writer           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| import_id                      | uuid PRIMARY KEY DEFAULT gen_random_uuid()                                                                                                          | Substrate INSERT |
+| cell_id                        | text NOT NULL REFERENCES exomem_cloud_cells(cell_id) ON DELETE RESTRICT                                                                             | Substrate INSERT |
+| kind                           | text NOT NULL: adopt, restore, archive_members                                                                                                      | Substrate INSERT |
+| declared_bytes, declared_files | bigint NOT NULL, nonnegative                                                                                                                        | Substrate INSERT |
+| requested_state                | text NOT NULL: requested, uploaded, cancelled, discard_requested                                                                                    | Substrate        |
+| part_etags                     | jsonb nullable array of {part_number: integer, etag: string}                                                                                        | Substrate        |
+| ciphertext_sha256              | text nullable, 64 lowercase hexadecimal characters                                                                                                  | Substrate        |
+| ciphertext_bytes               | bigint nullable, nonnegative                                                                                                                        | Substrate        |
+| recipient, upload_id           | text nullable                                                                                                                                       | cellctl          |
+| part_urls                      | jsonb nullable array of {part_number: integer, url: string, part_size_bytes: integer}                                                               | cellctl          |
+| urls_expire_at                 | timestamptz nullable                                                                                                                                | cellctl          |
+| observed_state                 | text nullable: key_ready, importing, cleanup_running, cleanup_stopping, cleanup_discard_stopping, cleanup_pending, done, failed, expired, discarded | cellctl          |
+| error_code                     | text nullable                                                                                                                                       | cellctl          |
+| created_at, updated_at         | timestamptz NOT NULL DEFAULT now()                                                                                                                  | database         |
 
 Substrate and cellctl can read C5. Neither receives table-wide DML. The gateway receives no C5 privileges. The grants script revokes default grants before applying column grants and tolerates pre-C5 upgrades. The cell hold CHECK adds `import`.
 

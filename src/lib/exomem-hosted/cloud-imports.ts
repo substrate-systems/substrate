@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { validate as validUuid } from "uuid";
+import type { CloudImport, UploadPart } from "../exomem/cloud-import-contract";
 import { loadExomemCloudResource } from "./cloud-config";
 import { findCloudOAuthAccessToken } from "./cloud-oauth";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
@@ -34,7 +35,7 @@ type ImportRow = {
   ciphertext_bytes: string | null;
   recipient: string | null;
   upload_id: string | null;
-  part_urls: { part_number: number; url: string; part_size_bytes: number }[] | null;
+  part_urls: UploadPart[] | null;
   urls_expire_at: Date | null;
   observed_state: string | null;
   error_code: string | null;
@@ -141,7 +142,7 @@ function storedCount(value: string): number {
   return parsed;
 }
 
-function status(row: ImportRow) {
+function status(row: ImportRow): CloudImport {
   return {
     import_id: row.import_id,
     kind: row.kind,
@@ -151,12 +152,12 @@ function status(row: ImportRow) {
     observed_state: row.observed_state ?? "pending",
     recipient: row.recipient,
     part_urls: row.part_urls,
-    urls_expire_at: row.urls_expire_at,
+    urls_expire_at: row.urls_expire_at?.toISOString() ?? null,
     error_code: row.error_code,
     ciphertext_sha256: row.ciphertext_sha256,
     ciphertext_bytes: row.ciphertext_bytes === null ? null : storedCount(row.ciphertext_bytes),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
   };
 }
 

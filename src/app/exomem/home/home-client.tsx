@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { StorageDialog } from "./home-storage";
+import { ImportDocuments } from "./home-import";
 import { AccountEmailChange } from "./account-email-change";
 import { csrfCookie } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddlePricePreview } from "@/lib/paddle";
@@ -796,6 +797,15 @@ export default function HomeClient({
             />
             <div className={styles.dataSection}>
               <YourData
+                importControl={
+                  !signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
+                    <ImportDocuments
+                      key={accountSnapshot.csrfToken}
+                      csrfToken={accountSnapshot.csrfToken}
+                      onAccountLost={goToSignIn}
+                    />
+                  ) : undefined
+                }
                 exportRow={exportRow}
                 exportBusy={exportBusy}
                 exportMessage={exportMessage}

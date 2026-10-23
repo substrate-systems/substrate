@@ -88,7 +88,7 @@ export async function postPrivateJson(
   path: string,
   body: Record<string, unknown>,
   method: "POST" | "PUT" = "POST",
-  options: { csrfToken?: string } = {}
+  options: { csrfToken?: string; signal?: AbortSignal } = {}
 ): Promise<Record<string, unknown>> {
   const csrf = options.csrfToken === undefined ? csrfCookie() : options.csrfToken;
   const response = await fetch(path, {
@@ -100,15 +100,20 @@ export async function postPrivateJson(
     body: JSON.stringify(body),
     credentials: "same-origin",
     cache: "no-store",
+    ...(options.signal ? { signal: options.signal } : {}),
   });
   return decodeResponse(response);
 }
 
-export async function getPrivateJson(path: string): Promise<Record<string, unknown>> {
+export async function getPrivateJson(
+  path: string,
+  signal?: AbortSignal
+): Promise<Record<string, unknown>> {
   const response = await fetch(path, {
     method: "GET",
     credentials: "same-origin",
     cache: "no-store",
+    ...(signal ? { signal } : {}),
   });
   return decodeResponse(response);
 }
