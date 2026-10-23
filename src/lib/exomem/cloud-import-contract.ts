@@ -2,14 +2,14 @@ import { z } from "zod";
 
 const count = z.number().int().nonnegative().safe();
 
-export const importUploadPart = z.object({
+const importUploadPart = z.object({
   part_number: z.number().int().positive(),
   url: z.url(),
   part_size_bytes: z.number().int().positive().safe(),
 });
 
 /** C5 owns these wire fields. Unknown controller states remain visible to newer clients. */
-export const cloudImport = z.object({
+const cloudImport = z.object({
   import_id: z.uuid(),
   kind: z.string(),
   declared_bytes: count,
