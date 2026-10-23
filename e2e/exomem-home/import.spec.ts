@@ -85,6 +85,7 @@ test("Home encrypts the selected folder, stages it and preserves observed status
     );
     expect((await completed).ok()).toBe(true);
     await expect(dialog.getByText("Encrypted upload accepted.", { exact: false })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Copy review instructions" })).toHaveCount(0);
     assert.ok(ciphertext);
     const decrypter = new Decrypter();
     decrypter.addIdentity(identity);
@@ -122,9 +123,48 @@ test("Home encrypts the selected folder, stages it and preserves observed status
     await expect(
       page.getByRole("dialog").getByText("Files staged.", { exact: false })
     ).toBeVisible();
+    const review = page.getByRole("dialog");
+    const copyInstructions = review.getByRole("button", { name: "Copy review instructions" });
+    await expect(copyInstructions).toBeVisible();
+    // The clipboard is an external boundary; keep synthetic text out of the system clipboard.
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async () => {
+            throw new DOMException("Denied", "NotAllowedError");
+          },
+        },
+      });
+    });
+    await copyInstructions.click();
+    await expect(review.getByRole("alert")).toContainText("Copying did not work");
+    await review.getByText("Review instructions", { exact: true }).click();
     await expect(
-      page.getByRole("dialog").getByText("Adoption Studio", { exact: false })
+      review.getByText(`Help me bring the staged folder _Imports/${operation.import_id}`, {
+        exact: false,
+      })
     ).toBeVisible();
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            document.documentElement.setAttribute("data-fixture-copied-instructions", text);
+          },
+        },
+      });
+    });
+    await copyInstructions.click();
+    await expect(
+      review.getByRole("status").filter({ hasText: "Instructions copied." })
+    ).toBeVisible();
+    const copied = await page.locator("html").getAttribute("data-fixture-copied-instructions");
+    expect(copied).toContain(`_Imports/${operation.import_id}`);
+    await review.getByRole("button", { name: "Remove staged files…", exact: true }).click();
+    await review.getByRole("button", { name: "Remove staged files", exact: true }).click();
+    await expect(review.getByText("Removal requested.", { exact: false })).toBeVisible();
+    await expect(copyInstructions).toHaveCount(0);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

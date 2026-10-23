@@ -22,6 +22,12 @@ Home must show observed controller state. An accepted API request is not complet
 
 Home offers document import with that name and explains that filing still needs Adoption Studio. It does not label this control as managed-vault migration. Authentication expiry returns the person to sign-in. Other permission or availability errors remain visible without assuming the account has signed out. Unknown controller observations remain unknown, not successful completion.
 
+### Content-first review handoff
+
+The selected delivery makes supported content useful through the existing adoption workflow. Exact native history transfer remains separate work. Home supplies a copyable request only for a completed `adopt` import with no pending removal. The request binds the staged folder to the authenticated import identity. It asks a connected assistant to resume an existing run, preview one selection, report unsupported material and duplicates, preserve originals and current Cloud notes, bulk-import with provenance, and check cited recall. Clipboard refusal leaves the full request available to copy manually.
+
+Home reports transport and staging observations. Adoption Studio owns inventory, saved plans, import outcomes and resumable progress. The assistant uses existing governed compilation and review operations. Neither an upload acknowledgment nor a staged folder establishes searchable or compiled knowledge. No new background reasoning service, model worker or storage protocol is introduced.
+
 ### Existing managed vaults
 
 Folder adoption stages documents and creates governed Sources. It does not migrate active note identities, history, collection lineage, or existing references. Home must distinguish these intents.
