@@ -164,6 +164,7 @@ test("Home encrypts the selected folder, stages it and preserves observed status
     await review.getByRole("button", { name: "Remove staged files…", exact: true }).click();
     await review.getByRole("button", { name: "Remove staged files", exact: true }).click();
     await expect(review.getByText("Removal requested.", { exact: false })).toBeVisible();
+    await expect(review.getByText("Keep this page open to retry", { exact: false })).toHaveCount(0);
     await expect(copyInstructions).toHaveCount(0);
   } finally {
     await rm(folder, { recursive: true, force: true });
@@ -236,7 +237,12 @@ test("local ciphertext cleanup failure does not block cancellation or reuse a te
     await expect(dialog.getByRole("button", { name: "Retry this upload" })).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel import", exact: true }).click();
     await expect(dialog.getByText("Cancellation requested.", { exact: false })).toBeVisible();
-    await expect(dialog.getByRole("alert")).toContainText("Synthetic local cleanup failure");
+    await expect(dialog.getByRole("alert")).toContainText("Browser cleanup failed.");
+    await expect(dialog.getByRole("alert")).toContainText("temporary encrypted file");
+    await expect(dialog.getByText("Synthetic local cleanup failure", { exact: false })).toHaveCount(
+      0
+    );
+    await expect(dialog.getByText("Keep this page open to retry", { exact: false })).toHaveCount(0);
     const cancelled = await pool.query(
       "SELECT requested_state FROM exomem_cloud_imports WHERE import_id=$1",
       [operation.import_id]
@@ -251,6 +257,7 @@ test("local ciphertext cleanup failure does not block cancellation or reuse a te
       dialog.getByRole("button", { name: "Encrypt and upload", exact: true })
     ).toHaveCount(0);
     await dialog.getByLabel("Folder to import").setInputFiles(folder);
+    await expect(dialog.getByRole("alert")).toContainText("Browser cleanup failed.");
     const fresh = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === "/api/exomem/cloud/imports" &&

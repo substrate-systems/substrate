@@ -18,6 +18,10 @@ import { count, shortDateTime } from "./home-format";
 import styles from "./home.module.css";
 import dialog from "./home-storage.module.css";
 
+const BROWSER_CLEANUP_WARNING =
+  "Browser cleanup failed. A temporary encrypted file may remain on this device. " +
+  "Clear this site's stored data in browser settings to remove it. This also signs you out.";
+
 function finished(operation: CloudImport): boolean {
   if (operation.requested_state === "discard_requested" && operation.observed_state !== "discarded")
     return false;
@@ -166,6 +170,13 @@ export function ImportDocuments({
     [onAccountLost]
   );
 
+  function failCleanup() {
+    if (mounted.current)
+      setMessage((current) =>
+        current ? `${current} ${BROWSER_CLEANUP_WARNING}` : BROWSER_CLEANUP_WARNING
+      );
+  }
+
   const importId = operation?.import_id;
   const terminal = operation ? finished(operation) : false;
   useEffect(() => {
@@ -229,7 +240,9 @@ export function ImportDocuments({
       }
     } catch (error) {
       if (mounted.current) setRetryAvailable(true);
-      fail(error);
+      // Once the upload is accepted, only removal of the local encrypted file remains.
+      if (accepted) failCleanup();
+      else fail(error);
     } finally {
       if (mounted.current) {
         setBusy(false);
@@ -263,8 +276,8 @@ export function ImportDocuments({
       try {
         await currentUpload?.dispose();
         if (upload.current === currentUpload) upload.current = null;
-      } catch (error) {
-        fail(error);
+      } catch {
+        failCleanup();
       }
       if (mounted.current) setBusy(false);
     }
@@ -364,7 +377,7 @@ export function ImportDocuments({
                       setAttemptId(null);
                       setRetryAvailable(false);
                       setMessage(null);
-                      void previous?.dispose().catch(fail);
+                      void previous?.dispose().catch(failCleanup);
                     } catch (error) {
                       fail(error);
                     }
@@ -438,7 +451,7 @@ export function ImportDocuments({
                 {readMessage}
               </p>
             )}
-            {!terminal && (
+            {!terminal && (!operation || operation.requested_state === "requested") && (
               <p className={dialog.text}>
                 Keep this page open to retry the same encrypted file. After a reload, an unfinished
                 upload needs cancellation and a fresh start.
