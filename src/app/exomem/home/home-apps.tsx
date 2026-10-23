@@ -20,7 +20,7 @@ const COPIED_MS = 1800;
 const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
 const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
 
-// The Cloud distribution contract fixes these two ZIP targets; latest selects the current release.
+// Provider downloads are separate from the public directory install path.
 type CloudPlugin = {
   name: string;
   download: string;
@@ -32,8 +32,9 @@ type CloudPlugin = {
 const CLOUD_PLUGINS: CloudPlugin[] = [
   {
     name: CLIENT_PLATFORM_NAMES.claude,
+    // Pin the validated description fix until a containing release replaces the rejected ZIP.
     download:
-      "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-claude.zip",
+      "https://raw.githubusercontent.com/Artexis10/exomem/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip",
     guide: "https://support.claude.com/en/articles/13837440-use-plugins-in-claude",
     instructions:
       "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your Exomem account.",
