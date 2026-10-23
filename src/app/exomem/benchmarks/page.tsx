@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { buildMetadata, siteConfig } from "@/lib/seo";
+import { siteConfig } from "@/lib/seo";
+import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata = buildMetadata({
+export const metadata = buildExomemMetadata({
   title: "How Exomem Benchmarks Memory Systems",
   description:
     "The fairness rules Exomem commits to before publishing any comparative benchmark number: competitor-authored configuration, guest posture on the competitor's own harness, per-knob provenance, and independent adversarial review before publication.",

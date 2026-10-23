@@ -23,6 +23,7 @@ import {
 } from "../../src/app/exomem/_journey/copy";
 import {
   authorizeRequest,
+  expireOwnerSession,
   grantCount,
   invitationConsumed,
   seedCapacity,
@@ -103,6 +104,56 @@ test("a returning owner's emailed link signs them in once, after they continue",
     page.getByRole("button", { name: "Email me a new link", exact: true })
   ).toBeVisible();
   await expect(page.getByLabel(startCopy.emailLabel)).toHaveCount(0);
+});
+
+test("an existing session opens Home without requesting another sign-in email", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  const starts: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/exomem/access/start") starts.push(request.url());
+  });
+
+  await page.goto("/exomem/sign-in");
+  await expect(page).toHaveURL(/\/exomem\/home$/);
+  expect(starts).toEqual([]);
+  const account = await (await page.request.get("/api/exomem/account")).json();
+  expect(account.account.email).toBe(owner.email);
+});
+
+test("an expired server session keeps the email sign-in form usable", async ({ page, context }) => {
+  const owner = await seedOwner("ready");
+  await expireOwnerSession(owner);
+  await context.addCookies(owner.cookies);
+
+  await page.goto("/exomem/sign-in");
+  await expect(page.getByLabel(startCopy.emailLabel)).toBeVisible();
+  await expect(page.getByRole("button", { name: startCopy.web.primary })).toBeEnabled();
+  expect((await page.request.get("/api/exomem/account")).status()).toBe(401);
+});
+
+test("an existing session does not skip confirmation of another account's email link", async ({
+  page,
+  context,
+}) => {
+  const current = await seedOwner("ready");
+  const next = await seedOwner("ready");
+  await startWithEmail(page, next.email);
+  const link = await signInLinkFor(next.email);
+  await context.addCookies(current.cookies);
+
+  await page.goto(link);
+  await expect(page.getByRole("button", { name: CONTINUE_SIGN_IN })).toBeVisible();
+  const before = await (await page.request.get("/api/exomem/account")).json();
+  expect(before.account.email).toBe(current.email);
+
+  await page.getByRole("button", { name: CONTINUE_SIGN_IN }).click();
+  await expect(page).toHaveURL(/\/exomem\/home$/);
+  const after = await (await page.request.get("/api/exomem/account")).json();
+  expect(after.account.email).toBe(next.email);
 });
 
 test("Change returns to the submitted address and focuses its field", async ({ page }) => {

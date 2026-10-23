@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { buildMetadata } from "@/lib/seo";
+import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata = buildMetadata({
+export const metadata = buildExomemMetadata({
   title: "Exomem Cloud Terms of Service",
   description:
     "The agreement between you and Substrate Systems OÜ for an Exomem Cloud subscription. The open-source Exomem software remains governed by the licence in its own repository.",

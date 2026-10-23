@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
+import { breadcrumbJsonLd, siteConfig } from "@/lib/seo";
+import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { ButtonLink } from "@/components/exomem/Button";
@@ -24,7 +25,7 @@ const PHONE_LEDE_START =
   "The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it";
 const proof = proofFigures(recallBenchmarks);
 
-export const metadata = buildMetadata({
+export const metadata = buildExomemMetadata({
   // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
   // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
   // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
@@ -32,8 +33,6 @@ export const metadata = buildMetadata({
   title: "Exomem — MCP memory server over your Markdown knowledge base",
   description: `${PHONE_LEDE_START}.`,
   path: "/exomem",
-  ogImage: "/exomem/social/og-image.png",
-  standaloneTitle: true,
 });
 
 const GITHUB = "https://github.com/Artexis10/exomem";
