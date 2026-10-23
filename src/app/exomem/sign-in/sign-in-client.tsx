@@ -43,9 +43,11 @@ type Mode =
  * the address bar first, and redeems it only when the person presses Continue.
  */
 export default function SignInClient({
+  existingSessionDestination,
   reviewerEnabled,
   statusPageUrl,
 }: {
+  existingSessionDestination: "/exomem/home" | null;
   reviewerEnabled: boolean;
   statusPageUrl: string | null;
 }) {
@@ -69,13 +71,17 @@ export default function SignInClient({
     };
     if (!started.current) {
       started.current = true;
-      if (!takeLink()) setMode("form");
+      if (!takeLink()) {
+        // Fragments take precedence: an existing session must not consume or skip another link.
+        if (existingSessionDestination) window.location.replace(existingSessionDestination);
+        else setMode("form");
+      }
     }
     // A link pasted into this tab while it is open changes only the fragment: the page
     // does not load again, so it takes the new link here.
     window.addEventListener("hashchange", takeLink);
     return () => window.removeEventListener("hashchange", takeLink);
-  }, []);
+  }, [existingSessionDestination]);
 
   function redeem() {
     if (!token.current || mode !== "confirm") return;

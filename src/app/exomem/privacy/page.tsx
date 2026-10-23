@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { loadExportTtlHours } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
-import { buildMetadata } from "@/lib/seo";
+import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata = buildMetadata({
+export const metadata = buildExomemMetadata({
   title: "Exomem Cloud Privacy Policy",
   description:
     "How Substrate Systems OÜ collects, processes, and protects data in Exomem Cloud, covering your knowledge store, account records, OAuth session metadata, and your rights as a data subject.",

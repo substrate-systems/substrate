@@ -1,7 +1,7 @@
-import { buildMetadata } from "@/lib/seo";
+import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata = buildMetadata({
+export const metadata = buildExomemMetadata({
   title: "Exomem Cloud Support",
   description:
     "Setup, account, privacy, and incident support for Exomem Cloud — how to reach Substrate Systems OÜ, and what to include so an access or service issue can be resolved quickly.",

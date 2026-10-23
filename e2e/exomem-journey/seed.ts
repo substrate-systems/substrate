@@ -182,6 +182,16 @@ export async function seedOwner(state: OwnerState, email = uniqueEmail(state)): 
   };
 }
 
+/** An expired server session still has a cookie in a browser that has not revisited yet. */
+export async function expireOwnerSession(owner: Owner): Promise<void> {
+  await pool.query(
+    `UPDATE exomem_sessions
+     SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'
+     WHERE user_id = $1`,
+    [owner.userId]
+  );
+}
+
 /**
  * The app-directory reviewer account and its credential, the way the operator issues
  * them: a complimentary, running Exomem kept for review. One live credential per
