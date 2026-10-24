@@ -231,13 +231,9 @@ export function liveLine(
   clock: Clock
 ): { text: string; key: string; client?: ActivityClientFamily | null } | null {
   if (!facts) return null;
-  if (facts.noteCount === 0) {
-    const first = apps.find((app) => !disconnected.has(app.id))?.displayName;
-    return {
-      text: first ? `Waiting for the first note from ${first}` : "Waiting for the first note",
-      key: "waiting",
-    };
-  }
+  // An empty memory has no line: the status line already says "No notes yet", and only the
+  // retired `alive: shipped` board drew a waiting line (CANON.md).
+  if (facts.noteCount === 0) return null;
   if (facts.newest) {
     const event = facts.newest;
     const actor = event.app_id ? apps.find((app) => app.id === event.app_id) : null;
@@ -468,7 +464,10 @@ export function notices(
   if (storage.state === "known" && storage.fraction >= 1) {
     list.push({
       key: "full",
-      text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room. Nothing is ever deleted to make space.`,
+      // The board's sentence about adding storage shows only with its "Add storage" action.
+      text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room.${
+        canAddStorage ? " Add storage and they carry on." : ""
+      } Nothing is ever deleted to make space.`,
       attention: true,
       actions: canAddStorage ? ["storage"] : [],
     });
@@ -476,7 +475,11 @@ export function notices(
     list.push({
       key: "filling",
       // Floor: a disk that is not full never reads as 100%.
-      text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.`,
+      // Storage grows only by hand (design.md (as)), so the board's "or let it grow
+      // automatically" is left out.
+      text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.${
+        canAddStorage ? " Add storage now." : ""
+      }`,
       attention: false,
       actions: canAddStorage ? ["storage"] : [],
     });

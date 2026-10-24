@@ -53,11 +53,14 @@ export function CheckoutInline({
   readyEmailAvailable = false,
   paidOnArrival = false,
   returnedTransactionId,
+  exportOffered,
 }: {
   email: string;
   tenantId: string | null;
   inviter?: string | null;
   onReady: () => void;
+  /** Whether Home offers an export: the export flag (design.md (s)). */
+  exportOffered: boolean;
   readyEmailAvailable?: boolean;
   paidOnArrival?: boolean;
   returnedTransactionId?: string;
@@ -278,8 +281,14 @@ export function CheckoutInline({
     : null;
   const recurring =
     money(data?.recurring_totals?.total) ?? (accountPrice ? formatMoney(accountPrice) : null);
-  const unreported = (width: number, height = 14) =>
-    phase === "loading" ? <Skeleton width={width} height={height} /> : "Not reported";
+  // Paddle's form loading, or not loaded at all, draws the amount's place (Checkout-Inline:
+  // a still bar once it failed); an amount the page otherwise never got is said so.
+  const unreported = (width: number, height = 12) =>
+    phase === "loading" || phase === "unavailable" ? (
+      <Skeleton width={width} height={height} still={phase === "unavailable"} />
+    ) : (
+      "Not reported"
+    );
   const total = money(data?.totals.total);
   const renewal = nextPayment
     ? new Intl.DateTimeFormat("en-GB", {
@@ -295,7 +304,7 @@ export function CheckoutInline({
       : phase === "unavailable"
         ? returnFailed
           ? "We couldn’t check this checkout. Your payment may have reached Paddle."
-          : "Paddle’s form didn’t load."
+          : "Prices appear when Paddle’s form loads."
         : phase === "failed"
           ? "Your payment didn’t finish. Check Paddle’s form and try again."
           : phase === "slow"
@@ -350,13 +359,14 @@ export function CheckoutInline({
         >
           <Wordmark />
         </a>
-        <span className={styles.headerControls} data-graph-header>
-          <ThemeToggle align="end" />
-          <span className={styles.email} data-graph-clear>
-            {email}
-          </span>
+        <span className={styles.email} data-graph-clear>
+          {email}
         </span>
       </header>
+      {/* As on every flow page, the theme control sits at the page gutter (Journey board). */}
+      <span className={styles.theme} data-graph-header>
+        <ThemeToggle align="end" />
+      </span>
       <section className={styles.content}>
         <div className={styles.heading}>
           <h1>
@@ -367,7 +377,7 @@ export function CheckoutInline({
           <p>
             {inviter
               ? `${inviter}’s friend price is applied below. Paddle takes the payment. Cancel any time.`
-              : "Exomem, billed by Paddle. Cancel any time. Next, you add it to your assistant."}
+              : "Exomem, billed monthly by Paddle. Cancel any time. Next, you add it to your assistant."}
           </p>
         </div>
         <div
@@ -382,31 +392,31 @@ export function CheckoutInline({
               </span>
               <span>
                 Exomem
+                {/* Exomem is a monthly subscription (the Terms), as the lede says. */}
                 <span className={styles.productNote}>
-                  A knowledge base every assistant you connect shares.
+                  monthly · one knowledge base for every assistant
                 </span>
               </span>
             </div>
             <div className={styles.price}>
               {inviter ? <span className={styles.friend}>{inviter}’s friend price</span> : null}
               <div>
-                <span className={styles.priceValue}>{recurring ?? unreported(104, 36)}</span>
+                <span className={styles.priceValue}>{recurring ?? unreported(150, 36)}</span>
                 <span className={styles.cadence}>
+                  {/* Paddle's own cycle wins once it reports one; beside the amount's
+                      placeholder the board says what the plan is: monthly. */}
                   {cadence ??
-                    (accountPrice ? (
-                      "next payment"
-                    ) : phase === "loading" ? (
-                      <Skeleton width={80} />
-                    ) : null)}
+                    (accountPrice
+                      ? "next payment"
+                      : phase === "loading" || phase === "unavailable"
+                        ? "a month"
+                        : null)}
                 </span>
               </div>
               <span className={styles.priceNote}>Cancel any time.</span>
             </div>
+            {/* The price-first summary draws no plan row: the price above is the plan. */}
             <dl className={styles.ledger}>
-              <div>
-                <dt>Plan</dt>
-                <dd>{money(data?.totals.subtotal, true) ?? unreported(68)}</dd>
-              </div>
               {data && data.totals.discount > 0 ? (
                 <div>
                   <dt>{inviter ? "Friend price" : "Discount"}</dt>
@@ -443,11 +453,21 @@ export function CheckoutInline({
                 </Swap>
               </span>
             </div>
-            <ol className={styles.steps}>
-              <li>Start with your email</li>
-              <li>Subscribe with Paddle</li>
-              <li>Add Exomem to your assistant</li>
-            </ol>
+            <div className={styles.gets}>
+              <ul>
+                <li>One knowledge base for every assistant you connect</li>
+                <li>Keeps what changed, why, and what replaced it</li>
+                {/* No export promise while Home offers none (design.md (s)). */}
+                <li>
+                  {exportOffered
+                    ? "Plain Markdown you own. Export it any time."
+                    : "Plain Markdown you own."}
+                </li>
+              </ul>
+              {phase === "ready_to_connect" ? null : (
+                <p className={styles.next}>Next: add Exomem to your assistant</p>
+              )}
+            </div>
           </div>
           <div className={styles.paymentArea}>
             <Crossfade
@@ -485,7 +505,6 @@ export function CheckoutInline({
                 ),
                 unavailable: (
                   <div className={styles.unavailable}>
-                    <Mark size={44} state="off" />
                     <h2>
                       {accountRejected
                         ? "Sign in again to continue"
@@ -498,7 +517,7 @@ export function CheckoutInline({
                         ? "This does not change any payment Paddle received. Sign in to the account that opened this checkout."
                         : returnFailed
                           ? "Your payment may have reached Paddle. Try again, or check your account."
-                          : "A content blocker or a weak connection can stop it."}
+                          : "A content blocker or a weak connection can stop it. Nothing was charged."}
                     </p>
                     <Button
                       ref={retryButton}
@@ -537,22 +556,42 @@ export function CheckoutInline({
                     </h2>
                     {phase === "confirming" ? (
                       <ol className={styles.readySteps}>
-                        <li>✓ Payment received by Paddle</li>
-                        <li>● Switching on your Exomem</li>
-                        <li>○ Then you add it to your assistant</li>
+                        <li>
+                          <span className={styles.stepDone} aria-hidden="true">
+                            ✓
+                          </span>
+                          Payment received by Paddle
+                        </li>
+                        <li>
+                          <span className={styles.stepNow} aria-hidden="true" />
+                          Switching on your Exomem
+                        </li>
+                        <li className={styles.stepNext}>
+                          <span className={styles.stepRing} aria-hidden="true" />
+                          Then you add it to your assistant
+                        </li>
                       </ol>
                     ) : (
                       <p>Now add it to the assistant you use.</p>
                     )}
-                    <Button
-                      ref={readyButton}
-                      variant="primary"
-                      size="page"
-                      disabled={phase !== "ready_to_connect"}
-                      onClick={onReady}
+                    {/* The board keeps the button's place and shows it only once the Exomem is ready. */}
+                    <div
+                      className={
+                        phase === "ready_to_connect"
+                          ? styles.readySlot
+                          : `${styles.readySlot} ${styles.notYet}`
+                      }
                     >
-                      Add it to your assistant →
-                    </Button>
+                      <Button
+                        ref={readyButton}
+                        variant="primary"
+                        size="page"
+                        disabled={phase !== "ready_to_connect"}
+                        onClick={onReady}
+                      >
+                        Add it to your assistant →
+                      </Button>
+                    </div>
                   </div>
                 ),
               }}

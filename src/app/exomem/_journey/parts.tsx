@@ -27,12 +27,14 @@ export function StepHeading({ title, lede }: { title: string; lede: ReactNode })
 
 /**
  * The step's notice: a muted edge, or amber (`attention`) for a live state that needs
- * the person now. A failed attempt is also an alert, so it is announced.
+ * the person now. A failed attempt is also an alert, so it is announced; `announce`
+ * announces a notice card the same way.
  */
 export function StepNotice({
   children,
   attention = false,
   alert = false,
+  announce = false,
   id,
   visible = true,
 }: {
@@ -41,6 +43,7 @@ export function StepNotice({
   visible?: boolean;
   attention?: boolean;
   alert?: boolean;
+  announce?: boolean;
   id?: string;
 }) {
   if (!visible) return null;
@@ -49,7 +52,7 @@ export function StepNotice({
       <div
         className={alert ? `${styles.notice} ${styles.errorNotice}` : styles.notice}
         id={id}
-        data-step-status={alert || undefined}
+        data-step-status={alert || announce || undefined}
       >
         {alert ? (
           children
@@ -63,7 +66,14 @@ export function StepNotice({
   );
 }
 
-type Action = { label: string; onClick: () => void; disabled?: boolean; working?: boolean };
+type Action = {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  working?: boolean;
+  /** Disabled while the label counts down a wait. */
+  countdown?: boolean;
+};
 
 /** The step's main action, full width, and its quiet second action under it. */
 export function StepActions({
@@ -87,6 +97,7 @@ export function StepActions({
             onClick={primaryType === "submit" ? undefined : primary.onClick}
             disabled={primary.disabled}
             working={primary.working}
+            countdown={primary.countdown}
           >
             {primary.label}
           </Button>

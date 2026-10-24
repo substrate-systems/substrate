@@ -89,6 +89,13 @@
   font-weight: 500;
 }
 
+/* The storage line's action (Home board: Add storage, 30 px, Plex Mono 11.5). */
+.line {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
 /* The action of a line under a row (Download, Try again) or of a notice (Home board). */
 .detail {
   min-width: 112px;
@@ -154,6 +161,16 @@
 .button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* Disabled while its label counts down (Journey board, "sent" and "ratelimited"): the main
+   action at 55%, the quiet one at full ink. */
+.button.countdown:disabled {
+  opacity: 0.55;
+}
+
+.ghost.countdown:disabled {
+  opacity: 1;
 }
 
 /* Working: the label says what is happening ("Connecting…"); the button holds still. */

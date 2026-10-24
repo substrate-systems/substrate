@@ -178,10 +178,20 @@ export const chooseCopy = {
 
 export const waitingCopy = {
   title: (app: string) => `Finish in ${app}`,
+  /** Where the app's connector settings opened. */
   where: {
-    claude: "In Claude, open Settings, then Connectors. Find Exomem and press Connect.",
+    claude:
+      "Claude opened in a new tab, at Settings, then Connectors. Find Exomem and press Connect.",
     openai: "In ChatGPT, open the plugin directory. Find Exomem and press Connect.",
   } satisfies Record<PluginApp, string>,
+  /**
+   * Where a published listing opened: at Exomem itself, so the board's "Find Exomem" step is
+   * gone (design.md (ax)).
+   */
+  atListing: (app: PluginApp): string | null =>
+    app === "openai"
+      ? "ChatGPT opened in a new tab, at Exomem’s page in its plugin directory. Press Connect."
+      : null,
   then: (app: string) => `${app} then opens a page here to confirm.`,
   pickAnother: "Pick another app",
   waitingFor: (app: string) => `Waiting for ${app}…`,

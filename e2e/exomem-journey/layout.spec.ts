@@ -331,7 +331,10 @@ const STEPS: Step[] = [
       await signedIn(context, "preparing");
       await page.goto("/exomem/setup");
       await heading(page, "You’re subscribed");
-      await expect(page.getByRole("button", { name: "Add it to your assistant →" })).toBeDisabled();
+      // The button keeps its place but shows only once the Exomem is ready.
+      await expect(
+        page.getByRole("button", { name: "Add it to your assistant →" })
+      ).not.toBeVisible();
     },
   },
   {
@@ -355,6 +358,10 @@ const STEPS: Step[] = [
       expect(listingRequests).toContain(CLIENT_PLATFORM_LISTING_URLS.openai);
       await popup.close();
       await heading(page, waitingCopy.title("ChatGPT"));
+      // The listing opens at Exomem itself, so the step asks for no search.
+      await expect(
+        page.getByText(waitingCopy.atListing("openai")!, { exact: false })
+      ).toBeVisible();
     },
   },
   {
@@ -570,6 +577,9 @@ const STEPS: Step[] = [
       await heading(page, consentCopy.again.title(client.name));
       await page.getByRole("button", { name: consentCopy.again.keep }).click();
       await heading(page, handbackCopy.kept.title);
+      await expect(
+        page.getByText(handbackCopy.kept.done(client.name), { exact: true })
+      ).toBeVisible();
     },
   },
   {

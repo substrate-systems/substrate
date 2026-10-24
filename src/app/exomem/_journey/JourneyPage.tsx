@@ -48,6 +48,11 @@ type JourneyPageProps = {
   app?: AppTile;
   /** Signed in: the email in the header (desktop). */
   headerEmail?: string | null;
+  /**
+   * Signed in, the wordmark goes to Home. A step that shows no account (the board's
+   * handback and kept steps, signedIn: false) is still signed in.
+   */
+  signedIn?: boolean;
   /** A page an app opened: where the request came from. */
   footer?: string | null;
   /**
@@ -69,6 +74,7 @@ export function JourneyPage({
   kind,
   app,
   headerEmail,
+  signedIn = !!headerEmail,
   footer,
   tilesIdle = false,
   stepKey,
@@ -146,19 +152,20 @@ export function JourneyPage({
       {/* Signed in, the wordmark goes to Home; signed out, to the landing. */}
       <a
         className={`${styles.wordmark} ${phone.hitArea}`}
-        href={headerEmail ? HOME : LANDING}
-        aria-label={headerEmail ? wordmarkCopy.home : wordmarkCopy.landing}
+        href={signedIn ? HOME : LANDING}
+        aria-label={signedIn ? wordmarkCopy.home : wordmarkCopy.landing}
         data-graph-clear
       >
         <Wordmark state={kind === "stop" ? "off" : "rest"} />
       </a>
+      {/* The theme control stays at the gutter; the email sits before it (Journey board). */}
       <div className={styles.headerControls} data-graph-header>
-        <ThemeToggle align="end" />
         {headerEmail ? (
           <div className={styles.headerEmail} data-graph-clear>
             {headerEmail}
           </div>
         ) : null}
+        <ThemeToggle align="end" />
       </div>
       <div className={styles.center}>
         <div className={styles.column}>

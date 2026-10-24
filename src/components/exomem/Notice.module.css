@@ -9,7 +9,8 @@
   padding: 14px 16px;
   border-radius: var(--r-card);
   border: 1px solid var(--exo-border-card);
-  border-left: 2px solid var(--fg-muted);
+  /* The boards' muted edge (#A39E93 / #6B665C) is --fg-secondary. */
+  border-left: 2px solid var(--fg-secondary);
   background: var(--bg-panel);
 }
 

@@ -106,7 +106,8 @@ const KIND: Record<Phase, FieldKind> = {
   connecting: "go",
   sealing: "done",
   handback: "done",
-  kept: "quiet",
+  // The app keeps the connection it has: the board draws kept as connected.
+  kept: "done",
 };
 
 // The board repeats the signed-in email under the actions on a desktop only here.
@@ -119,6 +120,8 @@ const SIGNED_IN_ON_DESKTOP: Phase[] = [
   "connecterror",
 ];
 const SIGNED_OUT: Phase[] = ["expired", "signedout", "switched"];
+// The steps that hand the person back to the app show no account (signedIn: false on the board).
+const HANDED_BACK: Phase[] = ["sealing", "handback", "kept"];
 
 type Outcome = { redirectUrl: string; loopback: boolean };
 
@@ -342,15 +345,17 @@ function Consent({
         email={request.email}
         tenantId={request.account.tenantId}
         inviter={inviter}
+        exportOffered={request.exportOffered}
         onReady={() => window.location.reload()}
       />
     );
   }
 
   const signedIn = !SIGNED_OUT.includes(current) && request.email ? request.email : null;
-  const signedInLine = signedIn ? (
+  const shownAccount = HANDED_BACK.includes(current) ? null : signedIn;
+  const signedInLine = shownAccount ? (
     <SignedInLine
-      email={signedIn}
+      email={shownAccount}
       onSwitch={() => void switchAccount()}
       onDesktop={SIGNED_IN_ON_DESKTOP.includes(current)}
     />
@@ -524,6 +529,7 @@ function Consent({
       body = (
         <>
           <StepHeading title={handbackCopy.kept.title} lede={handbackCopy.kept.lede(name)} />
+          <DoneLine>{handbackCopy.kept.done(name)}</DoneLine>
         </>
       );
       break;
@@ -606,7 +612,8 @@ function Consent({
       focusHeading={focusHeading}
       kind={KIND[current]}
       app={tile}
-      headerEmail={signedIn}
+      headerEmail={shownAccount}
+      signedIn={!!signedIn}
       footer={footer}
       onPairMotionComplete={onPairMotionComplete}
       // Connect, its variants and Connecting… are one step whose button changes.

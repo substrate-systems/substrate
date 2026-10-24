@@ -160,6 +160,8 @@ export default function HomeClient({
   const [lostAt, setLostAt] = useState<number | null>(null);
   const [statusRetryAt, setStatusRetryAt] = useState<number | null>(null);
   const [activityReadFailed, setActivityReadFailed] = useState(false);
+  // The last activity read that reached the cell: the lost state shows its numbers.
+  const [lastLive, setLastLive] = useState<{ activity: HomeActivity; at: number } | null>(null);
   useEffect(() => {
     try {
       const returned = window.sessionStorage.getItem(PENDING_TRANSACTION_KEY);
@@ -270,6 +272,9 @@ export default function HomeClient({
       const next = await readActivity();
       if (!mounted.current) return;
       setActivity(next);
+      if (next !== NOT_RELEASED && next.state === "live") {
+        setLastLive({ activity: next, at: Date.now() });
+      }
       if (next !== NOT_RELEASED) {
         const fresh = observeActivity.current(next);
         if (fresh) setActivityPulse(fresh);
@@ -605,7 +610,12 @@ export default function HomeClient({
 
   const variant = mode.variant;
   const live = isLive(variant) && lostAt === null;
-  const facts = activityReadFailed && lostAt === null ? null : activityFacts(activity, activityAt);
+  const facts =
+    lostAt !== null
+      ? activityFacts(lastLive?.activity ?? null, lastLive?.at ?? 0)
+      : activityReadFailed
+        ? null
+        : activityFacts(activity, activityAt);
   const pulseAppIndex = activityPulse?.app_id
     ? (apps?.findIndex((app) => app.id === activityPulse.app_id) ?? -1)
     : -1;
@@ -618,6 +628,10 @@ export default function HomeClient({
       ? apps[pulseAppIndex]
       : null;
   const status_ = statusCopy(variant, reviewer, facts, clock);
+  // The time of the last read that reached Exomem, which the lost state shows (Home board).
+  const lostTime = lostAt
+    ? new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(lostAt)
+    : null;
   const storage = storageView(status?.storage ?? null, clock);
   const canAddStorage =
     storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
@@ -650,6 +664,7 @@ export default function HomeClient({
     <>
       <HomeWeb
         live={live}
+        lost={lostAt !== null}
         activity={
           !activityReadFailed && activityPulse
             ? {
@@ -667,9 +682,11 @@ export default function HomeClient({
           headline={
             lostAt === null
               ? status_.headline
-              : lostAt === 0
+              : !lostTime
                 ? "Can’t reach Exomem."
-                : `${status_.headline} · as of ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(lostAt)}`
+                : variant === "on"
+                  ? `Your memory, as of ${lostTime}`
+                  : `${status_.headline} · as of ${lostTime}`
           }
           statusLine={status_.statusLine}
           liveLine={
@@ -691,10 +708,9 @@ export default function HomeClient({
                   </Button>
                 }
               >
-                Can’t reach Exomem.{" "}
-                {lostAt > 0 ? "Showing the last successful read. " : "We will try again. "}{" "}
+                Can’t reach Exomem. {lostTime ? `Showing what you saw at ${lostTime}. ` : null}
                 {statusRetryAt
-                  ? `Checking again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))} seconds.`
+                  ? `Trying again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))}\u00a0s.`
                   : "Trying again."}
               </Notice>
             )}
@@ -813,7 +829,13 @@ export default function HomeClient({
             <div className={styles.dataSection}>
               <YourData
                 importControl={
-                  !signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
+                  !signedOut &&
+                  !signingOut &&
+                  account?.kind === "owner" &&
+                  accountSnapshot &&
+                  // An ended Exomem cannot start an import (its cell is read-only) and the
+                  // Home board offers none (design.md (az)).
+                  variant !== "ended" ? (
                     <ImportDocuments
                       key={accountSnapshot.csrfToken}
                       csrfToken={accountSnapshot.csrfToken}
