@@ -17,30 +17,33 @@ export function LandingSession({
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   useEffect(() => {
     let timer = 0;
+    let requestTimeout = 0;
     let controller: AbortController | null = null;
     const refresh = () => {
       if (document.visibilityState === "hidden") return;
       setAuthenticated(null);
       window.clearTimeout(timer);
+      window.clearTimeout(requestTimeout);
       // Coalesce browser return events; a newer read supersedes the previous session snapshot.
       controller?.abort();
       timer = window.setTimeout(() => {
         const current = new AbortController();
         controller = current;
-        void getPrivateJson(
-          "/api/exomem/access/session",
-          AbortSignal.any([current.signal, AbortSignal.timeout(10_000)])
-        ).then(
-          (result) => {
-            if (!current.signal.aborted)
-              setAuthenticated(
-                typeof result.authenticated === "boolean" ? result.authenticated : null
-              );
-          },
-          () => {
-            if (!current.signal.aborted) setAuthenticated(null);
-          }
-        );
+        const timeout = window.setTimeout(() => current.abort(), 10_000);
+        requestTimeout = timeout;
+        void getPrivateJson("/api/exomem/access/session", current.signal)
+          .then(
+            (result) => {
+              if (!current.signal.aborted)
+                setAuthenticated(
+                  typeof result.authenticated === "boolean" ? result.authenticated : null
+                );
+            },
+            () => {
+              if (!current.signal.aborted) setAuthenticated(null);
+            }
+          )
+          .finally(() => window.clearTimeout(timeout));
       }, 0);
     };
     const signInChanged = (event: StorageEvent) => {
@@ -53,6 +56,7 @@ export function LandingSession({
     refresh();
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(requestTimeout);
       controller?.abort();
       window.removeEventListener("focus", refresh);
       window.removeEventListener("pageshow", refresh);
