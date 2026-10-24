@@ -123,6 +123,36 @@
 .mark.off .pen circle {
   opacity: 0;
 }
+/* The Journey tile (Journey board .ed / .md): the middle row is drawn once, in ink, dimmed. */
+.mark.tileIdle .ink circle,
+.mark.tileStopped .ink circle {
+  opacity: calc(1 - var(--exo-row));
+}
+.mark.tileIdle .lit circle,
+.mark.tileStopped .lit circle {
+  fill: var(--exo-we-ink, var(--fg-primary));
+  opacity: var(--exo-row);
+  fill-opacity: 0.55;
+}
+.mark.tileIdle .lit circle {
+  animation: exoTileBreath 3.2s ease-in-out infinite;
+}
+/* Journey-Page · jBreath 3.2s ease-in-out infinite — the tile's middle row */
+@keyframes exoTileBreath {
+  0%,
+  100% {
+    fill-opacity: 0.45;
+  }
+  50% {
+    fill-opacity: 0.75;
+  }
+}
+.mark.tileStopped .ink circle {
+  opacity: calc(0.5 * (1 - var(--exo-row)));
+}
+.mark.tileStopped .lit circle {
+  fill-opacity: 0.3;
+}
 .wordmark .word {
   fill: var(--exo-we-ink, var(--fg-primary));
   transition: fill 0.5s ease;
@@ -169,6 +199,8 @@
     filter: none;
   }
   .mark .ink circle,
+  .mark.tileIdle .ink circle,
+  .mark.tileStopped .ink circle,
   .mark .word,
   .wordmark.off .word {
     fill: CanvasText;

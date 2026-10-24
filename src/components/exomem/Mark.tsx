@@ -58,6 +58,12 @@ export interface MarkProps {
   small?: boolean;
   className?: string;
   status?: "on" | "off";
+  /**
+   * The Journey tile's own drawing of a mark at rest (Journey board .ed / .md), in ink only:
+   * "idle" dims the middle row to .55 and lets it breathe; "stopped" holds the frame at .5
+   * and the row at .3. Use it with state "off".
+   */
+  tile?: "idle" | "stopped";
 }
 
 /** The Dot E, alive: the logo at rest, a meter that writes itself while work runs. */
@@ -72,6 +78,7 @@ export function Mark({
   small,
   className,
   status,
+  tile,
 }: MarkProps) {
   const s = useSettled(status === "off" ? "off" : status === "on" ? "done" : state);
   const sm = small ?? size < 32;
@@ -80,7 +87,13 @@ export function Mark({
   const cls = n.cls === "breathe" && !breathe ? "" : n.cls;
   return (
     <svg
-      className={cx(styles.mark, cls && styles[cls], className)}
+      className={cx(
+        styles.mark,
+        cls && styles[cls],
+        tile === "idle" && styles.tileIdle,
+        tile === "stopped" && styles.tileStopped,
+        className
+      )}
       viewBox="0 0 48 48"
       width={size}
       height={size}
