@@ -175,10 +175,18 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 - [ ] 11.9 Carry authenticated app identity through the gateway, cell activity feed and Home consumers; highlight the matching app for three seconds
 
 PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the changed Home states, at 1440 and 390×844 in both themes, against the canon. Rows (ax) to (bg) record the departures; row (ax) still waits for the owner's approval of its wording. A browser pass on the same build then checked the rest of the design's UI pass:
-- keyboard order, focus rings and activation on ten journey pages;
-- forced colours, 200% and 400% zoom, and an 844×390 landscape phone.
+- keyboard order, focus rings and activation on ten journey pages, at 1440 in the dark theme;
+- forced colours and 200% zoom at 1440, and 400% zoom at 320 px;
+- an 844×390 landscape phone in both themes.
 
-Only forced colours failed: the selected level did not stand out. PR #288 fixed it, and an end-to-end case now covers it. The decorative living graphs stay hidden in forced colours. The pass reached the checkout only in its "Paddle's form didn't load" state. The checkout with Paddle's form loaded, and an assistive-technology session, belong to task 12.8.
+Reduced motion already has end-to-end cases: the landing, foundation, journey waiting step and Connect flow specs.
+
+Only forced colours failed: the selected level did not stand out from its track. PR #288 fixed it and added a Home end-to-end case for it. These were accepted as they are:
+- The decorative living graphs stay hidden in forced colours, and the landing map's panel shows only its rule.
+- The storage bar and the checkout amount placeholders also vanish there, but their text stays.
+- Targets under 24 px were noted, not judged.
+
+The pass reached the checkout only in its "Paddle's form didn't load" state. Task 12.8 carries the rest.
 
 Task 11.9 needs an additive backend field. Current activity events identify a client family; connected rows identify OAuth grants.
 The UI cannot infer that join from a family or display name. Home activity remains disabled until its existing rollout acceptance.
@@ -208,7 +216,7 @@ The separate `enable-exomem-email-change` change owns identity isolation and acc
 - [x] 12.5 Carry the selected choice and effective scheme into every email renderer and delivery path.
 - [x] 12.6 Apply current graph colour, note geometry, header clearance and real-event wordmark motion.
 - [ ] 12.7 Build the sign-in card, address correction, inbox actions and authenticated same-browser continuation.
-- [ ] 12.8 Complete integrated browser and accessibility acceptance against the current canon.
+- [ ] 12.8 Complete integrated browser and accessibility acceptance against the current canon, including the checkout with Paddle's form loaded and an assistive-technology session.
 - [ ] 12.9 Complete exact independent review, required CI, compatible release and read-only production verification.
 
 The core website and account email change shipped through PRs #264 and #265 on 2026-10-18.

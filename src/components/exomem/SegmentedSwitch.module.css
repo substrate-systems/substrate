@@ -55,6 +55,10 @@
     background: Highlight;
     color: HighlightText;
   }
+  /* With adjustment off, the transparent focus outline stays transparent; draw it in system ink. */
+  .track .segment[aria-pressed="true"]:focus-visible {
+    outline-color: CanvasText;
+  }
 }
 
 /* The description reserves its height, so switching levels moves nothing. */

@@ -410,21 +410,19 @@ test("a level set on Home reaches the cell and is still set after a reload", asy
   await expect(chat.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
 });
 
-test("in forced colours the level in use still stands out from the others", async ({ page }) => {
+test("in forced colours the level in use still stands out from its track", async ({ page }) => {
   const owner = await createOwner();
   await page.emulateMedia({ forcedColors: "active" });
   await openHome(page, owner);
+  // The group is the track: an unmarked segment shows its colour through a transparent fill.
   const coding = page.getByRole("group", { name: "How much Exomem joins in for coding agents" });
-  const background = (name: string) =>
-    coding
-      .getByRole("button", { name })
-      .evaluate((button) => getComputedStyle(button).backgroundColor);
+  const selected = coding.getByRole("button", { name: "Balanced" });
 
-  await expect(coding.getByRole("button", { name: "Balanced" })).toHaveAttribute(
-    "aria-pressed",
-    "true"
+  await expect(selected).toHaveAttribute("aria-pressed", "true");
+  const track = await coding.evaluate((group) => getComputedStyle(group).backgroundColor);
+  expect(await selected.evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe(
+    track
   );
-  expect(await background("Balanced")).not.toBe(await background("Light"));
 });
 
 test("a level changed elsewhere meets a conflict, and Home shows the level in use", async ({
