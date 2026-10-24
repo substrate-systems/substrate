@@ -259,6 +259,8 @@
 }
 
 @media (forced-colors: active) {
+  /* The living graphs are aria-hidden decoration drawn in the palette, which system colours
+     cannot follow; the text beside them carries their meaning. */
   .brand-exomem [data-alive] {
     display: none;
   }

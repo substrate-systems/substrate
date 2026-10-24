@@ -46,6 +46,17 @@
   color: var(--level-selected-fg);
 }
 
+/* Forced colours drop the fill that marks the selected segment, so it takes the system
+   highlight instead. */
+@media (forced-colors: active) {
+  .segment[aria-pressed="true"],
+  .row .segment[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
 /* The description reserves its height, so switching levels moves nothing. */
 .description {
   font-size: 12.5px;
