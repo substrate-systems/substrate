@@ -64,7 +64,6 @@ import {
   planView,
   showsUsualPrice,
   statusCopy,
-  STATUS_UNREAD,
   storageView,
   subscribeView,
 } from "./home-view";
@@ -80,8 +79,8 @@ const BILLING_FAILED = "Billing didn’t open. Try again in a minute.";
 type BillingControl = "subscribe" | "banner" | "plan";
 
 const LOADING: Lifecycle = { state: "loading", code: "TENANT_PREPARING", retryable: true };
-// A first status read that fails is shown as unknown, never as ready or as trouble it never read.
-const UNREACHABLE: Lifecycle = { state: "degraded", code: STATUS_UNREAD, retryable: true };
+// A first status read that fails is shown as unread, never as ready or as trouble it never read.
+const UNREACHABLE: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
 
 function visibleNow(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
@@ -630,7 +629,7 @@ export default function HomeClient({
   // The time of the read that the lost state's numbers come from (Home board).
   const lostTime = lost?.time ?? null;
   const storage =
-    status?.lifecycle.code === STATUS_UNREAD
+    status?.lifecycle.state === "unread"
       ? ({ state: "unread" } as const)
       : storageView(status?.storage ?? null, clock);
   const canAddStorage =
@@ -682,8 +681,7 @@ export default function HomeClient({
           headline={
             lostAt === null
               ? status_.headline
-              : // No status read ever reached Exomem, so its headline would claim a state unread.
-                !lostTime || lostAt === 0
+              : !lostTime || variant === "unread"
                 ? "Can’t reach Exomem."
                 : variant === "on"
                   ? `Your memory, as of ${lostTime}`

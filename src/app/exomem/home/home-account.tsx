@@ -49,11 +49,13 @@ export function PlanAndAccount({
         <div className={styles.storageLine}>
           <span className={styles.muted}>Storage</span>
           <span className={styles.storageActions}>
-            <span>{storage.state === "known"
+            <span>
+              {storage.state === "known"
                 ? storage.line
                 : storage.state === "unread"
                   ? "can’t be read right now"
-                  : "not measured yet"}</span>
+                  : "not measured yet"}
+            </span>
             {onStorage && (
               <Button size="line" onClick={onStorage}>
                 Add storage

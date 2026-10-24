@@ -18,7 +18,6 @@ import {
   planView,
   showsUsualPrice,
   statusCopy,
-  STATUS_UNREAD,
   storageView,
   subscribeView,
 } from "../home-view";
@@ -108,11 +107,12 @@ describe("which Home the owner sees", () => {
     });
   });
 
-  it("shows a status it never read as unknown, not as trouble", () => {
-    const unread: Lifecycle = { state: "degraded", code: STATUS_UNREAD, retryable: true };
-    assert.deepEqual(homeMode(unread, account(), "known"), {
-      kind: "home",
-      variant: "unknown",
+  it("shows a status it never read as unread, not as trouble or a failed account read", () => {
+    const unread: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
+    assert.deepEqual(homeMode(unread, account(), "known"), { kind: "home", variant: "unread" });
+    assert.deepEqual(statusCopy("unread", false, null, clock), {
+      headline: "Can’t reach Exomem.",
+      statusLine: null,
     });
   });
 

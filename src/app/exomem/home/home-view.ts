@@ -62,6 +62,7 @@ export type HomeVariant =
   | "trouble"
   | "export_pause"
   | "hold_pause"
+  | "unread"
   | "unknown";
 
 /** Where the first account read is: Home says nothing about the account until it settles. */
@@ -107,9 +108,6 @@ export function subscribeView(
     : { line: subscribeLine(showsUsualPrice(offer) ? price : null, app), friendCard: null };
 }
 
-/** Home's own code for a status it could not read: it says nothing about the cell. */
-export const STATUS_UNREAD = "STATUS_UNREAD";
-
 /** The lifecycle says whether the cell serves; the account step says why it does or does not. */
 export function homeMode(
   lifecycle: Lifecycle,
@@ -121,6 +119,7 @@ export function homeMode(
   const needsAccount =
     lifecycle.state === "suspended" ||
     lifecycle.state === "degraded" ||
+    lifecycle.state === "unread" ||
     lifecycle.state === "ready";
   if (needsAccount && accountRead === "loading") return { kind: "loading" };
   if (needsAccount && !account) return { kind: "home", variant: "unknown" };
@@ -140,11 +139,12 @@ export function homeMode(
       if (step === "ended") return { kind: "home", variant: "ended" };
       return { kind: "home", variant: "suspended" };
     case "degraded":
-      if (lifecycle.code === STATUS_UNREAD) return { kind: "home", variant: "unknown" };
       if (lifecycle.code === "CELL_PAUSED_FOR_EXPORT")
         return { kind: "home", variant: "export_pause" };
       if (lifecycle.code === "CELL_PAUSED_FOR_HOLD") return { kind: "home", variant: "hold_pause" };
       return { kind: "home", variant: "trouble" };
+    case "unread":
+      return { kind: "home", variant: "unread" };
     case "ready":
       if (step === "connect-read-only") return { kind: "home", variant: "readonly" };
       if (step === "ended") return { kind: "home", variant: "ended" };
@@ -369,6 +369,9 @@ export function statusCopy(
         headline: "Paused for maintenance",
         statusLine: "It ends by itself, and your assistants are back after it.",
       };
+    case "unread":
+      // The lost notice carries the retry, so the status says only what is known.
+      return { headline: "Can’t reach Exomem.", statusLine: null };
     case "unknown":
       return {
         headline: "Your Exomem",
