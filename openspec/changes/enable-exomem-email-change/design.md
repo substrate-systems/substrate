@@ -33,6 +33,8 @@ Release B enables email changes. The temporary admission and deletion bridges re
 Task 2.9 may remove them on or after 2026-10-25.
 The cleanup removes the four temporary triggers for admission, re-admission, identity scrubbing and theme scrubbing, with their functions.
 The email-change cleanup trigger stays in place.
+The Cloud reconcile that deletes a lapsed tenant also relied on the identity and theme scrubs.
+It clears the theme and leaves the owner a tombstone itself, and that release ships before the cleanup, so removing the triggers keeps the behaviour.
 Rollback returns to A without reverting the identity schema or restoring shared-email authentication.
 
 The split prevents an older deployment from authenticating a previous address after it changes. Its cost is a second release and temporary admission compatibility.

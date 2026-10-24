@@ -463,11 +463,13 @@ export async function reconcileCloudCellDesiredState(
     const mirror = deletionPending ? null : cloudDesiredStateToTenantMirror(target);
     if (mirror) {
       const deletedAt = mirror.status === "deleted" ? (options.now ?? new Date()) : null;
+      const newlyDeleted = mirror.status === "deleted" && row.tenant_status !== "deleted";
       const { rows: mirrored } = await tx`
         UPDATE exomem_tenants
         SET status = ${mirror.status},
             desired_state = ${mirror.desiredState},
-            deleted_at = ${deletedAt}
+            deleted_at = ${deletedAt},
+            theme_choice = CASE WHEN ${newlyDeleted} THEN NULL ELSE theme_choice END
         WHERE id = ${tenantId}::uuid
         RETURNING deleted_at::text AS deleted_at
       `;
@@ -493,10 +495,21 @@ export async function reconcileCloudCellDesiredState(
             recipient: owner.email,
             timeZone: owner.time_zone,
             emailScheme: owner.email_scheme,
-            // The deletion trigger cleared the account preference after the locked read.
+            // The update above cleared the account preference after the locked read.
             themeChoice: row.theme_choice,
           });
         }
+      }
+      // The deleted tenant's owner keeps only a tombstone, as after an account
+      // deletion. This runs after email 07 has read the address.
+      if (newlyDeleted) {
+        await tx`
+          UPDATE exomem_users AS identity
+          SET email = NULL, email_verified_at = NULL,
+              deleted_at = COALESCE(identity.deleted_at, tenant.deleted_at)
+          FROM exomem_tenants AS tenant
+          WHERE tenant.id = ${tenantId}::uuid AND identity.id = tenant.owner_user_id
+        `;
       }
     }
 

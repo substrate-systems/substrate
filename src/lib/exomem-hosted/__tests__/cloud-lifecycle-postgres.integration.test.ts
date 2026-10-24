@@ -216,10 +216,10 @@ type SeedInput = {
   initialDesiredState?: "running" | "read_only" | "stopped" | "deleted";
 };
 
-/** Seeds a user, tenant, entitlement and one active Cloud cell row. */
+/** Seeds an Exomem identity, tenant, entitlement and one active Cloud cell row. */
 async function seedTenant(input: SeedInput): Promise<{ tenantId: string; cellId: string }> {
   const userResult = await pool!.query(
-    "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+    "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
     [`cloud-lifecycle-${randomUUID()}@example.test`]
   );
   const userId = userResult.rows[0].id as string;
@@ -447,7 +447,7 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
     assert.equal(tenant.desiredState, "running");
   });
 
-  it("deletes a cancelled tenant after the export window and keeps its explicit theme for the final notice", async () => {
+  it("deletes a cancelled tenant after the export window, keeps its explicit theme for the final notice, and leaves its owner a tombstone", async () => {
     await resetFleet();
     const cancelledAt = new Date("2026-01-01T00:00:00Z");
     const { tenantId, cellId } = await seedTenant({
@@ -484,6 +484,15 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
         [tenantId]
       )).rows,
       [{ recipient_theme_choice: "light", recipient_email_scheme: "light" }]
+    );
+    assert.deepEqual(
+      (await pool!.query(
+        `SELECT owner.email, owner.email_verified_at, owner.deleted_at IS NOT NULL AS deleted
+         FROM exomem_tenants AS tenant JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
+         WHERE tenant.id = $1`,
+        [tenantId]
+      )).rows,
+      [{ email: null, email_verified_at: null, deleted: true }]
     );
   });
 
@@ -679,7 +688,7 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
   it("returns null for a tenant with no Cloud cell row", async () => {
     await resetFleet();
     const userResult = await pool!.query(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [`cloud-lifecycle-nocell-${randomUUID()}@example.test`]
     );
     const tenantResult = await pool!.query(
