@@ -500,9 +500,14 @@ export async function reconcileCloudCellDesiredState(
           });
         }
       }
-      // The deleted tenant's owner keeps only a tombstone, as after an account
-      // deletion. This runs after email 07 has read the address.
+      // The deleted tenant and its owner keep only a tombstone, as after an
+      // account deletion. This runs after email 07 has read the address,
+      // time zone and scheme.
       if (newlyDeleted) {
+        await tx`
+          UPDATE exomem_tenants SET time_zone = NULL, email_scheme = NULL
+          WHERE id = ${tenantId}::uuid
+        `;
         await tx`
           UPDATE exomem_users AS identity
           SET email = NULL, email_verified_at = NULL,
