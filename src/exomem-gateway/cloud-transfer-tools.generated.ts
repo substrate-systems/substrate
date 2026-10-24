@@ -4,8 +4,7 @@
 export const CLOUD_TRANSFER_TOOLS_SOURCE = {
   repo: "exomem",
   path: "tests/fixtures/mcp_cloud_only_tool_schemas.json",
-  commit:
-    "unsynced: names, properties and actions from the lane contract and the feat/cloud-transfer-tools fixture, not yet from an Exomem main commit",
+  commit: "c55bb5dbdf8da030058d6d607aec4eb2eba63101",
 } as const;
 
 export const CLOUD_TRANSFER_TOOLS = {

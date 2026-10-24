@@ -9,7 +9,7 @@
 
 - [x] 2.1 Run scoped tests, typecheck, lint, the gateway bundle check and strict OpenSpec validation; record exact results for independent review.
 - [ ] 2.2 Complete independent review and current-head CI in the integrated delivery.
-- [ ] 2.3 Re-run the sync script against the merged Exomem fixture so the generated module names an Exomem commit, then confirm the weekly drift job passes.
+- [x] 2.3 Re-run the sync script against the merged Exomem fixture so the generated module names an Exomem commit, then confirm the drift check's transfer-tool comparison passes. Synced from Exomem c55bb5dbd; `--check` reports "transfer tools match". The same job's instruction-block comparison already failed before this change (balanced, maximal) and is tracked separately.
 
 ## 3. Release acceptance
 
