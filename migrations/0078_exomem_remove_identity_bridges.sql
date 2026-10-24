@@ -2,6 +2,9 @@
 -- has closed, so no deployment older than Release A can run. Current code
 -- creates, restores and scrubs Exomem identities and clears the theme itself.
 -- The email-change cleanup trigger from 0077 stays.
+-- Each drop locks exomem_tenants; fail the build rather than queue tenant reads.
+SET LOCAL lock_timeout = '5s';
+
 DROP TRIGGER exomem_tenants_copy_missing_owner ON exomem_tenants;
 DROP FUNCTION exomem_copy_missing_tenant_owner();
 

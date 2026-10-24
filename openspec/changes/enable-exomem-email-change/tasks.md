@@ -23,4 +23,4 @@ Independent source review, isolated PostgreSQL probes, browser workflows and req
 Read-only production checks confirmed the released source, production target, retained fence and public routes.
 
 Native inbox behavior, received HTML, live provider permission and production-volume query plans remain unverified.
-Task 2.9 shipped as migration 0078 after the rollback window closed. PR #280 first moved the lapsed-tenant theme and identity scrub into the Cloud reconcile.
+Migration 0078 removes the four bridges for task 2.9. PR #280 first moved the lapsed-tenant theme and identity scrub into the Cloud reconcile.
