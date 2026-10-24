@@ -164,10 +164,15 @@ describe("Exomem Cloud cancellation notice PostgreSQL integration", { skip: !dat
   // send happens to run -- matching desiredCloudCellState's own 30-day
   // export-window arithmetic exactly.
   it("dates the deletion from the cancellation, not from the send", async () => {
-    const cancelledAt = new Date("2026-10-01T12:00:00.000Z");
+    // Two days ago, so the real-clock drain below sends the ended email and
+    // leaves the week-before reminder for later.
+    const today = new Date();
+    const cancelledAt = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - 2, 12)
+    );
     const { tenantId } = await seedTenant({ sourceOccurredAt: cancelledAt });
     await sendCloudCancellationNoticeOnce(tenantId, cancelledAt, {
-      now: () => new Date("2026-10-02T12:00:00.000Z"),
+      now: () => new Date(cancelledAt.getTime() + DAY),
     });
     const sent: string[] = [];
     const drained = await drainExomemEmailOutbox(
@@ -180,8 +185,13 @@ describe("Exomem Cloud cancellation notice PostgreSQL integration", { skip: !dat
       }
     );
     assert.equal(drained.sent, 1);
-    // 2026-10-01 + 30 days = 31 October, in UTC because no zone is stored.
-    assert.match(sent[0]!, /It’s read-only until 31 October \(UTC\)\./);
+    // The cancellation + 30 days, in UTC because no zone is stored.
+    const readOnlyUntil = new Date(cancelledAt.getTime() + 30 * DAY).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      timeZone: "UTC",
+    });
+    assert.match(sent[0]!, new RegExp(`It’s read-only until ${readOnlyUntil} \\(UTC\\)\\.`));
   });
 
   it("queues no week-before reminder when less than a week is left", async () => {
