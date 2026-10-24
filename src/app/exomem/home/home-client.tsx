@@ -678,7 +678,8 @@ export default function HomeClient({
           headline={
             lostAt === null
               ? status_.headline
-              : !lostTime
+              : // No status read ever reached Exomem, so its headline would claim a state unread.
+                !lostTime || lostAt === 0
                 ? "Can’t reach Exomem."
                 : variant === "on"
                   ? `Your memory, as of ${lostTime}`
