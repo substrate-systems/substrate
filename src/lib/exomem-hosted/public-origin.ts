@@ -50,3 +50,10 @@ export function exomemPublicFragmentUrl(baseUrl: string, path: string, token: st
   url.hash = token;
   return url.toString();
 }
+
+/** Home's address under a public base URL, with an optional link target within the page. */
+export function exomemHomeUrl(publicBaseUrl: string, fragment?: string): string {
+  const url = new URL("/exomem/home", `${publicBaseUrl}/`);
+  if (fragment) url.hash = fragment;
+  return url.toString();
+}
