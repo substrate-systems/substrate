@@ -35,7 +35,8 @@ The cleanup removes the four temporary triggers for admission, re-admission, ide
 The email-change cleanup trigger stays in place.
 The Cloud reconcile that deletes a lapsed tenant also relied on the identity and theme scrubs.
 It clears the theme and leaves the owner a tombstone itself, and that release ships before the cleanup, so removing the triggers keeps the behaviour.
-Rollback returns to A without reverting the identity schema or restoring shared-email authentication.
+Until the cleanup, rollback returns to A without reverting the identity schema or restoring shared-email authentication.
+After it, a rollback goes no earlier than the release that moved the lapsed-tenant scrub into the reconcile.
 
 The split prevents an older deployment from authenticating a previous address after it changes. Its cost is a second release and temporary admission compatibility.
 The delivery owner performs these steps; no extra human approval is required for ordinary release work.

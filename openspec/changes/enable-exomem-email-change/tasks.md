@@ -16,11 +16,11 @@
 - [x] 2.6 Synchronize the existing provider customer with explicit pending, conflict and failed states.
 - [x] 2.7 Verify race, replay, collision, provider failure and persistence behaviour in the isolated application.
 - [x] 2.8 Complete independent review, browser acceptance, required CI, normal release and read-only production verification.
-- [ ] 2.9 Remove the temporary admission and deletion bridges after the rollback window closes.
+- [x] 2.9 Remove the temporary admission and deletion bridges after the rollback window closes.
 
 Release A shipped in PR #264. Release B shipped in PR #265 on 2026-10-18 after the complete deployment fence check and execution drain.
 Independent source review, isolated PostgreSQL probes, browser workflows and required CI support the checked tasks.
 Read-only production checks confirmed the released source, production target, retained fence and public routes.
 
 Native inbox behavior, received HTML, live provider permission and production-volume query plans remain unverified.
-Task 2.9 remains open for rollback-window cleanup.
+Task 2.9 shipped as migration 0078 after the rollback window closed. PR #280 first moved the lapsed-tenant theme and identity scrub into the Cloud reconcile.
