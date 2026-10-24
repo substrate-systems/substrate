@@ -174,12 +174,17 @@ An owner SHALL start an export from Home while the tenant is not deleting and th
 
 ### Requirement: Export downloads start from Home and the ready email is sent once
 
-The download link for an export SHALL come only from a Home request, and only while the export is ready and unexpired, checked on every read until the link is returned. Each link SHALL be an https URL, expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
+The download link for an export SHALL come only from a request by the authenticated owner, in Home or from the owner's Cloud command line presenting the owner's Cloud OAuth bearer (amended 2026-10-24 by `serve-cloud-transfer-tools`), and only while the export is ready and unexpired, checked on every read until the link is returned. Each link SHALL be an https URL, expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
 
 #### Scenario: Owner downloads a ready export
 
 - **WHEN** an owner asks for the link of a ready export
 - **THEN** the system answers 200 with the link and its expiry, with `no-store` and `no-referrer` headers
+
+#### Scenario: Owner's command line downloads a ready export
+
+- **WHEN** the owner's Cloud command line presents the owner's access token and asks for the link of a ready export
+- **THEN** the system answers as it does for Home, and an assistant tool result never carries the link
 
 #### Scenario: Link is not ready yet
 

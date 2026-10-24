@@ -7,6 +7,7 @@ import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
+import { cloudExportReply } from "../../exomem/cloud-export-contract";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest, handleCloudHomeLiveRequest } from "../cloud-home-mcp";
 import { handleCloudViewerRequest } from "../cloud-viewer";
@@ -183,6 +184,41 @@ async function requestLink(who: Owner, exportId: string, linkWaitMs = 300): Prom
     exportId,
     { env: ENV, linkWaitMs }
   );
+}
+
+/** An access token for the CLI client, as `exomem cloud export` presents it to the export API. */
+async function mintCliToken(
+  who: Owner,
+  options: { resource?: string; scopes?: string[] } = {}
+): Promise<string> {
+  const resource = options.resource ?? RESOURCE;
+  const scopes = options.scopes ?? ["exomem.read", "exomem.write"];
+  const client = await pool.query(
+    "SELECT id FROM exomem_oauth_clients WHERE client_id = 'exomem-cloud-cli'"
+  );
+  const clientId = client.rows[0].id;
+  const grant = await pool.query(
+    "INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    [who.userId, who.tenantId, clientId, resource, scopes]
+  );
+  const family = await pool.query(
+    "INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at) VALUES ($1, $2, now() + interval '1 day') RETURNING id",
+    [grant.rows[0].id, clientId]
+  );
+  const token = generateExternalToken();
+  await pool.query(
+    "INSERT INTO exomem_oauth_access_tokens (access_digest, grant_id, family_id, client_id, resource, scopes, expires_at) VALUES ($1, $2, $3, $4, $5, $6, now() + interval '1 hour')",
+    [digestSecret(token), grant.rows[0].id, family.rows[0].id, clientId, resource, scopes]
+  );
+  return token;
+}
+
+function bearerRequest(token: string, method: string, path: string, body?: unknown): Request {
+  return new Request(`https://app.example.test${path}`, {
+    method,
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 }
 
 /** What cellctl writes when it finishes packing (its own columns only). */
@@ -1711,6 +1747,168 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         [id]
       );
       assert.equal(expiredExport.expires_at, stored.rows[0].expires_at.toISOString());
+    });
+    it("serves the owner's Cloud bearer the same export API as Home, with the archive digest", async () => {
+      const alice = await owner();
+      const token = await mintCliToken(alice);
+
+      const none = await handleCloudExportsRequest(
+        bearerRequest(token, "GET", "/api/exomem/cloud/exports"),
+        { env: ENV }
+      );
+      assert.equal(none.status, 200);
+      assert.equal(cloudExportReply.parse(await none.json()).export.state, "none");
+
+      const exportId = randomUUID();
+      const started = await handleCloudExportsRequest(
+        bearerRequest(token, "POST", "/api/exomem/cloud/exports", { export_id: exportId }),
+        { env: ENV }
+      );
+      assert.equal(started.status, 201);
+      assert.equal(cloudExportReply.parse(await started.json()).export.state, "packing");
+      await markReady(exportId);
+
+      const shown = await handleCloudExportsRequest(
+        bearerRequest(token, "GET", "/api/exomem/cloud/exports"),
+        { env: ENV }
+      );
+      const ready = cloudExportReply.parse(await shown.json()).export;
+      assert.equal(ready.state, "ready");
+      assert.equal(ready.archive_bytes, 2048);
+      assert.equal(ready.archive_sha256, "b".repeat(64));
+
+      // The controller answers the link request while the call waits, as cellctl writes it.
+      const answering = (async () => {
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+          const { rowCount } = await pool.query(
+            `UPDATE exomem_cloud_exports
+             SET download_url = 'https://objects.example.test/archive',
+                 download_url_expires_at = now() + interval '5 minutes',
+                 link_issued_at = GREATEST(clock_timestamp(), link_requested_at)
+             WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
+            [exportId]
+          );
+          if (rowCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const link = await handleCloudExportLinkRequest(
+        bearerRequest(token, "POST", `/api/exomem/cloud/exports/${exportId}/link`),
+        exportId,
+        { env: ENV, linkWaitMs: 4_000 }
+      );
+      await answering;
+      assert.equal(link.status, 200);
+      assert.equal((await json(link)).url, "https://objects.example.test/archive");
+      assert.equal(link.headers.get("referrer-policy"), "no-referrer");
+    });
+
+    it("refuses another tenant's, a wrong-resource and a single-scope bearer on every export route", async () => {
+      const readyExport = async (who: Owner) => {
+        const id = ((await json(await startExport(who))).export as { export_id: string }).export_id;
+        await markReady(id);
+        return id;
+      };
+      const exportRoutes = async (token: string, exportId: string) => {
+        const read = await handleCloudExportsRequest(
+          bearerRequest(token, "GET", "/api/exomem/cloud/exports"),
+          { env: ENV }
+        );
+        const create = await handleCloudExportsRequest(
+          bearerRequest(token, "POST", "/api/exomem/cloud/exports", {}),
+          { env: ENV }
+        );
+        const link = await handleCloudExportLinkRequest(
+          bearerRequest(token, "POST", `/api/exomem/cloud/exports/${exportId}/link`),
+          exportId,
+          { env: ENV, linkWaitMs: 100 }
+        );
+        return { read, create, link };
+      };
+      const linkRequestedAt = async (exportId: string) =>
+        (
+          await pool.query(
+            "SELECT link_requested_at FROM exomem_cloud_exports WHERE export_id = $1",
+            [exportId]
+          )
+        ).rows[0].link_requested_at;
+
+      // Another tenant's valid token sees no export and cannot ask for the link.
+      const alice = await owner();
+      const aliceExport = await readyExport(alice);
+      const bob = await owner();
+      const bobToken = await mintCliToken(bob);
+      const crossTenant = await exportRoutes(bobToken, aliceExport);
+      assert.equal(crossTenant.link.status, 404);
+      assert.equal(cloudExportReply.parse(await crossTenant.read.json()).export.state, "none");
+      assert.equal(await linkRequestedAt(aliceExport), null);
+
+      // The owner's own token is refused when its resource or its scopes are wrong. An unknown token never authenticates.
+      const deficient = [
+        { options: { resource: "https://other.example.test/mcp" }, status: 401 },
+        { options: { scopes: ["exomem.read"] }, status: 403 },
+        { options: { scopes: ["exomem.write"] }, status: 403 },
+      ];
+      for (const { options, status } of deficient) {
+        const who = await owner();
+        const exportId = await readyExport(who);
+        const refused = await exportRoutes(await mintCliToken(who, options), exportId);
+        assert.deepEqual(
+          [refused.read.status, refused.create.status, refused.link.status],
+          [status, status, status],
+          JSON.stringify(options)
+        );
+        assert.equal(await linkRequestedAt(exportId), null);
+      }
+      const unknown = await exportRoutes("not-a-token", aliceExport);
+      assert.deepEqual(
+        [unknown.read.status, unknown.create.status, unknown.link.status],
+        [401, 401, 401]
+      );
+      assert.match(unknown.read.headers.get("www-authenticate")!, /resource_metadata/);
+    });
+
+    it("keeps the browser session's CSRF proof and never borrows its cookies after a bearer failure", async () => {
+      const alice = await owner();
+      const exportId = ((await json(await startExport(alice))).export as { export_id: string })
+        .export_id;
+      await markReady(exportId);
+      const cookies = `exomem_session=${alice.cookie}; exomem_csrf=${alice.csrf}`;
+      const browser = {
+        cookie: cookies,
+        origin: "https://app.example.test",
+        host: "app.example.test",
+      };
+      const post = (path: string, headers: Record<string, string>) =>
+        new Request(`https://app.example.test${path}`, {
+          method: "POST",
+          headers: { ...browser, "content-type": "application/json", ...headers },
+          body: "{}",
+        });
+      const linkPath = `/api/exomem/cloud/exports/${exportId}/link`;
+
+      assert.equal(
+        (await handleCloudExportsRequest(post("/api/exomem/cloud/exports", {}), { env: ENV }))
+          .status,
+        403
+      );
+      assert.equal(
+        (
+          await handleCloudExportLinkRequest(post(linkPath, {}), exportId, {
+            env: ENV,
+            linkWaitMs: 100,
+          })
+        ).status,
+        403
+      );
+      const borrowed = await handleCloudExportsRequest(
+        post("/api/exomem/cloud/exports", {
+          "x-exomem-csrf": alice.csrf,
+          authorization: "Bearer invalid",
+        }),
+        { env: ENV }
+      );
+      assert.equal(borrowed.status, 401);
     });
   });
 

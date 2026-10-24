@@ -1,13 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { validate as validUuid } from "uuid";
 import type { CloudImport, UploadPart } from "../exomem/cloud-import-contract";
-import { loadExomemCloudResource } from "./cloud-config";
-import { findCloudOAuthAccessToken } from "./cloud-oauth";
+import { resolveCloudOwnerPrincipal } from "./cloud-owner-principal";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
-import { parseBearerAuthorization } from "./oauth";
-import { digestSecret } from "./security";
-import { resolveExomemSession, validateMutationRequest } from "./sessions";
 
 export type CloudImportAction =
   | "create"
@@ -50,29 +46,18 @@ const notFound = () => importError("IMPORT_NOT_FOUND", 404, "the import is unava
 const conflict = () =>
   importError("IMPORT_CONFLICT", 409, "the import request conflicts with its current state");
 
+/** An import belongs to the owner's one live cell, which a session must look up. */
 export async function resolveCloudImportPrincipal(request: Request): Promise<CloudImportPrincipal> {
-  if (request.headers.has("authorization")) {
-    const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-    const token = bearer
-      ? await findCloudOAuthAccessToken(digestSecret(bearer), loadExomemCloudResource().mcpUrl)
-      : null;
-    if (!token) throw exomemErrors.accessTokenInvalid();
-    if (!token.scopes.includes("exomem.read") || !token.scopes.includes("exomem.write")) {
-      throw exomemErrors.entitlementDenied();
-    }
-    return token;
-  }
-  const session = await resolveExomemSession(request);
-  if (request.method !== "GET" && request.method !== "HEAD")
-    validateMutationRequest(request, session);
+  const owner = await resolveCloudOwnerPrincipal(request);
+  if (owner.via === "bearer") return owner;
   const { rows } = await executeExomemSql`
     SELECT cell_id, desired_state FROM exomem_cloud_cells
-    WHERE tenant_id = ${session.tenantId}::uuid AND desired_state <> 'deleted'
+    WHERE tenant_id = ${owner.tenantId}::uuid AND desired_state <> 'deleted'
   `;
   if (!rows[0]) throw notFound();
   return {
-    userId: session.userId,
-    tenantId: session.tenantId,
+    userId: owner.userId,
+    tenantId: owner.tenantId,
     cellId: String(rows[0].cell_id),
     cellDesiredState: String(rows[0].desired_state),
   };
