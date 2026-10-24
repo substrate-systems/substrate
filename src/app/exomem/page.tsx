@@ -4,7 +4,7 @@ import { breadcrumbJsonLd, siteConfig } from "@/lib/seo";
 import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
-import { ButtonLink } from "@/components/exomem/Button";
+import { LandingAccountLink, LandingSession } from "./landing/LandingSession";
 import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 import { Wordmark } from "@/components/exomem/Wordmark";
 import { CLIENT_FAMILY_NAMES } from "@/lib/exomem-hosted/client-platforms";
@@ -38,8 +38,6 @@ export const metadata = buildExomemMetadata({
 const GITHUB = "https://github.com/Artexis10/exomem";
 const PYPI = "https://pypi.org/project/exomem/";
 const README = `${GITHUB}#readme`;
-const SIGN_IN = "/exomem/sign-in";
-const START = "Start with your email →";
 const ASSISTANTS = Object.entries(CLIENT_FAMILY_NAMES)
   .filter(([family]) => family !== "other")
   .map(([, name]) => name);
@@ -213,7 +211,7 @@ export default function ExomemPage() {
   ];
 
   return (
-    <div className={`brand-exomem ${styles.page}`}>
+    <LandingSession className={`brand-exomem ${styles.page}`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
@@ -263,9 +261,7 @@ export default function ExomemPage() {
               GitHub
             </a>
             <ThemeToggle />
-            <Link href={SIGN_IN} className={`exo-link-ts ${styles.signIn}`}>
-              Sign in
-            </Link>
+            <LandingAccountLink kind="navigation" className={`exo-link-ts ${styles.signIn}`} />
           </nav>
         </header>
 
@@ -290,9 +286,7 @@ export default function ExomemPage() {
               </p>
               <div className={styles.heroActions}>
                 <div className={styles.heroCtas}>
-                  <ButtonLink href={SIGN_IN} variant="primary" size="landing">
-                    {START}
-                  </ButtonLink>
+                  <LandingAccountLink kind="action" />
                   <span className={responsive.deskOnly}>
                     <PipInstall look="hero" />
                   </span>
@@ -390,9 +384,7 @@ export default function ExomemPage() {
                   <Assistants />
                 </div>
                 <div className={`${styles.doorCta} ${responsive.phoneOnly}`}>
-                  <ButtonLink href={SIGN_IN} variant="primary" size="landing">
-                    {START}
-                  </ButtonLink>
+                  <LandingAccountLink kind="action" />
                 </div>
                 <div className={styles.doorNote}>
                   <Copy
@@ -451,9 +443,7 @@ export default function ExomemPage() {
                 .
               </p>
               <div className={styles.cloudCta}>
-                <ButtonLink href={SIGN_IN} variant="primary" size="landing">
-                  {START}
-                </ButtonLink>
+                <LandingAccountLink kind="action" />
               </div>
             </div>
             <ol className={styles.promises}>
@@ -511,6 +501,6 @@ export default function ExomemPage() {
           </span>
         </footer>
       </div>
-    </div>
+    </LandingSession>
   );
 }
