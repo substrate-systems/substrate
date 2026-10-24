@@ -54,6 +54,7 @@ import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
 import type { ExomemInviteKind } from "./invitation-contract";
 import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "@/lib/exomem/money";
 import {
+  exomemHomeUrl,
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
   parseExomemPublicBaseUrl,
@@ -287,17 +288,13 @@ export type SubscriptionEndedPayload = {
 export type DeletionReminderPayload = { version: 1; cellId: string; endedAt: string };
 export type DeletedPayload = { version: 1; tenantId: string; deletedAt: string };
 
-function homeUrl(publicBaseUrl: string): string {
-  return new URL("/exomem/home", `${publicBaseUrl}/`).toString();
-}
-
 function supportUrl(publicBaseUrl: string): string {
   return new URL("/exomem/support", `${publicBaseUrl}/`).toString();
 }
 
 /** Home's export, which an ended owner opens for a copy; null while Home offers no export. */
 function exportUrl(publicBaseUrl: string): string | null {
-  return cloudExportsEnabled() ? homeUrl(publicBaseUrl) : null;
+  return cloudExportsEnabled() ? exomemHomeUrl(publicBaseUrl) : null;
 }
 
 type OwnerRow = {
@@ -764,7 +761,7 @@ const EXOMEM_EMAILS = {
     addressee: (context) => context.owner,
     render: async ({ context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemReadyEmail({
-        homeUrl: homeUrl(publicBaseUrl),
+        homeUrl: exomemHomeUrl(publicBaseUrl),
         // No name is stored for an owner yet.
         recipientName: null,
         connected: context.connected,
@@ -803,7 +800,7 @@ const EXOMEM_EMAILS = {
     render: ({ payload, timeZone, emailScheme, themeChoice, publicBaseUrl }) => {
       const days = exomemPaddleDunningDays();
       return renderExomemPaymentFailedEmail({
-        billingUrl: homeUrl(publicBaseUrl),
+        billingUrl: exomemHomeUrl(publicBaseUrl),
         readOnlyUntil:
           days.value === null
             ? null
@@ -824,7 +821,7 @@ const EXOMEM_EMAILS = {
       renderExomemSubscriptionEndedEmail({
         exportUrl: exportUrl(publicBaseUrl),
         supportUrl: supportUrl(publicBaseUrl),
-        resubscribeUrl: homeUrl(publicBaseUrl),
+        resubscribeUrl: exomemHomeUrl(publicBaseUrl),
         keptUntil: context.keptUntil,
         now,
         reminderScheduled: payload.reminderScheduled,
@@ -852,7 +849,7 @@ const EXOMEM_EMAILS = {
       renderExomemDeletionReminderEmail({
         exportUrl: exportUrl(publicBaseUrl),
         supportUrl: supportUrl(publicBaseUrl),
-        resubscribeUrl: homeUrl(publicBaseUrl),
+        resubscribeUrl: exomemHomeUrl(publicBaseUrl),
         keptUntil: context.keptUntil,
         now,
         timeZone,

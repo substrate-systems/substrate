@@ -1,4 +1,4 @@
-import { parseExomemPublicBaseUrl } from "./public-origin";
+import { exomemHomeUrl, parseExomemPublicBaseUrl } from "./public-origin";
 
 export const EXOMEM_PADDLE_PRODUCT_KEY = "exomem-hosted" as const;
 
@@ -64,7 +64,7 @@ function checkoutUrl(env: EnvironmentSource): string | null {
   }
   try {
     const origin = parseExomemPublicBaseUrl(configuredOrigin, runtimeEnvironment);
-    return new URL("/exomem/home", `${origin}/`).toString();
+    return exomemHomeUrl(origin);
   } catch {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }

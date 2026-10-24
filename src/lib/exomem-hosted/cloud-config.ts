@@ -40,6 +40,8 @@ export type ExomemCloudConfig = ExomemCloudResource &
     artifactSigningKey?: KeyObject;
     artifactCells?: ReadonlySet<string>;
     artifactAllCells?: boolean;
+    /** The gateway answers the Cloud transfer tools itself; off sends every call to the cell. */
+    transferToolsEnabled?: boolean;
   }>;
 
 function requiredValue(env: EnvironmentSource, name: string, missing: string[]): string {
@@ -89,9 +91,13 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
     throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_CELL_TOKEN_KEY"]);
   }
   const cellTokenKey = Buffer.from(rawKey, "hex");
+  const transferToolsEnabled =
+    env.EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED?.trim().toLowerCase() === "true";
 
   const transport = env.EXOMEM_CLOUD_ARTIFACT_TRANSPORT_ENABLED?.trim().toLowerCase();
-  if (transport !== "1" && transport !== "true") return { mcpUrl, mcpPath, cellTokenKey };
+  if (transport !== "1" && transport !== "true") {
+    return { mcpUrl, mcpPath, cellTokenKey, transferToolsEnabled };
+  }
   let cells: unknown;
   try {
     cells = JSON.parse(env.EXOMEM_CLOUD_ARTIFACT_CELL_IDS ?? "");
@@ -121,6 +127,7 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
       artifactSigningKey,
       artifactCells: new Set(cells as string[]),
       artifactAllCells: allCells,
+      transferToolsEnabled,
     };
   } catch {
     // Key parser errors may echo supplied material; keep startup failures value-free.

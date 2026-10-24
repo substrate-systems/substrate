@@ -4,27 +4,27 @@
  * Substrate writes only the request columns of `exomem_cloud_exports`:
  * `export_id`, `cell_id`, `requested_state` and `link_requested_at`. The cell
  * controller packs the ZIP, records what it observes and presigns each link.
- * Every read and write here joins the export to the session's own tenant, so
- * an export id from another tenant is simply not found.
+ * Every read and write here joins the export to the caller's own tenant, so
+ * an export id from another tenant is simply not found. The caller is the
+ * owner's browser session or the owner's Cloud OAuth bearer
+ * (`resolveCloudOwnerPrincipal`).
  *
- * A download link is returned to the owner's browser and nowhere else: this
- * module never logs it, sends it or stores it outside the export row.
+ * A download link is returned to the authenticated owner's HTTP response and
+ * nowhere else: this module never logs it, sends it or stores it outside the
+ * export row.
  */
 
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { validate as validUuid } from "uuid";
 import { z } from "zod";
-import type { EnvironmentSource } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
+import { cloudBearerChallenge } from "./cloud-oauth";
+import { resolveCloudOwnerPrincipal } from "./cloud-owner-principal";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
 import { readBoundedJsonRequest } from "./http";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
-import {
-  resolveExomemSession,
-  validateMutationRequest,
-  type ExomemSessionContext,
-} from "./sessions";
 
 /** Exports one tenant may start in a rolling 24 hours; each one pauses a serving cell. */
 const CLOUD_EXPORTS_PER_DAY = 3;
@@ -43,6 +43,7 @@ export type CloudExportRow = {
   observed_state: "packing" | "ready" | "failed" | "expired" | null;
   error_code: string | null;
   archive_bytes: string | null;
+  archive_sha256: string | null;
   ready_at: Date | null;
   expires_at: Date | null;
   created_at: Date;
@@ -60,6 +61,8 @@ export type CloudExportDisplay =
       ready_at: string;
       expires_at: string;
       archive_bytes: number | null;
+      // Migration 0066 requires it on a ready row; the CLI verifies the download against it.
+      archive_sha256: string;
     }
   // `expires_at` is when the export expired; null when a newer export replaced it.
   | { state: "expired"; export_id: string; requested_at: string; expires_at: string | null }
@@ -72,7 +75,7 @@ export type CloudExportDisplay =
  */
 export type CloudExportSummary = CloudExportDisplay & { pauses_assistants: boolean };
 
-export type CloudExportPrincipal = Pick<ExomemSessionContext, "userId" | "tenantId">;
+export type CloudExportPrincipal = { userId: string; tenantId: string };
 
 export type CloudExportDependencies = {
   env?: EnvironmentSource;
@@ -109,6 +112,7 @@ function cloudExportDisplay(row: CloudExportRow | null, now: Date): CloudExportD
       ready_at: row.ready_at.toISOString(),
       expires_at: row.expires_at.toISOString(),
       archive_bytes: bytes !== null && Number.isSafeInteger(bytes) ? bytes : null,
+      archive_sha256: row.archive_sha256 as string,
     };
   }
   return { state: "packing", ...base };
@@ -171,7 +175,7 @@ export async function readCloudExport(
     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
     LEFT JOIN LATERAL (
       SELECT export_id, requested_state, observed_state, error_code, archive_bytes,
-             ready_at, expires_at, created_at
+             archive_sha256, ready_at, expires_at, created_at
       FROM exomem_cloud_exports
       WHERE cell_id = cell.cell_id
       ORDER BY created_at DESC, export_id DESC
@@ -272,7 +276,7 @@ async function exportRow(
 ): Promise<CloudExportRow | null> {
   const { rows } = await tx`
     SELECT export_id, requested_state, observed_state, error_code, archive_bytes,
-           ready_at, expires_at, created_at
+           archive_sha256, ready_at, expires_at, created_at
     FROM exomem_cloud_exports WHERE export_id = ${exportId}::uuid AND cell_id = ${cellId}
   `;
   return (rows[0] as CloudExportRow | undefined) ?? null;
@@ -292,7 +296,8 @@ async function readLinkRow(
   const { rows } = await executeExomemSql`
     /* exomem-cloud:export-link-read */
     SELECT export.export_id, export.requested_state, export.observed_state, export.error_code,
-           export.archive_bytes, export.ready_at, export.expires_at, export.created_at,
+           export.archive_bytes, export.archive_sha256, export.ready_at, export.expires_at,
+           export.created_at,
            export.download_url, export.download_url_expires_at,
            COALESCE(export.link_issued_at >= export.link_requested_at, false) AS link_answered
     FROM exomem_cloud_exports AS export
@@ -413,9 +418,17 @@ function respond(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: EXPORT_HEADERS });
 }
 
-function errorResponse(error: unknown): Response {
+function errorResponse(error: unknown, request: Request, env?: EnvironmentSource): Response {
   const response = safeErrorResponse(error);
   for (const [name, value] of Object.entries(EXPORT_HEADERS)) response.headers.set(name, value);
+  // A refused bearer tells the client where to authorize, as the import API does.
+  if (
+    error instanceof ExomemHostedError &&
+    error.status === 401 &&
+    request.headers.has("authorization")
+  ) {
+    response.headers.set("www-authenticate", cloudBearerChallenge(loadExomemCloudResource(env)));
+  }
   return response;
 }
 
@@ -426,17 +439,16 @@ export async function handleCloudExportsRequest(
 ): Promise<Response> {
   try {
     if (!cloudExportsEnabled(dependencies.env)) throw notFound();
-    const session = await resolveExomemSession(request);
-    if (request.method === "GET") return respond({ export: await readCloudExport(session) });
-    validateMutationRequest(request, session);
+    const owner = await resolveCloudOwnerPrincipal(request, dependencies.env);
+    if (request.method === "GET") return respond({ export: await readCloudExport(owner) });
     const body = CreateExportBody.safeParse(
       request.body ? await readBoundedJsonRequest(request, 1024) : {}
     );
     if (!body.success) throw exomemErrors.invalidRequest();
-    const result = await createCloudExport(session, body.data.export_id?.toLowerCase());
+    const result = await createCloudExport(owner, body.data.export_id?.toLowerCase());
     return respond({ export: result.export }, result.created ? 201 : 200);
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, request, dependencies.env);
   }
 }
 
@@ -448,15 +460,14 @@ export async function handleCloudExportLinkRequest(
 ): Promise<Response> {
   try {
     if (!cloudExportsEnabled(dependencies.env)) throw notFound();
-    const session = await resolveExomemSession(request);
-    validateMutationRequest(request, session);
-    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, session.tenantId)))
+    const owner = await resolveCloudOwnerPrincipal(request, dependencies.env);
+    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.ownerProviderCallTenant, owner.tenantId)))
       throw exomemErrors.rateLimited();
-    const link = await requestCloudExportLink(session, exportId.toLowerCase(), dependencies);
+    const link = await requestCloudExportLink(owner, exportId.toLowerCase(), dependencies);
     return link.state === "issued"
       ? respond({ url: link.url, url_expires_at: link.url_expires_at })
       : respond({ state: "pending" }, 202);
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, request, dependencies.env);
   }
 }

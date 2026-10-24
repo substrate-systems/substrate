@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Collapse } from "@/components/exomem/Transitions";
+import { HOME_YOUR_DATA_ANCHOR } from "@/lib/exomem/home-anchors";
 import type { ExportView, PlanView, StorageView } from "./home-view";
 import { Section } from "./home-chrome";
 import styles from "./home.module.css";
@@ -118,7 +119,7 @@ export function YourData({
     }
   }, [detail?.kind]);
   return (
-    <Section title="Your data">
+    <Section id={HOME_YOUR_DATA_ANCHOR} title="Your data">
       {importControl}
       {exportRow && (
         <>

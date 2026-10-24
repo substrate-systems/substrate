@@ -174,12 +174,17 @@ An owner SHALL start an export from Home while the tenant is not deleting and th
 
 ### Requirement: Export downloads start from Home and the ready email is sent once
 
-The download link for an export SHALL come only from a Home request, and only while the export is ready and unexpired, checked on every read until the link is returned. Each link SHALL be an https URL, expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
+The download link for an export SHALL come only from a Home request or from a request that carries the owner's Cloud OAuth bearer, such as the `exomem cloud export` command (amended 2026-10-24 by `serve-cloud-transfer-tools`). The system SHALL return the link only in the HTTP response to that request, never in an assistant tool result, an email or a log, and only while the export is ready and unexpired, checked on every read until the link is returned. Each link SHALL be an https URL, expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
 
 #### Scenario: Owner downloads a ready export
 
 - **WHEN** an owner asks for the link of a ready export
 - **THEN** the system answers 200 with the link and its expiry, with `no-store` and `no-referrer` headers
+
+#### Scenario: Owner's command line downloads a ready export
+
+- **WHEN** a request carries the owner's access token, as `exomem cloud export` sends it, and asks for the link of a ready export
+- **THEN** the system answers as it does for Home, and an assistant tool result never carries the link
 
 #### Scenario: Link is not ready yet
 

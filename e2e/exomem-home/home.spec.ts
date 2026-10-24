@@ -6,6 +6,7 @@ import { reviewerCopy, startCopy } from "../../src/app/exomem/_journey/copy";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test as base, type Page } from "@playwright/test";
 import { digestSecret, generateExternalToken } from "../../src/lib/exomem-hosted/security";
+import { HOME_YOUR_DATA_ANCHOR } from "../../src/lib/exomem/home-anchors";
 import { EXOMEM_THEME_COOKIE_PREFIX } from "../../src/lib/exomem/theme-binding";
 import {
   connectApp,
@@ -361,6 +362,39 @@ test("disconnecting an app revokes its grant, and the app stays gone after a rel
   await page.reload();
   await expect(apps.getByText("ChatGPT", { exact: true })).toBeVisible();
   await expect(apps.getByText("Claude", { exact: true })).toHaveCount(0);
+});
+
+test("a link to the Your data section scrolls there once Home has loaded, and only once", async ({
+  page,
+}) => {
+  const owner = await createOwner();
+  await signIn(page.context(), owner);
+  await page.goto(`/exomem/home#${HOME_YOUR_DATA_ANCHOR}`);
+
+  // The section is drawn, and pushed down by the apps above it, after Home reads its data.
+  // The browser has no target at load, so Home scrolls there itself.
+  const heading = page.locator(`#${HOME_YOUR_DATA_ANCHOR}`).getByRole("heading", {
+    name: "Your data",
+  });
+  const scrollY = () => page.evaluate(() => window.scrollY);
+  let previous = -1;
+  await expect
+    .poll(
+      async () => {
+        const current = await scrollY();
+        const settled = current > 0 && current === previous;
+        previous = current;
+        return settled;
+      },
+      { intervals: [200] }
+    )
+    .toBe(true);
+  await expect(heading).toBeInViewport({ ratio: 1 });
+
+  // Home re-renders every second; a later scroll by the person stays where they put it.
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await page.waitForTimeout(2_500);
+  expect(await scrollY()).toBe(0);
 });
 
 test("a level set on Home reaches the cell and is still set after a reload", async ({ page }) => {

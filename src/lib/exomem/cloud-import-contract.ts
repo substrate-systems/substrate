@@ -29,3 +29,22 @@ const cloudImport = z.object({
 export const cloudImportReply = z.object({ import: cloudImport.nullable() });
 export type CloudImport = z.infer<typeof cloudImport>;
 export type UploadPart = z.infer<typeof importUploadPart>;
+
+/**
+ * Whether an import has stopped changing. A discard that the controller has
+ * not yet observed keeps it open. The terminal observations are C5 protocol
+ * states fixed by migration 0061, and migration 0061's open-import index is
+ * their complement.
+ */
+export function cloudImportFinished(
+  operation: Pick<CloudImport, "requested_state" | "observed_state">
+): boolean {
+  if (operation.requested_state === "discard_requested" && operation.observed_state !== "discarded")
+    return false;
+  return ["done", "failed", "expired", "discarded"].includes(operation.observed_state);
+}
+
+/** C5's adopt command stages the files here; the import's UUID names the folder. */
+export function stagedImportFolder(importId: string): string {
+  return `_Imports/${importId}`;
+}
