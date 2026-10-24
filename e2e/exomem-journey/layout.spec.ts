@@ -570,6 +570,9 @@ const STEPS: Step[] = [
       await heading(page, consentCopy.again.title(client.name));
       await page.getByRole("button", { name: consentCopy.again.keep }).click();
       await heading(page, handbackCopy.kept.title);
+      await expect(
+        page.getByText(handbackCopy.kept.done(client.name), { exact: true })
+      ).toBeVisible();
     },
   },
   {
