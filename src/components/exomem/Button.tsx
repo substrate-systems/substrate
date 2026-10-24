@@ -13,7 +13,7 @@ type Variant = "primary" | "secondary" | "quiet" | "amber" | "ghost";
  * a flow page's quiet second action under its main one. Dialog actions use the Home
  * boards' 46 px primary, 44 px secondary and 40 px quiet controls.
  */
-type Size = "panel" | "page" | "landing" | "row" | "account" | "detail" | "dialog";
+type Size = "panel" | "page" | "landing" | "row" | "account" | "detail" | "dialog" | "line";
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
   ref?: Ref<HTMLButtonElement>;

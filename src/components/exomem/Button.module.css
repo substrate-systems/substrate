@@ -89,6 +89,13 @@
   font-weight: 500;
 }
 
+/* The storage line's action (Home board: Add storage, 30 px, Plex Mono 11.5). */
+.line {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
 /* The action of a line under a row (Download, Try again) or of a notice (Home board). */
 .detail {
   min-width: 112px;
