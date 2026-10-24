@@ -350,13 +350,14 @@ export function CheckoutInline({
         >
           <Wordmark />
         </a>
-        <span className={styles.headerControls} data-graph-header>
-          <ThemeToggle align="end" />
-          <span className={styles.email} data-graph-clear>
-            {email}
-          </span>
+        <span className={styles.email} data-graph-clear>
+          {email}
         </span>
       </header>
+      {/* As on every flow page, the theme control sits at the page gutter (Journey board). */}
+      <span className={styles.theme} data-graph-header>
+        <ThemeToggle align="end" />
+      </span>
       <section className={styles.content}>
         <div className={styles.heading}>
           <h1>
