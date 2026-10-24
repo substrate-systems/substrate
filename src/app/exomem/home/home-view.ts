@@ -107,6 +107,9 @@ export function subscribeView(
     : { line: subscribeLine(showsUsualPrice(offer) ? price : null, app), friendCard: null };
 }
 
+/** Home's own code for a status it could not read: it says nothing about the cell. */
+export const STATUS_UNREAD = "STATUS_UNREAD";
+
 /** The lifecycle says whether the cell serves; the account step says why it does or does not. */
 export function homeMode(
   lifecycle: Lifecycle,
@@ -137,6 +140,7 @@ export function homeMode(
       if (step === "ended") return { kind: "home", variant: "ended" };
       return { kind: "home", variant: "suspended" };
     case "degraded":
+      if (lifecycle.code === STATUS_UNREAD) return { kind: "home", variant: "unknown" };
       if (lifecycle.code === "CELL_PAUSED_FOR_EXPORT")
         return { kind: "home", variant: "export_pause" };
       if (lifecycle.code === "CELL_PAUSED_FOR_HOLD") return { kind: "home", variant: "hold_pause" };
@@ -728,6 +732,8 @@ export function planView(
 
 export type StorageView =
   | { state: "unknown" }
+  // No status read reached Exomem, so the disk was not read either.
+  | { state: "unread" }
   | {
       state: "known";
       line: string;

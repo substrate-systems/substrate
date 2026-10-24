@@ -18,6 +18,7 @@ import {
   planView,
   showsUsualPrice,
   statusCopy,
+  STATUS_UNREAD,
   storageView,
   subscribeView,
 } from "../home-view";
@@ -104,6 +105,14 @@ describe("which Home the owner sees", () => {
     assert.deepEqual(homeMode(stopped, account({ step: "suspended" }), "known"), {
       kind: "home",
       variant: "suspended",
+    });
+  });
+
+  it("shows a status it never read as unknown, not as trouble", () => {
+    const unread: Lifecycle = { state: "degraded", code: STATUS_UNREAD, retryable: true };
+    assert.deepEqual(homeMode(unread, account(), "known"), {
+      kind: "home",
+      variant: "unknown",
     });
   });
 

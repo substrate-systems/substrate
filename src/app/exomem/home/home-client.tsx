@@ -64,6 +64,7 @@ import {
   planView,
   showsUsualPrice,
   statusCopy,
+  STATUS_UNREAD,
   storageView,
   subscribeView,
 } from "./home-view";
@@ -79,8 +80,8 @@ const BILLING_FAILED = "Billing didn’t open. Try again in a minute.";
 type BillingControl = "subscribe" | "banner" | "plan";
 
 const LOADING: Lifecycle = { state: "loading", code: "TENANT_PREPARING", retryable: true };
-// A status read that fails is shown as trouble, never as ready.
-const UNREACHABLE: Lifecycle = { state: "degraded", code: "CELL_UNAVAILABLE", retryable: true };
+// A first status read that fails is shown as unknown, never as ready or as trouble it never read.
+const UNREACHABLE: Lifecycle = { state: "degraded", code: STATUS_UNREAD, retryable: true };
 
 function visibleNow(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
@@ -628,7 +629,10 @@ export default function HomeClient({
   const status_ = statusCopy(variant, reviewer, facts, clock);
   // The time of the read that the lost state's numbers come from (Home board).
   const lostTime = lost?.time ?? null;
-  const storage = storageView(status?.storage ?? null, clock);
+  const storage =
+    status?.lifecycle.code === STATUS_UNREAD
+      ? ({ state: "unread" } as const)
+      : storageView(status?.storage ?? null, clock);
   const canAddStorage =
     storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
   const openStorage = () => setStorageOpen(true);
