@@ -3,11 +3,11 @@
 //   npm run sync:instruction-blocks -- <path-to-exomem-repo>
 //     Copies the assistant instruction blocks from docs/prominence.md into
 //     src/app/exomem/home/instruction-blocks.generated.ts, and the Cloud
-//     transfer tools' names and actions from tests/fixtures/mcp_tool_schemas.json
+//     transfer tools' names and actions from tests/fixtures/mcp_cloud_only_tool_schemas.json
 //     into src/exomem-gateway/cloud-transfer-tools.generated.ts. Both record
 //     the Exomem commit they came from.
 //
-//   npm run sync:instruction-blocks -- --check <path-to-prominence.md> [<path-to-mcp_tool_schemas.json>]
+//   npm run sync:instruction-blocks -- --check <path-to-prominence.md> [<path-to-mcp_cloud_only_tool_schemas.json>]
 //     Compares each committed generated file with its source and exits 1 when
 //     any block, tool or action differs. The weekly drift workflow runs this
 //     against Exomem main.
@@ -28,7 +28,7 @@ const DOC_PATH = "docs/prominence.md";
 const OUTPUT_PATH = fileURLToPath(
   new URL("../src/app/exomem/home/instruction-blocks.generated.ts", import.meta.url)
 );
-const TOOLS_FIXTURE_PATH = "tests/fixtures/mcp_tool_schemas.json";
+const TOOLS_FIXTURE_PATH = "tests/fixtures/mcp_cloud_only_tool_schemas.json";
 const TOOLS_OUTPUT_PATH = fileURLToPath(
   new URL("../src/exomem-gateway/cloud-transfer-tools.generated.ts", import.meta.url)
 );
@@ -217,7 +217,7 @@ async function main([first, second, third]) {
   if (first && !first.startsWith("--")) return sync(first);
   throw new Error(
     "usage: sync-exomem-instruction-blocks.mjs <path-to-exomem-repo>\n" +
-      "       sync-exomem-instruction-blocks.mjs --check <path-to-prominence.md> [<path-to-mcp_tool_schemas.json>]"
+      "       sync-exomem-instruction-blocks.mjs --check <path-to-prominence.md> [<path-to-mcp_cloud_only_tool_schemas.json>]"
   );
 }
 
