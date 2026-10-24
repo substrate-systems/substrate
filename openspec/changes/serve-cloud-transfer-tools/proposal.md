@@ -21,7 +21,7 @@ An assistant on the Cloud MCP URL can read and write memory, but it cannot see o
 - `exomem-hosted-gateway`: Serve the Cloud transfer tools from the control plane.
 - `exomem-tenant-control-plane`: Accept the owner's Cloud OAuth bearer on the export routes.
 
-The export link requirement in `launch-exomem-cloud-web` (specs/exomem-home) said a link comes only from a Home request. It now says a request by the authenticated owner, in Home or from the owner's command line. That change is still active and its delta is amended in place, dated 2026-10-24.
+The export link requirement in `launch-exomem-cloud-web` (specs/exomem-home) said a link comes only from a Home request. It now says a Home request or a request that carries the owner's Cloud OAuth bearer, such as `exomem cloud export`. That change is still active and its delta is amended in place, dated 2026-10-24.
 
 ## Impact
 

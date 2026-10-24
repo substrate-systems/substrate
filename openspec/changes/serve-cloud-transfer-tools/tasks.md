@@ -2,7 +2,7 @@
 
 - [x] 1.1 Resolve the owner principal once for imports and exports, accept the Cloud bearer on the export routes, and add `archive_sha256` to the ready export display; verify tenant isolation, wrong-resource and single-scope refusal, and session CSRF against PostgreSQL.
 - [x] 1.2 Serve `observe_transfer` and `transfer_memory` from the gateway behind the flag, before the cell gate, with the caller's bearer only; verify with a stand-in cell and web API, and with the official MCP client.
-- [x] 1.3 Generate the tool names and action unions from the Exomem tool schema fixture and check them in the weekly drift job.
+- [x] 1.3 Generate the tool names, actions, input property names, required lists and defaults from Exomem's Cloud-only tool schema fixture, tie the argument schemas to them at compile time, and check them in the weekly drift job.
 - [x] 1.4 Add the `#your-data` anchor to Home and the runbook row for the flag.
 
 ## 2. Delivery boundary

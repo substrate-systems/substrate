@@ -12,8 +12,9 @@ When `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED` is `true`, the Cloud gateway SHALL an
 
 #### Scenario: The web API refuses the bearer
 
-- **WHEN** the web API answers 401 or 403
-- **THEN** the gateway returns an application result with the web API's error code and message and HTTP 200
+- **WHEN** the web API refuses a request with an error body
+- **THEN** the gateway returns an application result with the web API's error code, message and remediation, and HTTP 200
+- **AND** a body without a remediation gets `reconnect` for a 401, `retry` for a retryable refusal, and `see_message` otherwise
 - **AND** it does not return an HTTP challenge to the MCP client
 
 #### Scenario: The control plane does not answer
@@ -21,6 +22,7 @@ When `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED` is `true`, the Cloud gateway SHALL an
 - **WHEN** the web API answers 5xx, times out or cannot be reached
 - **THEN** the result carries the code `CONTROL_PLANE_UNAVAILABLE` and the remediation `retry`
 - **AND** the import half and the export half of a status fail independently
+- **AND** `import_handoff` still returns its routes, with the failure in its `open_import` half
 
 #### Scenario: The call is not a single transfer tool call
 
@@ -52,12 +54,18 @@ A result of `observe_transfer` or `transfer_memory` SHALL NOT contain an upload 
 - **WHEN** an `import_id` or `export_id` is not a UUID, or an argument is unknown
 - **THEN** the result carries `INVALID_ARGUMENTS` and the gateway makes no web call
 
-### Requirement: Transfer tool names and actions are generated from the Exomem registry
+### Requirement: Transfer tool contract is generated from the Exomem registry
 
-The gateway SHALL take the names of the two transfer tools and their actions from a module that the instruction-block sync script generates from Exomem's tool schema fixture. Its handlers SHALL switch exhaustively over those actions, so an action that Exomem adds fails the type check. A scheduled job SHALL fail when the fixture on Exomem's main branch differs from the generated module.
+The gateway SHALL take the names of the two transfer tools, their actions, their input property names, their required lists and their defaults from a module that the instruction-block sync script generates from Exomem's Cloud-only tool schema fixture. Its argument schemas SHALL type-check against the generated property names and required lists, and its handlers SHALL switch exhaustively over the generated actions. A property or action that Exomem adds, renames or drops therefore fails the type check. A scheduled job SHALL fail when the fixture on Exomem's main branch differs from the generated module.
 
 #### Scenario: Exomem adds an action
 
 - **WHEN** Exomem's fixture lists an action that the gateway does not handle
 - **THEN** the weekly drift job fails
 - **AND** after the module is regenerated, the type check fails until the gateway handles the action
+
+#### Scenario: Exomem renames or adds an input property
+
+- **WHEN** Exomem's fixture renames `import_id` or adds a property to a transfer tool
+- **THEN** the weekly drift job fails and names the tool and the part that differs
+- **AND** after the module is regenerated, the type check fails until the argument schema takes the same properties
