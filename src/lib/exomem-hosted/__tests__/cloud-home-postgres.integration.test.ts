@@ -70,7 +70,7 @@ function taggedSql(client: Pool | PoolClient): ExomemSql {
 async function owner(
   cell: { desired?: string; ready?: boolean; image?: string | null } = {}
 ): Promise<Owner> {
-  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+  const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
     `home-${randomUUID()}@example.test`,
   ]);
   const userId = user.rows[0].id;

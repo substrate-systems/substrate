@@ -67,7 +67,7 @@ async function transaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<
 }
 
 async function sample(purpose = true) {
-  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+  const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
     `review-${randomUUID()}@example.test`,
   ]);
   const tenant = await pool.query(

@@ -46,7 +46,7 @@ async function owner(
   tokenResource = resource,
   scopes = ["exomem.read", "exomem.write"]
 ): Promise<Owner> {
-  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+  const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
     `import-${randomUUID()}@example.test`,
   ]);
   const userId = user.rows[0].id;

@@ -66,6 +66,8 @@ test("email confirmation changes the canonical address only after an explicit ac
   page,
 }) => {
   const owner = await createOwner();
+  // The shared product keeps its own identity row, which an Exomem email change must not touch.
+  await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [owner.userId, owner.email]);
   const grant = await connectApp(owner, { platform: "claude" });
   const proposed = `confirmed-${randomUUID()}@example.test`;
   const sharedBefore = (await pool.query("SELECT * FROM users WHERE id = $1", [owner.userId])).rows;

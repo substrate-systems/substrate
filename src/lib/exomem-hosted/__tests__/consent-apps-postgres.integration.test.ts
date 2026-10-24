@@ -76,7 +76,7 @@ type Owner = {
 // A paid-up owner with a running cell and a signed-in browser session.
 async function newOwner(): Promise<Owner> {
   const user = await pool!.query<{ id: string }>(
-    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    "INSERT INTO exomem_users (email) VALUES ($1) RETURNING id",
     [`owner-${randomUUID()}@example.test`]
   );
   const userId = user.rows[0]!.id;
