@@ -457,7 +457,7 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
       initialDesiredState: "read_only",
     });
     await pool!.query(
-      "UPDATE exomem_tenants SET theme_choice = 'light', email_scheme = 'light' WHERE id = $1",
+      "UPDATE exomem_tenants SET theme_choice = 'light', email_scheme = 'light', time_zone = 'Europe/Tallinn' WHERE id = $1",
       [tenantId]
     );
     const before_ = await cellState(cellId);
@@ -474,16 +474,16 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
     assert.equal(tenant.status, "deleted");
     assert.equal(tenant.desiredState, "deleted");
     assert.notEqual(tenant.deletedAt, null);
-    assert.equal(
-      (await pool!.query("SELECT theme_choice FROM exomem_tenants WHERE id = $1", [tenantId])).rows[0]!.theme_choice,
-      null
+    assert.deepEqual(
+      (await pool!.query("SELECT theme_choice, email_scheme, time_zone FROM exomem_tenants WHERE id = $1", [tenantId])).rows,
+      [{ theme_choice: null, email_scheme: null, time_zone: null }]
     );
     assert.deepEqual(
       (await pool!.query(
-        "SELECT recipient_theme_choice, recipient_email_scheme FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
+        "SELECT recipient_theme_choice, recipient_email_scheme, recipient_time_zone FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
         [tenantId]
       )).rows,
-      [{ recipient_theme_choice: "light", recipient_email_scheme: "light" }]
+      [{ recipient_theme_choice: "light", recipient_email_scheme: "light", recipient_time_zone: "Europe/Tallinn" }]
     );
     assert.deepEqual(
       (await pool!.query(
