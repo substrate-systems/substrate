@@ -272,6 +272,18 @@ describe("operator OAuth client admission", () => {
       "http://[::1]:53712/callback",
       "http://evil.example:53712/callback",
       "http://localhost:53712/callback#f",
+      // Other spellings of the same address are not the registered string.
+      "HTTP://localhost:53712/callback",
+      "http://LOCALHOST:53712/callback",
+      "http://%6Cocalhost:53712/callback",
+      "http://localhost.:53712/callback",
+      "http://127.1:53712/callback",
+      "http://2130706433:53712/callback",
+      "http://127.0.0.%31:53712/callback",
+      "http://localhost:53712/./callback",
+      "http://localhost:53712\\callback",
+      "http://localhost:53712/call\tback",
+      "http://localhost:53712/callback?",
     ]) {
       assert.equal(
         redirectUriApproved(claudeCode, requested),
