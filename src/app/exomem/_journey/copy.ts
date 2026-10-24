@@ -176,6 +176,14 @@ export const chooseCopy = {
   },
 };
 
+/**
+ * Where a published listing opened, for each app in CLIENT_PLATFORM_LISTING_URLS: at Exomem
+ * itself, so the board's "Find Exomem" step is gone (design.md (ax)).
+ */
+const AT_LISTING: Partial<Record<PluginApp, string>> = {
+  openai: "ChatGPT opened in a new tab, at Exomem’s page in its plugin directory. Press Connect.",
+};
+
 export const waitingCopy = {
   title: (app: string) => `Finish in ${app}`,
   /** Where the app's connector settings opened. */
@@ -184,14 +192,7 @@ export const waitingCopy = {
       "Claude opened in a new tab, at Settings, then Connectors. Find Exomem and press Connect.",
     openai: "In ChatGPT, open the plugin directory. Find Exomem and press Connect.",
   } satisfies Record<PluginApp, string>,
-  /**
-   * Where a published listing opened: at Exomem itself, so the board's "Find Exomem" step is
-   * gone (design.md (ax)).
-   */
-  atListing: (app: PluginApp): string | null =>
-    app === "openai"
-      ? "ChatGPT opened in a new tab, at Exomem’s page in its plugin directory. Press Connect."
-      : null,
+  atListing: AT_LISTING,
   then: (app: string) => `${app} then opens a page here to confirm.`,
   pickAnother: "Pick another app",
   waitingFor: (app: string) => `Waiting for ${app}…`,

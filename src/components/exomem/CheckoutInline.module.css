@@ -6,17 +6,18 @@
   padding: 12px 40px 20px;
 }
 /* The board's header leaves 40 px at its right for the theme control, which the page
-   places at its own gutter. */
+   places at its own gutter. The header spans the page, so the email stays 12 px from that
+   control at any width, as on the journey pages; the wordmark keeps the board's 1200 px
+   frame. */
 .header {
   position: relative;
   height: 50px;
   box-sizing: border-box;
   padding-right: 40px;
+  padding-left: max(0px, (100% - 1200px) / 2);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1200px;
-  margin: auto;
 }
 .wordmark {
   line-height: 0;
@@ -393,6 +394,7 @@
   .header {
     height: 51px;
     max-width: 358px;
+    margin: 0 auto;
   }
   .email {
     display: none;

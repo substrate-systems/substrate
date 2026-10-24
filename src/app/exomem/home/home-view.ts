@@ -34,6 +34,7 @@ import {
   dayMonthTime,
   dayWord,
   gigabytes,
+  hourMinute,
   secondsAgo,
   shortDateTime,
   type Clock,
@@ -194,6 +195,41 @@ const UNAVAILABLE_ACTIVITY: Record<CloudHomeUnavailableReason, string | null> = 
   HOME_CLIENT_DISABLED: "Activity isn’t available right now.",
   ACCOUNT_ACCESS_CLOSED: "Activity isn’t available for this account.",
 };
+
+// --- Lost ---
+
+/** The last activity read that reached the cell, and when Home received it. */
+export type LiveRead = { activity: HomeActivity; at: number };
+
+/**
+ * The live read a lost Home may still show. An unreachable cell keeps the last numbers;
+ * any other answer that is not live says they no longer hold.
+ */
+export function keepLiveRead(
+  kept: LiveRead | null,
+  next: HomeActivity | typeof NOT_RELEASED,
+  at: number
+): LiveRead | null {
+  if (next === "not_released") return null;
+  if (next.state === "live") return { activity: next, at };
+  return next.reason === "CELL_UNREACHABLE" ? kept : null;
+}
+
+/**
+ * What a lost Home shows: the kept read's numbers with that read's time, or no numbers
+ * with the time of the last status read that reached Exomem.
+ */
+export function lostRead(
+  kept: LiveRead | null,
+  statusReadAt: number | null,
+  clock: Clock
+): { facts: ActivityFacts | null; time: string | null } {
+  const at = kept ? kept.at : statusReadAt;
+  return {
+    facts: kept ? activityFacts(kept.activity, kept.at) : null,
+    time: at ? hourMinute(at, clock.timeZone) : null,
+  };
+}
 
 /** The sentence in place of the live line when activity is unavailable, or null for none. */
 export function activityUnavailableText(

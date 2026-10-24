@@ -424,7 +424,7 @@ export default function SetupClient({
       const where =
         (installUrl !== null &&
           installUrl === facts.listings[waitingFor] &&
-          waitingCopy.atListing(waitingFor)) ||
+          waitingCopy.atListing[waitingFor]) ||
         waitingCopy.where[waitingFor];
       body = (
         <>

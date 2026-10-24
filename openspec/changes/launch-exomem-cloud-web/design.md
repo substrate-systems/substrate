@@ -246,6 +246,7 @@ This is the single list of places the build departs from the boards. Each is del
 | (bd) | On an ended Exomem, each app row dims its glyph to 50% and sets the name in the muted text colour, where the board dims the whole row to 50%. | A whole row at 50% takes its text below AA contrast. | Recorded 2026-10-24 under the standing contrast rule |
 | (be) | While Exomem has trouble waking up, Home offers no "Add storage", where the board draws it. | A storage pack completes only when the running cell reports the larger disk, as row (as) says, so Home offers one only while the Exomem is on. | Recorded 2026-10-24 under the `add-manual-cloud-storage` contract |
 | (bf) | Home adds two undrawn lines in the plan card: "measured {date}, {time}" under the storage bar, and the email change and receipt status lines under the email row. | The exomem-home spec requires the observation time with the storage bar. The `enable-exomem-email-change` contract requires the pending change and the known receipt address, and row (aq) covers its dialogs. | Recorded 2026-10-24 under those contracts |
+| (bg) | While a resend waits, the main "Send again in 0:42" button draws at 55% opacity, as the Journey board does, and its label measures 3.87:1 on the light theme (independent review, 2026-10-24). The quiet phone countdown keeps full ink. | A disabled control is exempt from the text contrast minimum, and the board draws the main countdown at 55%. | Recorded 2026-10-24 under the standing contrast rule |
 
 ### Approved new copy
 

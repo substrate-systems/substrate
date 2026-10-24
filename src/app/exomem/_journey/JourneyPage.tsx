@@ -65,6 +65,8 @@ type JourneyPageProps = {
   stepKey: string;
   /** A person started this transition; initial loading leaves focus alone. */
   focusHeading?: boolean;
+  /** Changes when the same status must be heard again, such as a repeated failed sign-in. */
+  announceKey?: number;
   onPairMotionComplete?: (state: "connecting" | "connected") => void;
   /** None while the page waits for its first answer. */
   children?: ReactNode;
@@ -79,10 +81,12 @@ export function JourneyPage({
   tilesIdle = false,
   stepKey,
   focusHeading = false,
+  announceKey = 0,
   onPairMotionComplete,
   children,
 }: JourneyPageProps) {
   const content = useRef<HTMLDivElement>(null);
+  const announceAgain = useRef<() => void>(() => {});
   const previousStep = useRef<string | null>(null);
   const status = useRef<HTMLDivElement>(null);
   // Connecting ends once the tiles' cycle and the whole field have both played, however
@@ -108,7 +112,9 @@ export function JourneyPage({
   useLayoutEffect(() => {
     const element = content.current;
     if (!element) return;
-    const announce = () => {
+    let written: string | null = null;
+    let marked = false;
+    const announce = (again = false) => {
       const current = element.cloneNode(true) as HTMLElement;
       current
         .querySelectorAll('[aria-hidden="true"], [inert]')
@@ -120,11 +126,16 @@ export function JourneyPage({
         .map((node) => node?.textContent?.trim())
         .filter(Boolean)
         .join(". ");
-      if (status.current && status.current.textContent !== message)
-        status.current.textContent = message;
+      if (!status.current || (message === written && !again)) return;
+      // A screen reader repeats a status only when the text changes, so a repeat
+      // alternates a trailing no-break space, which is not read aloud.
+      marked = again && message === written ? !marked : false;
+      written = message;
+      status.current.textContent = marked ? `${message}\u00a0` : message;
     };
+    announceAgain.current = () => announce(true);
     announce();
-    const observer = new MutationObserver(announce);
+    const observer = new MutationObserver(() => announce());
     observer.observe(element, {
       childList: true,
       subtree: true,
@@ -134,6 +145,12 @@ export function JourneyPage({
     });
     return () => observer.disconnect();
   }, []);
+  const announcedKey = useRef(announceKey);
+  useLayoutEffect(() => {
+    if (announcedKey.current === announceKey) return;
+    announcedKey.current = announceKey;
+    announceAgain.current();
+  }, [announceKey]);
   useLayoutEffect(() => {
     if (focusHeading && previousStep.current !== stepKey) {
       content.current

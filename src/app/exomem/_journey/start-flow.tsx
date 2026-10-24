@@ -542,6 +542,8 @@ function ReviewerSignIn({
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Each failed attempt is announced, even when the notice reads the same.
+  const [failures, setFailures] = useState(0);
   const failureId = useId();
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
@@ -575,6 +577,7 @@ function ReviewerSignIn({
       return;
     }
     setFailed(true);
+    setFailures((count) => count + 1);
     setSubmitting(false);
   }
 
@@ -583,7 +586,14 @@ function ReviewerSignIn({
       ? reviewerCopy.failedInApp(context.app, context.requestLife)
       : reviewerCopy.failedOnWeb;
   return (
-    <JourneyPage kind="quiet" app={frame.app} footer={frame.footer} stepKey="reviewer" focusHeading>
+    <JourneyPage
+      kind="quiet"
+      app={frame.app}
+      footer={frame.footer}
+      stepKey="reviewer"
+      focusHeading
+      announceKey={failures}
+    >
       <StepHeading
         title={reviewerCopy.title}
         lede={

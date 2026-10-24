@@ -126,6 +126,9 @@ export function CheckoutInline({
     const deadline = window.setTimeout(() => {
       expired = true;
       close?.();
+      // A returned payment may already be with Paddle, so a check that runs out of time
+      // says so instead of "Nothing was charged."
+      if (returnedTransactionId && !validated) setReturnFailed(true);
       setCheckout((state) =>
         state.phase === "loading" ? { ...state, phase: "unavailable", data: null } : state
       );
@@ -137,7 +140,9 @@ export function CheckoutInline({
           returnedTransactionId ? { tenantId, transactionId: returnedTransactionId } : { tenantId }
         );
         validated = true;
-        if (!current || expired) return;
+        // A late answer still counts when it says the returned payment settled.
+        const settled = result.state === "settled" && !!returnedTransactionId;
+        if (!current || (expired && !settled)) return;
         if (returnedTransactionId) {
           forgetReturnedTransaction(returnedTransactionId);
           const location = new URL(window.location.href);
@@ -148,8 +153,9 @@ export function CheckoutInline({
             location.pathname + location.search + location.hash
           );
         }
-        if (result.state === "settled" && returnedTransactionId) {
+        if (settled && returnedTransactionId) {
           window.clearTimeout(deadline);
+          setReturnFailed(false);
           setCheckout({ transactionId: returnedTransactionId, phase: "confirming", data: null });
           return;
         }
@@ -517,7 +523,9 @@ export function CheckoutInline({
                         ? "This does not change any payment Paddle received. Sign in to the account that opened this checkout."
                         : returnFailed
                           ? "Your payment may have reached Paddle. Try again, or check your account."
-                          : "A content blocker or a weak connection can stop it. Nothing was charged."}
+                          : returnedTransactionId
+                            ? "A content blocker or a weak connection can stop it."
+                            : "A content blocker or a weak connection can stop it. Nothing was charged."}
                     </p>
                     <Button
                       ref={retryButton}

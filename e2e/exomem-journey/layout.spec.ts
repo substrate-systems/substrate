@@ -359,9 +359,7 @@ const STEPS: Step[] = [
       await popup.close();
       await heading(page, waitingCopy.title("ChatGPT"));
       // The listing opens at Exomem itself, so the step asks for no search.
-      await expect(
-        page.getByText(waitingCopy.atListing("openai")!, { exact: false })
-      ).toBeVisible();
+      await expect(page.getByText(waitingCopy.atListing.openai!, { exact: false })).toBeVisible();
     },
   },
   {

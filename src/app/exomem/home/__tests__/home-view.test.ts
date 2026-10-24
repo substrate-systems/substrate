@@ -10,8 +10,10 @@ import {
   deletionLinkMinutes,
   exportView,
   homeMode,
+  keepLiveRead,
   levelsView,
   liveLine,
+  lostRead,
   notices,
   planView,
   showsUsualPrice,
@@ -285,6 +287,31 @@ describe("the live line and the note count", () => {
       liveLine(facts, [], NONE, clock)?.text,
       "No assistant activity since 12 Oct, 08:00"
     );
+  });
+});
+
+describe("a Home that can't reach Exomem", () => {
+  const at = (time: string) => Date.parse(`2026-10-24T${time}:00Z`);
+
+  it("drops numbers the cell has since withdrawn, and labels the page by its status read", () => {
+    // 13:00 a live read; 14:01 the cell says Home's channel is off; 14:02 the status read fails.
+    let kept = keepLiveRead(null, activity({ note_count: 12 }), at("13:00"));
+    kept = keepLiveRead(
+      kept,
+      { state: "unavailable", reason: "HOME_CLIENT_DISABLED" },
+      at("14:01")
+    );
+    const lost = lostRead(kept, at("14:01"), clock);
+    assert.equal(lost.facts, null);
+    assert.equal(lost.time, "14:01");
+  });
+
+  it("keeps the last numbers through an unreachable cell, labelled by the read they came from", () => {
+    let kept = keepLiveRead(null, activity({ note_count: 12 }), at("13:00"));
+    kept = keepLiveRead(kept, { state: "unavailable", reason: "CELL_UNREACHABLE" }, at("14:01"));
+    const lost = lostRead(kept, at("14:01"), clock);
+    assert.equal(lost.facts?.noteCount, 12);
+    assert.equal(lost.time, "13:00");
   });
 });
 

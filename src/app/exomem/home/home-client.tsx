@@ -54,7 +54,10 @@ import {
   firstNoteLine,
   homeMode,
   isLive,
+  keepLiveRead,
   levelRefusalText,
+  type LiveRead,
+  lostRead,
   levelsView,
   liveLine,
   notices,
@@ -161,7 +164,7 @@ export default function HomeClient({
   const [statusRetryAt, setStatusRetryAt] = useState<number | null>(null);
   const [activityReadFailed, setActivityReadFailed] = useState(false);
   // The last activity read that reached the cell: the lost state shows its numbers.
-  const [lastLive, setLastLive] = useState<{ activity: HomeActivity; at: number } | null>(null);
+  const [lastLive, setLastLive] = useState<LiveRead | null>(null);
   useEffect(() => {
     try {
       const returned = window.sessionStorage.getItem(PENDING_TRANSACTION_KEY);
@@ -272,9 +275,8 @@ export default function HomeClient({
       const next = await readActivity();
       if (!mounted.current) return;
       setActivity(next);
-      if (next !== NOT_RELEASED && next.state === "live") {
-        setLastLive({ activity: next, at: Date.now() });
-      }
+      const readAt = Date.now();
+      setLastLive((kept) => keepLiveRead(kept, next, readAt));
       if (next !== NOT_RELEASED) {
         const fresh = observeActivity.current(next);
         if (fresh) setActivityPulse(fresh);
@@ -610,12 +612,8 @@ export default function HomeClient({
 
   const variant = mode.variant;
   const live = isLive(variant) && lostAt === null;
-  const facts =
-    lostAt !== null
-      ? activityFacts(lastLive?.activity ?? null, lastLive?.at ?? 0)
-      : activityReadFailed
-        ? null
-        : activityFacts(activity, activityAt);
+  const lost = lostAt !== null ? lostRead(lastLive, lostAt, clock) : null;
+  const facts = lost ? lost.facts : activityReadFailed ? null : activityFacts(activity, activityAt);
   const pulseAppIndex = activityPulse?.app_id
     ? (apps?.findIndex((app) => app.id === activityPulse.app_id) ?? -1)
     : -1;
@@ -628,10 +626,8 @@ export default function HomeClient({
       ? apps[pulseAppIndex]
       : null;
   const status_ = statusCopy(variant, reviewer, facts, clock);
-  // The time of the last read that reached Exomem, which the lost state shows (Home board).
-  const lostTime = lostAt
-    ? new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(lostAt)
-    : null;
+  // The time of the read that the lost state's numbers come from (Home board).
+  const lostTime = lost?.time ?? null;
   const storage = storageView(status?.storage ?? null, clock);
   const canAddStorage =
     storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
