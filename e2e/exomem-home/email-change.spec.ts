@@ -96,7 +96,7 @@ test("email confirmation changes the canonical address only after an explicit ac
       [owner.tenantId]
     )
   ).rows;
-  const change = accountPanel(page).getByRole("button", { name: "Change", exact: true });
+  const change = accountPanel(page).getByRole("button", { name: "Change…", exact: true });
   await change.focus();
   await change.press("Enter");
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -219,7 +219,7 @@ test("the old inbox stops a pending change, closes its Home dialog and reveals n
   const proposed = `cancelled-${randomUUID()}@example.test`;
   await signIn(page.context(), owner);
   await page.goto("/exomem/home");
-  await accountPanel(page).getByRole("button", { name: "Change", exact: true }).click();
+  await accountPanel(page).getByRole("button", { name: "Change…", exact: true }).click();
   await expect(accountPanel(page).getByText("Checking email status…", { exact: true })).toHaveCount(
     0
   );
@@ -294,7 +294,7 @@ test("a draft from account A cannot queue links for account B after a session sw
   await page.clock.install();
   await signIn(page.context(), original);
   await page.goto("/exomem/home");
-  await accountPanel(page).getByRole("button", { name: "Change", exact: true }).click();
+  await accountPanel(page).getByRole("button", { name: "Change…", exact: true }).click();
   await expect(accountPanel(page).getByText("Checking email status…", { exact: true })).toHaveCount(
     0
   );
@@ -387,7 +387,7 @@ test("the server rejects A's frozen nonce when B's cookies reach native fetch", 
   await page.clock.install();
   await signIn(page.context(), original);
   await page.goto("/exomem/home");
-  await accountPanel(page).getByRole("button", { name: "Change", exact: true }).click();
+  await accountPanel(page).getByRole("button", { name: "Change…", exact: true }).click();
   await expect(accountPanel(page).getByText("Checking email status…", { exact: true })).toHaveCount(
     0
   );

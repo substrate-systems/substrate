@@ -1,5 +1,7 @@
 export type LifecycleState =
   | "loading"
+  // Home set this itself: its status read never reached Exomem.
+  | "unread"
   | "awaiting_payment"
   | "preparing"
   | "ready"

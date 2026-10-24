@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { TextField } from "@/components/exomem/TextField";
 import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
@@ -423,6 +423,7 @@ export function StartFlow({
               label: resendLabel,
               working: sending,
               disabled: waitLeft > 0,
+              countdown: true,
               onClick: () => void send(),
             }}
             secondary={{ label: sentCopy.differentEmail, onClick: changeAddress }}
@@ -462,6 +463,7 @@ export function StartFlow({
                 variant={inboxAction ? "ghost" : "primary"}
                 size="page"
                 disabled={waitLeft > 0}
+                countdown
                 working={sending}
                 onClick={() => void send()}
               >
@@ -540,6 +542,9 @@ function ReviewerSignIn({
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Each failed attempt is announced, even when the notice reads the same.
+  const [failures, setFailures] = useState(0);
+  const failureId = useId();
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -572,6 +577,7 @@ function ReviewerSignIn({
       return;
     }
     setFailed(true);
+    setFailures((count) => count + 1);
     setSubmitting(false);
   }
 
@@ -580,7 +586,14 @@ function ReviewerSignIn({
       ? reviewerCopy.failedInApp(context.app, context.requestLife)
       : reviewerCopy.failedOnWeb;
   return (
-    <JourneyPage kind="quiet" app={frame.app} footer={frame.footer} stepKey="reviewer" focusHeading>
+    <JourneyPage
+      kind="quiet"
+      app={frame.app}
+      footer={frame.footer}
+      stepKey="reviewer"
+      focusHeading
+      announceKey={failures}
+    >
       <StepHeading
         title={reviewerCopy.title}
         lede={
@@ -590,6 +603,11 @@ function ReviewerSignIn({
           </>
         }
       />
+      {/* The Journey board's failure: a notice above the fields, with an amber edge and an
+          amber password border. It stays until the next answer, so the fields hold still. */}
+      <StepNotice attention announce visible={failed} id={failureId}>
+        {failure}
+      </StepNotice>
       <form className={styles.form} onSubmit={signIn} noValidate>
         <div className={styles.fields}>
           <TextField
@@ -598,6 +616,7 @@ function ReviewerSignIn({
             autoComplete="username"
             spellCheck={false}
             required
+            code
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />
@@ -609,11 +628,8 @@ function ReviewerSignIn({
             required
             value={password}
             invalid={failed}
-            error={failed ? failure : undefined}
-            onChange={(event) => {
-              setPassword(event.target.value);
-              setFailed(false);
-            }}
+            aria-describedby={failed ? failureId : undefined}
+            onChange={(event) => setPassword(event.target.value)}
           />
         </div>
         <StepActions

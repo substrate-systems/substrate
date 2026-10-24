@@ -16,6 +16,13 @@ function format(iso: string, options: Intl.DateTimeFormatOptions, timeZone?: str
   return new Intl.DateTimeFormat(LOCALE, { ...options, timeZone }).format(new Date(iso));
 }
 
+/** "14:02": the time Home read something. */
+export function hourMinute(ms: number, timeZone?: string): string {
+  return new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", timeZone }).format(
+    ms
+  );
+}
+
 /** "31 October" */
 export function dayMonth(iso: string, timeZone?: string): string {
   return format(iso, { day: "numeric", month: "long" }, timeZone);

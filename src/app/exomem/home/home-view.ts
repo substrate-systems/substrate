@@ -34,6 +34,7 @@ import {
   dayMonthTime,
   dayWord,
   gigabytes,
+  hourMinute,
   secondsAgo,
   shortDateTime,
   type Clock,
@@ -61,6 +62,7 @@ export type HomeVariant =
   | "trouble"
   | "export_pause"
   | "hold_pause"
+  | "unread"
   | "unknown";
 
 /** Where the first account read is: Home says nothing about the account until it settles. */
@@ -117,6 +119,7 @@ export function homeMode(
   const needsAccount =
     lifecycle.state === "suspended" ||
     lifecycle.state === "degraded" ||
+    lifecycle.state === "unread" ||
     lifecycle.state === "ready";
   if (needsAccount && accountRead === "loading") return { kind: "loading" };
   if (needsAccount && !account) return { kind: "home", variant: "unknown" };
@@ -140,6 +143,8 @@ export function homeMode(
         return { kind: "home", variant: "export_pause" };
       if (lifecycle.code === "CELL_PAUSED_FOR_HOLD") return { kind: "home", variant: "hold_pause" };
       return { kind: "home", variant: "trouble" };
+    case "unread":
+      return { kind: "home", variant: "unread" };
     case "ready":
       if (step === "connect-read-only") return { kind: "home", variant: "readonly" };
       if (step === "ended") return { kind: "home", variant: "ended" };
@@ -195,6 +200,41 @@ const UNAVAILABLE_ACTIVITY: Record<CloudHomeUnavailableReason, string | null> = 
   ACCOUNT_ACCESS_CLOSED: "Activity isn’t available for this account.",
 };
 
+// --- Lost ---
+
+/** The last activity read that reached the cell, and when Home received it. */
+export type LiveRead = { activity: HomeActivity; at: number };
+
+/**
+ * The live read a lost Home may still show. An unreachable cell keeps the last numbers;
+ * any other answer that is not live says they no longer hold.
+ */
+export function keepLiveRead(
+  kept: LiveRead | null,
+  next: HomeActivity | typeof NOT_RELEASED,
+  at: number
+): LiveRead | null {
+  if (next === "not_released") return null;
+  if (next.state === "live") return { activity: next, at };
+  return next.reason === "CELL_UNREACHABLE" ? kept : null;
+}
+
+/**
+ * What a lost Home shows: the kept read's numbers with that read's time, or no numbers
+ * with the time of the last status read that reached Exomem.
+ */
+export function lostRead(
+  kept: LiveRead | null,
+  statusReadAt: number | null,
+  clock: Clock
+): { facts: ActivityFacts | null; time: string | null } {
+  const at = kept ? kept.at : statusReadAt;
+  return {
+    facts: kept ? activityFacts(kept.activity, kept.at) : null,
+    time: at ? hourMinute(at, clock.timeZone) : null,
+  };
+}
+
 /** The sentence in place of the live line when activity is unavailable, or null for none. */
 export function activityUnavailableText(
   activity: HomeActivity | typeof NOT_RELEASED | null
@@ -231,13 +271,9 @@ export function liveLine(
   clock: Clock
 ): { text: string; key: string; client?: ActivityClientFamily | null } | null {
   if (!facts) return null;
-  if (facts.noteCount === 0) {
-    const first = apps.find((app) => !disconnected.has(app.id))?.displayName;
-    return {
-      text: first ? `Waiting for the first note from ${first}` : "Waiting for the first note",
-      key: "waiting",
-    };
-  }
+  // An empty memory has no line: the status line already says "No notes yet", and only the
+  // retired `alive: shipped` board drew a waiting line (CANON.md).
+  if (facts.noteCount === 0) return null;
   if (facts.newest) {
     const event = facts.newest;
     const actor = event.app_id ? apps.find((app) => app.id === event.app_id) : null;
@@ -333,6 +369,9 @@ export function statusCopy(
         headline: "Paused for maintenance",
         statusLine: "It ends by itself, and your assistants are back after it.",
       };
+    case "unread":
+      // The lost notice carries the retry, so the status says only what is known.
+      return { headline: "Can’t reach Exomem.", statusLine: null };
     case "unknown":
       return {
         headline: "Your Exomem",
@@ -468,7 +507,10 @@ export function notices(
   if (storage.state === "known" && storage.fraction >= 1) {
     list.push({
       key: "full",
-      text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room. Nothing is ever deleted to make space.`,
+      // The board's sentence about adding storage shows only with its "Add storage" action.
+      text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room.${
+        canAddStorage ? " Add storage and they carry on." : ""
+      } Nothing is ever deleted to make space.`,
       attention: true,
       actions: canAddStorage ? ["storage"] : [],
     });
@@ -476,7 +518,11 @@ export function notices(
     list.push({
       key: "filling",
       // Floor: a disk that is not full never reads as 100%.
-      text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.`,
+      // Storage grows only by hand (design.md (as)), so the board's "or let it grow
+      // automatically" is left out.
+      text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.${
+        canAddStorage ? " Add storage now." : ""
+      }`,
       attention: false,
       actions: canAddStorage ? ["storage"] : [],
     });
@@ -689,6 +735,8 @@ export function planView(
 
 export type StorageView =
   | { state: "unknown" }
+  // No status read reached Exomem, so the disk was not read either.
+  | { state: "unread" }
   | {
       state: "known";
       line: string;

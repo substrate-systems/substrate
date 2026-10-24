@@ -13,7 +13,7 @@ type Variant = "primary" | "secondary" | "quiet" | "amber" | "ghost";
  * a flow page's quiet second action under its main one. Dialog actions use the Home
  * boards' 46 px primary, 44 px secondary and 40 px quiet controls.
  */
-type Size = "panel" | "page" | "landing" | "row" | "account" | "detail" | "dialog";
+type Size = "panel" | "page" | "landing" | "row" | "account" | "detail" | "dialog" | "line";
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
   ref?: Ref<HTMLButtonElement>;
@@ -26,9 +26,14 @@ type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & 
   size?: Size;
   /** Shows the button as working: the label (the caller's) says what happens; clicks do nothing. */
   working?: boolean;
+  /**
+   * Disabled until a wait ends, and the label counts it down ("Send again in 0:42"). The
+   * Journey board keeps that label readable: a main action dims less, a quiet one not at all.
+   */
+  countdown?: boolean;
 };
 
-function buttonClasses(variant: Variant, size: Size): string {
+function buttonClasses(variant: Variant, size: Size, countdown = false): string {
   return [
     styles.button,
     phone.hitArea,
@@ -36,6 +41,7 @@ function buttonClasses(variant: Variant, size: Size): string {
     variant !== "ghost" && size !== "panel" && styles[size],
     variant === "ghost" && size === "page" && styles.ghostPage,
     variant === "ghost" && size === "dialog" && styles.ghostDialog,
+    countdown && styles.countdown,
   ]
     .filter(Boolean)
     .join(" ");
@@ -49,6 +55,7 @@ export function Button({
   variant = "secondary",
   size = "panel",
   working = false,
+  countdown = false,
   type = "button",
   onClick,
   ...rest
@@ -57,7 +64,7 @@ export function Button({
     <button
       {...rest}
       type={type}
-      className={buttonClasses(variant, size)}
+      className={buttonClasses(variant, size, countdown)}
       aria-busy={working || undefined}
       aria-disabled={working || rest["aria-disabled"]}
       // Working: a click does nothing, and a submit button does not submit its form again.

@@ -54,7 +54,10 @@ import {
   firstNoteLine,
   homeMode,
   isLive,
+  keepLiveRead,
   levelRefusalText,
+  type LiveRead,
+  lostRead,
   levelsView,
   liveLine,
   notices,
@@ -76,8 +79,8 @@ const BILLING_FAILED = "Billing didn’t open. Try again in a minute.";
 type BillingControl = "subscribe" | "banner" | "plan";
 
 const LOADING: Lifecycle = { state: "loading", code: "TENANT_PREPARING", retryable: true };
-// A status read that fails is shown as trouble, never as ready.
-const UNREACHABLE: Lifecycle = { state: "degraded", code: "CELL_UNAVAILABLE", retryable: true };
+// A first status read that fails is shown as unread, never as ready or as trouble it never read.
+const UNREACHABLE: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
 
 function visibleNow(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
@@ -160,6 +163,8 @@ export default function HomeClient({
   const [lostAt, setLostAt] = useState<number | null>(null);
   const [statusRetryAt, setStatusRetryAt] = useState<number | null>(null);
   const [activityReadFailed, setActivityReadFailed] = useState(false);
+  // The last activity read that reached the cell: the lost state shows its numbers.
+  const [lastLive, setLastLive] = useState<LiveRead | null>(null);
   useEffect(() => {
     try {
       const returned = window.sessionStorage.getItem(PENDING_TRANSACTION_KEY);
@@ -270,6 +275,8 @@ export default function HomeClient({
       const next = await readActivity();
       if (!mounted.current) return;
       setActivity(next);
+      const readAt = Date.now();
+      setLastLive((kept) => keepLiveRead(kept, next, readAt));
       if (next !== NOT_RELEASED) {
         const fresh = observeActivity.current(next);
         if (fresh) setActivityPulse(fresh);
@@ -605,7 +612,8 @@ export default function HomeClient({
 
   const variant = mode.variant;
   const live = isLive(variant) && lostAt === null;
-  const facts = activityReadFailed && lostAt === null ? null : activityFacts(activity, activityAt);
+  const lost = lostAt !== null ? lostRead(lastLive, lostAt, clock) : null;
+  const facts = lost ? lost.facts : activityReadFailed ? null : activityFacts(activity, activityAt);
   const pulseAppIndex = activityPulse?.app_id
     ? (apps?.findIndex((app) => app.id === activityPulse.app_id) ?? -1)
     : -1;
@@ -618,7 +626,12 @@ export default function HomeClient({
       ? apps[pulseAppIndex]
       : null;
   const status_ = statusCopy(variant, reviewer, facts, clock);
-  const storage = storageView(status?.storage ?? null, clock);
+  // The time of the read that the lost state's numbers come from (Home board).
+  const lostTime = lost?.time ?? null;
+  const storage =
+    status?.lifecycle.state === "unread"
+      ? ({ state: "unread" } as const)
+      : storageView(status?.storage ?? null, clock);
   const canAddStorage =
     storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
   const openStorage = () => setStorageOpen(true);
@@ -650,6 +663,7 @@ export default function HomeClient({
     <>
       <HomeWeb
         live={live}
+        lost={lostAt !== null}
         activity={
           !activityReadFailed && activityPulse
             ? {
@@ -667,9 +681,11 @@ export default function HomeClient({
           headline={
             lostAt === null
               ? status_.headline
-              : lostAt === 0
+              : !lostTime || variant === "unread"
                 ? "Can’t reach Exomem."
-                : `${status_.headline} · as of ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(lostAt)}`
+                : variant === "on"
+                  ? `Your memory, as of ${lostTime}`
+                  : `${status_.headline} · as of ${lostTime}`
           }
           statusLine={status_.statusLine}
           liveLine={
@@ -691,10 +707,9 @@ export default function HomeClient({
                   </Button>
                 }
               >
-                Can’t reach Exomem.{" "}
-                {lostAt > 0 ? "Showing the last successful read. " : "We will try again. "}{" "}
+                Can’t reach Exomem. {lostTime ? `Showing what you saw at ${lostTime}. ` : null}
                 {statusRetryAt
-                  ? `Checking again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))} seconds.`
+                  ? `Trying again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))}\u00a0s.`
                   : "Trying again."}
               </Notice>
             )}
@@ -813,7 +828,13 @@ export default function HomeClient({
             <div className={styles.dataSection}>
               <YourData
                 importControl={
-                  !signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
+                  !signedOut &&
+                  !signingOut &&
+                  account?.kind === "owner" &&
+                  accountSnapshot &&
+                  // An ended Exomem cannot start an import (its cell is read-only) and the
+                  // Home board offers none (design.md (az)).
+                  variant !== "ended" ? (
                     <ImportDocuments
                       key={accountSnapshot.csrfToken}
                       csrfToken={accountSnapshot.csrfToken}

@@ -64,7 +64,8 @@
   max-width: calc(50% - var(--gutter));
   display: flex;
   align-items: center;
-  gap: 40px;
+  /* The board ends the email 40 px from the gutter, beside the 28 px theme control. */
+  gap: 12px;
   z-index: 3;
 }
 .headerEmail {
@@ -253,12 +254,15 @@
 .inviteNoteBy {
   font-family: var(--font-mono-exo);
   font-size: 12px;
+  line-height: normal;
   color: var(--fg-secondary);
 }
 
-/* The invitation's price (Journey board, "invite" and "inviteexisting"). */
+/* The invitation's price (Journey board, "invite" and "inviteexisting"). The board's label
+   and amount keep the font's own line height; only the note sets one. */
 .price {
   gap: 6px;
+  line-height: normal;
 }
 
 /* A panel's small label above its value: the price card's. */
@@ -429,6 +433,8 @@
   cursor: pointer;
   text-align: left;
   font: inherit;
+  /* The board's rows keep the font's own line height. */
+  line-height: normal;
   transition: border-color var(--dur-hover) ease;
 }
 

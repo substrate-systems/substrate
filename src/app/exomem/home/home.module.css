@@ -32,6 +32,12 @@
   display: none;
 }
 
+/* Lost (Home board .hp.lost): the band greys, at half strength. */
+.webLost svg {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
 .link {
   stroke: var(--fg-primary);
   stroke-opacity: 0.07;
@@ -299,6 +305,19 @@
 }
 
 .row:last-child {
+  border-bottom: 0;
+}
+
+/* A row with status lines under it: the rule runs under the lines, not between them. */
+.rowGroup {
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.rowGroup > .row {
+  border-bottom: 0;
+}
+
+.rowGroup:last-child {
   border-bottom: 0;
 }
 
@@ -905,9 +924,11 @@
   }
 }
 @media (max-width: 640px), (max-height: 480px) {
+  /* Every panel spans the phone column. */
   .columns {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 30px;
   }
   .primaryColumn {

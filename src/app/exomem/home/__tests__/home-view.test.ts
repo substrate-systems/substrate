@@ -10,8 +10,10 @@ import {
   deletionLinkMinutes,
   exportView,
   homeMode,
+  keepLiveRead,
   levelsView,
   liveLine,
+  lostRead,
   notices,
   planView,
   showsUsualPrice,
@@ -102,6 +104,15 @@ describe("which Home the owner sees", () => {
     assert.deepEqual(homeMode(stopped, account({ step: "suspended" }), "known"), {
       kind: "home",
       variant: "suspended",
+    });
+  });
+
+  it("shows a status it never read as unread, not as trouble or a failed account read", () => {
+    const unread: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
+    assert.deepEqual(homeMode(unread, account(), "known"), { kind: "home", variant: "unread" });
+    assert.deepEqual(statusCopy("unread", false, null, clock), {
+      headline: "Can’t reach Exomem.",
+      statusLine: null,
     });
   });
 
@@ -198,12 +209,9 @@ describe("the live line and the note count", () => {
     assert.equal(status.statusLine, null);
   });
 
-  it("waits for the first note from the app the owner connected", () => {
+  it("draws no live line for an empty memory", () => {
     const facts = activityFacts(activity({ note_count: 0 }), NOW);
-    assert.equal(
-      liveLine(facts, [app()], NONE, clock)?.text,
-      "Waiting for the first note from Claude"
-    );
+    assert.equal(liveLine(facts, [app()], NONE, clock), null);
     assert.equal(
       statusCopy("on", false, facts, clock).statusLine,
       "No notes yet · ask your assistant to remember something"
@@ -270,24 +278,6 @@ describe("the live line and the note count", () => {
     assert.equal(liveLine(facts, [one], NONE, clock)?.text, "Claude recalled 2 notes · 12 s ago");
   });
 
-  it("does not name an app the owner has just disconnected", () => {
-    const claude = app();
-    const chatgpt = app({
-      id: "00000000-0000-4000-8000-000000000002",
-      displayName: "ChatGPT",
-      platform: "openai",
-    });
-    const facts = activityFacts(activity({ note_count: 0 }), NOW);
-    assert.equal(
-      liveLine(facts, [claude, chatgpt], new Set([claude.id]), clock)?.text,
-      "Waiting for the first note from ChatGPT"
-    );
-    assert.equal(
-      liveLine(facts, [claude], new Set([claude.id]), clock)?.text,
-      "Waiting for the first note"
-    );
-  });
-
   it("times an event by the cell's clock when the browser's clock is wrong", () => {
     // The browser runs five minutes fast: the cell's answer said 10:00 when it read 10:05.
     const facts = activityFacts(
@@ -306,6 +296,31 @@ describe("the live line and the note count", () => {
       liveLine(facts, [], NONE, clock)?.text,
       "No assistant activity since 12 Oct, 08:00"
     );
+  });
+});
+
+describe("a Home that can't reach Exomem", () => {
+  const at = (time: string) => Date.parse(`2026-10-24T${time}:00Z`);
+
+  it("drops numbers the cell has since withdrawn, and labels the page by its status read", () => {
+    // 13:00 a live read; 14:01 the cell says Home's channel is off; 14:02 the status read fails.
+    let kept = keepLiveRead(null, activity({ note_count: 12 }), at("13:00"));
+    kept = keepLiveRead(
+      kept,
+      { state: "unavailable", reason: "HOME_CLIENT_DISABLED" },
+      at("14:01")
+    );
+    const lost = lostRead(kept, at("14:01"), clock);
+    assert.equal(lost.facts, null);
+    assert.equal(lost.time, "14:01");
+  });
+
+  it("keeps the last numbers through an unreachable cell, labelled by the read they came from", () => {
+    let kept = keepLiveRead(null, activity({ note_count: 12 }), at("13:00"));
+    kept = keepLiveRead(kept, { state: "unavailable", reason: "CELL_UNREACHABLE" }, at("14:01"));
+    const lost = lostRead(kept, at("14:01"), clock);
+    assert.equal(lost.facts?.noteCount, 12);
+    assert.equal(lost.time, "13:00");
   });
 });
 
@@ -361,6 +376,17 @@ describe("notices and the account banner", () => {
     assert.equal(full[0]?.attention, true);
     assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
     assert.deepEqual(full[0]?.actions, []);
+  });
+
+  it("asks for storage in words only beside the action that adds it", () => {
+    const filling = notices("on", account(), disk(8_500_000_000), true, false, true);
+    assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works. Add storage now.");
+    assert.deepEqual(filling[0]?.actions, ["storage"]);
+    const full = notices("on", account(), disk(10_000_000_000), true, false, true);
+    assert.equal(
+      full[0]?.text,
+      "Your Exomem is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
+    );
   });
 
   for (const used of [8_500_000_000, 10_000_000_000]) {

@@ -5,28 +5,39 @@
   box-sizing: border-box;
   padding: 12px 40px 20px;
 }
+/* The board's header leaves 40 px at its right for the theme control, which the page
+   places at its own gutter. The header spans the page, so the email stays 12 px from that
+   control at any width, as on the journey pages; the wordmark keeps the board's 1200 px
+   frame. */
 .header {
   position: relative;
   height: 50px;
+  box-sizing: border-box;
+  padding-right: 40px;
+  padding-left: max(0px, (100% - 1200px) / 2);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1200px;
-  margin: auto;
 }
 .wordmark {
   line-height: 0;
   color: var(--fg-primary);
 }
 .email {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
 }
-.headerControls {
-  display: flex;
-  align-items: center;
-  gap: 40px;
+.theme {
+  position: absolute;
+  top: 23.5px;
+  right: 40px;
+  z-index: 3;
+  line-height: 0;
 }
 .content {
   position: relative;
@@ -52,6 +63,7 @@
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1.25;
+  text-wrap: balance;
 }
 .heading p {
   margin: 0;
@@ -79,8 +91,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-family: var(--font-mono-exo);
-  font-size: 16px;
+  font-size: 15px;
 }
 .tile {
   width: 36px;
@@ -94,10 +105,10 @@
 }
 .productNote {
   display: block;
-  margin-top: 3px;
-  font-family: var(--font-sans-exo);
-  font-size: 12.5px;
-  line-height: 1.45;
+  margin-top: 2px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  line-height: normal;
   color: var(--fg-secondary);
 }
 .price {
@@ -187,28 +198,44 @@
 .statusLine > svg {
   flex: none;
 }
-.steps {
-  margin: auto 0 0;
-  padding: 16px 0 0;
-  list-style: none;
+/* What the plan gets, at the foot of the summary (Checkout-Inline, hero summary). */
+.gets {
+  margin-top: auto;
+  padding-top: 16px;
   border-top: 1px solid var(--exo-border-card);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.gets ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 9px;
   font-size: 13.5px;
   line-height: 1.5;
   color: var(--fg-secondary);
-  counter-reset: checkoutSteps;
 }
-.steps li {
-  counter-increment: checkoutSteps;
+.gets li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
 }
-.steps li::before {
-  content: "0" counter(checkoutSteps);
-  display: inline-block;
-  width: 30px;
+.gets li::before {
+  content: "—";
+  width: 18px;
+  flex: none;
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
+  color: var(--fg-muted);
+}
+.next {
+  margin: 0;
+  padding-top: 4px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
   color: var(--fg-muted);
 }
 .paymentArea {
@@ -239,8 +266,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
+  gap: 14px;
   text-align: center;
+}
+.unavailable {
+  gap: 12px;
 }
 .unavailable h2,
 .paid h2 {
@@ -248,6 +278,9 @@
   font-size: 20px;
   font-weight: 500;
   margin: 0;
+}
+.unavailable h2 {
+  font-size: 16px;
 }
 .unavailable p,
 .paid p {
@@ -257,6 +290,8 @@
   line-height: 1.55;
   color: var(--fg-secondary);
 }
+/* Paid, setting up (R42 "Paid, setting up"): 14 px markers 10 px from their text, a still
+   amber check, a pulsing amber dot, and a faint ring before the step still to come. */
 .readySteps {
   margin: 0;
   padding: 0;
@@ -267,6 +302,68 @@
   font-size: 13.5px;
   line-height: 1.45;
   text-align: left;
+}
+.readySteps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stepDone,
+.stepNow,
+.stepRing {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stepDone {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--exo-amber-text);
+}
+.stepNow::before,
+.stepRing::before {
+  content: "";
+  box-sizing: border-box;
+  border-radius: 50%;
+}
+.stepNow::before {
+  width: 8px;
+  height: 8px;
+  background: var(--exo-amber);
+  animation: stepPulse 1.2s ease-in-out infinite;
+}
+.stepRing::before {
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--fg-muted);
+}
+.stepNext {
+  color: var(--fg-secondary);
+}
+/* Checkout-Inline · ckPd — the running step's dot */
+@keyframes stepPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stepNow::before {
+    animation: none;
+  }
+}
+.readySlot {
+  display: flex;
+  min-height: 48px;
+}
+.notYet {
+  visibility: hidden;
 }
 .failure {
   margin: 12px 0 0;
@@ -297,15 +394,22 @@
   .header {
     height: 51px;
     max-width: 358px;
+    margin: 0 auto;
   }
   .email {
     display: none;
+  }
+  .theme {
+    right: 16px;
   }
   .content {
     min-height: 0;
     max-width: 358px;
     gap: 18px;
-    margin-top: 18px;
+  }
+  /* The board's phone heading sits 56 px under the header. */
+  .heading {
+    padding-top: 56px;
   }
   .heading h1 {
     font-size: 22px;
@@ -316,6 +420,10 @@
   .summary {
     padding: 22px 20px;
     gap: 18px;
+  }
+  /* The board leaves the plan's list off a phone. */
+  .gets {
+    display: none;
   }
   .priceValue {
     font-size: 38px;

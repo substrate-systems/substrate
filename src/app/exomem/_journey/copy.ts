@@ -176,12 +176,23 @@ export const chooseCopy = {
   },
 };
 
+/**
+ * Where a published listing opened, for each app in CLIENT_PLATFORM_LISTING_URLS: at Exomem
+ * itself, so the board's "Find Exomem" step is gone (design.md (ax)).
+ */
+const AT_LISTING: Partial<Record<PluginApp, string>> = {
+  openai: "ChatGPT opened in a new tab, at Exomem’s page in its plugin directory. Press Connect.",
+};
+
 export const waitingCopy = {
   title: (app: string) => `Finish in ${app}`,
+  /** Where the app's connector settings opened. */
   where: {
-    claude: "In Claude, open Settings, then Connectors. Find Exomem and press Connect.",
+    claude:
+      "Claude opened in a new tab, at Settings, then Connectors. Find Exomem and press Connect.",
     openai: "In ChatGPT, open the plugin directory. Find Exomem and press Connect.",
   } satisfies Record<PluginApp, string>,
+  atListing: AT_LISTING,
   then: (app: string) => `${app} then opens a page here to confirm.`,
   pickAnother: "Pick another app",
   waitingFor: (app: string) => `Waiting for ${app}…`,
@@ -364,7 +375,7 @@ export const failureCopy = {
 
 /**
  * Beside where a request's answer goes, for an app whose name Exomem does not vouch
- * for (deviation (i) in the change's design: the label is not yet approved copy).
+ * for (deviation (i) in the change's design, approved 2026-10-16).
  */
 export const claimCopy = (name: string) => `App-supplied name: “${name}”`;
 

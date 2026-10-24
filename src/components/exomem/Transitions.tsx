@@ -93,9 +93,18 @@ export function FadeIn({ children, className }: { children: ReactNode; className
 export function Skeleton({
   width = "100%",
   height = 14,
+  still = false,
 }: {
   width?: number | string;
   height?: number;
+  /** Nothing is on its way any more (Checkout-Inline's unavailable state): the bar holds still. */
+  still?: boolean;
 }) {
-  return <span className={styles.skeleton} aria-hidden style={{ width, height }} />;
+  return (
+    <span
+      className={still ? `${styles.skeleton} ${styles.still}` : styles.skeleton}
+      aria-hidden
+      style={{ width, height }}
+    />
+  );
 }

@@ -150,81 +150,87 @@ export function AccountEmailChange({
 
   return (
     <>
-      <div className={home.row}>
-        <div className={home.rowText}>
-          <span className={home.rowTitle}>Email</span>
-          <span className={home.rowMeta}>{account.email}</span>
+      {/* The email row and its status lines share one rule under them. */}
+      <div className={home.rowGroup}>
+        <div className={home.row}>
+          <div className={home.rowText}>
+            <span className={home.rowTitle}>Email</span>
+            <span className={home.rowMeta}>{account.email}</span>
+          </div>
+          <Button size="detail" onClick={open}>
+            Change…
+          </Button>
         </div>
-        <Button size="account" onClick={open}>
-          Change
-        </Button>
+        {(view === null || readFailed || pending || receipts?.state || receipts?.available) && (
+          <div className={home.inlineStatus} role="status">
+            {view === null && !readFailed && (
+              <p className={styles.status}>Checking email status…</p>
+            )}
+            {readFailed && (
+              <p className={styles.status}>
+                Email status couldn’t be refreshed.
+                {view ? " Showing the last check." : " Try again in a moment."}
+              </p>
+            )}
+            {pending && (
+              <p className={styles.status}>
+                Change pending: {pending.proposedEmail}. Links expire{" "}
+                {dayMonthTime(pending.expiresAt)}. Nothing changes until the new address confirms.
+              </p>
+            )}
+            {pending && (
+              <p className={styles.status}>
+                Confirmation: {deliveryText(pending.delivery?.email_change_confirmation)}. Notice to
+                your current inbox: {deliveryText(pending.delivery?.email_change_cancellation)}.
+              </p>
+            )}
+            {receipts?.state === "pending" && (
+              <p className={styles.status}>
+                {receipts.available
+                  ? "Paddle’s receipt address update is pending."
+                  : "The receipt update is waiting for a billing customer."}
+              </p>
+            )}
+            {receipts?.state === "conflict" && (
+              <p className={styles.status}>
+                Paddle refused the receipt address because another customer uses it. Your Exomem
+                email change still stands.
+              </p>
+            )}
+            {receipts?.state === "failed" && (
+              <p className={styles.status}>
+                Paddle couldn’t update the receipt address. Your Exomem email change still stands.
+              </p>
+            )}
+            {receipts && (receipts.state !== null || receipts.available) && (
+              <p className={styles.status}>
+                {receipts.knownEmail &&
+                receipts.observedAt &&
+                receipts.observationSource === "paddle_customer" ? (
+                  <>
+                    {receipts.state === "synchronized"
+                      ? "Receipt address verified"
+                      : "Last known receipt address"}
+                    : {receipts.knownEmail}. Checked with Paddle {dayMonthTime(receipts.observedAt)}
+                    .
+                  </>
+                ) : (
+                  "Receipt address not yet verified with Paddle."
+                )}
+              </p>
+            )}
+            {receiptTrouble && (
+              <p className={styles.status}>
+                Choose another address, or{" "}
+                <a className={home.inlineButton} href="/exomem/support">
+                  write to support
+                </a>{" "}
+                and quote <span className={styles.identifier}>{account.supportReference}</span>.
+              </p>
+            )}
+          </div>
+        )}
       </div>
-      {(view === null || readFailed || pending || receipts?.state || receipts?.available) && (
-        <div className={home.inlineStatus} role="status">
-          {view === null && !readFailed && <p className={styles.status}>Checking email status…</p>}
-          {readFailed && (
-            <p className={styles.status}>
-              Email status couldn’t be refreshed.
-              {view ? " Showing the last check." : " Try again in a moment."}
-            </p>
-          )}
-          {pending && (
-            <p className={styles.status}>
-              Change pending: {pending.proposedEmail}. Links expire{" "}
-              {dayMonthTime(pending.expiresAt)}. Nothing changes until the new address confirms.
-            </p>
-          )}
-          {pending && (
-            <p className={styles.status}>
-              Confirmation: {deliveryText(pending.delivery?.email_change_confirmation)}. Notice to
-              your current inbox: {deliveryText(pending.delivery?.email_change_cancellation)}.
-            </p>
-          )}
-          {receipts?.state === "pending" && (
-            <p className={styles.status}>
-              {receipts.available
-                ? "Paddle’s receipt address update is pending."
-                : "The receipt update is waiting for a billing customer."}
-            </p>
-          )}
-          {receipts?.state === "conflict" && (
-            <p className={styles.status}>
-              Paddle refused the receipt address because another customer uses it. Your Exomem email
-              change still stands.
-            </p>
-          )}
-          {receipts?.state === "failed" && (
-            <p className={styles.status}>
-              Paddle couldn’t update the receipt address. Your Exomem email change still stands.
-            </p>
-          )}
-          {receipts && (receipts.state !== null || receipts.available) && (
-            <p className={styles.status}>
-              {receipts.knownEmail &&
-              receipts.observedAt &&
-              receipts.observationSource === "paddle_customer" ? (
-                <>
-                  {receipts.state === "synchronized"
-                    ? "Receipt address verified"
-                    : "Last known receipt address"}
-                  : {receipts.knownEmail}. Checked with Paddle {dayMonthTime(receipts.observedAt)}.
-                </>
-              ) : (
-                "Receipt address not yet verified with Paddle."
-              )}
-            </p>
-          )}
-          {receiptTrouble && (
-            <p className={styles.status}>
-              Choose another address, or{" "}
-              <a className={home.inlineButton} href="/exomem/support">
-                write to support
-              </a>{" "}
-              and quote {account.supportReference}.
-            </p>
-          )}
-        </div>
-      )}
       {binding && (
         <EmailChangeDialog
           binding={binding}
@@ -381,7 +387,8 @@ function EmailChangeDialog({
             <a className={home.inlineButton} href="/exomem/support">
               Write to support
             </a>{" "}
-            and quote {supportReference}. We check it’s you another way.
+            and quote <span className={styles.identifier}>{supportReference}</span>. We check it’s
+            you another way.
           </p>
           <TextField
             label="New email"

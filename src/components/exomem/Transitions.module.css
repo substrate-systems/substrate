@@ -59,6 +59,9 @@
   animation: exoSk 1.6s ease-in-out infinite;
   vertical-align: middle;
 }
+.skeleton.still {
+  animation: none;
+}
 @keyframes exoIn {
   from {
     opacity: 0;
