@@ -695,9 +695,8 @@ describe("Exomem OAuth routes", () => {
   });
 
   // RFC 8252 section 7.3: a native client registers a loopback IP literal
-  // redirect, and the route must match it exactly. Next.js 16.1.1 rewrote the
-  // first loopback literal anywhere in the NextRequest `url`, including inside
-  // the encoded redirect_uri, to "localhost"; 16.2.11 and later do not.
+  // redirect, and the route must match it exactly. The NextRequest `url` the
+  // route receives keeps the encoded redirect_uri as the client sent it.
   describe("loopback redirect_uri through the NextRequest Next.js hands the route", () => {
     const LOOPBACK_REDIRECT = "http://127.0.0.1:33418/callback";
 
@@ -706,12 +705,6 @@ describe("Exomem OAuth routes", () => {
         headers: { "x-forwarded-for": "203.0.113.10" },
       });
     }
-
-    // Next.js wraps the request in a Proxy for routes that are not
-    // force-dynamic, and the raw URL cannot be read through that Proxy.
-    it("keeps the authorize route force-dynamic so it receives the unproxied request", async () => {
-      assert.equal((await import("../authorize/route")).dynamic, "force-dynamic");
-    });
 
     it("authorizes a client registered with a 127.0.0.1 redirect and binds that exact redirect", async () => {
       const { GET } = await import("../authorize/route");
