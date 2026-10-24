@@ -66,7 +66,14 @@ export function StepNotice({
   );
 }
 
-type Action = { label: string; onClick: () => void; disabled?: boolean; working?: boolean };
+type Action = {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  working?: boolean;
+  /** Disabled while the label counts down a wait. */
+  countdown?: boolean;
+};
 
 /** The step's main action, full width, and its quiet second action under it. */
 export function StepActions({
@@ -90,6 +97,7 @@ export function StepActions({
             onClick={primaryType === "submit" ? undefined : primary.onClick}
             disabled={primary.disabled}
             working={primary.working}
+            countdown={primary.countdown}
           >
             {primary.label}
           </Button>

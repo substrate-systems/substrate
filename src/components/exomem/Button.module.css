@@ -156,6 +156,16 @@
   cursor: default;
 }
 
+/* Disabled while its label counts down (Journey board, "sent" and "ratelimited"): the main
+   action at 55%, the quiet one at full ink. */
+.button.countdown:disabled {
+  opacity: 0.55;
+}
+
+.ghost.countdown:disabled {
+  opacity: 1;
+}
+
 /* Working: the label says what is happening ("Connecting…"); the button holds still. */
 .button[aria-busy="true"] {
   cursor: default;
