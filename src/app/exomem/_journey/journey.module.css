@@ -64,7 +64,8 @@
   max-width: calc(50% - var(--gutter));
   display: flex;
   align-items: center;
-  gap: 40px;
+  /* The board ends the email 40 px from the gutter, beside the 28 px theme control. */
+  gap: 12px;
   z-index: 3;
 }
 .headerEmail {

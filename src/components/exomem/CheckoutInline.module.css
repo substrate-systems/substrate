@@ -5,9 +5,13 @@
   box-sizing: border-box;
   padding: 12px 40px 20px;
 }
+/* The board's header leaves 40 px at its right for the theme control, which the page
+   places at its own gutter. */
 .header {
   position: relative;
   height: 50px;
+  box-sizing: border-box;
+  padding-right: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -19,14 +23,20 @@
   color: var(--fg-primary);
 }
 .email {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-mono-exo);
   font-size: 12px;
   color: var(--fg-secondary);
 }
-.headerControls {
-  display: flex;
-  align-items: center;
-  gap: 40px;
+.theme {
+  position: absolute;
+  top: 23.5px;
+  right: 40px;
+  z-index: 3;
+  line-height: 0;
 }
 .content {
   position: relative;
@@ -300,6 +310,9 @@
   }
   .email {
     display: none;
+  }
+  .theme {
+    right: 16px;
   }
   .content {
     min-height: 0;

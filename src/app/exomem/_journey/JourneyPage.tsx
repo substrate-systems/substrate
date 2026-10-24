@@ -152,13 +152,14 @@ export function JourneyPage({
       >
         <Wordmark state={kind === "stop" ? "off" : "rest"} />
       </a>
+      {/* The theme control stays at the gutter; the email sits before it (Journey board). */}
       <div className={styles.headerControls} data-graph-header>
-        <ThemeToggle align="end" />
         {headerEmail ? (
           <div className={styles.headerEmail} data-graph-clear>
             {headerEmail}
           </div>
         ) : null}
+        <ThemeToggle align="end" />
       </div>
       <div className={styles.center}>
         <div className={styles.column}>
