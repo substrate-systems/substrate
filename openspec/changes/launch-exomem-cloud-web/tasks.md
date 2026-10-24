@@ -170,14 +170,15 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 - [x] 11.4 Add browser-bound resend recovery without changing authentication lifetime or account privacy
 - [x] 11.5 Derive visible resend waits from the common server limiter and update invitation-only email copy
 - [ ] 11.6 Apply the latest landing, start, connect and Home states over their actual data contracts
-- [ ] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
+- [x] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
 - [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification
 - [ ] 11.9 Carry authenticated app identity through the gateway, cell activity feed and Home consumers; highlight the matching app for three seconds
 
-PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the changed Home states, at 1440 and 390×844 in both themes, against the canon. Rows (ax) to (bg) record the departures; row (ax) still waits for the owner's approval of its wording. Task 11.7 stays open for these checks:
-- keyboard order and focus on the journey pages (Home's were checked);
-- forced colours, zoom and landscape;
-- an assistive-technology session.
+PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the changed Home states, at 1440 and 390×844 in both themes, against the canon. Rows (ax) to (bg) record the departures; row (ax) still waits for the owner's approval of its wording. A browser pass on the same build then checked the rest of the design's UI pass:
+- keyboard order, focus rings and activation on ten journey pages;
+- forced colours, 200% and 400% zoom, and an 844×390 landscape phone.
+
+Only forced colours failed: the selected level did not stand out. PR #288 fixed it, and an end-to-end case now covers it. The decorative living graphs stay hidden in forced colours. The pass reached the checkout only in its "Paddle's form didn't load" state. The checkout with Paddle's form loaded, and an assistive-technology session, belong to task 12.8.
 
 Task 11.9 needs an additive backend field. Current activity events identify a client family; connected rows identify OAuth grants.
 The UI cannot infer that join from a family or display name. Home activity remains disabled until its existing rollout acceptance.
