@@ -19,7 +19,7 @@ When porting: Landing's `.hp` (hero panel) and Home's `.hp` (page root) are diff
 
 | Component | Exact spec | States | Source |
 | --- | --- | --- | --- |
-| **Button · primary** | h 36 in panels, 46–48 as a page's main action, padding 0 14, r 7, fill `--fg-primary`, text `--bg-base`, Plex Mono 12 | hover: none beyond cursor; disabled: 40% + reason in label; working: label changes ("Connecting…") | `.btn.pri` (Viewer); flow/Home inline |
+| **Button · primary** | h 36 in panels, 46–48 as a page's main action, padding 0 14, r 7, fill `--fg-primary`, text `--bg-base`, Plex Mono 12 | hover: none beyond cursor; disabled: 40% + reason in label, except a resend countdown at 55% (a quiet one at full ink); working: label changes ("Connecting…") | `.btn.pri` (Viewer); flow/Home inline |
 | **Button · secondary** | same size, transparent, border `rgba(ink,.16)` | hover border `rgba(ink,.34)` | `.btn` |
 | **Button · amber** | border `rgba(amber,.55)`, text `--exo-amber` | hover fill `rgba(amber,.08)` | `.btn.amb` — only for epistemic actions (Why is this true?) |
 | **Button · ghost** | no border, Plex Mono 11, `--fg-muted`, padding 2 4, r 4 | hover `--fg-primary` | `.ghost` |
@@ -30,7 +30,7 @@ When porting: Landing's `.hp` (hero panel) and Home's `.hp` (page root) are diff
 | **Tag chip** | Plex Mono 11, padding 3 8, r 4, border `rgba(ink,.16)`, `--fg-secondary` | `current`: amber text + amber line | `.rchip`, `.rchip.cur` |
 | **Segmented switch** | 4 segments (Off / Light / Balanced / Maximal), 1 px track border, selected filled `--fg-primary` with `--bg-base` text | the description below reserves its height (min-height 38) | Home, Journey `joined` |
 | **Switch** | the whole row is the control (`role="switch"`, padding 12 14, r 9, border `.10`); track 36 × 20 r 10, knob 16, 200 ms | off: track `rgba(ink,.18)`, knob `--fg-primary`; on: track `--exo-amber`, knob `--bg-base` (white in light) | Home "Grow automatically" |
-| **Text field** | label Plex Mono 12 `--fg-muted` above; field h 48, padding 0 14, r 8, `--bg-panel`, border `rgba(ink,.14)`, Inter 15; amber border on focus | error: generic message, never which part failed | flow `#jp-email`, Home |
+| **Text field** | label Plex Mono 12 `--fg-secondary` (the boards' muted ink) above; field h 48, padding 0 14, r 8, `--bg-panel`, border `rgba(ink,.14)`, Inter 15; amber border on focus | error: generic message, never which part failed | flow `#jp-email`, Home |
 | **Address field** | text field + Copy inside right; address breaks only after `.io/` (zero-width space) | Copied ✓ for 1.6 s | flow `other`, Home add row |
 | **Search** | h 36, r 8, `/` glyph, ⌘K hint; results popover with section label | focus: amber border; "NO MATCHES" | Viewer header |
 | **Timeline** | play (26 round), speed (½× / 1× / 2×), 12 month ticks (h 30 desktop / 22 phone, bar 4 px: future `--bg-track`, past `--fg-tertiary`, current `--exo-amber`) | playing: ❚❚ | `.tick` |

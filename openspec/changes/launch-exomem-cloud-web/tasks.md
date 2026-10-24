@@ -174,6 +174,11 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 - [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification
 - [ ] 11.9 Carry authenticated app identity through the gateway, cell activity feed and Home consumers; highlight the matching app for three seconds
 
+PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the changed Home states, at 1440 and 390×844 in both themes, against the canon. Rows (ax) to (bg) record the departures; row (ax) still waits for the owner's approval of its wording. Task 11.7 stays open for these checks:
+- keyboard order and focus on the journey pages (Home's were checked);
+- forced colours, zoom and landscape;
+- an assistive-technology session.
+
 Task 11.9 needs an additive backend field. Current activity events identify a client family; connected rows identify OAuth grants.
 The UI cannot infer that join from a family or display name. Home activity remains disabled until its existing rollout acceptance.
 Task 11.6 remains incomplete while this drawn behavior lacks its real data contract.
