@@ -307,6 +307,7 @@ export default function SetupClient({
         email={facts.email}
         tenantId={facts.tenantId}
         inviter={inviter}
+        exportOffered={facts.exportOffered}
         paidOnArrival={current === "preparing" && !facts.returnedTransactionId}
         returnedTransactionId={returnHandled ? undefined : facts.returnedTransactionId}
         onReady={() => {

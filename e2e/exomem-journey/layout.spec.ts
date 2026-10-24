@@ -331,7 +331,10 @@ const STEPS: Step[] = [
       await signedIn(context, "preparing");
       await page.goto("/exomem/setup");
       await heading(page, "You’re subscribed");
-      await expect(page.getByRole("button", { name: "Add it to your assistant →" })).toBeDisabled();
+      // The button keeps its place but shows only once the Exomem is ready.
+      await expect(
+        page.getByRole("button", { name: "Add it to your assistant →" })
+      ).not.toBeVisible();
     },
   },
   {

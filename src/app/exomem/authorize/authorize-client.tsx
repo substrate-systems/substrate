@@ -345,6 +345,7 @@ function Consent({
         email={request.email}
         tenantId={request.account.tenantId}
         inviter={inviter}
+        exportOffered={request.exportOffered}
         onReady={() => window.location.reload()}
       />
     );
