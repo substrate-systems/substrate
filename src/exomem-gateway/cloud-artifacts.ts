@@ -1,9 +1,21 @@
 /** Private, exact-handle download authority; never changes public tool arguments. */
 import { createHash, randomUUID, sign, type KeyObject } from "node:crypto";
+import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const BODY_READ_MS = 5000;
-const OPERATIONS = new Set(["capture_source", "preserve_artifacts"]);
+/** The tools whose calls carry file handles, and what one grant allows them (also told to clients). */
+export const CLOUD_ARTIFACT_TOOLS = ["capture_source", "preserve_artifacts"] as const;
+export const CLOUD_ARTIFACT_MAX_FILES = 8;
+export const CLOUD_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
+const OPERATIONS: ReadonlySet<string> = new Set(CLOUD_ARTIFACT_TOOLS);
+
+/** Whether the gateway signs artifact grants for this cell. */
+export function cloudArtifactTransportEnabled(config: ExomemCloudConfig, cellId: string): boolean {
+  return Boolean(
+    config.artifactSigningKey && (config.artifactAllCells || config.artifactCells?.has(cellId))
+  );
+}
 
 export class CloudArtifactBodyError extends Error {
   constructor(readonly status: number) {
@@ -147,7 +159,12 @@ export function cloudArtifactGrant(body: Uint8Array, cell: string, key: KeyObjec
   const operation = call.params.name;
   const args = call.params.arguments;
   if (typeof operation !== "string" || !OPERATIONS.has(operation) || !object(args)) return null;
-  if (!Array.isArray(args.files) || args.files.length < 1 || args.files.length > 8) return null;
+  if (
+    !Array.isArray(args.files) ||
+    args.files.length < 1 ||
+    args.files.length > CLOUD_ARTIFACT_MAX_FILES
+  )
+    return null;
   const handles = args.files.map(descriptorDigest);
   if (handles.some((handle) => handle === null)) return null;
   const issued = Date.now();
@@ -162,8 +179,8 @@ export function cloudArtifactGrant(body: Uint8Array, cell: string, key: KeyObjec
       issued_ms: issued,
       exp: Math.floor(issued / 1000) + 60,
       handles,
-      max_files: 8,
-      max_bytes: 100 * 1024 * 1024,
+      max_files: CLOUD_ARTIFACT_MAX_FILES,
+      max_bytes: CLOUD_ARTIFACT_MAX_BYTES,
     })
   ).toString("base64url");
   const unsigned = `${header}.${payload}`;

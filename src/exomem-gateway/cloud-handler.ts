@@ -10,8 +10,10 @@ import { randomUUID } from "node:crypto";
 import {
   CloudArtifactBodyError,
   cloudArtifactGrant,
+  cloudArtifactTransportEnabled,
   readCloudArtifactBody,
 } from "./cloud-artifacts";
+import { answerCloudTransferCall, parseCloudTransferCall } from "./cloud-transfer-tools";
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
@@ -281,7 +283,11 @@ export type CloudGatewayDependencies = {
   recordAppUse?: typeof recordCloudAppUse;
   takeRateLimit?: typeof takeExomemRateLimit;
   fetchCell?: typeof fetch;
+  /** Reaches the Substrate web API for the transfer tools; a test injects its own. */
+  fetchControlPlane?: typeof fetch;
 };
+
+type PreparedBody = Awaited<ReturnType<typeof readCloudArtifactBody>>;
 
 /**
  * D3's pass-through. Every branch below is numbered in the order it runs.
@@ -348,12 +354,30 @@ export async function handleCloudMcpRequest(
   if (!release) return errorResponse(429, "RATE_LIMITED");
   let response: Response;
   try {
+    // 5b. The transfer tools are the control plane's, so they are answered
+    // here, before the cell's desired-state gate: a held or stopped cell
+    // still lets its owner see and control an import or an export.
+    let prepared: PreparedBody | undefined;
+    if (config.transferToolsEnabled && bearer && request.method === "POST") {
+      const served = await serveTransferTool(
+        request,
+        access,
+        bearer,
+        config,
+        dependencies.fetchControlPlane ?? fetch
+      );
+      if ("response" in served) {
+        return releaseConcurrencyWhenBodyEnds(served.response, release);
+      }
+      prepared = served.prepared;
+    }
     response = await proxyToCell(
       request,
       access,
       config,
       dependencies.fetchCell ?? fetch,
-      recordAppUse
+      recordAppUse,
+      prepared
     );
   } catch (error) {
     release();
@@ -362,12 +386,50 @@ export async function handleCloudMcpRequest(
   return releaseConcurrencyWhenBodyEnds(response, release);
 }
 
+/**
+ * Reads the body once (the artifact reader's 1 MiB and 5 s bounds) and answers
+ * a transfer tool call from the control plane. Any other request returns its
+ * prepared body, which the cell path replays instead of reading the stream
+ * again. Intercepted calls never reach the cell, so they note no app use.
+ */
+async function serveTransferTool(
+  request: Request,
+  access: ActiveCloudOAuthAccessToken,
+  bearer: string,
+  config: ExomemCloudConfig,
+  fetchControlPlane: typeof fetch
+): Promise<{ response: Response } | { prepared: PreparedBody }> {
+  let prepared: PreparedBody;
+  try {
+    prepared = await readCloudArtifactBody(request);
+  } catch (error) {
+    if (error instanceof CloudArtifactBodyError) {
+      return { response: errorResponse(error.status, "REQUEST_BODY_UNAVAILABLE") };
+    }
+    throw error;
+  }
+  const call = prepared.inspected
+    ? parseCloudTransferCall(prepared.inspected, request.headers)
+    : null;
+  if (!call) return { prepared };
+  const answer = await answerCloudTransferCall(call, {
+    bearer,
+    mcpUrl: config.mcpUrl,
+    publicBaseUrl: exomemPublicBaseUrlFromEnv,
+    clientContext: oauthClientContext(access.client.redirectUris),
+    attachmentsEnabled: cloudArtifactTransportEnabled(config, access.cellId),
+    fetchControlPlane,
+  });
+  return { response: Response.json(answer, { headers: CACHE_HEADERS }) };
+}
+
 async function proxyToCell(
   request: Request,
   access: ActiveCloudOAuthAccessToken,
   config: ExomemCloudConfig,
   fetchCell: typeof fetch,
-  recordAppUse: typeof recordCloudAppUse
+  recordAppUse: typeof recordCloudAppUse,
+  prepared?: PreparedBody
 ): Promise<Response> {
   if (request.method !== "POST" && request.method !== "DELETE") {
     return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "POST" } });
@@ -431,17 +493,18 @@ async function proxyToCell(
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
   forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
 
-  let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
+  let body: BodyInit | null | undefined =
+    request.method === "DELETE" ? undefined : prepared ? prepared.body : request.body;
   if (
     config.artifactSigningKey &&
-    (config.artifactAllCells || config.artifactCells?.has(access.cellId)) &&
+    cloudArtifactTransportEnabled(config, access.cellId) &&
     request.method === "POST"
   ) {
     try {
-      const prepared = await readCloudArtifactBody(request);
-      body = prepared.body;
-      const grant = prepared.inspected
-        ? cloudArtifactGrant(prepared.inspected, access.cellId, config.artifactSigningKey)
+      const read = prepared ?? (await readCloudArtifactBody(request));
+      body = read.body;
+      const grant = read.inspected
+        ? cloudArtifactGrant(read.inspected, access.cellId, config.artifactSigningKey)
         : null;
       if (grant) forwardHeaders.set("x-exomem-artifact-grant", grant);
     } catch (error) {
