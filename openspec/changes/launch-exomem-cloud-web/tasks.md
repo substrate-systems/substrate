@@ -170,9 +170,11 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 - [x] 11.4 Add browser-bound resend recovery without changing authentication lifetime or account privacy
 - [x] 11.5 Derive visible resend waits from the common server limiter and update invitation-only email copy
 - [ ] 11.6 Apply the latest landing, start, connect and Home states over their actual data contracts
-- [ ] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
+- [x] 11.7 Complete the independent UI and accessibility pass against each enabled drawn state
 - [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification
 - [ ] 11.9 Carry authenticated app identity through the gateway, cell activity feed and Home consumers; highlight the matching app for three seconds
+
+PR #284 closed task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the Home captures of each enabled state, in both themes, against the canon. The review checked keyboard order, focus rings, contrast and live-region announcements. The remaining differences are minor, and rows (ax) to (bg) record the deliberate departures. No assistive-technology session ran.
 
 Task 11.9 needs an additive backend field. Current activity events identify a client family; connected rows identify OAuth grants.
 The UI cannot infer that join from a family or display name. Home activity remains disabled until its existing rollout acceptance.
