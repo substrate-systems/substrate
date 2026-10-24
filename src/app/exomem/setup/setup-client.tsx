@@ -419,11 +419,17 @@ export default function SetupClient({
     case "waiting": {
       const name = CLIENT_PLATFORM_NAMES[waitingFor];
       const installUrl = waitingUrl;
+      // A first install opens the published listing; a reconnection opens the app's settings.
+      const where =
+        (installUrl !== null &&
+          installUrl === facts.listings[waitingFor] &&
+          waitingCopy.atListing(waitingFor)) ||
+        waitingCopy.where[waitingFor];
       body = (
         <>
           <StepHeading
             title={waitingCopy.title(name)}
-            lede={`${waitingCopy.where[waitingFor]} ${waitingCopy.then(name)}`}
+            lede={`${where} ${waitingCopy.then(name)}`}
           />
           <StepActions
             primary={
