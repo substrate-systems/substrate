@@ -97,6 +97,28 @@ After valid redemption, the system SHALL show deterministic provisioning progres
 
 ## ADDED Requirements
 
+### Requirement: Landing account links reflect the current browser session
+
+The public landing SHALL remain cacheable without account data. Its account links SHALL use a private, non-cached session read. That read SHALL return only whether the browser has a valid session and MUST NOT change the session or authorize an action. All account links SHALL agree on the current result and refresh when the visitor returns to the tab or completes sign-in elsewhere.
+
+#### Scenario: A signed-in owner opens the landing
+
+- **WHEN** the session read confirms a valid session
+- **THEN** the navigation shows "Home" and the account buttons show "Go to Home"
+- **AND** each link leads directly to Home
+
+#### Scenario: A visitor has no valid session
+
+- **WHEN** the session read confirms an absent or expired session
+- **THEN** the navigation shows "Sign in" and the account buttons show "Start with your email"
+- **AND** each link leads to the existing sign-in route
+
+#### Scenario: The session state is unknown
+
+- **WHEN** the session read is pending or fails
+- **THEN** the links show "Open Exomem" and lead to the existing sign-in route
+- **AND** the landing makes no claim that the visitor is signed out
+
 ### Requirement: Sign-in inbox actions reveal no account state
 
 The sign-in card SHALL permit address correction and provider inbox navigation using only the submitted address domain and DNS mail-exchange records.

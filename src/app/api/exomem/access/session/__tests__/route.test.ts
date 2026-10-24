@@ -4,6 +4,7 @@ import { exomemErrors } from "@/lib/exomem-hosted/errors";
 
 let sessionValid = true;
 let continuationValid = true;
+let sessionFailure: Error | null = null;
 
 before(async () => {
   const sessions = await import("@/lib/exomem-hosted/sessions");
@@ -11,6 +12,7 @@ before(async () => {
     namedExports: {
       ...sessions,
       resolveExomemSession: async () => {
+        if (sessionFailure) throw sessionFailure;
         if (!sessionValid) throw exomemErrors.sessionInvalid();
         return { userId: "test-owner" };
       },
@@ -35,6 +37,37 @@ after(() => mock.reset());
 beforeEach(() => {
   sessionValid = true;
   continuationValid = true;
+  sessionFailure = null;
+});
+
+async function readNavigationSession() {
+  const { NextRequest } = await import("next/server");
+  const { GET } = await import("../route");
+  return GET(new NextRequest("https://example.test/api/exomem/access/session"));
+}
+
+test("navigation receives only a private session boolean", async () => {
+  const response = await readNavigationSession();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.deepEqual(await response.json(), { authenticated: true });
+});
+
+test("an invalid session gives navigation an anonymous state", async () => {
+  sessionValid = false;
+  const response = await readNavigationSession();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual(await response.json(), { authenticated: false });
+});
+
+test("a failed session lookup is not reported as signed out", async () => {
+  sessionFailure = new Error("synthetic storage failure");
+  const response = await readNavigationSession();
+  assert.equal(response.status, 500);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(Object.hasOwn(await response.json(), "authenticated"), false);
 });
 
 async function readSession(body: Record<string, unknown>) {

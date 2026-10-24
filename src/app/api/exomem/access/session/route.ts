@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeAccessEmail } from "@/lib/exomem-hosted/access";
 import { executeExomemSql } from "@/lib/exomem-hosted/db";
-import { exomemErrors } from "@/lib/exomem-hosted/errors";
+import { ExomemHostedError, exomemErrors } from "@/lib/exomem-hosted/errors";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
   oauthConsentPath,
@@ -16,6 +16,21 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "cache-control": "private, no-store", "x-robots-tag": "noindex, nofollow" };
+
+/** Navigation reads only whether this browser has a valid session, never account facts. */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    await resolveExomemSession(request);
+    return NextResponse.json({ authenticated: true }, { headers: NO_STORE });
+  } catch (error) {
+    if (error instanceof ExomemHostedError && error.code === "EXOMEM_SESSION_INVALID") {
+      return NextResponse.json({ authenticated: false }, { headers: NO_STORE });
+    }
+    const response = safeErrorResponse(error);
+    for (const [key, value] of Object.entries(NO_STORE)) response.headers.set(key, value);
+    return response;
+  }
+}
 
 /** A tab notification prompts this authoritative read; it never supplies identity or a destination. */
 export async function POST(request: NextRequest): Promise<NextResponse> {

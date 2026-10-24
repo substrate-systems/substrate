@@ -124,6 +124,51 @@ test("an existing session opens Home without requesting another sign-in email", 
   expect(account.account.email).toBe(owner.email);
 });
 
+test("a signed-in landing sends every account entry straight to Home", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  await page.goto("/exomem");
+
+  const home = page.getByRole("link", { name: "Home", exact: true });
+  await expect(home).toHaveAttribute("href", "/exomem/home");
+  const actions = page.getByRole("link", { name: "Go to Home →" });
+  await expect(actions.first()).toBeVisible();
+  for (const link of await actions.all()) {
+    await expect(link).toHaveAttribute("href", "/exomem/home");
+  }
+  await expect(page.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Start with your email →" })).toHaveCount(0);
+  await actions.first().click();
+  await expect(page).toHaveURL(/\/exomem\/home$/);
+  expect((await page.request.get("/api/exomem/account")).status()).toBe(200);
+});
+
+test("a returning landing tab rechecks an expired session and a later sign-in", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  await page.goto("/exomem");
+  await expect(page.getByRole("link", { name: "Home", exact: true })).toBeVisible();
+
+  await expireOwnerSession(owner);
+  await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+  await expect(page.getByRole("link", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Start with your email →" }).first()).toBeVisible();
+
+  const signedIn = await seedOwner("ready");
+  await context.addCookies(signedIn.cookies);
+  await page.evaluate(() =>
+    window.dispatchEvent(new StorageEvent("storage", { key: "exomem-access-session" }))
+  );
+  await expect(page.getByRole("link", { name: "Home", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Go to Home →" }).first()).toBeVisible();
+});
+
 test("an expired server session keeps the email sign-in form usable", async ({ page, context }) => {
   const owner = await seedOwner("ready");
   await expireOwnerSession(owner);

@@ -23,6 +23,19 @@ test("every way in leads to the start page", async ({ page }) => {
   await expect(page).toHaveURL(/\/exomem\/sign-in$/);
 });
 
+test("an unavailable session read keeps a neutral entry link usable", async ({ page }) => {
+  await page.route("**/api/exomem/access/session", (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" })
+  );
+  await page.goto("/exomem");
+  const entry = page.getByRole("link", { name: "Open Exomem", exact: true });
+  await expect(entry).toHaveAttribute("href", "/exomem/sign-in");
+  await expect(page.getByRole("link", { name: "Open Exomem →" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
+  await entry.click();
+  await expect(page).toHaveURL(/\/exomem\/sign-in$/);
+});
+
 test("in-page links reach their sections", async ({ page }) => {
   await page.goto("/exomem");
 
