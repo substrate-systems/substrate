@@ -20,6 +20,7 @@ export function LandingSession({
     let controller: AbortController | null = null;
     const refresh = () => {
       if (document.visibilityState === "hidden") return;
+      setAuthenticated(null);
       window.clearTimeout(timer);
       // Coalesce browser return events; a newer read supersedes the previous session snapshot.
       controller?.abort();
