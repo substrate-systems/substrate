@@ -413,7 +413,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
         await resetFleet();
         await configureCapacity(5);
         const email = `purpose-${randomUUID()}@example.test`;
-        const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+        const user = await pool!.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
           email,
         ]);
         await pool!.query(
@@ -573,6 +573,14 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
       [admitted!.tenantId]
     );
+    // As the lifecycle reconcile does: the deleted tenant's owner keeps only a tombstone.
+    await pool!.query(
+      `UPDATE exomem_users AS identity
+       SET email = NULL, email_verified_at = NULL, deleted_at = now()
+       FROM exomem_tenants AS tenant
+       WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
+      [admitted!.tenantId]
+    );
 
     // A fresh invite for the same owner: same capacity (still 1 slot, and
     // the deleted cell no longer counts as used), so this must succeed, not
@@ -609,6 +617,14 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [admitted.tenantId]
+    );
+    // As the lifecycle reconcile does: the deleted tenant's owner keeps only a tombstone.
+    await pool!.query(
+      `UPDATE exomem_users AS identity
+       SET email = NULL, email_verified_at = NULL, deleted_at = now()
+       FROM exomem_tenants AS tenant
+       WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
       [admitted.tenantId]
     );
     await pool!.query(
@@ -1134,6 +1150,14 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     ]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [admitted!.tenantId]
+    );
+    // As the lifecycle reconcile does: the deleted tenant's owner keeps only a tombstone.
+    await pool!.query(
+      `UPDATE exomem_users AS identity
+       SET email = NULL, email_verified_at = NULL, deleted_at = now()
+       FROM exomem_tenants AS tenant
+       WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
       [admitted!.tenantId]
     );
 

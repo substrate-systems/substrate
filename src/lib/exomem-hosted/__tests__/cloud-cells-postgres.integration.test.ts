@@ -21,7 +21,7 @@ function cellId(fill: string): string {
 
 async function newTenant(): Promise<string> {
   const email = `cloud-cells-${randomUUID()}@example.test`;
-  const user = await pool!.query<{ id: string }>("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+  const user = await pool!.query<{ id: string }>("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
     email,
   ]);
   const tenant = await pool!.query<{ id: string }>(

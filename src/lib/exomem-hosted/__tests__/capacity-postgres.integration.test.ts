@@ -198,7 +198,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     const { POST } = await import("../../../app/api/exomem/access/start/route");
     const owner = newAddress("owner");
     const ownerUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [owner]
     );
     await pool!.query(
@@ -306,7 +306,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     const { POST } = await import("../../../app/api/exomem/access/start/route");
     const owner = newAddress("owner");
     const ownerUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [owner]
     );
     await pool!.query(
@@ -419,7 +419,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     }
     // The oldest waiting address came to own an Exomem another way.
     const owner = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [nowAnOwner]
     );
     await pool!.query(
@@ -834,7 +834,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
     // An address that owns an Exomem keeps its entry; account deletion removes it.
     const ownerUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [owner]
     );
     await pool!.query(
@@ -902,7 +902,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     const customer = newAddress("customer");
     await linkExpired200DaysAgo(customer, { selfServe: true, revoked: true });
     const customerUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [customer]
     );
     await pool!.query(

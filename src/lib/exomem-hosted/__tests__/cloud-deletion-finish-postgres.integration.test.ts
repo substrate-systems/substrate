@@ -1567,7 +1567,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
   it("leaves a confirmed legacy tenant without a Cloud cell pending, queues no v1 operation, and the finish never touches it", async () => {
     await resetFleet();
     const user = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
       [`v1-deletion-${randomUUID()}@example.test`]
     );
     const v1Tenant = await pool!.query<{ id: string }>(

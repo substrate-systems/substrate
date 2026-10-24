@@ -218,7 +218,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("commits a fresh Paddle projection with a terminal receipt so retries are duplicates", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'provisioning', 'running')`,
@@ -284,7 +284,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("serializes checkout binding against deletion on the tenant row", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -329,7 +329,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
   it("retains a bind-first checkout for deletion cancellation", async () => {
     const transactionId = `txn_${"b".repeat(26)}`;
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -376,7 +376,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   it("does not clear checkout state over a concurrently promoted subscription", async () => {
     const transactionId = `txn_${"c".repeat(26)}`;
     const subscriptionId = `sub_${"d".repeat(26)}`;
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -423,7 +423,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("advances Paddle source state without reopening a deletion-pending entitlement", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'deletion_pending', 'deleted')`,
@@ -581,7 +581,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("leases each due Paddle subscription once and excludes future or deleting tenants", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -659,7 +659,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("creates token plus encrypted outbox atomically and leases it once", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -766,7 +766,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("checks the authoritative email before consumption and admits only one completing browser", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -835,6 +835,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("uses the canonical address for magic-link request, delivery and redemption while preserving an existing session", async () => {
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "old@example.test"]);
+    // The other product keeps its own identity row under the same id and address.
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "old@example.test"]);
     await pool.query(
       "INSERT INTO exomem_tenants (id, owner_user_id, status) VALUES ($1, $2, 'active')",
@@ -947,7 +949,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("does not issue a link for an address changed while issuance waits", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "old@example.test"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "old@example.test"]);
     await pool.query(
       "INSERT INTO exomem_tenants (id, owner_user_id, status) VALUES ($1, $2, 'active')",
       [TENANT, USER]
@@ -998,7 +1000,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
   for (const unavailable of ["expired", "revoked", "generation", "tenant", "pending"] as const) {
     it(`email confirmation cannot redeem a link with ${unavailable} authority`, async () => {
-      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [
         USER,
         "owner@example.com",
       ]);
@@ -1055,7 +1057,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   }
 
   it("invalidates an older unconsumed magic link when a newer request is queued", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -1104,7 +1106,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("admits only the newest generation when magic-link requests race", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,
@@ -1213,7 +1215,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("fences and gates a confirmed deletion on the tenant row before any cell is bound", async () => {
-    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO exomem_users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
        VALUES ($1, $2, 'active', 'running')`,

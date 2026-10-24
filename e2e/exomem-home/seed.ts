@@ -59,7 +59,7 @@ export async function createOwner(
 ): Promise<Owner> {
   const plan = PLAN_STATES[options.plan ?? "active"];
   const email = `home-${randomUUID().slice(0, 8)}@example.test`;
-  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
+  const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [email]);
   const userId = String(user.rows[0].id);
   const tenant = await pool.query(
     `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
