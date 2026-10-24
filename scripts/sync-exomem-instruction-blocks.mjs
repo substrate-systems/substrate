@@ -3,13 +3,14 @@
 //   npm run sync:instruction-blocks -- <path-to-exomem-repo>
 //     Copies the assistant instruction blocks from docs/prominence.md into
 //     src/app/exomem/home/instruction-blocks.generated.ts, and the Cloud
-//     transfer tools' names and actions from tests/fixtures/mcp_cloud_only_tool_schemas.json
+//     transfer tools' names, actions, input properties, required lists and defaults
+//     from tests/fixtures/mcp_cloud_only_tool_schemas.json
 //     into src/exomem-gateway/cloud-transfer-tools.generated.ts. Both record
 //     the Exomem commit they came from.
 //
 //   npm run sync:instruction-blocks -- --check <path-to-prominence.md> [<path-to-mcp_cloud_only_tool_schemas.json>]
 //     Compares each committed generated file with its source and exits 1 when
-//     any block, tool or action differs. The weekly drift workflow runs this
+//     any block, tool, action, input property, required list or default differs. The weekly drift workflow runs this
 //     against Exomem main.
 //
 // Home hands these blocks to a Cloud user to paste into an assistant that has no
@@ -39,7 +40,7 @@ const LEVELS = ["off", "light", "balanced", "maximal"];
 
 // The Cloud gateway serves exactly these two Exomem commands from the control plane (the
 // registry's executor "control_plane"). The names select their fixture entries; the
-// actions come from the fixture, so a change in Exomem is a diff here, not a hand edit.
+// rest of the contract comes from the fixture, so a change in Exomem is a diff here, not a hand edit.
 const TRANSFER_TOOLS = ["observe_transfer", "transfer_memory"];
 
 function git(repo, ...args) {
@@ -78,11 +79,15 @@ function extractBlocks(markdown) {
   return blocks;
 }
 
+// What the gateway needs from each tool's inputSchema: the action union, every property name,
+// the required list and the declared defaults. Types and descriptions stay in Exomem.
 function extractTransferTools(fixtureText) {
   const fixture = JSON.parse(fixtureText);
   const tools = {};
   for (const name of TRANSFER_TOOLS) {
-    const actions = fixture[name]?.inputSchema?.properties?.action?.enum;
+    const schema = fixture[name]?.inputSchema;
+    const properties = schema?.properties;
+    const actions = properties?.action?.enum;
     if (
       !Array.isArray(actions) ||
       actions.length === 0 ||
@@ -90,7 +95,25 @@ function extractTransferTools(fixtureText) {
     ) {
       throw new Error(`${TOOLS_FIXTURE_PATH} has no action list for ${name}`);
     }
-    tools[name] = actions;
+    // The gateway validates with a strict object, so only a closed schema is one it implements.
+    if (schema.additionalProperties !== false) {
+      throw new Error(`${TOOLS_FIXTURE_PATH}: ${name} no longer sets additionalProperties false`);
+    }
+    const required = schema.required ?? [];
+    if (!Array.isArray(required) || required.some((key) => !Object.hasOwn(properties, key))) {
+      throw new Error(`${TOOLS_FIXTURE_PATH}: ${name} requires a property it does not declare`);
+    }
+    const defaults = {};
+    for (const [key, property] of Object.entries(properties)) {
+      if (Object.hasOwn(property, "default")) defaults[key] = property.default;
+    }
+    // Property and required order carry no meaning in a JSON Schema, so sort them: a reorder is no drift.
+    tools[name] = {
+      actions,
+      properties: Object.keys(properties).sort(),
+      required: [...required].sort(),
+      defaults,
+    };
   }
   return tools;
 }
@@ -155,7 +178,9 @@ async function sync(repo) {
     writeFileSync(path, await format(text, { ...options, filepath: path }));
   }
   const lengths = LEVELS.map((level) => `${level}=${blocks[level].length}`).join(" ");
-  const actions = TRANSFER_TOOLS.map((name) => `${name}=${tools[name].join("|")}`).join(" ");
+  const actions = TRANSFER_TOOLS.map(
+    (name) => `${name}=${tools[name].actions.join("|")} (${tools[name].properties.join(",")})`
+  ).join(" ");
   console.log(
     `wrote ${OUTPUT_PATH}\n  wrote ${TOOLS_OUTPUT_PATH}\n  exomem ${commit}\n` +
       `  block lengths: ${lengths}\n  transfer tools: ${actions}`
@@ -167,12 +192,19 @@ async function checkTransferTools(fixtureFile) {
   const { CLOUD_TRANSFER_TOOLS, CLOUD_TRANSFER_TOOLS_SOURCE } = await import(
     pathToFileURL(TOOLS_OUTPUT_PATH).href
   );
-  const stale = TRANSFER_TOOLS.filter(
-    (name) => JSON.stringify(CLOUD_TRANSFER_TOOLS[name]) !== JSON.stringify(expected[name])
+  // Name each part that drifted: an action, a property, the required list or a default.
+  const stale = TRANSFER_TOOLS.flatMap((name) =>
+    Object.keys(expected[name])
+      .filter(
+        (part) =>
+          JSON.stringify(CLOUD_TRANSFER_TOOLS[name]?.[part]) !==
+          JSON.stringify(expected[name][part])
+      )
+      .map((part) => `${name}.${part}`)
   );
   if (stale.length > 0) {
     throw new Error(
-      `transfer tool actions differ from ${fixtureFile} for: ${stale.join(", ")}\n` +
+      `transfer tool contract differs from ${fixtureFile} for: ${stale.join(", ")}\n` +
         `  committed copy is from exomem ${CLOUD_TRANSFER_TOOLS_SOURCE.commit}\n` +
         "  run: npm run sync:instruction-blocks -- <path-to-exomem-repo>"
     );

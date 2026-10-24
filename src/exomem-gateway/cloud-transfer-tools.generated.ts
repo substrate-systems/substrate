@@ -4,10 +4,21 @@
 export const CLOUD_TRANSFER_TOOLS_SOURCE = {
   repo: "exomem",
   path: "tests/fixtures/mcp_cloud_only_tool_schemas.json",
-  commit: "unsynced: names and actions from the lane contract, not yet from an Exomem commit",
+  commit:
+    "unsynced: names, properties and actions from the lane contract and the feat/cloud-transfer-tools fixture, not yet from an Exomem main commit",
 } as const;
 
 export const CLOUD_TRANSFER_TOOLS = {
-  observe_transfer: ["status", "import_handoff"],
-  transfer_memory: ["import_cancel", "import_discard", "export_request"],
+  observe_transfer: {
+    actions: ["status", "import_handoff"],
+    properties: ["action", "import_id"],
+    required: [],
+    defaults: { action: "status" },
+  },
+  transfer_memory: {
+    actions: ["import_cancel", "import_discard", "export_request"],
+    properties: ["action", "confirm", "export_id", "import_id"],
+    required: ["action"],
+    defaults: { confirm: false },
+  },
 } as const;

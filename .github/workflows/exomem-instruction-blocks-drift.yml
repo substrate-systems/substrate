@@ -2,7 +2,7 @@ name: Exomem instruction blocks drift
 
 # Fails when docs/prominence.md on Exomem main no longer matches the blocks that
 # Home hands out, or when tests/fixtures/mcp_cloud_only_tool_schemas.json no longer matches
-# the transfer tool names and actions the gateway compiles against. The failed
+# the transfer tool contract (names, actions, input properties) the gateway compiles against. The failed
 # run is the signal; refresh both with
 # `npm run sync:instruction-blocks -- <path-to-exomem-repo>`.
 # Also fails when docs/benchmarks.md on Exomem main differs from the copy the

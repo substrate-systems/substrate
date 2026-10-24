@@ -38,9 +38,10 @@ const CLI_PREFIX = ["uvx", "exomem", "cloud"] as const;
 
 type ToolName = keyof typeof CLOUD_TRANSFER_TOOLS;
 type JsonRpcId = string | number;
-/** Fixed hints for an agent; the error `message` carries the detail. */
+/** Fixed hints this module gives an agent; the error `message` carries the detail. */
 type Remediation = "retry" | "fix_arguments" | "confirm" | "reconnect" | "see_message";
-type ToolError = { code: string; message: string; remediation: Remediation };
+// A relayed web refusal keeps the remediation its own body names, so this is a string, not Remediation.
+type ToolError = { code: string; message: string; remediation: string };
 type Outcome<T> = { ok: true; value: T } | { ok: false; error: ToolError };
 
 export type CloudTransferCall = { id: JsonRpcId; tool: ToolName; arguments: unknown };
@@ -126,17 +127,48 @@ function frame(id: JsonRpcId, structured: Record<string, unknown>) {
 
 // --- Arguments ------------------------------------------------------------
 
+type ToolContract<T extends ToolName> = (typeof CLOUD_TRANSFER_TOOLS)[T];
+type Same<A, B> =
+  (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
+type RequiredKeys<T> = { [K in keyof T]-?: object extends Pick<T, K> ? never : K }[keyof T];
+/** `unknown` (no constraint) when the schema takes exactly Exomem's property names and required list, else `never`. */
+type MatchesContract<T extends ToolName, S extends z.ZodType> =
+  Same<keyof z.input<S>, ToolContract<T>["properties"][number]> extends true
+    ? Same<RequiredKeys<z.input<S>>, ToolContract<T>["required"][number]> extends true
+      ? unknown
+      : never
+    : never;
+
+/**
+ * A schema Exomem's drift can break at compile time: a property added, renamed or dropped, or
+ * a required list that changed, in the generated contract fails here, never as a runtime INVALID_ARGUMENTS.
+ */
+function exomemArguments<T extends ToolName, S extends z.ZodType>(
+  _tool: T,
+  schema: S & MatchesContract<T, S>
+): S {
+  return schema;
+}
+
 const Uuid = z.uuid().transform((value) => value.toLowerCase());
-const ObserveArguments = z.strictObject({
-  action: z.enum(CLOUD_TRANSFER_TOOLS.observe_transfer).default("status"),
-  import_id: Uuid.optional(),
-});
-const TransferArguments = z.strictObject({
-  action: z.enum(CLOUD_TRANSFER_TOOLS.transfer_memory),
-  import_id: Uuid.optional(),
-  export_id: Uuid.optional(),
-  confirm: z.boolean().default(false),
-});
+const ObserveArguments = exomemArguments(
+  "observe_transfer",
+  z.strictObject({
+    action: z
+      .enum(CLOUD_TRANSFER_TOOLS.observe_transfer.actions)
+      .default(CLOUD_TRANSFER_TOOLS.observe_transfer.defaults.action),
+    import_id: Uuid.optional(),
+  })
+);
+const TransferArguments = exomemArguments(
+  "transfer_memory",
+  z.strictObject({
+    action: z.enum(CLOUD_TRANSFER_TOOLS.transfer_memory.actions),
+    import_id: Uuid.optional(),
+    export_id: Uuid.optional(),
+    confirm: z.boolean().default(CLOUD_TRANSFER_TOOLS.transfer_memory.defaults.confirm),
+  })
+);
 
 function parseArguments<S extends z.ZodType>(schema: S, value: unknown): Outcome<z.output<S>> {
   const parsed = schema.safeParse(value ?? {});
@@ -375,13 +407,10 @@ function relayedError(reply: WebReply): ToolError {
     };
   }
   const { code, message, remediation, retryable } = refusal.data.error;
+  // The body's own remediation wins; only a 401 or a retryable flag is read as a hint here.
   const hint: Remediation =
-    remediation === "retry_later" || retryable
-      ? "retry"
-      : reply.status === 401 || reply.status === 403
-        ? "reconnect"
-        : "see_message";
-  return { code, message, remediation: hint };
+    reply.status === 401 ? "reconnect" : retryable ? "retry" : "see_message";
+  return { code, message, remediation: remediation ?? hint };
 }
 
 /** A successful answer read through its schema, or the tool error that replaces it. */
@@ -447,13 +476,17 @@ async function status(importId: string | undefined, context: CloudTransferContex
 
 async function importHandoff(context: CloudTransferContext) {
   const operation = await readImport("observe_transfer", context);
-  if (!operation.ok) return failure(operation.error);
   // The newest-first status prefers unfinished work, so an import that is finished means none is open.
-  const latest = operation.value.import;
+  // A failed read still returns the routes, which need no import: the failure is this half's error.
+  const latest = operation.ok ? operation.value.import : null;
   return {
     success: true,
     action: "import_handoff",
-    open_import: latest && !cloudImportFinished(latest) ? importView(latest) : null,
+    open_import: !operation.ok
+      ? { error: operation.error }
+      : latest && !cloudImportFinished(latest)
+        ? importView(latest)
+        : null,
     routes: importRoutes(context),
   };
 }

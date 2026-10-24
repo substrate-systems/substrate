@@ -373,8 +373,62 @@ describe("Cloud transfer tools in the gateway", () => {
       { action: "import_handoff" },
       deps({ fetchControlPlane: web.fetchControlPlane })
     );
-    assert.equal(structured(handoff.text).success, false);
-    assert.equal(structured(handoff.text).error.code, "CONTROL_PLANE_UNAVAILABLE");
+    // The routes need no import, so a failed import read is that half's error and the routes still arrive.
+    const handedOff = structured(handoff.text);
+    assert.equal(handedOff.success, true);
+    assert.equal(handedOff.open_import.error.code, "CONTROL_PLANE_UNAVAILABLE");
+    assert.equal(handedOff.open_import.error.remediation, "retry");
+    assert.deepEqual(
+      handedOff.routes.map((route: { kind: string }) => route.kind),
+      ["browser", "cli"]
+    );
+  });
+
+  it("relays the web API's own refusal and reads only a 401 as reconnect", async () => {
+    const refusals = webApi({
+      "GET /api/exomem/cloud/imports": json(
+        { success: false, error: { code: "ENTITLEMENT_DENIED", message: "scope missing" } },
+        403
+      ),
+      "GET /api/exomem/cloud/exports": json(
+        {
+          success: false,
+          error: { code: "RATE_LIMITED", message: "too many requests", retryable: true },
+        },
+        429
+      ),
+    });
+    const refused = structured(
+      (
+        await callTool(
+          "observe_transfer",
+          {},
+          deps({ fetchControlPlane: refusals.fetchControlPlane })
+        )
+      ).text
+    );
+    assert.equal(refused.import.error.code, "ENTITLEMENT_DENIED");
+    assert.equal(refused.import.error.remediation, "see_message");
+    assert.equal(refused.export.error.code, "RATE_LIMITED");
+    assert.equal(refused.export.error.remediation, "retry");
+
+    const named = webApi({
+      "GET /api/exomem/cloud/imports": json(
+        {
+          success: false,
+          error: { code: "IMPORT_CONFLICT", message: "busy", remediation: "wait_for_the_import" },
+        },
+        409
+      ),
+      "GET /api/exomem/cloud/exports": json({
+        export: { state: "none", pauses_assistants: false },
+      }),
+    });
+    const relayed = structured(
+      (await callTool("observe_transfer", {}, deps({ fetchControlPlane: named.fetchControlPlane })))
+        .text
+    );
+    assert.equal(relayed.import.error.remediation, "wait_for_the_import");
   });
 
   it("reports exports as not offered when the web API answers 404", async () => {
