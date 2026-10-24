@@ -94,12 +94,13 @@ function sessionCookie(response: Response) {
   return cookie;
 }
 
-// Both Expires and Max-Age must end with the credential, not after it.
-function assertCookieEndsWithCredential(response: Response) {
+// Both Expires and Max-Age must end with the credential, not after it. Max-Age counts
+// from when the route ran, which is no earlier than `sentAt`.
+function assertCookieEndsWithCredential(response: Response, sentAt: number) {
   const cookie = sessionCookie(response);
   const credentialEndsMs = CREDENTIAL_EXPIRES_AT.getTime();
   const expiresMs = cookie.expires === undefined ? Infinity : new Date(cookie.expires).getTime();
-  const maxAgeEndsMs = Date.now() + (cookie.maxAge ?? Infinity) * 1000;
+  const maxAgeEndsMs = sentAt + (cookie.maxAge ?? Infinity) * 1000;
   for (const endsMs of [expiresMs, maxAgeEndsMs]) {
     assert.ok(endsMs <= credentialEndsMs && endsMs > credentialEndsMs - 60_000);
   }
@@ -123,6 +124,7 @@ function request(
 describe("POST /api/exomem/access/reviewer", () => {
   it("creates only a pre-bound reviewer session and returns the confirmation destination", async () => {
     const { POST } = await import("../route");
+    const sentAt = Date.now();
     const response = await POST(request());
 
     assert.equal(response.status, 200);
@@ -138,7 +140,7 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(bindCalls[0].transactionDigest instanceof Buffer, true);
     assert.equal(JSON.stringify(bindCalls[0]).includes(USERNAME), false);
     assert.equal(JSON.stringify(bindCalls[0]).includes(PASSWORD), false);
-    assertCookieEndsWithCredential(response);
+    assertCookieEndsWithCredential(response, sentAt);
     assert.equal(JSON.stringify(body).includes("owner-sentinel"), false);
     assert.equal(JSON.stringify(body).includes("tenant-sentinel"), false);
     assert.equal(JSON.stringify(body).includes("review-fixture-v1"), false);
@@ -186,6 +188,7 @@ describe("POST /api/exomem/access/reviewer", () => {
   it("signs a reviewer in on the web without an OAuth request, for no longer than the credential", async () => {
     continuation = null;
     const { POST } = await import("../route");
+    const sentAt = Date.now();
     const response = await POST(request({ username: USERNAME, password: PASSWORD }));
 
     assert.equal(response.status, 200);
@@ -198,7 +201,7 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(webSessionCalls.length, 1);
     assert.equal(webSessionCalls[0].credentialId, "credential-1");
     assert.equal(bindCalls.length, 0, "no OAuth request is bound");
-    assertCookieEndsWithCredential(response);
+    assertCookieEndsWithCredential(response, sentAt);
   });
 
   it("answers a failed web sign-in with the same 401, after the same throttled credential check", async () => {
