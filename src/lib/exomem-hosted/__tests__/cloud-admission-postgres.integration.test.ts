@@ -565,22 +565,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     // Simulate the day-30 export-window sweep (or a manual release) fully
     // deleting the cell, followed by controller-confirmed physical cleanup
     // at the desired generation.
-    await pool!.query(
-      "UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1",
-      [admitted!.cellId]
-    );
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [admitted!.tenantId]
-    );
-    // As the lifecycle reconcile does: the deleted tenant's owner keeps only a tombstone.
-    await pool!.query(
-      `UPDATE exomem_users AS identity
-       SET email = NULL, email_verified_at = NULL, deleted_at = now()
-       FROM exomem_tenants AS tenant
-       WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
-      [admitted!.tenantId]
-    );
+    await deleteTenantAsReconcileDoes(admitted!);
 
     // A fresh invite for the same owner: same capacity (still 1 slot, and
     // the deleted cell no longer counts as used), so this must succeed, not
@@ -613,13 +598,16 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
   });
 
   // Lifecycle blocks remain attached to the deleted principal, not to an erased address.
-  async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
+  /**
+   * The cell, the tenant and its owner end as the lifecycle reconcile leaves
+   * them after the export window: deleted, with the owner a tombstone.
+   */
+  async function deleteTenantAsReconcileDoes(admitted: { tenantId: string; cellId: string }) {
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
       [admitted.tenantId]
     );
-    // As the lifecycle reconcile does: the deleted tenant's owner keeps only a tombstone.
     await pool!.query(
       `UPDATE exomem_users AS identity
        SET email = NULL, email_verified_at = NULL, deleted_at = now()
@@ -627,6 +615,10 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
        WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
       [admitted.tenantId]
     );
+  }
+
+  async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
+    await deleteTenantAsReconcileDoes(admitted);
     await pool!.query(
       "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'lifecycle_deleted')",
       [admitted.tenantId, admitted.userId]
@@ -1145,21 +1137,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     });
     assert.ok(admitted);
 
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [
-      admitted!.cellId,
-    ]);
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [admitted!.tenantId]
-    );
-    // As the lifecycle reconcile does: the deleted tenant's owner keeps only a tombstone.
-    await pool!.query(
-      `UPDATE exomem_users AS identity
-       SET email = NULL, email_verified_at = NULL, deleted_at = now()
-       FROM exomem_tenants AS tenant
-       WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
-      [admitted!.tenantId]
-    );
+    await deleteTenantAsReconcileDoes(admitted!);
 
     const second = await createCloudOAuthFixture(email);
     const readmitted = await admitFirstCloudOAuthInviteAtomic({
