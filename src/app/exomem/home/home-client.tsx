@@ -7,6 +7,7 @@ import { StorageDialog } from "./home-storage";
 import { ImportDocuments } from "./home-import";
 import { AccountEmailChange } from "./account-email-change";
 import { csrfCookie } from "@/lib/exomem-hosted/hosted-browser";
+import { HOME_YOUR_DATA_ANCHOR } from "@/lib/exomem/home-anchors";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 import {
@@ -318,11 +319,13 @@ export default function HomeClient({
   // The rest of Home reads once the page knows it is Home, and again on a return to the
   // tab, unless the last full read is under 30 s old.
   const lastFullRead = useRef(0);
+  const [firstFullRead, setFirstFullRead] = useState(false);
   useEffect(() => {
     if (!inHome || signedOut) return;
     async function load() {
       lastFullRead.current = Date.now();
       await Promise.all([refreshApps(), refreshLevels(), refreshActivity()]);
+      if (mounted.current) setFirstFullRead(true);
     }
     void load();
     const activityTimer = window.setInterval(() => {
@@ -351,6 +354,18 @@ export default function HomeClient({
     refreshLevels,
     refreshActivity,
   ]);
+
+  // A link to "Your data" arrives before Home draws that section, so the browser finds no target
+  // at load. Apps, levels and activity then push the section down, so scroll there once, after
+  // their first read, and never again.
+  const anchorHandled = useRef(false);
+  useEffect(() => {
+    if (!inHome || !firstFullRead || anchorHandled.current) return;
+    anchorHandled.current = true;
+    if (window.location.hash === `#${HOME_YOUR_DATA_ANCHOR}`) {
+      document.getElementById(HOME_YOUR_DATA_ANCHOR)?.scrollIntoView();
+    }
+  }, [inHome, firstFullRead]);
 
   // "12 s ago" ticks in the browser.
   useEffect(() => {
