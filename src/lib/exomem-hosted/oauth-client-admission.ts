@@ -154,13 +154,12 @@ export function redirectUriApproved(approved: readonly string[], requested: stri
     const url = new URL(registered);
     // Only a registration already in canonical portless form matches any
     // port: `new URL` drops an explicit `:80`, which must stay pinned.
-    return (
-      url.port === "" &&
-      url.href === registered &&
-      url.hostname === wanted.hostname &&
-      url.pathname === wanted.pathname &&
-      url.search === wanted.search
-    );
+    if (url.port !== "" || url.href !== registered) return false;
+    // Only the port may differ, and the request must be spelled exactly as
+    // the registration with that port: parsing would accept `127.1`, `HTTP:`
+    // or `/./callback` as the same address.
+    url.port = wanted.port;
+    return url.href === requested;
   });
 }
 
