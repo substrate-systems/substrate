@@ -146,7 +146,7 @@ async function aclSnapshot(): Promise<{ relacl: unknown[]; attacl: unknown[] }> 
 async function newTenant(reviewerPurpose = false): Promise<string> {
   const email = `cloud-grants-${randomUUID()}@example.test`;
   const user = await ownerPool!.query<{ id: string }>(
-    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    "INSERT INTO exomem_users (email) VALUES ($1) RETURNING id",
     [email]
   );
   const tenant = await ownerPool!.query<{ id: string }>(

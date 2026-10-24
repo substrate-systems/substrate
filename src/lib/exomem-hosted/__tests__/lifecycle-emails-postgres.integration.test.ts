@@ -81,6 +81,8 @@ async function seedTenant(input: {
   cell: "running" | "read_only" | "stopped";
   sourceOccurredAt?: Date;
   marketplaceReviewer?: boolean;
+  /** Tenants made before migration 0074 have only a shared users row. */
+  identityTable?: "exomem_users" | "users";
 }): Promise<{
   email: string;
   userId: string;
@@ -89,7 +91,10 @@ async function seedTenant(input: {
   subscriptionId: string;
 }> {
   const email = `lifecycle-${randomUUID()}@example.test`;
-  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
+  const user = await pool.query(
+    `INSERT INTO ${input.identityTable ?? "exomem_users"} (email) VALUES ($1) RETURNING id`,
+    [email]
+  );
   const userId = String(user.rows[0].id);
   const tenant = await pool.query(
     `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
@@ -268,6 +273,7 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       source: "complimentary",
       sourceState: "complimentary_active",
       cell: "running",
+      identityTable: "users",
     });
     await markReady(startedBeforeDeploy.cellId);
     // Admitted, but cellctl has not started it yet.
@@ -275,22 +281,26 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       source: "complimentary",
       sourceState: "complimentary_active",
       cell: "running",
+      identityTable: "users",
     });
     inHoldAtDeploy = await seedTenant({
       source: "paddle",
       sourceState: "awaiting_checkout",
       cell: "stopped",
+      identityTable: "users",
     });
     reviewerAtDeploy = await seedTenant({
       source: "complimentary",
       sourceState: "complimentary_active",
       cell: "stopped",
       marketplaceReviewer: true,
+      identityTable: "users",
     });
     heldWithReminderAtDeploy = await seedTenant({
       source: "paddle",
       sourceState: "awaiting_checkout",
       cell: "stopped",
+      identityTable: "users",
     });
     // A hold that was never paid has no provider subscription yet.
     await pool.query(

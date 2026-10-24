@@ -80,7 +80,7 @@ async function seedTenant(input: {
 } = {}): Promise<{ tenantId: string; email: string; cellId: string }> {
   const email = `cloud-cancellation-${randomUUID()}@example.test`;
   const userResult = await pool!.query(
-    "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+    "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
     [email]
   );
   const userId = userResult.rows[0].id as string;

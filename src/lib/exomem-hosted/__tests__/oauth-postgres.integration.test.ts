@@ -188,7 +188,7 @@ async function seedAuthorizationCode(
   marketplaceReviewerPurpose = false
 ) {
   const codeDigest = digest(sequence);
-  const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+  const user = await pool!.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
     `oauth-${sequence}-${randomUUID()}@example.test`,
   ]);
   const tenant = await pool!.query(
@@ -253,7 +253,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
   it("attaches an existing owner without capacity or lifecycle mutation", async () => {
     const internal = await seedClient();
     const user = await pool!.query(
-      "INSERT INTO users (email) VALUES ('owner@example.test') RETURNING id"
+      "INSERT INTO exomem_users (email) VALUES ('owner@example.test') RETURNING id"
     );
     const tenant = await pool!.query(
       "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
@@ -289,7 +289,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
   it("refuses ordinary reauthorization that would detach an existing reviewer grant", async () => {
     const internal = await seedClient();
     const user = await pool!.query(
-      "INSERT INTO users (email) VALUES ('reviewer-reauthorization@example.test') RETURNING id"
+      "INSERT INTO exomem_users (email) VALUES ('reviewer-reauthorization@example.test') RETURNING id"
     );
     const tenant = await pool!.query(
       "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
@@ -1629,7 +1629,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
   /** An entitled owner with a browser session and a running cell. */
   async function seedSignedInOwner(): Promise<{ sessionId: string; tenantId: string }> {
     const user = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      "INSERT INTO exomem_users (email) VALUES ($1) RETURNING id",
       [`crossstage-${randomUUID()}@example.test`]
     );
     const tenant = await pool!.query<{ id: string }>(

@@ -98,8 +98,11 @@ async function emailChange(owner: { tenantId: string; userId: string }, proposed
   };
 }
 
-async function insertTenant(): Promise<{ userId: string; tenantId: string }> {
-  const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+// Tenants made before migration 0074 have only a shared users row; it makes the Exomem identity.
+async function insertTenant(
+  identityTable: "exomem_users" | "users" = "exomem_users"
+): Promise<{ userId: string; tenantId: string }> {
+  const user = await pool.query(`INSERT INTO ${identityTable} (email) VALUES ($1) RETURNING id`, [
     `account-${randomUUID()}@example.test`,
   ]);
   const tenant = await pool.query(
@@ -109,8 +112,11 @@ async function insertTenant(): Promise<{ userId: string; tenantId: string }> {
   return { userId: String(user.rows[0].id), tenantId: String(tenant.rows[0].id) };
 }
 
-async function insertPaddleTenant(sourceState: string) {
-  const tenant = await insertTenant();
+async function insertPaddleTenant(
+  sourceState: string,
+  identityTable: "exomem_users" | "users" = "exomem_users"
+) {
+  const tenant = await insertTenant(identityTable);
   const subscriptionId = `sub_${randomUUID().replaceAll("-", "")}`;
   await pool.query(
     `INSERT INTO exomem_entitlements (
@@ -238,7 +244,7 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir: migrationsBefore });
     pool = new Pool({ connectionString: scoped.toString() });
 
-    legacyComplimentary = (await insertTenant()).tenantId;
+    legacyComplimentary = (await insertTenant("users")).tenantId;
     await pool.query(
       "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'complimentary_active', 'active')",
       [legacyComplimentary]
@@ -246,7 +252,7 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
     // An earlier past_due period that ended, then the current one. Its
     // subscription.past_due receipt is stale: a later subscription.updated
     // reached the store first.
-    legacyPastDueWithReceipts = await insertPaddleTenant("past_due");
+    legacyPastDueWithReceipts = await insertPaddleTenant("past_due", "users");
     for (const [eventType, occurredAt, disposition] of [
       ["subscription.past_due", "2026-08-01T00:00:00Z", "applied"],
       ["subscription.updated", "2026-08-03T00:00:00Z", "applied"],
@@ -265,7 +271,7 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
         ]
       );
     }
-    legacyPastDueWithoutReceipt = await insertPaddleTenant("past_due");
+    legacyPastDueWithoutReceipt = await insertPaddleTenant("past_due", "users");
 
     await applyMigrations({ databaseUrl: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));
@@ -519,6 +525,10 @@ describe("Exomem account facts on PostgreSQL", { skip: !databaseUrl }, () => {
 
   it("confirms a new canonical address while keeping the session and other product's identity", async () => {
     const owner = await insertTenant();
+    // The other product keeps its own identity row under the same id and address.
+    await pool.query("INSERT INTO users (id, email) SELECT id, email FROM exomem_users WHERE id = $1", [
+      owner.userId,
+    ]);
     const before = (await pool.query("SELECT * FROM users WHERE id = $1", [owner.userId])).rows;
     const sessionDigest = randomBytes(32);
     await pool.query(

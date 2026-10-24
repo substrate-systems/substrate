@@ -130,7 +130,7 @@ export async function seedOwner(state: OwnerState, email = uniqueEmail(state)): 
   const entitlement = ENTITLEMENTS[state];
   const cell = CELLS[state];
   const user = await pool.query<{ id: string }>(
-    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    "INSERT INTO exomem_users (email) VALUES ($1) RETURNING id",
     [email]
   );
   const userId = user.rows[0]!.id;
@@ -200,7 +200,7 @@ export async function expireOwnerSession(owner: Owner): Promise<void> {
 export async function seedReviewer(): Promise<{ username: string; password: string }> {
   const { username, password, usernameDigest } = generateMarketplaceReviewerCredential();
   const user = await pool.query<{ id: string }>(
-    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    "INSERT INTO exomem_users (email) VALUES ($1) RETURNING id",
     [uniqueEmail("reviewer")]
   );
   const userId = user.rows[0]!.id;
