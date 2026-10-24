@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Modal } from "@/components/exomem/Modal";
-import type { CloudImport } from "@/lib/exomem/cloud-import-contract";
+import {
+  cloudImportFinished,
+  stagedImportFolder,
+  type CloudImport,
+} from "@/lib/exomem/cloud-import-contract";
 import { folderImportFiles, type ImportFile } from "@/lib/exomem-hosted/cloud-import-browser";
 import {
   readBrowserImport,
@@ -22,22 +26,15 @@ const BROWSER_CLEANUP_WARNING =
   "Browser cleanup failed. A temporary encrypted file may remain on this device. " +
   "Clear this site's stored data in browser settings to remove it. This also signs you out.";
 
-function finished(operation: CloudImport): boolean {
-  if (operation.requested_state === "discard_requested" && operation.observed_state !== "discarded")
-    return false;
-  // These terminal observations are C5 protocol states, fixed by migration 0061.
-  return ["done", "failed", "expired", "discarded"].includes(operation.observed_state);
-}
-
 function observation(operation: CloudImport): string {
   if (
     operation.requested_state === "uploaded" &&
     (operation.observed_state === "pending" || operation.observed_state === "key_ready")
   )
     return "Encrypted upload accepted. Waiting for Exomem to check and stage the files.";
-  if (!finished(operation) && operation.requested_state === "discard_requested")
+  if (!cloudImportFinished(operation) && operation.requested_state === "discard_requested")
     return "Removal requested. Waiting for Exomem to remove the staged files and finish cleanup.";
-  if (!finished(operation) && operation.requested_state === "cancelled")
+  if (!cloudImportFinished(operation) && operation.requested_state === "cancelled")
     return "Cancellation requested. Waiting for Exomem to finish cleanup.";
   switch (operation.observed_state) {
     case "pending":
@@ -69,8 +66,7 @@ function observation(operation: CloudImport): string {
 
 function ImportReviewHandoff({ importId }: { importId: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  // C5's adopt command fixes this staging path; the authenticated status supplies its UUID.
-  const folder = `_Imports/${importId}`;
+  const folder = stagedImportFolder(importId);
   const instructions =
     `Help me bring the staged folder ${folder} into my Exomem Cloud knowledge base. ` +
     "Resume an existing Adoption Studio run for this folder, or start one if none exists. " +
@@ -178,7 +174,7 @@ export function ImportDocuments({
   }
 
   const importId = operation?.import_id;
-  const terminal = operation ? finished(operation) : false;
+  const terminal = operation ? cloudImportFinished(operation) : false;
   useEffect(() => {
     if (!open || busy) return;
     const controller = new AbortController();
@@ -190,7 +186,7 @@ export function ImportDocuments({
         setOperation(value);
         setChecked(true);
         setReadMessage(null);
-        if (!value || finished(value)) return;
+        if (!value || cloudImportFinished(value)) return;
       } catch (error) {
         if (controller.signal.aborted) return;
         if (
