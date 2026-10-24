@@ -198,12 +198,9 @@ describe("the live line and the note count", () => {
     assert.equal(status.statusLine, null);
   });
 
-  it("waits for the first note from the app the owner connected", () => {
+  it("draws no live line for an empty memory", () => {
     const facts = activityFacts(activity({ note_count: 0 }), NOW);
-    assert.equal(
-      liveLine(facts, [app()], NONE, clock)?.text,
-      "Waiting for the first note from Claude"
-    );
+    assert.equal(liveLine(facts, [app()], NONE, clock), null);
     assert.equal(
       statusCopy("on", false, facts, clock).statusLine,
       "No notes yet · ask your assistant to remember something"
@@ -268,24 +265,6 @@ describe("the live line and the note count", () => {
       "Claude recalled 2 notes · 12 s ago"
     );
     assert.equal(liveLine(facts, [one], NONE, clock)?.text, "Claude recalled 2 notes · 12 s ago");
-  });
-
-  it("does not name an app the owner has just disconnected", () => {
-    const claude = app();
-    const chatgpt = app({
-      id: "00000000-0000-4000-8000-000000000002",
-      displayName: "ChatGPT",
-      platform: "openai",
-    });
-    const facts = activityFacts(activity({ note_count: 0 }), NOW);
-    assert.equal(
-      liveLine(facts, [claude, chatgpt], new Set([claude.id]), clock)?.text,
-      "Waiting for the first note from ChatGPT"
-    );
-    assert.equal(
-      liveLine(facts, [claude], new Set([claude.id]), clock)?.text,
-      "Waiting for the first note"
-    );
   });
 
   it("times an event by the cell's clock when the browser's clock is wrong", () => {
@@ -361,6 +340,17 @@ describe("notices and the account banner", () => {
     assert.equal(full[0]?.attention, true);
     assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
     assert.deepEqual(full[0]?.actions, []);
+  });
+
+  it("asks for storage in words only beside the action that adds it", () => {
+    const filling = notices("on", account(), disk(8_500_000_000), true, false, true);
+    assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works. Add storage now.");
+    assert.deepEqual(filling[0]?.actions, ["storage"]);
+    const full = notices("on", account(), disk(10_000_000_000), true, false, true);
+    assert.equal(
+      full[0]?.text,
+      "Your Exomem is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
+    );
   });
 
   for (const used of [8_500_000_000, 10_000_000_000]) {

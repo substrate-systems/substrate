@@ -51,7 +51,7 @@ export function PlanAndAccount({
           <span className={styles.storageActions}>
             <span>{storage.state === "known" ? storage.line : "not measured yet"}</span>
             {onStorage && (
-              <Button size="panel" onClick={onStorage}>
+              <Button size="line" onClick={onStorage}>
                 Add storage
               </Button>
             )}

@@ -39,3 +39,8 @@
 .status:last-child {
   margin-bottom: 0;
 }
+
+/* A support reference never breaks at its hyphen. */
+.identifier {
+  white-space: nowrap;
+}

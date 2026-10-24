@@ -67,14 +67,18 @@ function WebSvg({
 /** The web behind the header: lit while the memory is on, faint ink otherwise. */
 export function HomeWeb({
   live,
+  lost = false,
   activity,
 }: {
   live: boolean;
+  /** Exomem cannot be reached: the band greys and holds still (Home board, R43-Unreachable). */
+  lost?: boolean;
   activity?: AliveEvent & { key: string };
 }) {
+  const lostClass = lost ? ` ${styles.webLost}` : "";
   return (
     <>
-      <div className={`${styles.web} ${styles.webDesktop}`}>
+      <div className={`${styles.web} ${styles.webDesktop}${lostClass}`}>
         <WebSvg
           layout={HOME_WEB_DESKTOP}
           live={live}
@@ -82,7 +86,7 @@ export function HomeWeb({
           activity={activity}
         />
       </div>
-      <div className={`${styles.web} ${styles.webPhone}`}>
+      <div className={`${styles.web} ${styles.webPhone}${lostClass}`}>
         <WebSvg layout={HOME_WEB_PHONE} live={live} id="home-web-fade-phone" activity={activity} />
       </div>
     </>
