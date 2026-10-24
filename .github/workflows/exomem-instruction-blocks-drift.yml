@@ -1,7 +1,9 @@
 name: Exomem instruction blocks drift
 
 # Fails when docs/prominence.md on Exomem main no longer matches the blocks that
-# Home hands out. The failed run is the signal; refresh with
+# Home hands out, or when tests/fixtures/mcp_tool_schemas.json no longer matches
+# the transfer tool names and actions the gateway compiles against. The failed
+# run is the signal; refresh both with
 # `npm run sync:instruction-blocks -- <path-to-exomem-repo>`.
 # Also fails when docs/benchmarks.md on Exomem main differs from the copy the
 # landing's recall figures came from; refresh src/app/exomem/landing/recall-benchmarks.json.
@@ -24,9 +26,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Fetch the doc from Exomem main
-        run: curl -fsSL -o "$RUNNER_TEMP/prominence.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/prominence.md
-      - run: node scripts/sync-exomem-instruction-blocks.mjs --check "$RUNNER_TEMP/prominence.md"
+      - name: Fetch the doc and the tool schemas from Exomem main
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/prominence.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/prominence.md
+          curl -fsSL -o "$RUNNER_TEMP/mcp_tool_schemas.json" https://raw.githubusercontent.com/Artexis10/exomem/main/tests/fixtures/mcp_tool_schemas.json
+      - run: node scripts/sync-exomem-instruction-blocks.mjs --check "$RUNNER_TEMP/prominence.md" "$RUNNER_TEMP/mcp_tool_schemas.json"
       - name: Fetch the benchmark doc from Exomem main
         if: ${{ !cancelled() }}
         run: curl -fsSL -o "$RUNNER_TEMP/benchmarks.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/benchmarks.md
