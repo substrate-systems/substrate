@@ -13,9 +13,11 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | 
   error?: ReactNode;
   /**
    * A failed attempt whose message the page shows elsewhere, such as a notice above
-   * the form: the field draws the error border without a message of its own.
+   * the form: the field draws an amber border without a message of its own.
    */
   invalid?: boolean;
+  /** A code-like value, such as a username from submission notes, set in Plex Mono. */
+  code?: boolean;
   hint?: string;
   /**
    * Where the field sits. "page": straight on a flow page, drawn in the flow's panel
@@ -29,6 +31,7 @@ export function TextField({
   label,
   error,
   invalid = false,
+  code = false,
   hint,
   surface = "panel",
   onChange,
@@ -59,7 +62,14 @@ export function TextField({
       <input
         {...input}
         id={id}
-        className={surface === "page" ? `${styles.input} ${styles.onPage}` : styles.input}
+        className={[
+          styles.input,
+          surface === "page" && styles.onPage,
+          invalid && !hasError && styles.flagged,
+          code && styles.code,
+        ]
+          .filter(Boolean)
+          .join(" ")}
         aria-invalid={hasError || invalid || undefined}
         aria-describedby={
           [hasLine ? errorId : undefined, input["aria-describedby"]].filter(Boolean).join(" ") ||

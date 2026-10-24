@@ -4,11 +4,13 @@
   flex-direction: column;
   width: 100%;
 }
+/* The round 57 boards (Journey, Home, Fields-Demo) draw the label in their muted ink,
+   which is --fg-secondary. */
 .label {
   margin-bottom: 6px;
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 .input {
   height: 48px;
@@ -45,6 +47,17 @@
 .input[aria-invalid="true"] {
   border-color: var(--fg-primary);
   box-shadow: 0 0 0 0.5px var(--fg-primary);
+}
+/* A failure that a notice above explains: the Journey board's reviewer failure draws the
+   field's border in amber. */
+.input.flagged[aria-invalid="true"] {
+  border-color: var(--exo-amber);
+  box-shadow: none;
+}
+/* A code-like value, such as a reviewer username (Journey board): Plex Mono 14. */
+.code {
+  font-family: var(--font-mono-exo);
+  font-size: 14px;
 }
 .input[aria-invalid="true"]:focus {
   border-color: var(--exo-amber);
