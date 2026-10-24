@@ -423,6 +423,7 @@ export function StartFlow({
               label: resendLabel,
               working: sending,
               disabled: waitLeft > 0,
+              countdown: true,
               onClick: () => void send(),
             }}
             secondary={{ label: sentCopy.differentEmail, onClick: changeAddress }}
@@ -462,6 +463,7 @@ export function StartFlow({
                 variant={inboxAction ? "ghost" : "primary"}
                 size="page"
                 disabled={waitLeft > 0}
+                countdown
                 working={sending}
                 onClick={() => void send()}
               >
