@@ -565,7 +565,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     // Simulate the day-30 export-window sweep (or a manual release) fully
     // deleting the cell, followed by controller-confirmed physical cleanup
     // at the desired generation.
-    await deleteTenantAsReconcileDoes(admitted!);
+    await deleteTenantAndTombstoneOwner(admitted!);
 
     // A fresh invite for the same owner: same capacity (still 1 slot, and
     // the deleted cell no longer counts as used), so this must succeed, not
@@ -597,12 +597,11 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(activeCells.rows[0]!.n, 1, "capacity still reflects exactly one live cell, not two");
   });
 
-  // Lifecycle blocks remain attached to the deleted principal, not to an erased address.
   /**
-   * The cell, the tenant and its owner end as the lifecycle reconcile leaves
-   * them after the export window: deleted, with the owner a tombstone.
+   * Deletes the cell and the tenant and leaves the owner a tombstone: the rows
+   * these tests read after an export-window deletion.
    */
-  async function deleteTenantAsReconcileDoes(admitted: { tenantId: string; cellId: string }) {
+  async function deleteTenantAndTombstoneOwner(admitted: { tenantId: string; cellId: string }) {
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
@@ -617,8 +616,9 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     );
   }
 
+  // Lifecycle blocks remain attached to the deleted principal, not to an erased address.
   async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
-    await deleteTenantAsReconcileDoes(admitted);
+    await deleteTenantAndTombstoneOwner(admitted);
     await pool!.query(
       "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'lifecycle_deleted')",
       [admitted.tenantId, admitted.userId]
@@ -1137,7 +1137,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     });
     assert.ok(admitted);
 
-    await deleteTenantAsReconcileDoes(admitted!);
+    await deleteTenantAndTombstoneOwner(admitted!);
 
     const second = await createCloudOAuthFixture(email);
     const readmitted = await admitFirstCloudOAuthInviteAtomic({
