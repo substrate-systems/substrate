@@ -24,3 +24,7 @@ Read-only production checks confirmed the released source, production target, re
 
 Native inbox behavior, received HTML, live provider permission and production-volume query plans remain unverified.
 Migration 0078 removes the four bridges for task 2.9. PR #280 first moved the lapsed-tenant theme and identity scrub into the Cloud reconcile.
+
+Task 2.9 shipped in PR #281 on 2026-10-25 after the seven-day rollback window.
+Read-only production catalogue queries confirmed migration 0078, all four bridges absent, and 0077's cleanup retained.
+Rollbacks must retain the lapse scrub introduced by PR #280.

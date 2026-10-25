@@ -27,6 +27,7 @@
   --bg-panel: #100e0c; /* cards, panels, inputs on page */
   --bg-raised: #12100e; /* popovers, search results, flow panel */
   --bg-elevated: #14120f; /* sheets, modals, email card */
+  --bg-panel-secondary: var(--bg-elevated); /* Home's app glyph tiles (canon panel2) */
   --bg-hover: #1a1815; /* hover and pressed fills */
   --bg-track: #2a2724; /* tracks, timeline, sheet handle */
 
@@ -134,6 +135,7 @@
   --bg-panel: #ffffff;
   --bg-raised: #ffffff;
   --bg-elevated: #ffffff;
+  --bg-panel-secondary: #f3f0ea;
   --bg-hover: #efebe3;
   --bg-track: #e5e0d6;
 

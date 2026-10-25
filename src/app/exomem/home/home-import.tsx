@@ -118,9 +118,11 @@ function ImportReviewHandoff({ importId }: { importId: string }) {
 
 export function ImportDocuments({
   csrfToken,
+  canStart,
   onAccountLost,
 }: {
   csrfToken: string;
+  canStart: boolean;
   onAccountLost: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -149,6 +151,10 @@ export function ImportDocuments({
     };
   }, []);
 
+  useEffect(() => {
+    if (!canStart) upload.current?.pause();
+  }, [canStart]);
+
   const fail = useCallback(
     (error: unknown) => {
       if (!mounted.current) return;
@@ -174,19 +180,22 @@ export function ImportDocuments({
   }
 
   const importId = operation?.import_id;
+  const readImportId = open ? importId : undefined;
   const terminal = operation ? cloudImportFinished(operation) : false;
   useEffect(() => {
-    if (!open || busy) return;
+    // A blocked start still leaves existing imports and their cleanup reachable.
+    if (busy || (!open && canStart)) return;
+    const discover = !open;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
       try {
-        const value = await readBrowserImport(csrfToken, importId, controller.signal);
+        const value = await readBrowserImport(csrfToken, readImportId, controller.signal);
         if (controller.signal.aborted) return;
         setOperation(value);
         setChecked(true);
         setReadMessage(null);
-        if (!value || cloudImportFinished(value)) return;
+        if (discover || !value || cloudImportFinished(value)) return;
       } catch (error) {
         if (controller.signal.aborted) return;
         if (
@@ -197,6 +206,7 @@ export function ImportDocuments({
           return;
         }
         setReadMessage(friendlyHostedError(error));
+        if (discover) return;
       }
       timer = setTimeout(() => void read(), 2500);
     };
@@ -205,9 +215,10 @@ export function ImportDocuments({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [open, busy, importId, fail, csrfToken]);
+  }, [open, busy, canStart, readImportId, fail, csrfToken]);
 
   async function send() {
+    if (!canStart) return;
     if (!upload.current) {
       upload.current = new BrowserImportUpload(files, csrfToken);
       setAttemptId(upload.current.id);
@@ -280,22 +291,29 @@ export function ImportDocuments({
   }
 
   const canResume =
-    retryAvailable && (!operation || operation.requested_state === "requested") && !terminal;
-  const canSelect = checked && !busy && (!operation || terminal) && !canResume;
+    canStart &&
+    retryAvailable &&
+    (!operation || operation.requested_state === "requested") &&
+    !terminal;
+  const canSelect = canStart && checked && !busy && (!operation || terminal) && !canResume;
   const selectionBytes = files.reduce((total, { file }) => total + file.size, 0);
   return (
     <>
-      <div className={styles.row}>
-        <div className={styles.rowText}>
-          <span className={styles.rowTitle}>Import documents</span>
-          <span className={styles.rowBody}>
-            Bring in a folder privately, then review it with your assistant.
-          </span>
+      {(canStart || operation !== null || readMessage !== null) && (
+        <div className={styles.row}>
+          <div className={styles.rowText}>
+            <span className={styles.rowTitle}>Import documents</span>
+            <span className={styles.rowBody}>
+              {canStart
+                ? "Bring in a folder privately, then review it with your assistant."
+                : "Check import status or finish cleanup."}
+            </span>
+          </div>
+          <Button size="account" onClick={() => setOpen(true)}>
+            {canStart ? "Import…" : "Import status…"}
+          </Button>
         </div>
-        <Button size="account" onClick={() => setOpen(true)}>
-          Import…
-        </Button>
-      </div>
+      )}
       {open && (
         <Modal
           open
@@ -314,6 +332,11 @@ export function ImportDocuments({
               documents for review; it does not migrate an existing Exomem vault’s identities or
               history.
             </p>
+            {!canStart && (
+              <p className={dialog.text}>
+                Starting or resuming an upload is unavailable right now.
+              </p>
+            )}
             {!checked && (
               <p className={dialog.text} role="status">
                 Checking previous imports…
@@ -447,7 +470,7 @@ export function ImportDocuments({
                 {readMessage}
               </p>
             )}
-            {!terminal && (!operation || operation.requested_state === "requested") && (
+            {canStart && !terminal && (!operation || operation.requested_state === "requested") && (
               <p className={dialog.text}>
                 Keep this page open to retry the same encrypted file. After a reload, an unfinished
                 upload needs cancellation and a fresh start.

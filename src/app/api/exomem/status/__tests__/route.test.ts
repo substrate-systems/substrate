@@ -29,7 +29,7 @@ before(() => {
       getOwnerCloudHomeStatus: async (tenantId: string) => {
         assert.equal(tenantId, TENANT);
         cloudStatusCalls += 1;
-        return { status: cloudStatus, storage: { state: "unknown" } };
+        return { status: cloudStatus, storage: { state: "unknown" }, importAvailable: true };
       },
     },
   });
@@ -86,10 +86,12 @@ describe("GET /api/exomem/status", () => {
     const body = JSON.parse(text) as {
       status: { state: string; code: string };
       cloudConnectorUrl?: string;
+      importAvailable: boolean;
     };
     assert.equal(body.status.state, "degraded");
     assert.equal(body.status.code, "CELL_NOT_READY");
     assert.equal(body.cloudConnectorUrl, CLOUD_MCP_URL);
+    assert.equal(body.importAvailable, true);
     assert.equal(cloudStatusCalls, 1);
   });
 

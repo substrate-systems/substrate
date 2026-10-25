@@ -3,6 +3,8 @@
 // handoff README). Names, dates and time limits arrive as arguments: the caller
 // computes them at render from data, and nothing here holds a value.
 
+import { assistantConnectionStep } from "@/components/exomem/subscribe-line";
+
 /** The board's retry label, on "That didn’t finish" and wherever a step can be tried again. */
 export const TRY_AGAIN = "Try again";
 
@@ -152,7 +154,7 @@ export const subscribeCopy = {
   confirming: {
     title: "Confirming your payment",
     lede: (app: string | null) =>
-      `A few seconds. ${app === null ? "Then add it to your assistant." : `Then ${app} connects in one step.`}`,
+      `A few seconds. ${app === null ? "Then add it to your assistant." : assistantConnectionStep(app)}`,
   },
 };
 

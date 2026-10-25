@@ -30,7 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       "cache-control": "private, no-store, max-age=0",
       "x-robots-tag": "noindex, nofollow",
     };
-    const { status, storage } = await getOwnerCloudHomeStatus(session.tenantId);
+    const { status, storage, importAvailable } = await getOwnerCloudHomeStatus(session.tenantId);
     // The export row rides the poll once the export release flag is on.
     const exportSummary = cloudExportsEnabled() ? await readCloudExport(session) : undefined;
     const connectorUrl = cloudConnectorUrl();
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         success: true,
         status,
         storage,
+        importAvailable,
         ...(exportSummary ? { export: exportSummary } : {}),
         ...(connectorUrl ? { cloudConnectorUrl: connectorUrl } : {}),
       },

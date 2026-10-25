@@ -632,8 +632,8 @@ describe("the export row", () => {
       "All your notes and files, as Markdown. Works in every state."
     );
     const packing = exportView({ state: "packing", ...base, pauses_assistants: true }, clock);
-    // Packing must keep the warning the owner read before starting the export.
-    assert.equal(packing.description, running.description);
+    // The packing status carries the pause once the export has started.
+    assert.equal(packing.description, stopped.description);
     assert.equal(
       packing.detail?.text,
       "Packing your notes and files… Your assistants are back in a few minutes. We’ll email you when it’s ready."
@@ -687,6 +687,10 @@ describe("involvement levels", () => {
     assert.deepEqual(view, {
       state: "unavailable",
       text: "Levels can’t be read while your Exomem is stopped.",
+    });
+    assert.deepEqual(levelsView({ state: "unavailable", reason: "CELL_NOT_READY" }), {
+      state: "unavailable",
+      text: "Levels can’t be read right now.",
     });
   });
 
