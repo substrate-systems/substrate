@@ -491,9 +491,7 @@ test("an export packs, becomes ready, and Download follows a fresh link", async 
   expect((await download).url()).toBe(downloadUrl);
 });
 
-test("an unowned checkout return offers sign-in recovery and a return to Home", async ({
-  page,
-}) => {
+test("an unowned checkout return offers sign-in recovery and dismissal", async ({ page }) => {
   // An owner who already pays returns from an old checkout link; the server refuses it.
   const owner = await createOwner();
   await signIn(page.context(), owner);
@@ -516,7 +514,7 @@ test("an unowned checkout return offers sign-in recovery and a return to Home", 
   ).toBeVisible();
   expect(new URL(page.url()).searchParams.has("_ptxn")).toBe(true);
   await expect(page.getByRole("button", { name: "Sign in again", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Go to Home", exact: true }).click();
+  await page.getByRole("button", { name: "Not now", exact: true }).click();
   await expect(failure).toBeHidden();
   expect(new URL(page.url()).searchParams.has("_ptxn")).toBe(false);
   await page.reload();

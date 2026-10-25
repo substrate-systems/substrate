@@ -543,7 +543,7 @@ export function CheckoutInline({
                     >
                       {accountRejected ? "Sign in again" : "Try again"}
                     </Button>
-                    {returnFailed && !accountRejected ? (
+                    {returnFailed || accountRejected ? (
                       <Button
                         variant="ghost"
                         size="page"
