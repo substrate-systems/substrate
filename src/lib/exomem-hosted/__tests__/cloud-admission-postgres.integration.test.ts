@@ -413,7 +413,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
         await resetFleet();
         await configureCapacity(5);
         const email = `purpose-${randomUUID()}@example.test`;
-        const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+        const user = await pool!.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
           email,
         ]);
         await pool!.query(
@@ -565,14 +565,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     // Simulate the day-30 export-window sweep (or a manual release) fully
     // deleting the cell, followed by controller-confirmed physical cleanup
     // at the desired generation.
-    await pool!.query(
-      "UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1",
-      [admitted!.cellId]
-    );
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [admitted!.tenantId]
-    );
+    await deleteTenantAndTombstoneOwner(admitted!);
 
     // A fresh invite for the same owner: same capacity (still 1 slot, and
     // the deleted cell no longer counts as used), so this must succeed, not
@@ -604,13 +597,28 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(activeCells.rows[0]!.n, 1, "capacity still reflects exactly one live cell, not two");
   });
 
-  // Lifecycle blocks remain attached to the deleted principal, not to an erased address.
-  async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
+  /**
+   * Deletes the cell and the tenant and leaves the owner a tombstone: the rows
+   * these tests read after an export-window deletion.
+   */
+  async function deleteTenantAndTombstoneOwner(admitted: { tenantId: string; cellId: string }) {
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
       [admitted.tenantId]
     );
+    await pool!.query(
+      `UPDATE exomem_users AS identity
+       SET email = NULL, email_verified_at = NULL, deleted_at = now()
+       FROM exomem_tenants AS tenant
+       WHERE tenant.id = $1 AND identity.id = tenant.owner_user_id`,
+      [admitted.tenantId]
+    );
+  }
+
+  // Lifecycle blocks remain attached to the deleted principal, not to an erased address.
+  async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
+    await deleteTenantAndTombstoneOwner(admitted);
     await pool!.query(
       "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'lifecycle_deleted')",
       [admitted.tenantId, admitted.userId]
@@ -1129,13 +1137,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     });
     assert.ok(admitted);
 
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [
-      admitted!.cellId,
-    ]);
-    await pool!.query(
-      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
-      [admitted!.tenantId]
-    );
+    await deleteTenantAndTombstoneOwner(admitted!);
 
     const second = await createCloudOAuthFixture(email);
     const readmitted = await admitFirstCloudOAuthInviteAtomic({

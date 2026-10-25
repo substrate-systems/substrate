@@ -7,7 +7,6 @@ import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { encryptSecret } from "../security";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const MIGRATION_0017 = resolve(process.cwd(), "migrations/0017_exomem_hosted_service.sql");
@@ -330,7 +329,7 @@ describe("migration 0021 Paddle provider provenance", { skip: !DATABASE_URL }, (
 });
 
 describe("migration 0074 independent Exomem identity", { skip: !DATABASE_URL }, () => {
-  it("preserves identity history, scrubs deleted accounts, and bridges older admissions without overwriting email", async () => {
+  it("backfills identity history, scrubs deleted accounts, and refuses an owner that exists only in shared users", async () => {
     const schema = `exomem_identity_${randomUUID().replaceAll("-", "")}`;
     const migrationsDir = mkdtempSync(join(tmpdir(), "exomem-identity-migrations-"));
     const admin = new Pool({ connectionString: DATABASE_URL, max: 1 });
@@ -462,150 +461,6 @@ describe("migration 0074 independent Exomem identity", { skip: !DATABASE_URL }, 
         { code: "23514" }
       );
 
-      const legacy = await pool.query(
-        "INSERT INTO users (email) VALUES ('in-flight@example.test') RETURNING *"
-      );
-      const legacyId = legacy.rows[0]!.id;
-      await pool.query("INSERT INTO exomem_tenants (owner_user_id) VALUES ($1)", [legacyId]);
-      assert.deepEqual(
-        (await pool.query("SELECT * FROM exomem_users WHERE id = $1", [legacyId])).rows,
-        legacy.rows
-      );
-      await pool.query("UPDATE exomem_users SET email = 'canonical@example.test' WHERE id = $1", [
-        legacyId,
-      ]);
-      await pool.query("DELETE FROM exomem_tenants WHERE owner_user_id = $1", [legacyId]);
-      await pool.query("INSERT INTO exomem_tenants (owner_user_id) VALUES ($1)", [legacyId]);
-      assert.equal(
-        (await pool.query("SELECT email FROM exomem_users WHERE id = $1", [legacyId])).rows[0]!
-          .email,
-        "canonical@example.test"
-      );
-      assert.deepEqual(
-        (await pool.query("SELECT * FROM users WHERE id = $1", [legacyId])).rows,
-        legacy.rows
-      );
-      // The pre-A deletion boundary can still read its owner before the deferred scrub.
-      await pool.query("UPDATE exomem_users SET email = $2 WHERE id = $1", [
-        legacyId,
-        legacy.rows[0]!.email,
-      ]);
-      await pool.query("INSERT INTO exomem_waitlist_entries (email_normalized) VALUES ($1)", [
-        legacy.rows[0]!.email,
-      ]);
-      await pool.query("UPDATE exomem_tenants SET theme_choice = 'dark' WHERE owner_user_id = $1", [
-        legacyId,
-      ]);
-      await pool.query("BEGIN");
-      await pool.query(
-        "UPDATE exomem_tenants SET status = 'deleted', deleted_at = now() WHERE owner_user_id = $1",
-        [legacyId]
-      );
-      assert.equal(
-        (await pool.query("SELECT email FROM exomem_users WHERE id = $1", [legacyId])).rows[0]!
-          .email,
-        legacy.rows[0]!.email
-      );
-      assert.equal(
-        (await pool.query("SELECT email FROM users WHERE id = $1", [legacyId])).rows[0]!.email,
-        legacy.rows[0]!.email
-      );
-      await pool.query("DELETE FROM exomem_waitlist_entries WHERE email_normalized = $1", [
-        legacy.rows[0]!.email,
-      ]);
-      const notice = (
-        await pool.query(
-          "SELECT id, deleted_at::text FROM exomem_tenants WHERE owner_user_id = $1",
-          [legacyId]
-        )
-      ).rows[0]!;
-      const payload = encryptSecret(
-        JSON.stringify({ version: 1, tenantId: notice.id, deletedAt: notice.deleted_at }),
-        { key: randomBytes(32) }
-      );
-      await pool.query(
-        "INSERT INTO exomem_email_outbox (kind, dedupe_key, recipient, tenant_id, payload_ciphertext) VALUES ('deleted', $1, $2, $3, $4::jsonb)",
-        [
-          `deleted:${notice.id}:${notice.deleted_at}`,
-          legacy.rows[0]!.email,
-          notice.id,
-          JSON.stringify(payload),
-        ]
-      );
-      await pool.query("COMMIT");
-      assert.deepEqual(
-        (
-          await pool.query("SELECT recipient FROM exomem_email_outbox WHERE tenant_id = $1", [
-            notice.id,
-          ])
-        ).rows,
-        [{ recipient: legacy.rows[0]!.email }]
-      );
-      assert.equal(
-        (
-          await pool.query(
-            "SELECT count(*)::int AS n FROM exomem_waitlist_entries WHERE email_normalized = $1",
-            [legacy.rows[0]!.email]
-          )
-        ).rows[0]!.n,
-        0
-      );
-      assert.deepEqual(
-        (await pool.query("SELECT * FROM users WHERE id = $1", [legacyId])).rows,
-        legacy.rows
-      );
-      assert.deepEqual(
-        (
-          await pool.query("SELECT email, email_verified_at FROM exomem_users WHERE id = $1", [
-            legacyId,
-          ])
-        ).rows,
-        [{ email: null, email_verified_at: null }]
-      );
-      assert.equal(
-        (
-          await pool.query("SELECT theme_choice FROM exomem_tenants WHERE owner_user_id = $1", [
-            legacyId,
-          ])
-        ).rows[0]!.theme_choice,
-        null
-      );
-
-      // A pre-A re-admission updates its existing tenant instead of inserting one.
-      await pool.query(
-        "UPDATE exomem_tenants SET status = 'deleted', deleted_at = now() WHERE owner_user_id = $1",
-        [legacyId]
-      );
-      await pool.query(
-        "UPDATE exomem_tenants SET status = 'provisioning', deleted_at = NULL WHERE owner_user_id = $1",
-        [legacyId]
-      );
-      const restored = await pool.query("SELECT * FROM exomem_users WHERE id = $1", [legacyId]);
-      assert.ok(restored.rows[0]!.email_verified_at);
-      assert.deepEqual(
-        restored.rows.map((row) => ({ ...row, email_verified_at: null })),
-        legacy.rows
-      );
-
-      // The same transition cannot overwrite an identity that already owns a new address.
-      await pool.query("BEGIN");
-      await pool.query("UPDATE exomem_users SET email = 'canonical@example.test' WHERE id = $1", [
-        legacyId,
-      ]);
-      await pool.query(
-        "UPDATE exomem_tenants SET status = 'deleted', deleted_at = now() WHERE owner_user_id = $1",
-        [legacyId]
-      );
-      await pool.query(
-        "UPDATE exomem_tenants SET status = 'provisioning', deleted_at = NULL WHERE owner_user_id = $1",
-        [legacyId]
-      );
-      await pool.query("COMMIT");
-      assert.equal(
-        (await pool.query("SELECT email FROM exomem_users WHERE id = $1", [legacyId])).rows[0]!
-          .email,
-        "canonical@example.test"
-      );
       await applyMigrations({ databaseUrl: scoped.toString() });
       assert.equal((await identityForeignKeys()).rowCount, 0);
       assert.equal(
@@ -630,6 +485,14 @@ describe("migration 0074 independent Exomem identity", { skip: !DATABASE_URL }, 
         (await pool.query("SELECT count(*)::int AS n FROM users WHERE id = $1", [independent]))
           .rows[0]!.n,
         0
+      );
+      // Nothing copies a shared users row into exomem_users any more.
+      const sharedOnly = (
+        await pool.query("INSERT INTO users (email) VALUES ('shared-only@example.test') RETURNING id")
+      ).rows[0]!.id;
+      await assert.rejects(
+        pool.query("INSERT INTO exomem_tenants (owner_user_id) VALUES ($1)", [sharedOnly]),
+        { code: "23503" }
       );
     } finally {
       if (pool) await pool.end();

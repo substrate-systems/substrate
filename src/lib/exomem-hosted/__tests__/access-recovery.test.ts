@@ -185,14 +185,14 @@ describe(
             : magicLink;
         const email = `${randomUUID()}@example.test`;
         const userId = randomUUID();
-        await pool.query("INSERT INTO users (id,email) VALUES ($1,$2)", [userId, email]);
+        await pool.query("INSERT INTO exomem_users (id,email) VALUES ($1,$2)", [userId, email]);
         await pool.query(
           "INSERT INTO exomem_tenants (owner_user_id,status,desired_state) VALUES ($1,'active','running')",
           [userId]
         );
         const backlogOwner = randomUUID();
         const backlogEmail = `${randomUUID()}@example.test`;
-        await pool.query("INSERT INTO users (id,email) VALUES ($1,$2)", [
+        await pool.query("INSERT INTO exomem_users (id,email) VALUES ($1,$2)", [
           backlogOwner,
           backlogEmail,
         ]);
@@ -265,7 +265,7 @@ describe(
       it(`keeps a ${failure} failure recoverable by the scheduled sender after answering 202`, async () => {
         const userId = randomUUID();
         const email = "retry-owner@example.test";
-        await pool.query("INSERT INTO users (id,email) VALUES ($1,$2)", [userId, email]);
+        await pool.query("INSERT INTO exomem_users (id,email) VALUES ($1,$2)", [userId, email]);
         await pool.query(
           "INSERT INTO exomem_tenants (owner_user_id,status,desired_state) VALUES ($1,'active','running')",
           [userId]
@@ -316,7 +316,7 @@ describe(
       const userId = randomUUID(),
         tenantId = randomUUID();
       const email = "expired-owner@example.test";
-      await pool.query("INSERT INTO users (id,email) VALUES ($1,$2)", [userId, email]);
+      await pool.query("INSERT INTO exomem_users (id,email) VALUES ($1,$2)", [userId, email]);
       await pool.query(
         "INSERT INTO exomem_tenants (id,owner_user_id,status,desired_state) VALUES ($1,$2,'active','running')",
         [tenantId, userId]
@@ -351,7 +351,7 @@ describe(
       assert.equal(body.retryAfterSeconds, 60);
       assert.equal(JSON.stringify(body).includes(email), false);
       const queued = await pool.query(
-        "SELECT users.email::text, token.browser_challenge_digest FROM exomem_access_tokens AS token JOIN users ON users.id=token.user_id WHERE token.user_id=$1 AND token.expires_at>now()",
+        "SELECT exomem_users.email::text, token.browser_challenge_digest FROM exomem_access_tokens AS token JOIN exomem_users ON exomem_users.id=token.user_id WHERE token.user_id=$1 AND token.expires_at>now()",
         [userId]
       );
       assert.equal(queued.rows.length, 1);
@@ -425,7 +425,7 @@ describe(
     it("a used link is named only by its matching browser receipt", async () => {
       const userId = randomUUID(),
         tenantId = randomUUID();
-      await pool.query("INSERT INTO users (id,email) VALUES ($1,'used-owner@example.test')", [
+      await pool.query("INSERT INTO exomem_users (id,email) VALUES ($1,'used-owner@example.test')", [
         userId,
       ]);
       await pool.query(
@@ -519,7 +519,7 @@ describe(
         assert.equal(a.path, b.path);
       }
       const outbox = await pool.query(
-        "SELECT count(*)::int AS count FROM exomem_access_delivery_outbox JOIN exomem_access_tokens ON token_id=exomem_access_tokens.id JOIN users ON users.id=user_id WHERE users.email=$1",
+        "SELECT count(*)::int AS count FROM exomem_access_delivery_outbox JOIN exomem_access_tokens ON token_id=exomem_access_tokens.id JOIN exomem_users ON exomem_users.id=user_id WHERE exomem_users.email=$1",
         [email]
       );
       assert.equal(outbox.rows[0].count, 0);

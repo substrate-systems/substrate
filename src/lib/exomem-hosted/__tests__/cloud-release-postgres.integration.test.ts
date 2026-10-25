@@ -77,7 +77,7 @@ async function resetFleet(): Promise<void> {
 
 async function seedCell(desiredState = "running"): Promise<{ tenantId: string; cellId: string }> {
   const userResult = await pool!.query(
-    "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+    "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
     [`cloud-release-${randomUUID()}@example.test`]
   );
   const tenantResult = await pool!.query(
