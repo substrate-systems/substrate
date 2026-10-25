@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { validate as validUuid } from "uuid";
-import type { CloudImport, UploadPart } from "../exomem/cloud-import-contract";
+import {
+  cloudImportAvailable,
+  type CloudImport,
+  type UploadPart,
+} from "../exomem/cloud-import-contract";
 import { resolveCloudOwnerPrincipal } from "./cloud-owner-principal";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -176,7 +180,8 @@ async function lockCell(tx: ExomemSql, principal: CloudImportPrincipal, writable
     FOR UPDATE OF cell
   `;
   if (!rows[0]) throw notFound();
-  if (writable && rows[0].desired_state !== "running") throw exomemErrors.entitlementDenied();
+  if (writable && !cloudImportAvailable(rows[0].desired_state))
+    throw exomemErrors.entitlementDenied();
 }
 
 export async function mutateCloudImport(

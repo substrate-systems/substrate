@@ -14,6 +14,12 @@ Home SHALL provide service status, billing source/status, sign-out, self-serve e
 - **WHEN** an owner wants a portable export
 - **THEN** Home starts the self-serve export and does not tell the owner to ask support
 
+#### Scenario: The cell cannot start an import
+
+- **WHEN** the cell's desired state is read-only or stopped
+- **THEN** Home offers no action to start a new import
+- **AND** an existing import keeps its status and supported cancellation or removal actions
+
 #### Scenario: Owner starts deletion
 
 - **WHEN** an owner initiates deletion
@@ -224,6 +230,7 @@ When an export will stop a cell that serves assistants, which is a running or re
 
 - **WHEN** the cell is running or read-only and the export is packing
 - **THEN** the row says that the assistants are back in a few minutes and that an email follows when the export is ready
+- **AND** its description does not repeat the pause sentence
 
 #### Scenario: Stopped cell
 

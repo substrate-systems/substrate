@@ -209,6 +209,7 @@ export default function HomeClient({
             (current) =>
               current ?? {
                 lifecycle: UNREACHABLE,
+                importAvailable: false,
                 storage: null,
                 exportSummary: null,
                 connectorUrl: null,
@@ -828,16 +829,11 @@ export default function HomeClient({
             <div className={styles.dataSection}>
               <YourData
                 importControl={
-                  !signedOut &&
-                  !signingOut &&
-                  account?.kind === "owner" &&
-                  accountSnapshot &&
-                  // An ended Exomem cannot start an import (its cell is read-only) and the
-                  // Home board offers none (design.md (az)).
-                  variant !== "ended" ? (
+                  !signedOut && !signingOut && account?.kind === "owner" && accountSnapshot ? (
                     <ImportDocuments
                       key={accountSnapshot.csrfToken}
                       csrfToken={accountSnapshot.csrfToken}
+                      canStart={status?.importAvailable === true}
                       onAccountLost={goToSignIn}
                     />
                   ) : undefined

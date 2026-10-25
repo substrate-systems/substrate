@@ -13,6 +13,7 @@
 
 import { executeExomemSql } from "./db";
 import { awaitsFirstPayment } from "./entitlements";
+import { cloudImportAvailable } from "../exomem/cloud-import-contract";
 
 export type LifecycleStatus = {
   state:
@@ -166,9 +167,15 @@ export async function getOwnerCloudStatus(tenantId: string): Promise<LifecycleSt
 }
 
 /** The status poll's database-only facts: lifecycle and measured storage. */
-export async function getOwnerCloudHomeStatus(
-  tenantId: string
-): Promise<{ status: LifecycleStatus; storage: CloudStorageObservation }> {
+export async function getOwnerCloudHomeStatus(tenantId: string): Promise<{
+  status: LifecycleStatus;
+  storage: CloudStorageObservation;
+  importAvailable: boolean;
+}> {
   const row = await readNewestCloudCell(tenantId);
-  return { status: mapCloudCellToLifecycleStatus(row), storage: mapCloudCellToStorage(row) };
+  return {
+    status: mapCloudCellToLifecycleStatus(row),
+    storage: mapCloudCellToStorage(row),
+    importAvailable: cloudImportAvailable(row?.desired_state),
+  };
 }

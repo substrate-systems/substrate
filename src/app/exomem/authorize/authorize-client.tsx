@@ -342,6 +342,7 @@ function Consent({
   if ((current === "subscribe" || current === "confirming") && request.email) {
     return (
       <CheckoutInline
+        app={name}
         email={request.email}
         tenantId={request.account.tenantId}
         inviter={inviter}

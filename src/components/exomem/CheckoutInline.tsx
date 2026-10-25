@@ -15,6 +15,7 @@ import { FlowField } from "./FlowField";
 import { Mark } from "./Mark";
 import { Wordmark } from "./Wordmark";
 import { ThemeToggle } from "./ThemeToggle";
+import { assistantConnectionStep } from "./subscribe-line";
 import { Collapse, Crossfade, Skeleton, Swap } from "./Transitions";
 import {
   formatCheckoutMoney,
@@ -54,6 +55,7 @@ export function CheckoutInline({
   paidOnArrival = false,
   returnedTransactionId,
   exportOffered,
+  app,
 }: {
   email: string;
   tenantId: string | null;
@@ -64,6 +66,8 @@ export function CheckoutInline({
   readyEmailAvailable?: boolean;
   paidOnArrival?: boolean;
   returnedTransactionId?: string;
+  /** The assistant whose live consent flow resumes after payment. */
+  app?: string;
 }) {
   const id = useId();
   const frameTarget = `exomem-checkout-${id.replaceAll(":", "")}`;
@@ -383,7 +387,8 @@ export function CheckoutInline({
           <p>
             {inviter
               ? `${inviter}’s friend price is applied below. Paddle takes the payment. Cancel any time.`
-              : "Exomem, billed monthly by Paddle. Cancel any time. Next, you add it to your assistant."}
+              : "Exomem, billed monthly by Paddle. Cancel any time."}{" "}
+            {app ? assistantConnectionStep(app) : "Next, you add it to your assistant."}
           </p>
         </div>
         <div
@@ -606,13 +611,6 @@ export function CheckoutInline({
             />
           </div>
         </div>
-        <a
-          href="/exomem/home"
-          className={styles.home}
-          onClick={() => forgetReturnedTransaction(returnedTransactionId)}
-        >
-          Go to Home
-        </a>
       </section>
       <p className={styles.announcement} role="status" aria-live="polite">
         {status}

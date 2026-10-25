@@ -606,7 +606,7 @@ const LEVELS_UNREADABLE = "Levels can’t be read right now. Try again in a minu
 // Every reason the server can give has its own sentence, so a new reason fails tsc here.
 const UNAVAILABLE_LEVELS: Record<CloudHomeUnavailableReason, string> = {
   CELL_STOPPED: "Levels can’t be read while your Exomem is stopped.",
-  CELL_NOT_READY: "Levels can’t be read while your Exomem is starting.",
+  CELL_NOT_READY: "Levels can’t be read right now.",
   CELL_UNREACHABLE: LEVELS_UNREADABLE,
   CELL_OUTDATED: "Levels need a newer Exomem. It updates soon.",
   HOME_CLIENT_DISABLED: "Levels aren’t available right now.",
@@ -775,9 +775,10 @@ const EXPORT_DESCRIPTION = "All your notes and files, as Markdown. Works in ever
 
 export function exportView(summary: HomeExport, clock: Clock): ExportView {
   const pauses = summary.pauses_assistants;
-  const description = pauses
-    ? `${EXPORT_DESCRIPTION} Your assistants pause for a few minutes while we pack it.`
-    : EXPORT_DESCRIPTION;
+  const description =
+    pauses && summary.state !== "packing"
+      ? `${EXPORT_DESCRIPTION} Your assistants pause for a few minutes while we pack it.`
+      : EXPORT_DESCRIPTION;
   switch (summary.state) {
     case "none":
       return { description, detail: null, busy: false };

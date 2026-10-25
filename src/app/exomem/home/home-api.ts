@@ -107,6 +107,8 @@ function refusal(body: Record<string, unknown> | null): {
 
 export type StatusRead = {
   lifecycle: Lifecycle;
+  /** The cell-state precondition; import routes still check owner authority. */
+  importAvailable: boolean;
   storage: HomeStorage | null;
   /** NOT_RELEASED while the export flag is off: the poll leaves the export out. */
   exportSummary: HomeExport | typeof NOT_RELEASED | null;
@@ -151,6 +153,7 @@ export async function readStatus(): Promise<StatusRead> {
   if (!lifecycle) throw new Error("invalid status");
   return {
     lifecycle,
+    importAvailable: response.importAvailable === true,
     storage: parseStorage(response.storage),
     exportSummary: "export" in response ? parseExport(response.export) : NOT_RELEASED,
     connectorUrl: parseCloudConnectorUrl(response),

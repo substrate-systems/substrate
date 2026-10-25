@@ -5,6 +5,11 @@
 import { formatMoney } from "@/lib/exomem/money";
 import type { PaddlePricePreview } from "@/lib/paddle";
 
+/** The next step when an assistant opened the checkout or confirmation flow. */
+export function assistantConnectionStep(app: string): string {
+  return `Then ${app} connects in one step.`;
+}
+
 /** "€10 a month", as the board writes it: Paddle's total and its billing cycle. */
 function subscribePrice(price: PaddlePricePreview): string {
   const cycle = price.billingCycle;
@@ -21,7 +26,7 @@ function subscribePrice(price: PaddlePricePreview): string {
  * the web, the line ends "Then add it to your assistant."
  */
 export function subscribeLine(price: PaddlePricePreview | null, app?: string): string {
-  const next = app ? `Then ${app} connects in one step.` : "Then add it to your assistant.";
+  const next = app ? assistantConnectionStep(app) : "Then add it to your assistant.";
   return price
     ? `${subscribePrice(price)}. Cancel any time through Paddle. ${next}`
     : `Paddle shows the price at checkout. ${next}`;

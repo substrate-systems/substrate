@@ -18,6 +18,94 @@ const test = base.extend<object, { database: void }>({
   ],
 });
 
+test("Home offers imports only while the cell permits starting one", async ({ page, context }) => {
+  const owner = await createOwner();
+  await signIn(context, owner);
+  await page.goto("/exomem/home");
+  const start = page.getByRole("button", { name: "Import…", exact: true });
+  await expect(start).toBeVisible();
+
+  // These are C5's two retained cell states that refuse new imports.
+  for (const state of ["read_only", "stopped"]) {
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET desired_state=$2, observed_state=$2, ready=true WHERE cell_id=$1",
+      [owner.cellId, state]
+    );
+    const status = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/exomem/status"
+    );
+    await page.reload();
+    await status;
+    await expect(page.getByRole("heading", { name: "Your data", exact: true })).toBeVisible();
+    await expect(start).toHaveCount(0);
+  }
+
+  // A failed runtime still permits C5 to start the import's recovery work.
+  await pool.query(
+    "UPDATE exomem_cloud_cells SET desired_state='running', observed_state='failed', ready=false WHERE cell_id=$1",
+    [owner.cellId]
+  );
+  await page.reload();
+  await expect(start).toBeVisible();
+});
+
+test("an open import remains cancellable when billing stops new uploads", async ({
+  page,
+  context,
+}) => {
+  const folder = await mkdtemp(join(tmpdir(), "exomem-import-suspension-"));
+  try {
+    await writeFile(join(folder, "note.md"), "Keep this source.");
+    const owner = await createOwner();
+    await signIn(context, owner);
+    await page.clock.install();
+    await page.goto("/exomem/home");
+    await page.getByRole("button", { name: "Import…", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Folder to import").setInputFiles(folder);
+    const created = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/exomem/cloud/imports" &&
+        response.request().method() === "POST"
+    );
+    await dialog.getByRole("button", { name: "Encrypt and upload", exact: true }).click();
+    const operation = (await (await created).json()).import;
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET desired_state='read_only', observed_state='read_only', ready=true WHERE cell_id=$1",
+      [owner.cellId]
+    );
+    await pool.query(
+      "UPDATE exomem_entitlements SET source_state='past_due', effective_state='grace' WHERE tenant_id=$1",
+      [owner.tenantId]
+    );
+    await page.clock.fastForward(31_000);
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByText("Starting or resuming an upload is unavailable right now.")
+    ).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Retry this upload" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Import status…", exact: true }).click();
+    await dialog.getByRole("button", { name: "Cancel import", exact: true }).click();
+    await expect(dialog.getByText("Cancellation requested.", { exact: false })).toBeVisible();
+    const stored = await pool.query(
+      "SELECT requested_state FROM exomem_cloud_imports WHERE import_id=$1",
+      [operation.import_id]
+    );
+    expect(stored.rows[0].requested_state).toBe("cancelled");
+    await page.reload();
+    await page.getByRole("button", { name: "Import status…", exact: true }).click();
+    await expect(
+      page.getByRole("dialog").getByText("Cancellation requested.", { exact: false })
+    ).toBeVisible();
+  } finally {
+    await page.close();
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 test("Home encrypts the selected folder, stages it and preserves observed status after reload", async ({
   page,
   context,

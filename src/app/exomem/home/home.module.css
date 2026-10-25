@@ -391,7 +391,7 @@
   width: 34px;
   height: 34px;
   border-radius: var(--r-card);
-  background: var(--bg-elevated);
+  background: var(--bg-panel-secondary);
   border: 1px solid var(--exo-border-card);
   display: flex;
   align-items: center;

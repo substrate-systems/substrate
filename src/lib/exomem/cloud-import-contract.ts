@@ -30,6 +30,11 @@ export const cloudImportReply = z.object({ import: cloudImport.nullable() });
 export type CloudImport = z.infer<typeof cloudImport>;
 export type UploadPart = z.infer<typeof importUploadPart>;
 
+/** C5 permits import creation and completion only for a running desired cell state. */
+export function cloudImportAvailable(desiredState: unknown): boolean {
+  return desiredState === "running";
+}
+
 /**
  * Whether an import has stopped changing. A discard that the controller has
  * not yet observed keeps it open. The terminal observations are C5 protocol

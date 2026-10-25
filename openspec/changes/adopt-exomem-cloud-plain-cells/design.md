@@ -41,8 +41,11 @@ The `exomem_capacity_pools` reservation is not used for Cloud.
   1. Expiry first cancels the tenant's pending provider transaction.
   2. If the provider reports the transaction already completed, expiry does nothing and the activation webhook proceeds as usual.
   3. Otherwise the row is set to `deleted`.
-  No payment can complete without a cell. While a tenant has no non-deleted cell row, checkout is refused. A new invite re-admits that tenant under the same capacity check and creates a new row.
-- **Re-admission scope.** Re-admission applies only to a tenant whose status is `deleted`, or to a pre-payment tenant (`awaiting_checkout` or `checkout_pending`) with no live provider subscription. It resets every provider field, including `provider_environment`. A tenant that is `deletion_pending`, or has a live subscription, is never re-admitted: the invite is refused and left unconsumed. Account blocks refuse admission, except the `lifecycle_deleted` block the hosted alpha wrote when it deleted a tenant: that block guards the deleted tenant's already-revoked credentials, not the person, so re-admission deletes it in the admission transaction. An operator revocation always refuses, and a later lifecycle block never overwrites it.
+     No payment can complete without a cell. While a tenant has no non-deleted cell row, checkout is refused. A fresh invitation uses the normal capacity check. It reuses a tenant only when the identity and tenant meet the re-admission conditions below.
+- **Re-admission scope.** Re-admission reuses a tenant only when its Exomem identity remains live. It applies to a deleted tenant with that live identity, or a pre-payment tenant (`awaiting_checkout` or `checkout_pending`) without a live provider subscription. It resets every provider field, including `provider_environment`. Admission refuses a tenant that is `deletion_pending` or has a live subscription. It leaves the invitation unconsumed. Account blocks refuse reuse, except the legacy `lifecycle_deleted` block. Admission removes that block only from an eligible reused tenant. An operator revocation always blocks reuse. A later lifecycle block never replaces it.
+
+  A completed lapse tombstones the Exomem identity, so it cannot follow that reuse path. A fresh invitation to its erased address creates an independent identity and tenant. The previous principal, tenant, blocks and revoked credentials remain separate. The system keeps no address fingerprint to reconnect them, as `exomem-account-email` specifies.
+
 - **Pre-payment rows belong to D1, not D4.** The periodic D4 sweep skips a row whose tenant is still `awaiting_checkout` or `checkout_pending`. An entitlement state the mapping does not recognise yields `stopped`, never a state that allows reads.
 - **Activation is D4's job.** A completed checkout makes the entitlement active, and the D4 reconcile then moves the row to `running`. There is no separate activation call.
 
@@ -60,13 +63,16 @@ The whole-cohort `EXISTS` and Hosted reviewer credential authority do not apply 
 
 **Deletion revokes consent.** The transaction that sets a cell row to `deleted`, whether through expiry, reconcile or account deletion, also revokes the tenant's OAuth grants, refresh-token families and access tokens. It revokes every grant the tenant holds, which under Cloud is only the Cloud resource, so a deletion never depends on Cloud configuration being present. A re-admitted tenant's new cell is then reachable only after fresh consent.
 
+A subscription lapse does not run account deletion. Invitation metadata and provider references keep their existing retention rules; explicit account deletion owns their final scrub.
+
 The Cloud MCP resource is a distinct configured URL, `EXOMEM_CLOUD_MCP_URL`. Tokens are bound to it by **exact resource equality**, as hosted tokens already are. A hosted-resource token is never accepted on the Cloud path, and a Cloud-resource token is never accepted on the hosted path. Cloud-resource tokens are issued, at code exchange and at refresh, only when the principal owns a non-deleted cell row.
 
 **Scopes.** A cell sees one fixed non-owner principal and cannot enforce a read-only grant. A Cloud-resource grant therefore always carries both `exomem.read` and `exomem.write`:
+
 - An authorization request for the Cloud resource that omits `scope` receives both.
 - A request naming only a subset is refused with `invalid_scope`, whose description says Exomem Cloud needs both.
 - The gateway refuses a token lacking either scope with 403 `INSUFFICIENT_SCOPE`.
-Per-token read-only access is deferred. It would need a C3 request flag that the cell enforces.
+  Per-token read-only access is deferred. It would need a C3 request flag that the cell enforces.
 
 ### D3. The gateway is a pass-through
 
@@ -92,14 +98,14 @@ The metadata headers are required by [MCP 2026-07-28 Streamable HTTP](https://mo
 
 Every lifecycle transition is an `UPDATE` of `desired_state`. The C1 trigger bumps `generation` and notifies cellctl. The mapping from the effective entitlement (`entitlements.ts`) keeps today's read, write and export semantics:
 
-| Effective entitlement | read / write | `desired_state` |
-|---|---|---|
-| `active`, `trialing`, complimentary active | allow / allow | `running` |
-| `grace` (`past_due`), provider `paused` | allow / deny | `read_only` |
-| `cancelled` | allow / deny | `read_only` for a fixed 30-day export window from the cancellation's `source_occurred_at`, then `deleted` |
-| `suspended` (manual), complimentary revoked | deny / deny | `stopped` |
-| Tenant `awaiting_checkout` (no entitlement yet) | no cell | `stopped`, then `deleted` after 7 days |
-| Account deletion | — | `deleted`, at confirmation and on every sweep, even before payment. The tenant row stays `deletion_pending` until the Cloud deletion finish (below) has cancelled billing and scrubbed it. Once cellctl reports `deleted`, only the receipt defined below remains |
+| Effective entitlement                           | read / write  | `desired_state`                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `active`, `trialing`, complimentary active      | allow / allow | `running`                                                                                                                                                                                                                                                         |
+| `grace` (`past_due`), provider `paused`         | allow / deny  | `read_only`                                                                                                                                                                                                                                                       |
+| `cancelled`                                     | allow / deny  | `read_only` for a fixed 30-day export window from the cancellation's `source_occurred_at`, then `deleted`                                                                                                                                                         |
+| `suspended` (manual), complimentary revoked     | deny / deny   | `stopped`                                                                                                                                                                                                                                                         |
+| Tenant `awaiting_checkout` (no entitlement yet) | no cell       | `stopped`, then `deleted` after 7 days                                                                                                                                                                                                                            |
+| Account deletion                                | —             | `deleted`, at confirmation and on every sweep, even before payment. The tenant row stays `deletion_pending` until the Cloud deletion finish (below) has cancelled billing and scrubbed it. Once cellctl reports `deleted`, only the receipt defined below remains |
 
 **Cloud deletion finish.** A Cloud tenant's account deletion never goes through the v1 lifecycle: no v1 delete operation is created for a tenant that owns a Cloud cell row, including one already `deleted` (an unpaid invite that expired before the owner confirmed deletion). The Cloud step selects by tenant, every `deletion_pending` tenant owning any Cloud cell row, so a cell deleted before confirmation is still finished. Once its cell row is `deleted`, the step cancels the provider subscription through billing deletion, then scrubs the tenant in one transaction, as the v1 finish did: status `deleted` with `deleted_at`, entitlement provider references cleared, and invites (with any waitlist entry admitted through one), sessions, access tokens, transfer grants and OAuth authorization codes purged. The scrub also purges any other unconsumed invite for the owner's own email, and the owner's waitlist entry when it is unadmitted or was admitted through one of those invites (the entry first, in the same transaction), so neither stays redeemable nor later admits someone who has deleted their account. An invite held by an `ON DELETE RESTRICT` reference (a reviewer bootstrap authority) is left in place and logged by count only; it never blocks the scrub. The Paddle webhook ledger keeps each event's dedupe row, unlinked from the tenant. Billing is terminated before the scrub, because the scrub clears the references the cancellation needs. The periodic sweep retries both until they succeed. Neither step depends on the v1 provisioner or its lane. The receipt that remains is exactly: the tenant row (`deleted`, `deleted_at`), its entitlement without provider references, the `deleted` cell rows, and the revoked OAuth grant, family and token rows. The `users` row is the shared Substrate account, which other products' rows reference, so an Exomem account deletion leaves it and its email in place; erasing the Substrate account itself is a separate, account-wide deletion.
 
@@ -150,7 +156,7 @@ A single runbook and script. They preserve every write, carry Endstate unchanged
    - the database owner keeps `CONNECT`. When a consumer connects as the owner (the Vercel–Neon default), rotate the owner's password through Neon's API, which owns that role, and record the new one only in the operator's 0600 file;
    - as a second layer, set `default_transaction_read_only = on` for the database;
    - then terminate every other client session of the database.
-   The setting alone is only a session default that a client can override, so the lockout is what guarantees that a late write fails instead of being lost.
+     The setting alone is only a session default that a client can override, so the lockout is what guarantees that a late write fails instead of being lost.
 3. **Copy:** `pg_dump --no-owner --no-acl` as a separate dump role, then restore as `substrate_owner`.
 4. **Grant:** run the grants script.
 5. **Verify** extensions and sequence values, and compare per-table row counts and checksums.

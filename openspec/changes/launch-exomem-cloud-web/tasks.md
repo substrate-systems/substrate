@@ -138,7 +138,7 @@ Tasks 6.5 and 10.3 follow that rollout. The web side of export (tasks 5.6 and 8.
 - [x] 10.13 Update public-subscription Terms with 18+ eligibility and accurate Turnstile/Brevo privacy disclosure
 - [x] 10.14 Offer released Cloud plugin ZIPs and qualified installation guidance from Home, including when both providers are connected
 - [x] 10.15 Clarify journey app tiles and origins, center expired requests, link the wordmark and bound optional checkout email acquisition
-- [ ] 10.16 Link the published ChatGPT listing directly while retaining ZIP upload guidance and separating listing state from newer package approval
+- [x] 10.16 Link the published ChatGPT listing directly while retaining ZIP upload guidance and separating listing state from newer package approval
 
 These corrections follow the launch polish merge because both batches change subscribe. Their production release follows independent review and acceptance.
 
@@ -174,7 +174,8 @@ This section tracks the approved integrated web batch. Earlier unchecked tasks r
 - [ ] 11.8 Complete exact-content adversarial review, required checks, normal release and read-only production verification
 - [ ] 11.9 Carry authenticated app identity through the gateway, cell activity feed and Home consumers; highlight the matching app for three seconds
 
-PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the changed Home states, at 1440 and 390×844 in both themes, against the canon. Rows (ax) to (bg) record the departures; row (ax) still waits for the owner's approval of its wording. A browser pass on the same build then checked the rest of the design's UI pass:
+PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design lanes compared 164 journey renders and the changed Home states, at 1440 and 390×844 in both themes, against the canon. Rows (ax) to (bg) record the departures. The owner approved row (ax)'s wording on 2026-10-25, closing task 10.16's remaining decision. A browser pass on the same build then checked the rest of the design's UI pass:
+
 - keyboard order, focus rings and activation on ten journey pages, at 1440 in the dark theme;
 - forced colours and 200% zoom at 1440, and 400% zoom at 320 px;
 - an 844×390 landscape phone in both themes.
@@ -182,6 +183,7 @@ PR #284 delivered the visual part of task 11.7 on 2026-10-24. Independent design
 Reduced motion already has end-to-end cases: the landing, foundation, journey waiting step and Connect flow specs.
 
 Only forced colours failed: the selected level did not stand out from its track. PR #288 fixed it and added a Home end-to-end case for it. These were accepted as they are:
+
 - The decorative living graphs stay hidden in forced colours, and the landing map's panel shows only its rule.
 - The storage bar and the checkout amount placeholders also vanish there, but their text stays.
 - Targets under 24 px were noted, not judged.
