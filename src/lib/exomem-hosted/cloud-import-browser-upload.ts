@@ -4,12 +4,35 @@ import {
   requestBrowserImport,
   readBrowserImport,
 } from "./cloud-import-browser-api";
-import { encryptImportToBrowserFile } from "./cloud-import-browser-file";
-import { uploadImportParts, type ImportFile } from "./cloud-import-browser";
+import {
+  browserStorageRoom,
+  encryptImportToBrowserFile,
+  keepImportCiphertext,
+  removeStaleImportCiphertext,
+  storedImportCiphertext,
+  type StoredCiphertext,
+} from "./cloud-import-browser-file";
+import {
+  digestImportCiphertext,
+  forecastImport,
+  uploadImportParts,
+  type ImportFile,
+} from "./cloud-import-browser";
+import { ImportStop } from "./cloud-import-stop";
 
+/** Every count is measured from the work itself; totals come from the exact forecast. */
 export type ImportProgress =
-  | { phase: "preparing" | "encrypting" | "reporting" }
-  | { phase: "uploading"; bytes: number; total: number };
+  | { phase: "preparing" | "reporting" }
+  | {
+      phase: "encrypting";
+      files: number;
+      totalFiles: number;
+      plaintextBytes: number;
+      totalPlaintextBytes: number;
+      ciphertextBytes: number;
+      totalCiphertextBytes: number;
+    }
+  | { phase: "verifying" | "uploading"; bytes: number; total: number };
 
 function pauseUntilNextRead(signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -26,18 +49,34 @@ function pauseUntilNextRead(signal: AbortSignal): Promise<void> {
   });
 }
 
-/** One selection owns its randomized ciphertext and receipts until completion or disposal. */
+/** One tab at a time works on an import, because its ciphertext file is named by its ID. */
+async function holdingImport<T>(importId: string, work: () => Promise<T>): Promise<T> {
+  if (typeof navigator.locks?.request !== "function") return work();
+  return navigator.locks.request(`exomem-import:${importId}`, { ifAvailable: true }, (lock) => {
+    if (!lock) throw new ImportStop("OTHER_TAB");
+    return work();
+  });
+}
+
+/**
+ * One import's upload from this browser. A new selection starts an import; an existing import
+ * continues from the same folder chosen again (before its ciphertext report) or from the
+ * ciphertext this browser kept (after it).
+ */
 export class BrowserImportUpload {
-  readonly id = crypto.randomUUID();
-  private encrypted: Awaited<ReturnType<typeof encryptImportToBrowserFile>> | null = null;
+  readonly id: string;
+  private encrypted: StoredCiphertext | null = null;
   private readonly completed = new Map<number, string>();
   private active: Promise<void> | null = null;
   private controller: AbortController | null = null;
 
   constructor(
-    private readonly files: ImportFile[],
-    private readonly csrfToken: string
-  ) {}
+    private readonly files: ImportFile[] | null,
+    private readonly csrfToken: string,
+    importId?: string
+  ) {
+    this.id = importId ?? crypto.randomUUID();
+  }
 
   resume(
     observed: (operation: CloudImport) => void,
@@ -46,7 +85,9 @@ export class BrowserImportUpload {
     if (this.active) return this.active;
     const controller = new AbortController();
     this.controller = controller;
-    this.active = this.send(observed, progress, controller.signal).finally(() => {
+    this.active = holdingImport(this.id, () =>
+      this.send(observed, progress, controller.signal)
+    ).finally(() => {
       this.active = null;
       this.controller = null;
     });
@@ -61,10 +102,9 @@ export class BrowserImportUpload {
     this.pause();
     // Reap the producer and upload before removing their private ciphertext file.
     await this.active?.catch(() => {});
-    if (this.encrypted) {
-      await this.encrypted.remove();
-      this.encrypted = null;
-    }
+    const stored = this.encrypted ?? (await storedImportCiphertext(this.id));
+    await stored?.remove();
+    this.encrypted = null;
   }
 
   private async send(
@@ -73,17 +113,25 @@ export class BrowserImportUpload {
     signal: AbortSignal
   ) {
     progress({ phase: "preparing" });
-    let operation = await requestBrowserImport(
-      this.csrfToken,
-      this.id,
-      "create",
-      {
-        kind: "adopt",
-        declared_bytes: this.files.reduce((total, { file }) => total + file.size, 0),
-        declared_files: this.files.length,
-      },
-      signal
-    );
+    let operation: CloudImport;
+    if (this.files) {
+      // Creation is idempotent for the same ID and declaration, so a resumed import re-creates.
+      operation = await requestBrowserImport(
+        this.csrfToken,
+        this.id,
+        "create",
+        {
+          kind: "adopt",
+          declared_bytes: this.files.reduce((total, { file }) => total + file.size, 0),
+          declared_files: this.files.length,
+        },
+        signal
+      );
+    } else {
+      const current = await readBrowserImport(this.csrfToken, this.id, signal);
+      if (!current) throw new ImportStop("UNAVAILABLE");
+      operation = current;
+    }
     observed(operation);
     signal.throwIfAborted();
     if (operation.requested_state !== "requested") {
@@ -102,26 +150,48 @@ export class BrowserImportUpload {
           operation.requested_state !== "requested" ||
           (operation.observed_state !== "pending" && operation.observed_state !== "key_ready")
         ) {
-          throw new Error(
-            "The import is no longer waiting for an upload. Check its current status."
-          );
+          throw new ImportStop("NOT_WAITING");
         }
         if (ready(operation)) return;
         await pauseUntilNextRead(signal);
         const next = await readBrowserImport(this.csrfToken, this.id, signal);
         signal.throwIfAborted();
-        if (!next) throw new Error("The import is unavailable. Check its current status.");
+        if (!next) throw new ImportStop("UNAVAILABLE");
         operation = next;
         observed(operation);
       }
     };
 
+    if (!this.encrypted && operation.ciphertext_sha256 !== null) {
+      // The report is fixed; only the ciphertext it describes can continue this import.
+      this.encrypted = await this.verifyStored(operation, progress, signal);
+    }
     if (!this.encrypted) {
+      if (!this.files) throw new ImportStop("LOCAL_COPY_MISSING");
       await waitFor((value) => value.observed_state === "key_ready" && Boolean(value.recipient));
       const recipient = operation.recipient;
-      if (!recipient) throw new Error("The import encryption key is unavailable.");
-      progress({ phase: "encrypting" });
-      this.encrypted = await encryptImportToBrowserFile(this.files, recipient, signal);
+      if (!recipient) throw new ImportStop("KEY_UNAVAILABLE");
+      // A new encryption replaces every kept copy. Copies that cannot be removed stay counted
+      // as used, so the space check below still decides; the preflight reports that failure.
+      await removeStaleImportCiphertext(null).catch(() => {});
+      const forecast = await forecastImport(this.files, recipient, signal);
+      const room = await browserStorageRoom();
+      if (room && room.quota - room.usage < forecast.ciphertextBytes)
+        throw new ImportStop("BROWSER_SPACE");
+      await keepImportCiphertext();
+      const totals = {
+        totalFiles: forecast.files,
+        totalPlaintextBytes: forecast.plaintextBytes,
+        totalCiphertextBytes: forecast.ciphertextBytes,
+      };
+      progress({ phase: "encrypting", files: 0, plaintextBytes: 0, ciphertextBytes: 0, ...totals });
+      this.encrypted = await encryptImportToBrowserFile(
+        this.id,
+        this.files,
+        recipient,
+        signal,
+        (measured) => progress({ phase: "encrypting", ...measured, ...totals })
+      );
     }
     const encrypted = this.encrypted;
     operation = await requestBrowserImport(
@@ -138,7 +208,7 @@ export class BrowserImportUpload {
       !operation.urls_expire_at ||
       Date.parse(operation.urls_expire_at) <= Date.now()
     ) {
-      throw new Error("The upload links have expired. Cancel this import and start again.");
+      throw new ImportStop("LINKS_EXPIRED");
     }
     assertImportAccount(this.csrfToken);
     progress({ phase: "uploading", bytes: 0, total: encrypted.report.ciphertext_bytes });
@@ -167,5 +237,26 @@ export class BrowserImportUpload {
     observed(operation);
     await encrypted.remove();
     this.encrypted = null;
+  }
+
+  /** Checks this browser's kept ciphertext against the import's fixed report before reuse. */
+  private async verifyStored(
+    operation: CloudImport,
+    progress: (value: ImportProgress) => void,
+    signal: AbortSignal
+  ): Promise<StoredCiphertext> {
+    const stored = await storedImportCiphertext(this.id);
+    if (!stored || stored.ciphertext.size === 0) throw new ImportStop("LOCAL_COPY_MISSING");
+    const total = stored.ciphertext.size;
+    if (total !== operation.ciphertext_bytes) throw new ImportStop("LOCAL_COPY_CHANGED");
+    progress({ phase: "verifying", bytes: 0, total });
+    const report = await digestImportCiphertext(
+      stored.ciphertext,
+      (bytes) => progress({ phase: "verifying", bytes, total }),
+      signal
+    );
+    if (report.ciphertext_sha256 !== operation.ciphertext_sha256)
+      throw new ImportStop("LOCAL_COPY_CHANGED");
+    return { ...stored, report };
   }
 }

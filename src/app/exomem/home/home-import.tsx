@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Modal } from "@/components/exomem/Modal";
 import {
@@ -8,23 +8,76 @@ import {
   stagedImportFolder,
   type CloudImport,
 } from "@/lib/exomem/cloud-import-contract";
-import { folderImportFiles, type ImportFile } from "@/lib/exomem-hosted/cloud-import-browser";
+import {
+  folderImportFiles,
+  forecastImport,
+  type ImportForecast,
+} from "@/lib/exomem-hosted/cloud-import-browser";
 import {
   readBrowserImport,
   requestBrowserImport,
 } from "@/lib/exomem-hosted/cloud-import-browser-api";
 import {
+  browserStorageRoom,
+  removeStaleImportCiphertext,
+  storedImportCiphertext,
+} from "@/lib/exomem-hosted/cloud-import-browser-file";
+import {
   BrowserImportUpload,
   type ImportProgress,
 } from "@/lib/exomem-hosted/cloud-import-browser-upload";
+import {
+  classifyFolder,
+  selectImportFiles,
+  type FolderEntry,
+  type ImportSelection,
+  type IncludeChoices,
+} from "@/lib/exomem-hosted/cloud-import-selection";
+import {
+  importPaused,
+  importStopFrom,
+  type ImportStopNext,
+} from "@/lib/exomem-hosted/cloud-import-stop";
 import { friendlyHostedError, HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
-import { count, shortDateTime } from "./home-format";
+import type { HomeStorage } from "./home-api";
+import { byteSize, count, shortDateTime } from "./home-format";
+import {
+  browserFree,
+  ImportExclusions,
+  ImportLimits,
+  ImportProgressView,
+  ImportReference,
+  StagedImportStorage,
+  type BrowserRoom,
+} from "./home-import-panels";
 import styles from "./home.module.css";
 import dialog from "./home-storage.module.css";
 
 const BROWSER_CLEANUP_WARNING =
   "Browser cleanup failed. A temporary encrypted file may remain on this device. " +
   "Clear this site's stored data in browser settings to remove it. This also signs you out.";
+
+const NOTHING_EXTRA: IncludeChoices = { hidden: false, gitignored: false };
+// Progress arrives per encrypted chunk; the dialog redraws at this pace instead.
+const PROGRESS_REDRAW_MS = 250;
+
+/** A finished forecast belongs to the selection it measured. */
+type Preflight = {
+  selection: ImportSelection;
+  measuredAt: number;
+} & ({ forecast: ImportForecast; room: BrowserRoom } | { failed: string });
+
+/** Why this page's upload is not running, shown until the person acts on it. */
+type Stop =
+  | { kind: "paused"; unavailable: boolean; phase: ImportProgress["phase"] | null }
+  | { kind: "failed"; importId: string; code: string | null; text: string; next: ImportStopNext };
+
+const NEXT_STEP: Record<ImportStopNext, string> = {
+  resume: "Resume to try again, or cancel the import.",
+  choose: "Choose the folder again to continue.",
+  cancel: "Cancel this import, then start a new one.",
+  status: "Check the import’s current status above.",
+};
 
 function observation(operation: CloudImport): string {
   if (
@@ -62,6 +115,29 @@ function observation(operation: CloudImport): string {
     default:
       return `Exomem reported an unfamiliar state: ${operation.observed_state}. Completion is unconfirmed.`;
   }
+}
+
+/** The Home row's one-line state while the dialog is closed. */
+function rowProgress(progress: ImportProgress): string {
+  switch (progress.phase) {
+    case "encrypting":
+      return `Encrypting: ${count(progress.files)} of ${count(progress.totalFiles)} files.`;
+    case "verifying":
+      return `Checking the encrypted copy: ${byteSize(progress.bytes)} of ${byteSize(progress.total)}.`;
+    case "uploading":
+      return `Uploading: ${byteSize(progress.bytes)} of ${byteSize(progress.total)}.`;
+    case "preparing":
+      return "Preparing the import.";
+    case "reporting":
+      return "Confirming the upload.";
+  }
+}
+
+function pausedText(stop: Extract<Stop, { kind: "paused" }>): string {
+  if (stop.unavailable) return "Paused until uploads are available again.";
+  return stop.phase === "uploading" || stop.phase === "reporting" || stop.phase === "verifying"
+    ? "Paused. Parts already uploaded from this page are kept."
+    : "Paused. Encryption starts again from the beginning when you resume.";
 }
 
 function ImportReviewHandoff({ importId }: { importId: string }) {
@@ -119,72 +195,101 @@ function ImportReviewHandoff({ importId }: { importId: string }) {
 export function ImportDocuments({
   csrfToken,
   canStart,
+  storage,
   onAccountLost,
 }: {
   csrfToken: string;
   canStart: boolean;
+  /** The vault's last disk reading from the status poll; advisory, because it can be stale. */
+  storage: HomeStorage | null;
   onAccountLost: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [operation, setOperation] = useState<CloudImport | null>(null);
-  const [files, setFiles] = useState<ImportFile[]>([]);
+  // When this page last heard about the import: "measured N minutes ago" is read against it.
+  const [heardAt, setHeardAt] = useState(0);
+  const [folder, setFolder] = useState<FolderEntry[] | null>(null);
+  const [reading, setReading] = useState(false);
+  const [include, setInclude] = useState<IncludeChoices>(NOTHING_EXTRA);
+  const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [localCopy, setLocalCopy] = useState<{ importId: string; bytes: number | null } | null>(
+    null
+  );
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [busy, setBusy] = useState(false);
-  const [retryAvailable, setRetryAvailable] = useState(false);
+  // The import ID of the upload this page holds, while it holds one.
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [stop, setStop] = useState<Stop | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [readMessage, setReadMessage] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const upload = useRef<BrowserImportUpload | null>(null);
+  const latest = useRef<ImportProgress | null>(null);
+  const pausedBy = useRef<"person" | "unavailable">("person");
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      // Navigation ends page-session retries; the server still owns import cleanup.
-      void upload.current
-        ?.dispose()
-        .catch(() => console.warn("Encrypted import file cleanup failed."));
+      // Unmounting pauses: the import ID names the kept ciphertext, so the next mount resumes.
+      upload.current?.pause();
     };
   }, []);
 
   useEffect(() => {
-    if (!canStart) upload.current?.pause();
+    if (canStart) return;
+    pausedBy.current = "unavailable";
+    upload.current?.pause();
   }, [canStart]);
+
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Older engines show the leave prompt only for a set return value.
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    const redraw = window.setInterval(() => setProgress(latest.current), PROGRESS_REDRAW_MS);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      window.clearInterval(redraw);
+    };
+  }, [busy]);
+
+  const failCleanup = useCallback(() => {
+    if (mounted.current)
+      setMessage((current) =>
+        !current
+          ? BROWSER_CLEANUP_WARNING
+          : current.includes(BROWSER_CLEANUP_WARNING)
+            ? current
+            : `${current} ${BROWSER_CLEANUP_WARNING}`
+      );
+  }, []);
 
   const fail = useCallback(
     (error: unknown) => {
-      if (!mounted.current) return;
-      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (!mounted.current || importPaused(error)) return;
       if (error instanceof HostedBrowserError && error.status === 401) {
         onAccountLost();
         return;
       }
-      setMessage(
-        error instanceof Error && !(error instanceof HostedBrowserError)
-          ? error.message
-          : friendlyHostedError(error)
-      );
+      setMessage(importStopFrom(error)?.message ?? friendlyHostedError(error));
     },
     [onAccountLost]
   );
-
-  function failCleanup() {
-    if (mounted.current)
-      setMessage((current) =>
-        current ? `${current} ${BROWSER_CLEANUP_WARNING}` : BROWSER_CLEANUP_WARNING
-      );
-  }
 
   const importId = operation?.import_id;
   const readImportId = open ? importId : undefined;
   const terminal = operation ? cloudImportFinished(operation) : false;
   useEffect(() => {
-    // A blocked start still leaves existing imports and their cleanup reachable.
-    if (busy || (!open && canStart)) return;
+    // With the dialog closed, one read finds an open import, so the row can say it waits; a
+    // blocked start also keeps existing imports and their cleanup reachable.
+    if (busy) return;
     const discover = !open;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -193,6 +298,7 @@ export function ImportDocuments({
         const value = await readBrowserImport(csrfToken, readImportId, controller.signal);
         if (controller.signal.aborted) return;
         setOperation(value);
+        setHeardAt(Date.now());
         setChecked(true);
         setReadMessage(null);
         if (discover || !value || cloudImportFinished(value)) return;
@@ -217,39 +323,140 @@ export function ImportDocuments({
     };
   }, [open, busy, canStart, readImportId, fail, csrfToken]);
 
-  async function send() {
-    if (!canStart) return;
-    if (!upload.current) {
-      upload.current = new BrowserImportUpload(files, csrfToken);
-      setAttemptId(upload.current.id);
-      setOperation(null);
+  const openImport = operation && !terminal ? operation : null;
+  // C5's "requested" intent is the only one that still waits for this browser's upload.
+  const awaiting = openImport?.requested_state === "requested" ? openImport : null;
+  const reported = awaiting !== null && awaiting.ciphertext_sha256 !== null;
+  const holding = attemptId !== null && (awaiting === null || awaiting.import_id === attemptId);
+  const selection = useMemo(
+    () => (folder ? selectImportFiles(folder, include) : null),
+    [folder, include]
+  );
+  const hiddenFiles = useMemo(() => folder?.some(({ hidden }) => hidden) ?? false, [folder]);
+  const gitignoredFiles = useMemo(
+    () => folder?.some(({ gitignored }) => gitignored) ?? false,
+    [folder]
+  );
+  // Creation is idempotent only for the same declaration, so a resumed folder must match it.
+  const matches =
+    awaiting === null ||
+    selection === null ||
+    (selection.included.files === awaiting.declared_files &&
+      selection.included.bytes === awaiting.declared_bytes);
+  const canChoose =
+    canStart &&
+    checked &&
+    !busy &&
+    (openImport === null ||
+      (awaiting !== null && !reported && !(holding && attemptId === awaiting.import_id)));
+  const measuring =
+    canChoose && selection !== null && selection.files.length > 0 && matches ? selection : null;
+
+  const resumingId = awaiting?.import_id ?? null;
+  useEffect(() => {
+    if (!measuring) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        // Only the open import can use kept ciphertext; the rest is from ended attempts. The
+        // open import's own copy is replaced under its lock when encryption starts.
+        await removeStaleImportCiphertext(resumingId).catch(failCleanup);
+        const replaced = resumingId ? await storedImportCiphertext(resumingId) : null;
+        const forecast = await forecastImport(measuring.files, undefined, controller.signal);
+        const estimate = await browserStorageRoom();
+        const room = estimate && {
+          quota: estimate.quota,
+          usage: estimate.usage - (replaced?.ciphertext.size ?? 0),
+        };
+        if (!controller.signal.aborted)
+          setPreflight({ selection: measuring, measuredAt: Date.now(), forecast, room });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setPreflight({
+          selection: measuring,
+          measuredAt: Date.now(),
+          failed: importStopFrom(error)?.message ?? friendlyHostedError(error),
+        });
+      }
+    })();
+    return () => controller.abort();
+  }, [measuring, resumingId, failCleanup]);
+  const measured = preflight && measuring && preflight.selection === measuring ? preflight : null;
+
+  const storedId = open && reported && !holding && !busy ? awaiting.import_id : null;
+  useEffect(() => {
+    if (!storedId) return;
+    let current = true;
+    void storedImportCiphertext(storedId)
+      .then((stored) => {
+        if (current) setLocalCopy({ importId: storedId, bytes: stored?.ciphertext.size ?? null });
+      })
+      .catch(() => {
+        if (current) setLocalCopy({ importId: storedId, bytes: null });
+      });
+    return () => {
+      current = false;
+    };
+  }, [storedId]);
+  const stored = storedId && localCopy?.importId === storedId ? localCopy : null;
+  const storedUsable =
+    stored !== null && stored.bytes !== null && stored.bytes === awaiting?.ciphertext_bytes;
+
+  async function choose(selected: File[]) {
+    setMessage(null);
+    setReading(true);
+    try {
+      const entries = await classifyFolder(folderImportFiles(selected));
+      if (!mounted.current) return;
+      const previous = upload.current;
+      upload.current = null;
+      setAttemptId(null);
+      setStop(null);
+      setFolder(entries);
+      void previous?.dispose().catch(failCleanup);
+    } catch (error) {
+      fail(error);
+    } finally {
+      if (mounted.current) setReading(false);
     }
+  }
+
+  async function run() {
+    const current = upload.current;
+    if (!canStart || !current) return;
+    pausedBy.current = "person";
+    latest.current = null;
     setBusy(true);
-    setRetryAvailable(false);
+    setStop(null);
     setMessage(null);
     let accepted = false;
     try {
-      await upload.current.resume(
+      await current.resume(
         (value) => {
           if (value.requested_state === "uploaded") accepted = true;
-          if (mounted.current) setOperation(value);
+          if (mounted.current) {
+            setOperation(value);
+            setHeardAt(Date.now());
+          }
         },
         (value) => {
-          if (mounted.current) setProgress(value);
+          const phase = latest.current?.phase;
+          latest.current = value;
+          // A new phase shows at once; counts within a phase redraw on the timer.
+          if (mounted.current && phase !== value.phase) setProgress(value);
         }
       );
       if (accepted) {
         upload.current = null;
         if (mounted.current) {
-          setFiles([]);
+          setFolder(null);
           setAttemptId(null);
         }
       }
     } catch (error) {
-      if (mounted.current) setRetryAvailable(true);
       // Once the upload is accepted, only removal of the local encrypted file remains.
       if (accepted) failCleanup();
-      else fail(error);
+      else stopped(error, current.id);
     } finally {
       if (mounted.current) {
         setBusy(false);
@@ -258,30 +465,86 @@ export function ImportDocuments({
     }
   }
 
+  function stopped(error: unknown, id: string) {
+    if (!mounted.current) return;
+    if (importPaused(error)) {
+      setStop({
+        kind: "paused",
+        unavailable: pausedBy.current === "unavailable",
+        phase: latest.current?.phase ?? null,
+      });
+      return;
+    }
+    if (error instanceof HostedBrowserError && error.status === 401) {
+      onAccountLost();
+      return;
+    }
+    const reason = importStopFrom(error);
+    if (reason?.next === "choose") {
+      // The kept file objects cannot be read again; a fresh choice of the folder can.
+      upload.current = null;
+      setAttemptId(null);
+      setFolder(null);
+    }
+    setStop({
+      kind: "failed",
+      importId: id,
+      code: reason?.code ?? (error instanceof HostedBrowserError ? error.code : null),
+      text: reason?.message ?? friendlyHostedError(error),
+      next: reason?.next ?? "resume",
+    });
+    if (reason?.cleanupFailed) failCleanup();
+  }
+
+  function start() {
+    if (!selection) return;
+    const previous = upload.current;
+    const resumeId = awaiting && !reported ? awaiting.import_id : undefined;
+    upload.current = new BrowserImportUpload(selection.files, csrfToken, resumeId);
+    setAttemptId(upload.current.id);
+    if (!resumeId) setOperation(null);
+    // Disposal removes the attempt's ciphertext file, which is named by its import ID.
+    if (previous && previous.id !== upload.current.id) void previous.dispose().catch(failCleanup);
+    void run();
+  }
+
+  function continueStored() {
+    if (!awaiting) return;
+    upload.current = new BrowserImportUpload(null, csrfToken, awaiting.import_id);
+    setAttemptId(upload.current.id);
+    void run();
+  }
+
+  function pause() {
+    pausedBy.current = "person";
+    upload.current?.pause();
+  }
+
   async function change(action: "cancel" | "discard") {
     if (!operation) return;
     setBusy(true);
-    setRetryAvailable(false);
+    setStop(null);
     setMessage(null);
-    const currentUpload = upload.current;
-    currentUpload?.pause();
+    // A handle on the import's ID also reaches a ciphertext that an earlier page kept.
+    const currentUpload =
+      upload.current?.id === operation.import_id
+        ? upload.current
+        : new BrowserImportUpload(null, csrfToken, operation.import_id);
+    currentUpload.pause();
     try {
       const value = await requestBrowserImport(csrfToken, operation.import_id, action);
       if (mounted.current) {
         setOperation(value);
         setConfirmDiscard(false);
-      }
-      if (mounted.current) {
-        setFiles([]);
+        setFolder(null);
         setAttemptId(null);
-        setRetryAvailable(false);
       }
     } catch (error) {
       fail(error);
     } finally {
       // Recording server intent must not depend on deletion of the browser's temporary file.
       try {
-        await currentUpload?.dispose();
+        await currentUpload.dispose();
         if (upload.current === currentUpload) upload.current = null;
       } catch {
         failCleanup();
@@ -290,13 +553,26 @@ export function ImportDocuments({
     }
   }
 
-  const canResume =
+  const resumable =
     canStart &&
-    retryAvailable &&
-    (!operation || operation.requested_state === "requested") &&
-    !terminal;
-  const canSelect = canStart && checked && !busy && (!operation || terminal) && !canResume;
-  const selectionBytes = files.reduce((total, { file }) => total + file.size, 0);
+    !busy &&
+    holding &&
+    stop !== null &&
+    (stop.kind === "paused" || stop.next === "resume");
+  const browserShort =
+    measured !== null &&
+    "forecast" in measured &&
+    (browserFree(measured.room) ?? Infinity) < measured.forecast.ciphertextBytes;
+  const rowStatus =
+    busy && progress
+      ? rowProgress(progress)
+      : stop?.kind === "paused"
+        ? "Import paused. Open it to resume."
+        : stop
+          ? "Import stopped. Open it to see why and what to do next."
+          : awaiting
+            ? "An upload is waiting to continue."
+            : null;
   return (
     <>
       {(canStart || operation !== null || readMessage !== null) && (
@@ -304,9 +580,10 @@ export function ImportDocuments({
           <div className={styles.rowText}>
             <span className={styles.rowTitle}>Import documents</span>
             <span className={styles.rowBody}>
-              {canStart
-                ? "Bring in a folder privately, then review it with your assistant."
-                : "Check import status or finish cleanup."}
+              {rowStatus ??
+                (canStart
+                  ? "Bring in a folder privately, then review it with your assistant."
+                  : "Check import status or finish cleanup.")}
             </span>
           </div>
           <Button size="account" onClick={() => setOpen(true)}>
@@ -321,10 +598,8 @@ export function ImportDocuments({
           width={420}
           phoneFullWidth
           placement="top"
-          onClose={() => {
-            upload.current?.pause();
-            setOpen(false);
-          }}
+          // Closing only hides the dialog: the work continues and the row above shows it.
+          onClose={() => setOpen(false)}
         >
           <div className={dialog.content}>
             <p className={dialog.text}>
@@ -349,7 +624,7 @@ export function ImportDocuments({
                 </p>
                 <p className={dialog.text}>
                   Selected: {count(operation.declared_files)} files ·{" "}
-                  {count(operation.declared_bytes)} bytes. Status updated{" "}
+                  {byteSize(operation.declared_bytes)}. Status updated{" "}
                   {shortDateTime(operation.updated_at)}.
                 </p>
                 {operation.error_code && (
@@ -361,21 +636,94 @@ export function ImportDocuments({
             {operation?.kind === "adopt" &&
               operation.observed_state === "done" &&
               operation.requested_state === "uploaded" && (
-                <ImportReviewHandoff key={operation.import_id} importId={operation.import_id} />
+                <>
+                  <ImportReviewHandoff key={operation.import_id} importId={operation.import_id} />
+                  <StagedImportStorage
+                    stagedBytes={operation.declared_bytes}
+                    stagedFiles={operation.declared_files}
+                    storage={storage}
+                    now={heardAt}
+                  />
+                </>
               )}
-            {progress && (
+            {busy && progress && <ImportProgressView progress={progress} />}
+            {busy && progress && (
+              <>
+                <Button size="dialog" onClick={pause}>
+                  Pause
+                </Button>
+                <p className={dialog.text}>
+                  You can close this window; the import continues while this tab stays open. If the
+                  tab closes or reloads, open Import again to continue.
+                </p>
+              </>
+            )}
+            {!busy && stop?.kind === "paused" && (
               <p className={dialog.text} role="status">
-                {progress.phase === "encrypting"
-                  ? "Encrypting your files on this device…"
-                  : progress.phase === "uploading"
-                    ? `Uploading encrypted data: ${count(progress.bytes)} of ${count(progress.total)} bytes.`
-                    : progress.phase === "reporting"
-                      ? "Confirming the encrypted upload…"
-                      : "Preparing the import…"}
+                {pausedText(stop)}
               </p>
             )}
-            {canSelect && (
+            {!busy && stop?.kind === "failed" && (
               <>
+                <p className={dialog.text} role="alert">
+                  {stop.text} {NEXT_STEP[stop.next]}
+                </p>
+                <ImportReference importId={stop.importId} code={stop.code ?? undefined} />
+              </>
+            )}
+            {resumable && (
+              <Button variant="primary" size="dialog" onClick={() => void run()}>
+                Resume upload
+              </Button>
+            )}
+            {canStart && !busy && reported && !holding && (
+              <>
+                {/* One button while the check runs, so the dialog's first focus is not Cancel. */}
+                {(stored === null || storedUsable) && (
+                  <>
+                    <p className={dialog.text} role="status">
+                      {stored === null
+                        ? "Looking for this import’s encrypted copy in this browser…"
+                        : `This browser still has the import’s encrypted copy (${byteSize(stored.bytes ?? 0)}). Continue to check it and upload it.`}
+                    </p>
+                    <Button
+                      variant="primary"
+                      size="dialog"
+                      working={stored === null}
+                      onClick={continueStored}
+                    >
+                      Continue upload
+                    </Button>
+                  </>
+                )}
+                {stored !== null && !storedUsable && (
+                  <>
+                    <p className={dialog.text} role="alert">
+                      {stored.bytes === null
+                        ? "This browser no longer has the encrypted copy for this import."
+                        : "The encrypted copy in this browser does not match the one this import reported."}{" "}
+                      {NEXT_STEP.cancel}
+                    </p>
+                    <ImportReference importId={awaiting.import_id} />
+                  </>
+                )}
+              </>
+            )}
+            {canChoose && (
+              <>
+                {awaiting && folder === null && (
+                  <p className={dialog.text}>
+                    This import stopped before its encrypted copy was finished. Choose the same
+                    folder again: it is encrypted again on this device, and the import continues.
+                  </p>
+                )}
+                <Button size="dialog" working={reading} onClick={() => input.current?.click()}>
+                  {reading
+                    ? "Reading the folder…"
+                    : awaiting
+                      ? "Choose the folder again"
+                      : "Choose a folder"}
+                </Button>
                 <input
                   ref={(node) => {
                     input.current = node;
@@ -385,52 +733,61 @@ export function ImportDocuments({
                   multiple
                   className="sr-only"
                   aria-label="Folder to import"
+                  // The visible button opens it; an invisible control must not take focus.
+                  tabIndex={-1}
                   onChange={(event) => {
                     const selected = Array.from(event.currentTarget.files ?? []);
                     event.currentTarget.value = "";
-                    try {
-                      const next = folderImportFiles(selected);
-                      const previous = upload.current;
-                      upload.current = null;
-                      setFiles(next);
-                      setAttemptId(null);
-                      setRetryAvailable(false);
-                      setMessage(null);
-                      void previous?.dispose().catch(failCleanup);
-                    } catch (error) {
-                      fail(error);
-                    }
+                    void choose(selected);
                   }}
                 />
-                <Button size="dialog" onClick={() => input.current?.click()}>
-                  Choose a folder
-                </Button>
-                {files.length > 0 && attemptId === null && (
+                {selection && !reading && (
                   <>
-                    <p className={dialog.text}>
-                      {count(files.length)} files · {count(selectionBytes)} bytes selected.
+                    <p className={dialog.text} role="status">
+                      {selection.files.length === 0
+                        ? "Nothing in this folder is included yet."
+                        : `${count(selection.included.files)} files · ${byteSize(selection.included.bytes)} to import.`}
                     </p>
-                    <Button
-                      variant="primary"
-                      size="dialog"
-                      working={busy}
-                      onClick={() => void send()}
-                    >
-                      Encrypt and upload
-                    </Button>
+                    <ImportExclusions
+                      hiddenFiles={hiddenFiles}
+                      gitignoredFiles={gitignoredFiles}
+                      selection={selection}
+                      include={include}
+                      onInclude={setInclude}
+                    />
+                    {!matches && awaiting && (
+                      <p className={dialog.text} role="alert">
+                        The open import expects {count(awaiting.declared_files)} files ·{" "}
+                        {byteSize(awaiting.declared_bytes)}. Choose the same folder with the same
+                        items included, or cancel the import to start a new one.
+                      </p>
+                    )}
+                    {measuring && measured === null && (
+                      <p className={dialog.text} role="status">
+                        Measuring the encrypted copy…
+                      </p>
+                    )}
+                    {measured && "failed" in measured && (
+                      <p className={dialog.text} role="alert">
+                        {measured.failed}
+                      </p>
+                    )}
+                    {measured && "forecast" in measured && (
+                      <ImportLimits
+                        forecast={measured.forecast}
+                        room={measured.room}
+                        storage={storage}
+                        now={measured.measuredAt}
+                      />
+                    )}
+                    {measured && "forecast" in measured && !browserShort && (
+                      <Button variant="primary" size="dialog" onClick={start}>
+                        {awaiting ? "Encrypt and continue" : "Encrypt and upload"}
+                      </Button>
+                    )}
                   </>
                 )}
               </>
-            )}
-            {busy && progress && (
-              <Button size="dialog" onClick={() => upload.current?.pause()}>
-                Pause upload
-              </Button>
-            )}
-            {!busy && canResume && (
-              <Button variant="primary" size="dialog" onClick={() => void send()}>
-                Retry this upload
-              </Button>
             )}
             {!busy &&
               operation &&
@@ -470,20 +827,7 @@ export function ImportDocuments({
                 {readMessage}
               </p>
             )}
-            {canStart && !terminal && (!operation || operation.requested_state === "requested") && (
-              <p className={dialog.text}>
-                Keep this page open to retry the same encrypted file. After a reload, an unfinished
-                upload needs cancellation and a fresh start.
-              </p>
-            )}
-            <Button
-              variant="ghost"
-              size="dialog"
-              onClick={() => {
-                upload.current?.pause();
-                setOpen(false);
-              }}
-            >
+            <Button variant="ghost" size="dialog" onClick={() => setOpen(false)}>
               Close
             </Button>
           </div>

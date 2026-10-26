@@ -79,6 +79,26 @@ export function gigabytes(bytes: number): string {
   return new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(bytes / 1e9);
 }
 
+// ECMA-402's sanctioned byte units in decimal steps, matching the decimal gigabytes above.
+const SIZE_UNITS = ["byte", "kilobyte", "megabyte", "gigabyte", "terabyte", "petabyte"] as const;
+
+/** A byte count in the largest decimal unit below 1,000: "512 bytes", "170 kB", "5.6 GB". */
+export function byteSize(bytes: number): string {
+  let unit = 0;
+  let value = bytes;
+  while (value >= 1000 && unit < SIZE_UNITS.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return new Intl.NumberFormat(LOCALE, {
+    style: "unit",
+    unit: SIZE_UNITS[unit],
+    // "0 bytes" and "1 byte" read better than the short form's "0 byte".
+    unitDisplay: unit === 0 ? "long" : "short",
+    maximumFractionDigits: unit === 0 ? 0 : 1,
+  }).format(value);
+}
+
 /** The status line's wording: "just now", "2 minutes ago", "3 h ago". */
 export function ago(iso: string, now: number): string {
   const minutes = Math.floor(Math.max(0, now - Date.parse(iso)) / 60_000);

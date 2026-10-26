@@ -834,6 +834,7 @@ export default function HomeClient({
                       key={accountSnapshot.csrfToken}
                       csrfToken={accountSnapshot.csrfToken}
                       canStart={status?.importAvailable === true}
+                      storage={status?.storage ?? null}
                       onAccountLost={goToSignIn}
                     />
                   ) : undefined
