@@ -84,7 +84,7 @@ test("an open import remains cancellable when billing stops new uploads", async 
       dialog.getByText("Starting or resuming an upload is unavailable right now.")
     ).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Choose a folder" })).toHaveCount(0);
-    await expect(dialog.getByRole("button", { name: "Retry this upload" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Resume upload" })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Import status…", exact: true }).click();
@@ -322,7 +322,7 @@ test("local ciphertext cleanup failure does not block cancellation or reuse a te
         ]),
       ]
     );
-    await expect(dialog.getByRole("button", { name: "Retry this upload" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Resume upload" })).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel import", exact: true }).click();
     await expect(dialog.getByText("Cancellation requested.", { exact: false })).toBeVisible();
     await expect(dialog.getByRole("alert")).toContainText("Browser cleanup failed.");

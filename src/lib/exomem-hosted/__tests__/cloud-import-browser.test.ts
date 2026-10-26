@@ -3,7 +3,13 @@ import { mock, test } from "node:test";
 import { Decrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import { createTarDecoder } from "modern-tar";
 import { sha256 } from "@noble/hashes/sha2.js";
-import { encryptImportFiles, folderImportFiles, uploadImportParts } from "../cloud-import-browser";
+import {
+  encryptImportFiles,
+  folderImportFiles,
+  forecastImport,
+  uploadImportParts,
+  type EncryptionProgress,
+} from "../cloud-import-browser";
 
 test("browser encryption preserves selected Unicode paths, binary bytes and empty files", async () => {
   const identity = await generateIdentity();
@@ -52,6 +58,33 @@ test("browser encryption preserves selected Unicode paths, binary bytes and empt
   }
 });
 
+test("the forecast before the key exists is the exact ciphertext size, and progress ends at every total", async () => {
+  const identity = await generateIdentity();
+  const recipient = await identityToRecipient(identity);
+  // Long and non-ASCII names take extra TAR header blocks; sizes straddle 512-byte blocks.
+  const selected = [
+    { path: `${"長い名前/".repeat(30)}note.md`, file: new File([new Uint8Array(513)], "note.md") },
+    { path: `deep/${"x".repeat(150)}.bin`, file: new File([new Uint8Array(70_000)], "x.bin") },
+    { path: "empty.md", file: new File([], "empty.md") },
+  ];
+  const before = await forecastImport(selected);
+  const progress: EncryptionProgress[] = [];
+  const report = await encryptImportFiles(
+    selected,
+    recipient,
+    new WritableStream(),
+    undefined,
+    (value) => progress.push(value)
+  );
+  assert.equal(before.ciphertextBytes, report.ciphertext_bytes);
+  assert.deepEqual(await forecastImport(selected, recipient), before);
+  assert.deepEqual(progress.at(-1), {
+    files: 3,
+    plaintextBytes: 513 + 70_000,
+    ciphertextBytes: report.ciphertext_bytes,
+  });
+});
+
 test("failed storage parts retry the same bytes without forwarding session credentials", async () => {
   const ciphertext = new Blob([new Uint8Array([11, 22, 33, 44])]);
   const parts = [
@@ -80,7 +113,9 @@ test("failed storage parts retry the same bytes without forwarding session crede
     const completed = new Map<number, string>();
     await assert.rejects(
       uploadImportParts(ciphertext, parts, completed, () => {}),
-      /paused/
+      {
+        code: "STORAGE_REFUSED",
+      }
     );
     assert.deepEqual([...completed], [[1, '"one"']]);
     const progress: number[] = [];
@@ -105,6 +140,37 @@ test("failed storage parts retry the same bytes without forwarding session crede
   }
 });
 
+test("a part whose encrypted copy can no longer be read stops as a lost copy, not as a dropped connection", async () => {
+  const parts = [{ part_number: 1, url: "https://storage.example.test/part1", part_size_bytes: 4 }];
+  // Fetch reports a body it cannot read, like a dropped connection, as a TypeError.
+  const storage = mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("Failed to fetch");
+  });
+  // The browser's file snapshot after its file was removed: reading any slice fails.
+  const removed = (size: number): Blob =>
+    ({
+      size,
+      slice: (start = 0, end = size) => removed(Math.min(end, size) - start),
+      arrayBuffer: async () => {
+        throw new DOMException("The file is gone.", "NotFoundError");
+      },
+    }) as unknown as Blob;
+  try {
+    await assert.rejects(
+      uploadImportParts(removed(4), parts, new Map(), () => {}),
+      {
+        code: "LOCAL_COPY_MISSING",
+      }
+    );
+    await assert.rejects(
+      uploadImportParts(new Blob([new Uint8Array(4)]), parts, new Map(), () => {}),
+      TypeError
+    );
+  } finally {
+    storage.mock.restore();
+  }
+});
+
 test("a substituted part layout is refused before uploading any bytes", async () => {
   const storage = mock.method(globalThis, "fetch", async () => {
     throw new Error("unexpected upload");
@@ -117,7 +183,7 @@ test("a substituted part layout is refused before uploading any bytes", async ()
         new Map(),
         () => {}
       ),
-      /destination/
+      { code: "DESTINATION" }
     );
     assert.equal(storage.mock.callCount(), 0);
   } finally {

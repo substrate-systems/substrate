@@ -2,6 +2,9 @@ import { z } from "zod";
 
 const count = z.number().int().nonnegative().safe();
 
+/** S3's multipart protocol fixes this maximum number of numbered parts. */
+export const MAX_IMPORT_PARTS = 10_000;
+
 const importUploadPart = z.object({
   part_number: z.number().int().positive(),
   url: z.url(),

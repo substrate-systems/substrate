@@ -833,7 +833,9 @@ export default function HomeClient({
                     <ImportDocuments
                       key={accountSnapshot.csrfToken}
                       csrfToken={accountSnapshot.csrfToken}
+                      account={accountSnapshot.view.supportReference}
                       canStart={status?.importAvailable === true}
+                      storage={status?.storage ?? null}
                       onAccountLost={goToSignIn}
                     />
                   ) : undefined

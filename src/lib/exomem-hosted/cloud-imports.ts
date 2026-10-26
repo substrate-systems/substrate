@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { validate as validUuid } from "uuid";
 import {
   cloudImportAvailable,
+  MAX_IMPORT_PARTS,
   type CloudImport,
   type UploadPart,
 } from "../exomem/cloud-import-contract";
@@ -100,8 +101,7 @@ function report(body: Record<string, unknown>) {
 }
 
 function partETags(value: unknown): PartETag[] {
-  // S3's multipart protocol fixes a maximum of 10,000 numbered parts.
-  if (!Array.isArray(value) || value.length < 1 || value.length > 10_000)
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_IMPORT_PARTS)
     throw exomemErrors.invalidRequest();
   const seen = new Set<number>();
   const parts = value.map((value) => {
@@ -111,7 +111,7 @@ function partETags(value: unknown): PartETag[] {
       !Number.isInteger(part.part_number) ||
       typeof part.part_number !== "number" ||
       part.part_number < 1 ||
-      part.part_number > 10_000 ||
+      part.part_number > MAX_IMPORT_PARTS ||
       typeof part.etag !== "string" ||
       !part.etag ||
       part.etag.length > 1024 ||

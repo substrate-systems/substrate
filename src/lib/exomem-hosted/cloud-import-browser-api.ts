@@ -1,4 +1,5 @@
 import { cloudImportReply, type CloudImport } from "../exomem/cloud-import-contract";
+import { ImportStop } from "./cloud-import-stop";
 import { csrfCookie, getPrivateJson, HostedBrowserError, postPrivateJson } from "./hosted-browser";
 
 const path = "/api/exomem/cloud/imports";
@@ -46,10 +47,6 @@ export async function requestBrowserImport(
   );
   assertImportAccount(csrfToken);
   const result = cloudImportReply.parse(response).import;
-  if (!result || result.import_id !== importId) {
-    throw new Error(
-      "The import response did not match this upload. Check its status before retrying."
-    );
-  }
+  if (!result || result.import_id !== importId) throw new ImportStop("REPLY_MISMATCH");
   return result;
 }

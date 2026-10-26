@@ -34,13 +34,19 @@
 .totals dt {
   color: var(--fg-muted);
   font-size: 13px;
+  white-space: nowrap;
 }
 .totals dd {
   margin: 0;
   font-family: var(--font-mono-exo);
   font-size: 13px;
+  text-align: right;
 }
 .frame {
   width: 100%;
   min-height: 450px;
+}
+.totals dd.reference {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

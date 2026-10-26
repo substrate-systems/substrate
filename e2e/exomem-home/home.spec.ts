@@ -238,6 +238,7 @@ test("Home shows the account's own values and calls only routes a Cloud account 
     "/api/exomem/apps",
     "/api/exomem/cloud/home/levels",
     "/api/exomem/cloud/home/live",
+    "/api/exomem/cloud/imports",
     "/api/exomem/status",
   ]);
 
