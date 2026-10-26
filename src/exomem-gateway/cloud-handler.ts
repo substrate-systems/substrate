@@ -6,13 +6,26 @@ import { cloudBearerChallenge } from "../lib/exomem-hosted/cloud-oauth";
  * request straight to it. server.ts mounts it at `EXOMEM_CLOUD_MCP_PATH`.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomUUID, type KeyObject } from "node:crypto";
 import {
   CloudArtifactBodyError,
   cloudArtifactGrant,
   cloudArtifactTransportEnabled,
   readCloudArtifactBody,
 } from "./cloud-artifacts";
+import {
+  CLOUD_ORIGIN_HEADER,
+  CLOUD_UPLOAD_ROUTE_HEADER,
+  CLOUD_UPLOAD_TICKET_HEADER,
+  cloudOAuthOrigin,
+  cloudUploadEnabled,
+  parseCloudUploadAuthorization,
+  sameCloudOrigin,
+  signCloudOriginProof,
+  signCloudUploadRoute,
+  verifyCloudUploadRoute,
+  type CloudUploadRoute,
+} from "./cloud-origin";
 import { answerCloudTransferCall, parseCloudTransferCall } from "./cloud-transfer-tools";
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
@@ -20,8 +33,10 @@ import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hos
 import {
   APP_USE_WINDOW_SECONDS,
   findCloudOAuthAccessToken,
+  findCloudOAuthLogin,
   recordCloudAppUse,
   type ActiveCloudOAuthAccessToken,
+  type ActiveCloudOAuthLogin,
 } from "../lib/exomem-hosted/cloud-oauth";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
 import {
@@ -65,6 +80,10 @@ const RELAYED_RESPONSE_HEADERS = ["content-type", "mcp-session-id", "mcp-protoco
 // hostname or a bearer derived from attacker-shaped input.
 const CELL_ID_FORMAT = /^[a-z2-7]{16}$/;
 const CELL_PORT = 8765;
+// The handoff's own byte cap plus the cell's multipart allowance; the cell enforces the ticket's limit.
+const MAX_CLOUD_UPLOAD_BODY_BYTES = 100 * 1024 * 1024 + 1024 * 1024;
+// The cell answers an upload with one small JSON object.
+const MAX_CELL_UPLOAD_ANSWER_BYTES = 64 * 1024;
 const MAX_CLOUD_CONCURRENCY = 16;
 const MAX_CLOUD_TENANT_CONCURRENCY = 4;
 // D2's required scope pair: a cell exposes one fixed non-owner principal and
@@ -280,6 +299,7 @@ export function buildCloudProtectedResourceMetadata(
 export type CloudGatewayDependencies = {
   config?: ExomemCloudConfig;
   findAccessToken?: typeof findCloudOAuthAccessToken;
+  findLogin?: typeof findCloudOAuthLogin;
   recordAppUse?: typeof recordCloudAppUse;
   takeRateLimit?: typeof takeExomemRateLimit;
   fetchCell?: typeof fetch;
@@ -492,6 +512,23 @@ async function proxyToCell(
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
   forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
+  // bridge-cloud-agent-uploads: a selected cell learns which login sent this
+  // request, and receives the route capsule that its upload handoff carries.
+  if (config.artifactSigningKey && cloudUploadEnabled(config, access.cellId)) {
+    try {
+      const key = config.artifactSigningKey;
+      forwardHeaders.set(
+        CLOUD_ORIGIN_HEADER,
+        await signCloudOriginProof(access, key, { purpose: "mcp" })
+      );
+      forwardHeaders.set(CLOUD_UPLOAD_ROUTE_HEADER, await signCloudUploadRoute(access, key));
+    } catch {
+      // Without both, the cell reports uploads unavailable; the MCP request itself proceeds.
+      forwardHeaders.delete(CLOUD_ORIGIN_HEADER);
+      forwardHeaders.delete(CLOUD_UPLOAD_ROUTE_HEADER);
+      console.warn({ event: "exomem_cloud_gateway_upload_origin_unsigned" });
+    }
+  }
 
   let body: BodyInit | null | undefined =
     request.method === "DELETE" ? undefined : prepared ? prepared.body : request.body;
@@ -547,4 +584,186 @@ async function proxyToCell(
     status: upstream.status,
     headers: relayedHeaders,
   });
+}
+
+function uploadUnavailable(): Response {
+  return errorResponse(401, "UPLOAD_HANDOFF_UNAVAILABLE");
+}
+
+/**
+ * The login a delegated upload may still act for: its family, grant, client
+ * admission, tenant and cell as they are now, identical to the capsule's,
+ * on a cell still selected for uploads.
+ */
+async function currentUploadLogin(
+  route: CloudUploadRoute,
+  config: ExomemCloudConfig,
+  findLogin: typeof findCloudOAuthLogin
+): Promise<ActiveCloudOAuthLogin | null> {
+  const login = await findLogin(
+    { familyId: route.family_id, grantId: route.grant_id },
+    config.mcpUrl
+  );
+  if (!login || !sameCloudOrigin(cloudOAuthOrigin(login), route)) return null;
+  return cloudUploadEnabled(config, login.cellId) ? login : null;
+}
+
+/**
+ * The delegated-upload route (bridge-cloud-agent-uploads). The caller holds
+ * only its handoff token: the gateway's signed route capsule around the
+ * cell's single-use ticket. Every check below runs before a body byte is read
+ * or a cell is contacted; the cell then checks the ticket's own binding.
+ */
+export async function handleCloudUploadRequest(
+  request: Request,
+  dependencies: CloudGatewayDependencies = {}
+): Promise<Response> {
+  const config = dependencies.config ?? loadExomemCloudConfig();
+  const findLogin = dependencies.findLogin ?? findCloudOAuthLogin;
+  const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
+  const key = config.artifactSigningKey;
+
+  // 1. With no cell selected the route does not exist.
+  if (!key || !config.uploadCells?.size) {
+    return new Response(null, { status: 404, headers: CACHE_HEADERS });
+  }
+  if (request.method !== "POST") {
+    return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "POST" } });
+  }
+  if (hasForbiddenGatewayHeaders(request.headers)) {
+    return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
+  }
+
+  // 2. Every upload takes the IP bucket: Home's first-party client never uploads here.
+  const ipKey = trustedIngressClientAddress(request);
+  if (ipKey === null) {
+    recordIpBucketSkip();
+  } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+    return errorResponse(429, "RATE_LIMITED");
+  }
+
+  // 3. The capsule's signature, audience, issuer, lifetime and endpoint.
+  let ticket: string;
+  let route: CloudUploadRoute;
+  try {
+    const handoff = parseCloudUploadAuthorization(request.headers.get("authorization"));
+    ticket = handoff.ticket;
+    route = await verifyCloudUploadRoute(handoff.capsule, key, config.mcpUrl);
+  } catch {
+    return uploadUnavailable();
+  }
+
+  // 4. Current authority, then write admission: only a running cell takes
+  // bytes. The transfer tools' availability for held cells is not write authority.
+  const login = await currentUploadLogin(route, config, findLogin);
+  if (!login) return uploadUnavailable();
+  if (login.cellDesiredState !== "running") return errorResponse(503, "CELL_NOT_READY");
+  if (!CELL_ID_FORMAT.test(login.cellId)) {
+    console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
+    return errorResponse(500, "CELL_ID_INVALID");
+  }
+  const declared = request.headers.get("content-length");
+  if (
+    declared !== null &&
+    (!/^\d+$/.test(declared) || Number(declared) > MAX_CLOUD_UPLOAD_BODY_BYTES)
+  ) {
+    return errorResponse(413, "TOO_LARGE");
+  }
+
+  const identityKey = `${login.tenantId}:${login.clientId}`;
+  if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIdentity, identityKey))) {
+    return errorResponse(429, "RATE_LIMITED");
+  }
+  const release = acquireCloudConcurrency(identityKey);
+  if (!release) return errorResponse(429, "RATE_LIMITED");
+  try {
+    return releaseConcurrencyWhenBodyEnds(
+      await relayUploadToCell(
+        request,
+        login,
+        ticket,
+        key,
+        config,
+        dependencies.fetchCell ?? fetch,
+        () => currentUploadLogin(route, config, findLogin)
+      ),
+      release
+    );
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
+async function relayUploadToCell(
+  request: Request,
+  login: ActiveCloudOAuthLogin,
+  ticket: string,
+  key: KeyObject,
+  config: ExomemCloudConfig,
+  fetchCell: typeof fetch,
+  recheck: () => Promise<ActiveCloudOAuthLogin | null>
+): Promise<Response> {
+  // 5. Fresh origin bound to this ticket, the derived cell bearer, and the
+  // cell's fixed receiver. The caller's bearer and headers never reach it.
+  const headers = new Headers({
+    "accept-encoding": "identity",
+    authorization: `Bearer ${deriveCloudCellBearer(config.cellTokenKey, login.cellId)}`,
+    "x-request-id": randomUUID(),
+    [CLOUD_ORIGIN_HEADER]: await signCloudOriginProof(login, key, { purpose: "upload", ticket }),
+    [CLOUD_UPLOAD_TICKET_HEADER]: ticket,
+  });
+  const contentType = request.headers.get("content-type");
+  if (contentType !== null) headers.set("content-type", contentType);
+
+  let upstream: Response;
+  try {
+    upstream = await fetchCell(
+      `http://cell.exo-cell-${login.cellId}.svc.cluster.local:${CELL_PORT}/upload`,
+      {
+        method: "POST",
+        headers,
+        body: request.body,
+        duplex: "half",
+        signal: request.signal,
+      } as RequestInit
+    );
+  } catch {
+    return errorResponse(503, "CELL_NOT_READY");
+  }
+  const answer = await readCellUploadAnswer(upstream);
+  if (answer === null) return errorResponse(502, "CELL_ANSWER_INVALID");
+  // The cell refuses a ticket with this code; any other 401 means its bearer disagreed.
+  if (upstream.status === 401 && answer.code !== "UPLOAD_HANDOFF_UNAVAILABLE") {
+    return errorResponse(502, "CELL_AUTH_MISMATCH");
+  }
+  // 6. A login revoked while the bytes streamed gets no handle; the unused hold expires.
+  if (upstream.status === 201 && !(await recheck())) return uploadUnavailable();
+  return Response.json(answer, { status: upstream.status, headers: CACHE_HEADERS });
+}
+
+/** The cell's one small JSON object, or null for anything else. */
+async function readCellUploadAnswer(upstream: Response): Promise<Record<string, unknown> | null> {
+  if (!upstream.body) return null;
+  const reader = upstream.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_CELL_UPLOAD_ANSWER_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }

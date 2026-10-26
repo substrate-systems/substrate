@@ -40,6 +40,11 @@ export type ExomemCloudConfig = ExomemCloudResource &
     artifactSigningKey?: KeyObject;
     artifactCells?: ReadonlySet<string>;
     artifactAllCells?: boolean;
+    /**
+     * Cells whose agents receive Cloud upload handoffs (bridge-cloud-agent-uploads).
+     * Absent leaves uploads off; enabling artifact transport alone never selects a cell.
+     */
+    uploadCells?: ReadonlySet<string>;
     /** The gateway answers the Cloud transfer tools itself; off sends every call to the cell. */
     transferToolsEnabled?: boolean;
   }>;
@@ -95,29 +100,24 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
     env.EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED?.trim().toLowerCase() === "true";
 
   const transport = env.EXOMEM_CLOUD_ARTIFACT_TRANSPORT_ENABLED?.trim().toLowerCase();
-  if (transport !== "1" && transport !== "true") {
+  const transportEnabled = transport === "1" || transport === "true";
+  // Exactly "true" turns uploads on, the same reading as the transfer-tools switch.
+  const uploadsEnabled = env.EXOMEM_CLOUD_UPLOAD_ENABLED?.trim().toLowerCase() === "true";
+  if (!transportEnabled && !uploadsEnabled) {
     return { mcpUrl, mcpPath, cellTokenKey, transferToolsEnabled };
   }
-  let cells: unknown;
-  try {
-    cells = JSON.parse(env.EXOMEM_CLOUD_ARTIFACT_CELL_IDS ?? "");
-  } catch {
-    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_CELL_IDS"]);
-  }
-  if (
-    !Array.isArray(cells) ||
-    cells.length > 1024 ||
-    cells.some((cell) => typeof cell !== "string" || !/^[a-z2-7]{16}$/.test(cell))
-  ) {
-    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_CELL_IDS"]);
-  }
+  const artifactCells = transportEnabled
+    ? cellIdList(env, "EXOMEM_CLOUD_ARTIFACT_CELL_IDS")
+    : undefined;
+  const uploadCells = uploadsEnabled ? cellIdList(env, "EXOMEM_CLOUD_UPLOAD_CELL_IDS") : undefined;
   // The deployment emits exactly "true" to select every cell, or leaves the
   // variable unset. Any other value reads as off, which is the safe direction
   // for a switch that widens fetch authority. It must not throw: the gateway
   // loads this on every request, its readiness check never loads it, and a
   // throw would let a rollout pass and then fail every request.
-  const allCells = env.EXOMEM_CLOUD_ARTIFACT_ALL_CELLS === "true";
+  const allCells = transportEnabled && env.EXOMEM_CLOUD_ARTIFACT_ALL_CELLS === "true";
   try {
+    // Artifact grants and upload authority share this key; each object has its own audience.
     const artifactSigningKey = createPrivateKey(env.EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY ?? "");
     if (artifactSigningKey.asymmetricKeyType !== "ed25519") throw new Error();
     return {
@@ -125,14 +125,31 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
       mcpPath,
       cellTokenKey,
       artifactSigningKey,
-      artifactCells: new Set(cells as string[]),
-      artifactAllCells: allCells,
+      ...(artifactCells ? { artifactCells, artifactAllCells: allCells } : {}),
+      ...(uploadCells ? { uploadCells } : {}),
       transferToolsEnabled,
     };
   } catch {
     // Key parser errors may echo supplied material; keep startup failures value-free.
     throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY"]);
   }
+}
+
+function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
+  let cells: unknown;
+  try {
+    cells = JSON.parse(env[name] ?? "");
+  } catch {
+    throw new ExomemCloudConfigurationError([name]);
+  }
+  if (
+    !Array.isArray(cells) ||
+    cells.length > 1024 ||
+    cells.some((cell) => typeof cell !== "string" || !/^[a-z2-7]{16}$/.test(cell))
+  ) {
+    throw new ExomemCloudConfigurationError([name]);
+  }
+  return new Set(cells as string[]);
 }
 
 /**
