@@ -57,6 +57,7 @@ describe("standalone Exomem gateway adapter", () => {
     const server = createGatewayServer({
       handleCloudMcp: async () =>
         new Response("streamed", { headers: { "mcp-session-id": "session" } }),
+      handleCloudUpload: async () => new Response("held", { status: 201 }),
     });
     const baseUrl = await listen(server);
     try {
@@ -71,6 +72,10 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal(response.headers.get("cache-control"), "private, no-store, max-age=0");
       assert.equal(response.headers.get("x-vercel-enable-rewrite-caching"), "0");
       assert.equal((await fetch(`${baseUrl}/api/exomem/admin`)).status, 404);
+      const upload = await fetch(`${baseUrl}/upload`, { method: "POST" });
+      assert.equal(upload.status, 201);
+      assert.equal(upload.headers.get("cache-control"), "private, no-store, max-age=0");
+      assert.equal((await fetch(`${baseUrl}/upload`)).status, 404);
     } finally {
       server.close();
       await once(server, "close");

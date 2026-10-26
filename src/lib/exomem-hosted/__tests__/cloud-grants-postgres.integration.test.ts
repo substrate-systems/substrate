@@ -10,7 +10,7 @@ import { randomCloudCellId, redeemCloudInviteAtomic } from "../cloud-admission";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest } from "../cloud-home-mcp";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
-import { findCloudOAuthAccessToken, recordCloudAppUse } from "../cloud-oauth";
+import { findCloudOAuthAccessToken, findCloudOAuthLogin, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -631,12 +631,16 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
           [found!.grantId],
         );
         assert.equal(recorded.rowCount, 1);
+        // A delegated upload names its login family instead of a token, through the same role.
+        const login = { familyId: family.rows[0]!.id, grantId: grant.rows[0]!.id };
+        assert.equal((await findCloudOAuthLogin(login, CLOUD_RESOURCE))?.tenantId, tenantId);
         if (reviewerPurpose) {
           await ownerPool!.query(
             "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",
             [tenantId],
           );
           assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+          assert.equal(await findCloudOAuthLogin(login, CLOUD_RESOURCE), null);
         }
       } finally {
         __setExomemSqlForTests(null);

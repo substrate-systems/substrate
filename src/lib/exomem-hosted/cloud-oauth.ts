@@ -103,14 +103,14 @@ export async function resolveApprovedCloudOAuthClient(
     : null;
 }
 
-export type ActiveCloudOAuthAccessToken = {
+/** A login family's current authority: what both an access token and a delegated upload resolve to. */
+export type ActiveCloudOAuthLogin = {
   familyId: string;
   grantId: string;
   userId: string;
   tenantId: string;
   clientId: string;
   resource: string;
-  scopes: string[];
   cellId: string;
   cellDesiredState: "running" | "read_only" | "stopped" | "deleted";
   /** The token's client as stored, from which the gateway names it to the cell. */
@@ -118,6 +118,10 @@ export type ActiveCloudOAuthAccessToken = {
   /** The token belongs to the first-party Home client, by its stored admission mode. */
   firstParty: boolean;
 };
+
+export type ActiveCloudOAuthAccessToken = ActiveCloudOAuthLogin & { scopes: string[] };
+
+type CloudOAuthSelector = { accessDigest: Buffer } | { familyId: string; grantId: string };
 
 /**
  * Looks up a Cloud-resource access token for the gateway (D3 step 4). Joins
@@ -143,13 +147,77 @@ export async function findCloudOAuthAccessToken(
   accessDigest: Buffer,
   expectedResource: string
 ): Promise<ActiveCloudOAuthAccessToken | null> {
+  const row = await findCloudOAuthAuthority({ accessDigest }, expectedResource);
+  return row ? { ...cloudOAuthLogin(row), scopes: row.scopes! } : null;
+}
+
+/**
+ * Looks up a login family's current authority for a delegated upload
+ * (bridge-cloud-agent-uploads). The upload carries no bearer, and the family
+ * outlives each short access token, so this applies every predicate of the
+ * token lookup above except the token row's own.
+ */
+export async function findCloudOAuthLogin(
+  login: { familyId: string; grantId: string },
+  expectedResource: string
+): Promise<ActiveCloudOAuthLogin | null> {
+  const row = await findCloudOAuthAuthority(login, expectedResource);
+  return row ? cloudOAuthLogin(row) : null;
+}
+
+type CloudOAuthAuthorityRow = {
+  family_id: string;
+  grant_id: string;
+  user_id: string;
+  tenant_id: string;
+  client_id: string;
+  resource: string;
+  scopes: string[] | null;
+  cell_id: string;
+  cell_desired_state: "running" | "read_only" | "stopped" | "deleted";
+  client_name: string | null;
+  admission_mode: string;
+  client_platform: string | null;
+  redirect_uris: string[];
+};
+
+/**
+ * One statement for both selectors, so the admission and revocation policy has
+ * one copy. Every query here is unnamed and planned with its values, so the
+ * unused branch of `token` folds away and the access-digest index still drives
+ * an MCP request.
+ */
+async function findCloudOAuthAuthority(
+  selector: CloudOAuthSelector,
+  expectedResource: string
+): Promise<CloudOAuthAuthorityRow | null> {
+  const accessDigest = "accessDigest" in selector ? selector.accessDigest : null;
+  const familyId = "familyId" in selector ? selector.familyId : null;
+  const grantId = "grantId" in selector ? selector.grantId : null;
   const { rows } = await executeExomemSql`
     /* exomem-cloud:find-oauth-access-token */
+    WITH token AS (
+      SELECT access.family_id, access.grant_id, access.client_id, access.resource, access.scopes,
+             access.reviewer_credential_id, access.candidate_id
+      FROM exomem_oauth_access_tokens AS access
+      WHERE ${accessDigest}::bytea IS NOT NULL
+        AND access.access_digest = ${accessDigest}::bytea
+        AND access.revoked_at IS NULL
+        AND access.expires_at > now()
+      UNION ALL
+      -- A delegated upload names its login family; the family row stands in
+      -- for the token, and its lineage is checked against the grant below.
+      SELECT login.id, login.grant_id, login.client_id, ${expectedResource}::text, NULL::text[],
+             login.reviewer_credential_id, login.candidate_id
+      FROM exomem_oauth_token_families AS login
+      WHERE ${accessDigest}::bytea IS NULL
+        AND login.id = ${familyId}::uuid AND login.grant_id = ${grantId}::uuid
+    )
     SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
            client.client_id, token.resource, token.scopes,
            cell.cell_id, cell.desired_state AS cell_desired_state,
            client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
-    FROM exomem_oauth_access_tokens AS token
+    FROM token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
      AND family.grant_id = token.grant_id AND family.client_id = token.client_id
@@ -187,10 +255,7 @@ export async function findCloudOAuthAccessToken(
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id
      AND tenant.status NOT IN ('deletion_pending', 'deleted')
-    WHERE token.access_digest = ${accessDigest}
-      AND token.revoked_at IS NULL
-      AND token.expires_at > now()
-      AND token.resource = ${expectedResource}
+    WHERE token.resource = ${expectedResource}
       AND token.reviewer_credential_id IS NOT DISTINCT FROM family.reviewer_credential_id
       AND token.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
       AND token.candidate_id IS NULL AND family.candidate_id IS NULL AND oauth_grant.candidate_id IS NULL
@@ -204,43 +269,27 @@ export async function findCloudOAuthAccessToken(
       )
     LIMIT 1
   `;
-  const row = rows[0] as
-    | {
-        family_id: string;
-        grant_id: string;
-        user_id: string;
-        tenant_id: string;
-        client_id: string;
-        resource: string;
-        scopes: string[];
-        cell_id: string;
-        cell_desired_state: "running" | "read_only" | "stopped" | "deleted";
-        client_name: string | null;
-        admission_mode: string;
-        client_platform: string | null;
-        redirect_uris: string[];
-      }
-    | undefined;
-  return row
-    ? {
-        familyId: row.family_id,
-        grantId: row.grant_id,
-        userId: row.user_id,
-        tenantId: row.tenant_id,
-        clientId: row.client_id,
-        resource: row.resource,
-        scopes: row.scopes,
-        cellId: row.cell_id,
-        cellDesiredState: row.cell_desired_state,
-        client: {
-          clientName: row.client_name,
-          admissionMode: row.admission_mode,
-          platform: row.client_platform,
-          redirectUris: row.redirect_uris,
-        },
-        firstParty: row.admission_mode === "first_party",
-      }
-    : null;
+  return (rows[0] as CloudOAuthAuthorityRow | undefined) ?? null;
+}
+
+function cloudOAuthLogin(row: CloudOAuthAuthorityRow): ActiveCloudOAuthLogin {
+  return {
+    familyId: row.family_id,
+    grantId: row.grant_id,
+    userId: row.user_id,
+    tenantId: row.tenant_id,
+    clientId: row.client_id,
+    resource: row.resource,
+    cellId: row.cell_id,
+    cellDesiredState: row.cell_desired_state,
+    client: {
+      clientName: row.client_name,
+      admissionMode: row.admission_mode,
+      platform: row.client_platform,
+      redirectUris: row.redirect_uris,
+    },
+    firstParty: row.admission_mode === "first_party",
+  };
 }
 
 /** Home shows the day an app was last used, so its time moves at most once in this window. */

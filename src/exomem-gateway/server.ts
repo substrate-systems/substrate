@@ -1,6 +1,11 @@
 import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { buildCloudProtectedResourceMetadata, handleCloudMcpRequest } from "./cloud-handler";
+import {
+  buildCloudProtectedResourceMetadata,
+  handleCloudMcpRequest,
+  handleCloudUploadRequest,
+} from "./cloud-handler";
+import { CLOUD_UPLOAD_PATH } from "./cloud-origin";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
@@ -25,6 +30,7 @@ class InvalidNodeRequestError extends Error {}
 
 export type GatewayServerOptions = {
   handleCloudMcp?: typeof handleCloudMcpRequest;
+  handleCloudUpload?: typeof handleCloudUploadRequest;
   maxInflight?: number;
 };
 
@@ -99,6 +105,7 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
 
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
+  const handleCloudUpload = options.handleCloudUpload ?? handleCloudUploadRequest;
   // validateGatewayEnvironment requires this at startup; without it the
   // server answers only its probes.
   const cloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH?.trim() || null;
@@ -137,11 +144,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
         response.writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" }).end(body);
         return;
       }
-      if (
-        !cloudMcpPath ||
-        path !== cloudMcpPath ||
-        !["GET", "POST", "DELETE"].includes(request.method ?? "")
-      ) {
+      // The upload handler answers 404 itself unless a cell is selected for uploads.
+      const handle =
+        cloudMcpPath &&
+        path === cloudMcpPath &&
+        ["GET", "POST", "DELETE"].includes(request.method ?? "")
+          ? handleCloudMcp
+          : cloudMcpPath && path === CLOUD_UPLOAD_PATH && request.method === "POST"
+            ? handleCloudUpload
+            : null;
+      if (!handle) {
         response.writeHead(404, CACHE_HEADERS).end();
         return;
       }
@@ -157,10 +169,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       const cancel = () => controller.abort();
       request.once("aborted", cancel);
       response.once("close", cancel);
-      await writeResponse(
-        await handleCloudMcp(requestFromNode(request, controller.signal)),
-        response
-      );
+      await writeResponse(await handle(requestFromNode(request, controller.signal)), response);
     } catch (error) {
       if (!response.headersSent)
         response
