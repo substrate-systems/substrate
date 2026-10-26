@@ -79,7 +79,7 @@ Creation keeps its transaction and its cell-row lock. It runs these steps in ord
 2. When the import ID exists with identical declarations, return the stored import. Run no later step and write no growth. Different declarations still return 409.
 3. When `import_limits` is unpublished, insert the import as today with `required_storage_gib` NULL, and reply with `limits: null`.
 4. When `declared_files` exceeds `max_members`, refuse with 422 `IMPORT_TOO_MANY_FILES`. The check is necessary only: folders count as members, and the cell and the clients count exactly.
-5. Compute the storage need (D4). When it exceeds `max_storage_gib` even with no content in the vault, refuse with 422 `IMPORT_STORAGE_LIMIT`.
+5. Compare the unscaled empty-vault lower bound (D4) with the cap in bytes. Refuse only when that lower bound exceeds it.
 6. Raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, then insert the import with that clamped requirement. A unique-index conflict on the open-import slot (23505) rolls back the growth with the transaction.
 
 Replay runs before every check, so a client that retries after a timeout cannot trigger a second growth or a refusal.
@@ -90,18 +90,18 @@ Prepare-upload keeps its flow. On the first report only, it refuses a `ciphertex
 
 A pure function in `src/lib/exomem/cloud-import-contract.ts` parses `import_limits` and computes the need and the target. The API and Home import it. Its parameters come only from `import_limits` and the cell's readings.
 
-- The need is `used + space_factor × declared_bytes + reserve_bytes`, in filesystem bytes.
-- It is scaled by the ratio of `observed_storage_capacity_bytes` (0071) to `filesystem_bytes` (0066), because the filesystem is smaller than its claim.
+- The growth estimate is `used + space_factor × declared_bytes + reserve_bytes`, in filesystem bytes.
+- The growth estimate is scaled by the ratio of `observed_storage_capacity_bytes` (0071) to `filesystem_bytes` (0066). That ratio estimates overhead but cannot decide refusal.
 - `used_bytes` and `filesystem_bytes` come from the cell's 0066 usage reading. Its age alone does not discard it; stale usage sizes growth but cannot alone refuse admission.
 - When `used_bytes` is unknown, the function sizes the import as if the whole current volume were used, with a ratio of 1.
 - The current size is `max(storage_gib, grown_storage_gib)`.
 - The function returns `required_storage_gib = min(ceil(need / GiB), max_storage_gib)`, where one GiB is 1,073,741,824 bytes.
 
-The `IMPORT_STORAGE_LIMIT` check uses the need with `used = 0`. When existing content alone pushes the need above the cap, both the requested growth and the recorded requirement equal the cap. Growth can therefore reach `key_ready`, and the cell's own per-member free-space check decides. Refusing only when necessary keeps a stale `used_bytes` reading from blocking an import that the cell can hold.
+The `IMPORT_STORAGE_LIMIT` check uses the unscaled lower bound `space_factor × declared_bytes + reserve_bytes`. A filesystem reading can predate a resize, so its capacity ratio never decides refusal. When existing content alone pushes the need above the cap, both the requested growth and the recorded requirement equal the cap. Growth can therefore reach `key_ready`, and the cell's own per-member free-space check decides. Refusing only when necessary keeps a stale `used_bytes` reading from blocking an import that the cell can hold.
 
 ### D5. Growth at creation, and `key_ready` waits for it
 
-Admission writes the growth. Cellctl does not mint the import key until the claim has grown, so the owner never encrypts for a volume that cannot hold the archive. The exact wait, its deadline and its local-storage check belong to the Exomem change `publish-cloud-import-limits`.
+Admission writes the growth. Cellctl does not mint the import key until the claim has grown, so the owner never encrypts for a volume that cannot hold the archive. The exact wait, its deadline and its local-storage check belong to the Exomem change `publish-cloud-import-limits`. Before every larger local claim request, cellctl checks room and retains the last accepted request when it cannot grow. That includes cleanup and later ordinary reconciliation after a failed import. Desired `storage_gib` stays raised; no claim shrinks. Unknown room waits, while known insufficient room fails the import. The local cutover check must prove this before local import growth ships.
 
 The raise changes the cell's render digest, so it restarts the cell pod once. Home shows that wait as the cell preparing the import, not as a fault.
 
@@ -117,7 +117,7 @@ No new observed state exists. `key_ready` keeps its meaning.
 The three codes join the closed set of import protocol codes. Their error envelope gains an optional `limit`:
 
 - `IMPORT_TOO_MANY_FILES`: `{unit: "files", value: max_members, requested: declared_files}`.
-- `IMPORT_STORAGE_LIMIT`: `{unit: "bytes", value: the cap in bytes, requested: the need with no vault content}`.
+- `IMPORT_STORAGE_LIMIT`: `{unit: "bytes", value: the cap in bytes, requested: the unscaled empty-vault lower bound}`.
 - `IMPORT_PARTS_LIMIT`: `{unit: "bytes", value: max_parts × part_bytes, requested: ciphertext_bytes}`.
 
 `limit` holds numbers and a unit from a closed set. It carries no content from the import. A client that does not know `limit` still parses the envelope.
@@ -138,7 +138,7 @@ Home's wait for `key_ready` has no bound of its own. It follows the import's obs
 
 Cellctl writes `staged_files` and `staged_bytes` when the import Job succeeds, from the report that the Job already emits. Home shows them instead of the declared counts. An import without them shows "not recorded".
 
-Filing happens later, in Adoption Studio, after C5 reports `done`, so the Job cannot supply the adopted count. Home calls `adoption_studio(action="status")` through the existing owner channel in `cloud-home-mcp.ts`. It sums `counts.applied` over the runs whose `source_root` is `_Imports/<import id>`. The Exomem change adds `source_root` to each status row. Until a cell runs that version, Home shows the adopted count as unknown.
+Filing happens later, after C5 reports `done`, so the Job cannot supply the adopted count. Home calls `adoption_studio(action="status", path="_Imports/<import id>")` through the existing owner channel. The scoped status returns `adopted_files`, counted by distinct original path across successful outcomes in all matching runs. Repeated and overlapping runs count each original once. Compact rows still carry `source_root` for grouping; Home never sums their totals. An incomplete status, or an older cell without the aggregate, leaves the adopted count unknown. This stays in P7.
 
 ### D10. C4 and C6
 

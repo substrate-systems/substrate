@@ -4,7 +4,7 @@
 
 Before Home creates an import, the dialog SHALL show the selection's file count and bytes beside each limit it can measure. It SHALL show the exact encrypted size, the browser's free space for this site, and the vault's free space with the age of that reading. When other accounts' kept copies use this browser's space, it SHALL show their files and bytes and offer to discard them.
 When the cell has published its import limits, the dialog SHALL also show the selection's member count against the published maximum, counting each folder as a member. It SHALL show the storage that the import needs against the published cap, computed by the function that admission uses. When the import needs more than the vault's current size, the dialog SHALL say that the vault's storage grows to about that size.
-Home SHALL refuse to start in three cases: the browser reports less free space than the exact encrypted size, the member count exceeds the published maximum, or the import cannot fit within the published cap even in an empty vault. A vault reading whose free space, less the published reserve, is below the selection's bytes SHALL produce a warning only, because the reading can be stale.
+Home SHALL refuse to start in three cases: the browser reports less free space than the exact encrypted size, the member count exceeds the published maximum, or the unscaled empty-vault lower bound exceeds the published cap. A vault reading whose free space, less the published reserve, is below the selection's bytes SHALL produce a warning only, because the reading can be stale.
 When the cell has published no limits, the dialog SHALL say that limits are not published and that the cell checks during the import. It SHALL NOT substitute a built-in value for a limit.
 By default, the selection SHALL leave out hidden items and the items that the folder's own `.gitignore` files exclude. The dialog SHALL show the files and bytes left out for each reason and SHALL let the owner bring each reason's items back. When a `.gitignore` file is too large to read as rules, the dialog SHALL say that its rules are not applied.
 Home SHALL NOT enforce the cell's path or name limits; the cell keeps enforcing them.
@@ -41,7 +41,7 @@ Home SHALL NOT enforce the cell's path or name limits; the cell keeps enforcing 
 
 #### Scenario: The import cannot fit within the cap
 
-- **WHEN** the need with no vault content is above the published cap
+- **WHEN** the unscaled empty-vault lower bound is above the published cap
 - **THEN** the dialog shows the need and the cap and offers no start
 
 #### Scenario: The cell has published no limits
@@ -79,7 +79,7 @@ When creation or prepare-upload returns `IMPORT_TOO_MANY_FILES`, `IMPORT_STORAGE
 
 ### Requirement: Home shows the files an import staged and the files filed from them
 
-Home SHALL show an import's staged files and bytes from the counts that the import Job reported to C5. It SHALL say so when an import has no recorded counts, and it SHALL NOT show the declared counts in their place. Home SHALL show the adopted count as the sum of `counts.applied` over the Adoption Studio runs whose `source_root` is the import's staged folder. It SHALL read those runs through the existing owner channel. When the Adoption Studio status is unavailable, or its rows lack `source_root`, Home SHALL show the adopted count as unknown, never as zero.
+Home SHALL show an import's staged files and bytes from the counts that the import Job reported to C5. It SHALL say so when an import has no recorded counts, and it SHALL NOT show the declared counts in their place. Home SHALL read the adopted count from the scoped Adoption Studio status through the existing owner channel. The status SHALL count distinct original paths with successful filing outcomes beneath the import's staged folder, across all runs. Repeated and overlapping runs SHALL count an original once. Home SHALL NOT sum per-run totals. When the status is unavailable, incomplete or lacks `adopted_files`, Home SHALL show the adopted count as unknown, never as zero.
 
 #### Scenario: An import has staged its files
 
@@ -93,10 +93,15 @@ Home SHALL show an import's staged files and bytes from the counts that the impo
 
 #### Scenario: Some staged files are filed
 
-- **WHEN** Adoption Studio runs over the staged folder report applied files
-- **THEN** Home shows the sum of their applied counts as the adopted count
+- **WHEN** the scoped status reports complete adopted counts for the staged folder
+- **THEN** Home shows its distinct-original count
+
+#### Scenario: The same original appears in several runs
+
+- **WHEN** repeated or overlapping runs successfully file the same staged original
+- **THEN** the adopted count includes that original once
 
 #### Scenario: Adoption Studio cannot be read
 
-- **WHEN** the status call fails, or the cell's rows carry no `source_root`
+- **WHEN** the status call fails, is incomplete, or carries no `adopted_files`
 - **THEN** Home shows the adopted count as unknown

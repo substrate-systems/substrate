@@ -8,7 +8,7 @@ The packets P1 to P7 below match the paired Exomem change `publish-cloud-import-
 
 ## 2. Admission, refusals and replies (P4)
 
-- [ ] 2.1 Add the pure function to `cloud-import-contract.ts`: parse limits, compute the need and clamped `required_storage_gib`, and build each refusal's `limit`. Verify: cases for unpublished or invalid limits, unknown usage, the capacity ratio, growth clamped below need, and a cell above the cap.
+- [ ] 2.1 Add the pure function to `cloud-import-contract.ts`: parse limits, compute the need and clamped `required_storage_gib`, and build each refusal's `limit`. Verify: cases for unpublished or invalid limits, unknown usage, a stale capacity ratio that cannot refuse admission, growth clamped below need, and a cell above the cap.
 - [ ] 2.2 Run the admission steps in `cloud-imports.ts` and add `limit` to the error envelope in `errors.ts`. Verify: PostgreSQL integration tests for growth with `GREATEST`, replay with no check and no growth, rollback on an open-slot conflict, each refusal, and unpublished limits.
 - [ ] 2.3 Refuse `IMPORT_PARTS_LIMIT` on the first prepare-upload report only. Verify: an integration case for the first report, and one for a replay that returns the stored import.
 - [ ] 2.4 Add `limits`, `required_storage_bytes`, `storage_ready`, `staged_files` and `staged_bytes` to the import routes and zod schemas. Verify: a schema test that parses a reply without the new fields, and an integration case for `storage_ready` while the claim is smaller than required.
@@ -25,8 +25,8 @@ The follow-ups from the first Home import change live in `make-home-import-visib
 
 ## 5. Adopted count (P7)
 
-- [ ] 5.1 Call `adoption_studio(action="status")` through `cloud-home-mcp.ts`, sum `counts.applied` over the runs under the import's staged folder, and show the result. Show "unknown" when the call fails or the rows lack `source_root`. Verify: a Home test against a stub status reply, with and without `source_root`.
-- [ ] 5.2 Wait for the Exomem change to add `source_root` to the status rows (its task 4.1). Verify: Home shows the adopted count against a cell that runs that version.
+- [ ] 5.1 Read scoped `adopted_files` through `cloud-home-mcp.ts`; show "unknown" for unavailable, incomplete or older status. Verify: a Home test covers a distinct-original count and an unknown result.
+- [ ] 5.2 Wait for the Exomem scoped status aggregate (its task 4.1). Verify: repeated and overlapping runs contribute each original once on a cell running that version.
 
 ## 6. Delivery
 

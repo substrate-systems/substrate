@@ -58,10 +58,10 @@ Creation SHALL run these steps in order inside its existing transaction, with th
 2. When the import ID exists with identical declarations, return the stored import. Run no later step and write no growth.
 3. When the limits are unpublished, insert the import with `required_storage_gib` NULL and reply `limits: null`.
 4. When `declared_files` exceeds `max_members`, refuse with 422 `IMPORT_TOO_MANY_FILES`.
-5. When the storage need exceeds `max_storage_gib` even with no content in the vault, refuse with 422 `IMPORT_STORAGE_LIMIT`.
+5. When `space_factor × declared_bytes + reserve_bytes` exceeds the cap in bytes, refuse with 422 `IMPORT_STORAGE_LIMIT`.
 6. Raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, then insert the import with that requirement.
 
-The storage need SHALL be `used + space_factor × declared_bytes + reserve_bytes`, scaled by the ratio of `observed_storage_capacity_bytes` to `filesystem_bytes`. The cell's `used_bytes` and `filesystem_bytes` readings come from migration 0066; its observed capacity comes from migration 0071. A recorded usage reading SHALL count regardless of its age. When `used_bytes` is unknown, the need SHALL treat the whole current volume as used with a ratio of 1. Stale usage SHALL NOT cause a refusal unless the import cannot fit even with no vault content.
+The storage need SHALL be `used + space_factor × declared_bytes + reserve_bytes`, scaled by the ratio of `observed_storage_capacity_bytes` to `filesystem_bytes`. The cell's `used_bytes` and `filesystem_bytes` readings come from migration 0066; its observed capacity comes from migration 0071. A recorded usage reading SHALL count regardless of its age. When `used_bytes` is unknown, the need SHALL treat the whole current volume as used with a ratio of 1. The ratio SHALL affect only the growth estimate. The necessary-only refusal SHALL use the unscaled lower bound `space_factor × declared_bytes + reserve_bytes`, so a filesystem reading from before growth cannot refuse an import that fits.
 
 One pure function SHALL compute the need and `required_storage_gib = min(ceil(need / GiB), max_storage_gib)`, where one GiB is 1,073,741,824 bytes. The API and Home SHALL both use that function with the cell readings and the published limits. The recorded requirement SHALL be the clamped target, never the unclamped need.
 
@@ -89,15 +89,22 @@ One pure function SHALL compute the need and `required_storage_gib = min(ceil(ne
 
 #### Scenario: The import can never fit
 
-- **WHEN** the need with no vault content is above `max_storage_gib`
+- **WHEN** the unscaled empty-vault lower bound is above the cap in bytes
 - **THEN** creation returns 422 `IMPORT_STORAGE_LIMIT` and inserts nothing
 
 #### Scenario: Existing content leaves too little room
 
-- **WHEN** the need with no vault content fits the cap, but the vault's used bytes push the full need above it
+- **WHEN** the unscaled empty-vault lower bound fits the cap, but the growth estimate exceeds it
 - **THEN** creation raises `storage_gib` to the cap and inserts the import
 - **AND** `required_storage_gib` equals the cap, so the import reaches `key_ready` after that growth
 - **AND** the cell refuses insufficient free space at import time with its own free-space code
+
+#### Scenario: Usage was recorded before a resize
+
+- **WHEN** a cell grew from 2 GiB to 20 GiB and still reports its earlier 1.9 GiB filesystem reading
+- **AND** the import holds 1 GiB, with space factor 2 and reserve 256 MiB
+- **THEN** admission compares the unscaled 2.25 GiB lower bound with the 20 GiB cap and accepts
+- **AND** the stale ratio can increase only the clamped growth estimate
 
 #### Scenario: A concurrent import holds the open slot
 
@@ -106,7 +113,7 @@ One pure function SHALL compute the need and `required_storage_gib = min(ceil(ne
 
 ### Requirement: Admission grows storage within the published cap before the key exists
 
-Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, so it SHALL never lower a size and SHALL never exceed `max_storage_gib`. It SHALL record the clamped target as `required_storage_gib`. Cellctl SHALL NOT write `recipient` or report `key_ready` for an import that has a `required_storage_gib` until the cell's observed capacity covers it with no resize pending. While it waits, cellctl SHALL leave the cell mounted and running. A brief cell restart that the raise causes SHALL count as waiting, not as failure. When the claim has not grown within `import_growth_deadline_seconds` of the import's creation, cellctl SHALL fail the import with `IMPORT_STORAGE_UNAVAILABLE`. For a local-storage cell, cellctl SHALL check the node's room again before it reports `key_ready`. It SHALL fail the import with `IMPORT_STORAGE_NO_ROOM` when the node cannot hold the size.
+Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, so it SHALL never lower a size and SHALL never exceed `max_storage_gib`. It SHALL record the clamped target as `required_storage_gib`. Cellctl SHALL NOT write `recipient` or report `key_ready` for an import that has a `required_storage_gib` until the cell's observed capacity covers it with no resize pending. While it waits, cellctl SHALL leave the cell mounted and running. A brief cell restart that the raise causes SHALL count as waiting, not as failure. When the claim has not grown within `import_growth_deadline_seconds` of the import's creation, cellctl SHALL fail the import with `IMPORT_STORAGE_UNAVAILABLE`. For a local-storage cell, cellctl SHALL check the node's room again before it reports `key_ready`. It SHALL fail the import with `IMPORT_STORAGE_NO_ROOM` when the node cannot hold the size. Before any larger local claim request, cellctl SHALL check the node's room. If room is unavailable, it SHALL retain the last accepted claim request, including during cleanup and later reconciliation. The desired `storage_gib` SHALL stay raised, and cellctl SHALL NOT lower a claim. Unknown room SHALL leave growth waiting until its deadline. Known insufficient room SHALL fail the import with `IMPORT_STORAGE_NO_ROOM`. Local import growth SHALL ship only after this behavior passes the local cutover check.
 
 #### Scenario: The volume grows
 
@@ -128,6 +135,8 @@ Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, required_storage
 
 - **WHEN** a local-storage cell's node cannot hold the required size at `key_ready`
 - **THEN** cellctl fails the import with `IMPORT_STORAGE_NO_ROOM` and mints no key
+- **AND** the claim keeps its last accepted request while desired `storage_gib` stays raised
+- **AND** cleanup and later reconciliation request no larger local claim until the node can hold it
 
 ### Requirement: Prepare-upload refuses ciphertext beyond the part ceiling
 
