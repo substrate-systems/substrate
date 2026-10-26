@@ -233,16 +233,16 @@ const readings = {
   usage_observed_at: "2026-01-01T00:00:00Z",
 };
 
-it("preflight counts folders as members and refuses a selection above the published maximum", async () => {
+it("preflight admits a file at the member limit without counting its parent folder", async () => {
   const api = importApiDouble("unused");
   const page = await home({
     api,
-    context: { limits: { ...published, max_members: 3 }, storage: readings },
+    context: { limits: { ...published, max_members: 1 }, storage: readings },
   });
   await page.click("Import…");
-  await page.choose(folder("research", 3));
-  await page.until(() => page.text().includes("4 of 3"), "the member limit");
-  assert.equal(page.button("Encrypt and upload"), undefined);
+  await page.choose(folder("research", 1));
+  await page.until(() => page.text().includes("1 of 1"), "the archive's actual member count");
+  assert.ok(page.button("Encrypt and upload"));
   assert.equal(api.rows.size, 0);
 });
 

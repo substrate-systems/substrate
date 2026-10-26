@@ -130,7 +130,7 @@ The three codes join the closed set of import protocol codes. Their error envelo
 
 ### D8. Home
 
-Home runs the shared function in its preflight, beside the checks from S1. It shows the member count against `max_members`, the storage need against the cap, and "grows to about N GB" when the need exceeds the current size. It refuses to start where admission would refuse. The vault warning from S1 now subtracts `reserve_bytes` from the free space.
+Home runs the shared function in its preflight, beside the checks from S1. It shows the member count against `max_members`, the storage need against the cap, and "grows to about N GB" when the need exceeds the current size. The browser writes one file entry per selected file; implicit parent folders add no TAR members. It refuses to start where admission would refuse. The vault warning from S1 now subtracts `reserve_bytes` from the free space.
 
 With no published limits, Home says "limits not published; the cell checks during import". It substitutes no constant.
 
