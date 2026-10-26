@@ -25,6 +25,8 @@ const cloudImport = z.object({
   error_code: z.string().nullable(),
   ciphertext_sha256: z.string().nullable(),
   ciphertext_bytes: count.nullable(),
+  staged_files: count.nullable().optional(),
+  staged_bytes: count.nullable().optional(),
   created_at: z.iso.datetime({ offset: true }),
   updated_at: z.iso.datetime({ offset: true }),
 });

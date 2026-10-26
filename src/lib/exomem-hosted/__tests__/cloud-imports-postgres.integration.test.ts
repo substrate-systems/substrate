@@ -232,6 +232,102 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
     assert.equal((await call(alice, "status", undefined, pending.import_id)).status, 200);
   });
 
+  it("freezes required storage at insertion, including an unpublished requirement", async () => {
+    const alice = await owner();
+    await assert.rejects(
+      pool.query(
+        "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files, required_storage_gib) VALUES ($1, 'adopt', 1, 1, 0)",
+        [alice.cellId]
+      ),
+      { code: "23514" }
+    );
+    const created = await pool.query(
+      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files, required_storage_gib) VALUES ($1, 'adopt', 1, 1, 16) RETURNING import_id",
+      [alice.cellId]
+    );
+    const importId = created.rows[0].import_id;
+    for (const requirement of [17, null]) {
+      await assert.rejects(
+        pool.query(
+          "UPDATE exomem_cloud_imports SET required_storage_gib = $2 WHERE import_id = $1",
+          [importId, requirement]
+        ),
+        { code: "23514" }
+      );
+    }
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET required_storage_gib = 16, observed_state = 'done' WHERE import_id = $1",
+      [importId]
+    );
+    const legacy = await create(alice);
+    await assert.rejects(
+      pool.query("UPDATE exomem_cloud_imports SET required_storage_gib = 16 WHERE import_id = $1", [
+        legacy.import_id,
+      ]),
+      { code: "23514" }
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT required_storage_gib FROM exomem_cloud_imports WHERE cell_id = $1 ORDER BY required_storage_gib NULLS LAST",
+          [alice.cellId]
+        )
+      ).rows,
+      [{ required_storage_gib: 16 }, { required_storage_gib: null }]
+    );
+  });
+
+  it("records nonnegative staged counts together and never replaces a recorded count", async () => {
+    const alice = await owner();
+    const created = await create(alice);
+    // Each pair violates a distinct column or the both-or-neither constraint.
+    for (const [files, bytes] of [
+      [1, null],
+      [null, 1],
+      [-1, 0],
+      [0, -1],
+    ]) {
+      await assert.rejects(
+        pool.query(
+          "UPDATE exomem_cloud_imports SET staged_files = $2, staged_bytes = $3 WHERE import_id = $1",
+          [created.import_id, files, bytes]
+        ),
+        { code: "23514" }
+      );
+    }
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET staged_files = 0, staged_bytes = 0 WHERE import_id = $1",
+      [created.import_id]
+    );
+    // Repeating the same Job report remains harmless.
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET staged_files = 0, staged_bytes = 0 WHERE import_id = $1",
+      [created.import_id]
+    );
+    for (const [files, bytes] of [
+      [1, 0],
+      [0, 1],
+      [null, null],
+    ]) {
+      await assert.rejects(
+        pool.query(
+          "UPDATE exomem_cloud_imports SET staged_files = $2, staged_bytes = $3 WHERE import_id = $1",
+          [created.import_id, files, bytes]
+        ),
+        { code: "23514" }
+      );
+    }
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT staged_files, staged_bytes FROM exomem_cloud_imports WHERE import_id = $1",
+          [created.import_id]
+        )
+      ).rows[0],
+      { staged_files: "0", staged_bytes: "0" }
+    );
+  });
+
   it("keeps browser CSRF and never borrows valid cookies after bearer failure", async () => {
     const alice = await owner();
     const browser = {

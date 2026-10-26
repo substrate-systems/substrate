@@ -184,6 +184,14 @@ BEGIN
         observed_storage_generation, observed_storage_at
       ) ON exomem_cloud_cells TO exomem_cellctl;
     END IF;
+    -- Migration 0079: effective import limits are a controller observation.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'import_limits'
+    ) THEN
+      GRANT UPDATE (import_limits) ON exomem_cloud_cells TO exomem_cellctl;
+    END IF;
     GRANT INSERT, UPDATE ON exomem_cloud_capacity TO exomem_cellctl;
     GRANT UPDATE (paused, error_code, held_cell_id, last_good_image, updated_at)
       ON exomem_cloud_rollout TO exomem_cellctl;
@@ -207,6 +215,14 @@ BEGIN
       GRANT SELECT ON exomem_cloud_imports TO substrate_app;
       GRANT INSERT (import_id, cell_id, kind, declared_bytes, declared_files, requested_state,
         part_etags, ciphertext_sha256, ciphertext_bytes) ON exomem_cloud_imports TO substrate_app;
+      -- Migration 0079: admission records the immutable requirement at INSERT only.
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = 'exomem_cloud_imports'
+          AND column_name = 'required_storage_gib'
+      ) THEN
+        GRANT INSERT (required_storage_gib) ON exomem_cloud_imports TO substrate_app;
+      END IF;
       GRANT UPDATE (requested_state, part_etags, ciphertext_sha256, ciphertext_bytes)
         ON exomem_cloud_imports TO substrate_app;
     END IF;
@@ -214,6 +230,21 @@ BEGIN
       GRANT SELECT ON exomem_cloud_imports TO exomem_cellctl;
       GRANT UPDATE (recipient, upload_id, part_urls, urls_expire_at, observed_state, error_code)
         ON exomem_cloud_imports TO exomem_cellctl;
+      -- Guard each Job-report column so grants also work during a partial upgrade.
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = 'exomem_cloud_imports'
+          AND column_name = 'staged_files'
+      ) THEN
+        GRANT UPDATE (staged_files) ON exomem_cloud_imports TO exomem_cellctl;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = 'exomem_cloud_imports'
+          AND column_name = 'staged_bytes'
+      ) THEN
+        GRANT UPDATE (staged_bytes) ON exomem_cloud_imports TO exomem_cellctl;
+      END IF;
     END IF;
   END IF;
 
