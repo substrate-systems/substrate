@@ -103,16 +103,10 @@ export async function forecastImport(
 ): Promise<ImportForecast> {
   const archive = await tarBytes(files, signal);
   const stand = recipient ?? (await identityToRecipient(await generateX25519Identity()));
-  // The archive's slash-separated parent folders each count as a member beside its files.
-  const folders = new Set<string>();
-  for (const { path } of files) {
-    const components = path.split("/");
-    for (let index = 1; index < components.length; index++)
-      folders.add(components.slice(0, index).join("/"));
-  }
   return {
     files: files.length,
-    members: files.length + folders.size,
+    // The writer emits file entries only; parent paths do not add TAR members.
+    members: files.length,
     plaintextBytes: files.reduce((total, { file }) => total + file.size, 0),
     tarBytes: archive,
     ciphertextBytes: await ageBytes(archive, stand),
