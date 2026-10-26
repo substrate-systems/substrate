@@ -15,8 +15,8 @@
 
 ## 3. Integrated proof and delivery
 
-- [x] 3.1 Exercise MCP handoff, CLI upload, held handle, Source capture and exact original recovery in an isolated sandbox. Verify revocation before body reads and a substituted capsule/ticket race.
-  Evidence: 19 of 19 sandbox checks; the stored original is byte-identical to the uploaded bytes. Recovery reads it through the unchanged export and artifact paths, which this sandbox did not exercise.
+- [ ] 3.1 Exercise MCP handoff, CLI upload, held handle, Source capture and exact original recovery in an isolated sandbox. Verify revocation before body reads and a substituted capsule/ticket race.
+  Evidence: 19 of 19 sandbox checks; the stored original under `Knowledge Base/Sources/` is byte-identical to the uploaded bytes. Open: Cloud has no agent-facing exact-original recovery. A Cloud cell refuses `transfer_artifact` downloads and serves no `/download` route. This sandbox exercised no recovery path.
 - [x] 3.2 Complete independent exact-content security review, scoped corrections, verification, builds and required CI for both source batches. Record the reviewed heads and unverified live steps.
   Evidence: APPROVE with no blocking findings on Exomem 945964e3c and Substrate bccb2f5, required CI green on both heads. Live activation (cell key rendering, chart values, ingress rule, upload timeout) is unverified and stays with the release owner.
 - [ ] 3.3 Deliver the compatible source through ordinary publication while issuance stays disabled. Verify containing artifacts and keep production activation separate.
