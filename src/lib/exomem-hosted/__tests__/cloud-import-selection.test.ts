@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classifyFolder, selectImportFiles } from "../cloud-import-selection";
+import { classifyFolder, GITIGNORE_MAX_BYTES, selectImportFiles } from "../cloud-import-selection";
 
 function entry(path: string, body = "x") {
   return { path, file: new File([body], path.split("/").at(-1)!) };
@@ -45,4 +45,18 @@ test("hidden items and the folder's own .gitignore rules stay out by default, pe
 
   const everything = selectImportFiles(folder, { hidden: true, gitignored: true });
   assert.equal(everything.files.length, folder.length);
+});
+
+test("a .gitignore too large to read as rules is not applied, and the selection says so", async () => {
+  const oversized = new File([new Uint8Array(GITIGNORE_MAX_BYTES + 1).fill(0x2a)], ".gitignore");
+  const folder = await classifyFolder([
+    { path: ".gitignore", file: oversized },
+    entry("notes/plan.md", "plan"),
+  ]);
+  const selection = selectImportFiles(folder, { hidden: false, gitignored: false });
+  assert.deepEqual(
+    selection.files.map(({ path }) => path),
+    ["notes/plan.md"]
+  );
+  assert.equal(selection.skippedRules, 1);
 });

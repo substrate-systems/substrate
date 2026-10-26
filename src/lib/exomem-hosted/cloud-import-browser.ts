@@ -194,6 +194,15 @@ export async function digestImportCiphertext(
 }
 
 /** Retry a part with the same ciphertext, without forwarding the signed-in session to storage. */
+async function readable(blob: Blob): Promise<boolean> {
+  try {
+    await blob.slice(0, 1).arrayBuffer();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function uploadImportParts(
   ciphertext: Blob,
   parts: UploadPart[],
@@ -228,14 +237,24 @@ export async function uploadImportParts(
     signal?.throwIfAborted();
     const end = offset + part.part_size_bytes;
     if (!completed.has(part.part_number)) {
-      const response = await fetch(part.url, {
-        method: "PUT",
-        body: ciphertext.slice(offset, end),
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-        redirect: "error",
-        signal,
-      });
+      const body = ciphertext.slice(offset, end);
+      let response: Response;
+      try {
+        response = await fetch(part.url, {
+          method: "PUT",
+          body,
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+          redirect: "error",
+          signal,
+        });
+      } catch (error) {
+        // Fetch reports a body it cannot read as a network failure (a TypeError), so a read of
+        // the part tells a lost encrypted copy from a dropped connection.
+        if (error instanceof TypeError && !(await readable(body)))
+          throw new ImportStop("LOCAL_COPY_MISSING");
+        throw error;
+      }
       if (!response.ok) throw new ImportStop("STORAGE_REFUSED");
       const etag = response.headers.get("etag");
       if (!etag) throw new ImportStop("STORAGE_UNCONFIRMED");

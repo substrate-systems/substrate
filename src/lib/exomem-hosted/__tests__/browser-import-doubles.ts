@@ -1,17 +1,30 @@
 // Stand-ins at the browser import's two boundaries: the browser's origin-private storage and
 // the C5 import API with its storage parts. The code under test runs unchanged against them.
 
+type Folder = { files: Map<string, Uint8Array[]>; folders: Map<string, Folder> };
+
 /** An in-memory origin-private file system: a writable commits only when it closes. */
 export function browserStorageDouble(quota = 1e12) {
-  const files = new Map<string, Uint8Array[]>();
+  const root: Folder = { files: new Map(), folders: new Map() };
   const notFound = () => new DOMException("No such entry", "NotFoundError");
-  const directory = {
-    async getFileHandle(name: string, options?: { create?: boolean }) {
-      if (!files.has(name)) {
+  const folderHandle = (folder: Folder, name: string) => ({
+    kind: "directory" as const,
+    name,
+    async getDirectoryHandle(child: string, options?: { create?: boolean }) {
+      if (!folder.folders.has(child)) {
         if (!options?.create) throw notFound();
-        files.set(name, []);
+        folder.folders.set(child, { files: new Map(), folders: new Map() });
+      }
+      return folderHandle(folder.folders.get(child)!, child);
+    },
+    async getFileHandle(file: string, options?: { create?: boolean }) {
+      if (!folder.files.has(file)) {
+        if (!options?.create) throw notFound();
+        folder.files.set(file, []);
       }
       return {
+        kind: "file" as const,
+        name: file,
         async createWritable() {
           const pending: Uint8Array[] = [];
           return new WritableStream<Uint8Array>({
@@ -19,32 +32,69 @@ export function browserStorageDouble(quota = 1e12) {
               pending.push(Uint8Array.from(chunk));
             },
             close() {
-              files.set(name, pending);
+              folder.files.set(file, pending);
             },
           });
         },
         async getFile() {
-          const chunks = files.get(name);
+          const chunks = folder.files.get(file);
           if (!chunks) throw notFound();
-          return new File(chunks as BlobPart[], name);
+          return new File(chunks as BlobPart[], file);
         },
       };
     },
-    async removeEntry(name: string) {
-      if (!files.delete(name)) throw notFound();
+    async removeEntry(entry: string) {
+      if (!folder.files.delete(entry) && !folder.folders.delete(entry)) throw notFound();
     },
-    async *keys() {
-      yield* [...files.keys()];
+    async *entries() {
+      for (const file of [...folder.files.keys()])
+        yield [file, { kind: "file" as const, name: file }] as const;
+      for (const [child, nested] of [...folder.folders])
+        yield [child, folderHandle(nested, child)] as const;
     },
+  });
+  /** The files of the folder at this path, made on first use like the browser's own folders. */
+  const files = (...path: string[]) => {
+    let folder = root;
+    for (const name of path) {
+      if (!folder.folders.has(name))
+        folder.folders.set(name, { files: new Map(), folders: new Map() });
+      folder = folder.folders.get(name)!;
+    }
+    return folder.files;
   };
-  const usage = () =>
-    [...files.values()].flat().reduce((total, chunk) => total + chunk.byteLength, 0);
+  const usage = (folder: Folder): number =>
+    [...folder.files.values()].flat().reduce((total, chunk) => total + chunk.byteLength, 0) +
+    [...folder.folders.values()].reduce((total, nested) => total + usage(nested), 0);
   return {
     files,
     storage: {
-      getDirectory: async () => ({ getDirectoryHandle: async () => directory }),
-      estimate: async () => ({ quota, usage: usage() }),
+      getDirectory: async () => folderHandle(root, ""),
+      estimate: async () => ({ quota, usage: usage(root) }),
       persist: async () => true,
+    },
+  };
+}
+
+/** Web Locks as the browser grants them to `ifAvailable` requests; `held` stands for other tabs. */
+export function webLocksDouble() {
+  const held = new Set<string>();
+  return {
+    held,
+    locks: {
+      async request<T>(
+        name: string,
+        _options: { ifAvailable: boolean },
+        callback: (lock: { name: string } | null) => T | Promise<T>
+      ): Promise<T> {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          return await callback({ name });
+        } finally {
+          held.delete(name);
+        }
+      },
     },
   };
 }

@@ -19,11 +19,14 @@ import {
 } from "@/lib/exomem-hosted/cloud-import-browser-api";
 import {
   browserStorageRoom,
-  removeStaleImportCiphertext,
+  discardOtherKeptCiphertext,
+  otherKeptCiphertext,
   storedImportCiphertext,
+  sweepKeptCiphertext,
 } from "@/lib/exomem-hosted/cloud-import-browser-file";
 import {
   BrowserImportUpload,
+  keptCopyRetired,
   type ImportProgress,
 } from "@/lib/exomem-hosted/cloud-import-browser-upload";
 import {
@@ -32,6 +35,7 @@ import {
   type FolderEntry,
   type ImportSelection,
   type IncludeChoices,
+  type SelectionTotals,
 } from "@/lib/exomem-hosted/cloud-import-selection";
 import {
   importPaused,
@@ -65,7 +69,10 @@ const PROGRESS_REDRAW_MS = 250;
 type Preflight = {
   selection: ImportSelection;
   measuredAt: number;
-} & ({ forecast: ImportForecast; room: BrowserRoom } | { failed: string });
+} & (
+  | { forecast: ImportForecast; room: BrowserRoom; others: SelectionTotals | null }
+  | { failed: string }
+);
 
 /** Why this page's upload is not running, shown until the person acts on it. */
 type Stop =
@@ -128,6 +135,8 @@ function rowProgress(progress: ImportProgress): string {
       return `Uploading: ${byteSize(progress.bytes)} of ${byteSize(progress.total)}.`;
     case "preparing":
       return "Preparing the import.";
+    case "linking":
+      return "Waiting for the upload links.";
     case "reporting":
       return "Confirming the upload.";
   }
@@ -135,8 +144,10 @@ function rowProgress(progress: ImportProgress): string {
 
 function pausedText(stop: Extract<Stop, { kind: "paused" }>): string {
   if (stop.unavailable) return "Paused until uploads are available again.";
-  return stop.phase === "uploading" || stop.phase === "reporting" || stop.phase === "verifying"
-    ? "Paused. Parts already uploaded from this page are kept."
+  if (stop.phase === "uploading" || stop.phase === "reporting" || stop.phase === "verifying")
+    return "Paused. Parts already uploaded from this page are kept.";
+  return stop.phase === "linking"
+    ? "Paused. This browser keeps the encrypted copy for when you resume."
     : "Paused. Encryption starts again from the beginning when you resume.";
 }
 
@@ -194,11 +205,14 @@ function ImportReviewHandoff({ importId }: { importId: string }) {
 
 export function ImportDocuments({
   csrfToken,
+  account,
   canStart,
   storage,
   onAccountLost,
 }: {
   csrfToken: string;
+  /** The account's stable key; its kept copies live in a folder of their own. */
+  account: string;
   canStart: boolean;
   /** The vault's last disk reading from the status poll; advisory, because it can be stale. */
   storage: HomeStorage | null;
@@ -224,7 +238,12 @@ export function ImportDocuments({
   const [message, setMessage] = useState<string | null>(null);
   const [readMessage, setReadMessage] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  // Counts the owner's discards of other accounts' copies, so the preflight measures again.
+  const [discards, setDiscards] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const chooseButton = useRef<HTMLButtonElement>(null);
+  const startButton = useRef<HTMLButtonElement>(null);
   const upload = useRef<BrowserImportUpload | null>(null);
   const latest = useRef<ImportProgress | null>(null);
   const pausedBy = useRef<"person" | "unavailable">("person");
@@ -358,10 +377,14 @@ export function ImportDocuments({
     const controller = new AbortController();
     void (async () => {
       try {
-        // Only the open import can use kept ciphertext; the rest is from ended attempts. The
-        // open import's own copy is replaced under its lock when encryption starts.
-        await removeStaleImportCiphertext(resumingId).catch(failCleanup);
-        const replaced = resumingId ? await storedImportCiphertext(resumingId) : null;
+        // This account's copies go only when no tab holds them and a fresh read says their
+        // import has ended; a copy the sweep cannot remove stays counted in the browser's
+        // usage. The open import's own copy is replaced when encryption starts.
+        await sweepKeptCiphertext(account, resumingId, (id) =>
+          keptCopyRetired(csrfToken, id)
+        ).catch(() => {});
+        const replaced = resumingId ? await storedImportCiphertext(account, resumingId) : null;
+        const others = await otherKeptCiphertext(account).catch(() => null);
         const forecast = await forecastImport(measuring.files, undefined, controller.signal);
         const estimate = await browserStorageRoom();
         const room = estimate && {
@@ -369,7 +392,7 @@ export function ImportDocuments({
           usage: estimate.usage - (replaced?.ciphertext.size ?? 0),
         };
         if (!controller.signal.aborted)
-          setPreflight({ selection: measuring, measuredAt: Date.now(), forecast, room });
+          setPreflight({ selection: measuring, measuredAt: Date.now(), forecast, room, others });
       } catch (error) {
         if (controller.signal.aborted) return;
         setPreflight({
@@ -380,14 +403,14 @@ export function ImportDocuments({
       }
     })();
     return () => controller.abort();
-  }, [measuring, resumingId, failCleanup]);
+  }, [measuring, resumingId, account, csrfToken, discards]);
   const measured = preflight && measuring && preflight.selection === measuring ? preflight : null;
 
   const storedId = open && reported && !holding && !busy ? awaiting.import_id : null;
   useEffect(() => {
     if (!storedId) return;
     let current = true;
-    void storedImportCiphertext(storedId)
+    void storedImportCiphertext(account, storedId)
       .then((stored) => {
         if (current) setLocalCopy({ importId: storedId, bytes: stored?.ciphertext.size ?? null });
       })
@@ -397,7 +420,7 @@ export function ImportDocuments({
     return () => {
       current = false;
     };
-  }, [storedId]);
+  }, [storedId, account]);
   const stored = storedId && localCopy?.importId === storedId ? localCopy : null;
   const storedUsable =
     stored !== null && stored.bytes !== null && stored.bytes === awaiting?.ciphertext_bytes;
@@ -500,7 +523,12 @@ export function ImportDocuments({
     if (!selection) return;
     const previous = upload.current;
     const resumeId = awaiting && !reported ? awaiting.import_id : undefined;
-    upload.current = new BrowserImportUpload(selection.files, csrfToken, resumeId);
+    upload.current = new BrowserImportUpload({
+      files: selection.files,
+      csrfToken,
+      account,
+      importId: resumeId,
+    });
     setAttemptId(upload.current.id);
     if (!resumeId) setOperation(null);
     // Disposal removes the attempt's ciphertext file, which is named by its import ID.
@@ -510,9 +538,35 @@ export function ImportDocuments({
 
   function continueStored() {
     if (!awaiting) return;
-    upload.current = new BrowserImportUpload(null, csrfToken, awaiting.import_id);
+    upload.current = new BrowserImportUpload({
+      files: null,
+      csrfToken,
+      account,
+      importId: awaiting.import_id,
+    });
     setAttemptId(upload.current.id);
     void run();
+  }
+
+  async function discardOthers() {
+    setDiscarding(true);
+    setMessage(null);
+    try {
+      const { kept } = await discardOtherKeptCiphertext(account);
+      if (kept > 0 && mounted.current)
+        setMessage(
+          `${count(kept)} kept ${kept === 1 ? "copy is" : "copies are"} in use in another tab or window, so ${kept === 1 ? "it stays" : "they stay"}.`
+        );
+    } catch (error) {
+      fail(error);
+    } finally {
+      if (mounted.current) {
+        setDiscarding(false);
+        setDiscards((value) => value + 1);
+        // The discard action leaves with the copies; keep focus inside the dialog.
+        (startButton.current ?? chooseButton.current)?.focus();
+      }
+    }
   }
 
   function pause() {
@@ -529,7 +583,12 @@ export function ImportDocuments({
     const currentUpload =
       upload.current?.id === operation.import_id
         ? upload.current
-        : new BrowserImportUpload(null, csrfToken, operation.import_id);
+        : new BrowserImportUpload({
+            files: null,
+            csrfToken,
+            account,
+            importId: operation.import_id,
+          });
     currentUpload.pause();
     try {
       const value = await requestBrowserImport(csrfToken, operation.import_id, action);
@@ -553,6 +612,8 @@ export function ImportDocuments({
     }
   }
 
+  // A new folder beside a finished import: the import's lines describe the earlier one.
+  const earlier = terminal && folder !== null;
   const resumable =
     canStart &&
     !busy &&
@@ -620,12 +681,13 @@ export function ImportDocuments({
             {operation && (
               <>
                 <p className={dialog.text} role="status">
+                  {earlier && "Earlier import: "}
                   {observation(operation)}
                 </p>
                 <p className={dialog.text}>
-                  Selected: {count(operation.declared_files)} files ·{" "}
-                  {byteSize(operation.declared_bytes)}. Status updated{" "}
-                  {shortDateTime(operation.updated_at)}.
+                  {earlier ? "Earlier import’s selection" : "Selected"}:{" "}
+                  {count(operation.declared_files)} files · {byteSize(operation.declared_bytes)}.
+                  Status updated {shortDateTime(operation.updated_at)}.
                 </p>
                 {operation.error_code && (
                   <p className={dialog.text}>Exomem reported: {operation.error_code}</p>
@@ -717,7 +779,12 @@ export function ImportDocuments({
                     folder again: it is encrypted again on this device, and the import continues.
                   </p>
                 )}
-                <Button size="dialog" working={reading} onClick={() => input.current?.click()}>
+                <Button
+                  ref={chooseButton}
+                  size="dialog"
+                  working={reading}
+                  onClick={() => input.current?.click()}
+                >
                   {reading
                     ? "Reading the folder…"
                     : awaiting
@@ -776,12 +843,15 @@ export function ImportDocuments({
                       <ImportLimits
                         forecast={measured.forecast}
                         room={measured.room}
+                        others={measured.others}
                         storage={storage}
                         now={measured.measuredAt}
+                        discarding={discarding}
+                        onDiscardOthers={() => void discardOthers()}
                       />
                     )}
                     {measured && "forecast" in measured && !browserShort && (
-                      <Button variant="primary" size="dialog" onClick={start}>
+                      <Button ref={startButton} variant="primary" size="dialog" onClick={start}>
                         {awaiting ? "Encrypt and continue" : "Encrypt and upload"}
                       </Button>
                     )}

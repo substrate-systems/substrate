@@ -2,7 +2,12 @@ import ignore, { type Ignore } from "ignore";
 import type { ImportFile } from "./cloud-import-browser";
 
 /** A picked file and whether the default selection leaves it out, and why. */
-export type FolderEntry = ImportFile & { hidden: boolean; gitignored: boolean };
+export type FolderEntry = ImportFile & {
+  hidden: boolean;
+  gitignored: boolean;
+  /** A .gitignore file too large to read as rules, so its rules are not applied. */
+  rulesSkipped: boolean;
+};
 /** Which kinds of left-out items the person chose to bring in after all. */
 export type IncludeChoices = { hidden: boolean; gitignored: boolean };
 export type SelectionTotals = { files: number; bytes: number };
@@ -11,10 +16,20 @@ export type ImportSelection = {
   included: SelectionTotals;
   /** Each left-out file counts once, under the first reason that still leaves it out. */
   excluded: { hidden: SelectionTotals; gitignored: SelectionTotals };
+  /** .gitignore files whose rules are not applied, so the totals above leave nothing out for them. */
+  skippedRules: number;
 };
 
 // git's per-directory exclude file, a name git itself fixes.
 const GITIGNORE = ".gitignore";
+// A larger .gitignore is not a rules file, and reading it whole could exhaust memory. This is
+// the Exomem CLI's limit, so both read a folder the same way; keep the two in step until the
+// published import limits carry it.
+export const GITIGNORE_MAX_BYTES = 4 * 1024 * 1024;
+
+function gitignoreFile(path: string): boolean {
+  return path === GITIGNORE || path.endsWith(`/${GITIGNORE}`);
+}
 
 /** A dot-led name is hidden by Unix convention; a hidden folder hides everything inside it. */
 function hiddenPath(path: string): boolean {
@@ -33,7 +48,7 @@ function parent(path: string): string {
 export async function classifyFolder(files: ImportFile[]): Promise<FolderEntry[]> {
   const rules = new Map<string, Ignore>();
   for (const { path, file } of files) {
-    if (path === GITIGNORE || path.endsWith(`/${GITIGNORE}`))
+    if (gitignoreFile(path) && file.size <= GITIGNORE_MAX_BYTES)
       rules.set(parent(path), ignore().add(await file.text()));
   }
   const matched = (path: string, directory: boolean): boolean => {
@@ -63,6 +78,7 @@ export async function classifyFolder(files: ImportFile[]): Promise<FolderEntry[]
     hidden: hiddenPath(entry.path),
     gitignored:
       rules.size > 0 && (folderExcluded(parent(entry.path)) || matched(entry.path, false)),
+    rulesSkipped: gitignoreFile(entry.path) && entry.file.size > GITIGNORE_MAX_BYTES,
   }));
 }
 
@@ -76,6 +92,7 @@ export function selectImportFiles(
     files: [],
     included: totals(),
     excluded: { hidden: totals(), gitignored: totals() },
+    skippedRules: entries.filter(({ rulesSkipped }) => rulesSkipped).length,
   };
   for (const { path, file, hidden, gitignored } of entries) {
     const bucket =

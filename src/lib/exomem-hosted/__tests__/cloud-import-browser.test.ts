@@ -140,6 +140,37 @@ test("failed storage parts retry the same bytes without forwarding session crede
   }
 });
 
+test("a part whose encrypted copy can no longer be read stops as a lost copy, not as a dropped connection", async () => {
+  const parts = [{ part_number: 1, url: "https://storage.example.test/part1", part_size_bytes: 4 }];
+  // Fetch reports a body it cannot read, like a dropped connection, as a TypeError.
+  const storage = mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("Failed to fetch");
+  });
+  // The browser's file snapshot after its file was removed: reading any slice fails.
+  const removed = (size: number): Blob =>
+    ({
+      size,
+      slice: (start = 0, end = size) => removed(Math.min(end, size) - start),
+      arrayBuffer: async () => {
+        throw new DOMException("The file is gone.", "NotFoundError");
+      },
+    }) as unknown as Blob;
+  try {
+    await assert.rejects(
+      uploadImportParts(removed(4), parts, new Map(), () => {}),
+      {
+        code: "LOCAL_COPY_MISSING",
+      }
+    );
+    await assert.rejects(
+      uploadImportParts(new Blob([new Uint8Array(4)]), parts, new Map(), () => {}),
+      TypeError
+    );
+  } finally {
+    storage.mock.restore();
+  }
+});
+
 test("a substituted part layout is refused before uploading any bytes", async () => {
   const storage = mock.method(globalThis, "fetch", async () => {
     throw new Error("unexpected upload");

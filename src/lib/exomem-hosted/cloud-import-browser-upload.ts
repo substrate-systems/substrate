@@ -1,4 +1,4 @@
-import type { CloudImport } from "../exomem/cloud-import-contract";
+import { cloudImportFinished, type CloudImport } from "../exomem/cloud-import-contract";
 import {
   assertImportAccount,
   requestBrowserImport,
@@ -7,9 +7,12 @@ import {
 import {
   browserStorageRoom,
   encryptImportToBrowserFile,
+  holdImport,
   keepImportCiphertext,
-  removeStaleImportCiphertext,
+  removeFreeImportCiphertext,
+  removeImportCiphertext,
   storedImportCiphertext,
+  sweepKeptCiphertext,
   type StoredCiphertext,
 } from "./cloud-import-browser-file";
 import {
@@ -19,10 +22,12 @@ import {
   type ImportFile,
 } from "./cloud-import-browser";
 import { ImportStop } from "./cloud-import-stop";
+import { HostedBrowserError } from "./hosted-browser";
 
 /** Every count is measured from the work itself; totals come from the exact forecast. */
 export type ImportProgress =
-  | { phase: "preparing" | "reporting" }
+  /** linking: the encrypted copy is reported and the cell is issuing its upload links. */
+  | { phase: "preparing" | "linking" | "reporting" }
   | {
       phase: "encrypting";
       files: number;
@@ -49,13 +54,28 @@ function pauseUntilNextRead(signal: AbortSignal): Promise<void> {
   });
 }
 
-/** One tab at a time works on an import, because its ciphertext file is named by its ID. */
-async function holdingImport<T>(importId: string, work: () => Promise<T>): Promise<T> {
-  if (typeof navigator.locks?.request !== "function") return work();
-  return navigator.locks.request(`exomem-import:${importId}`, { ifAvailable: true }, (lock) => {
-    if (!lock) throw new ImportStop("OTHER_TAB");
-    return work();
-  });
+/**
+ * Whether a kept copy can no longer serve its import, from a fresh read: the import is absent,
+ * or it no longer waits for this browser's upload. A failed read keeps the copy.
+ */
+export async function keptCopyRetired(csrfToken: string, importId: string): Promise<boolean> {
+  try {
+    const operation = await readBrowserImport(csrfToken, importId);
+    // C5's "requested" intent is the only one that still waits for a browser upload.
+    return (
+      !operation || operation.requested_state !== "requested" || cloudImportFinished(operation)
+    );
+  } catch (error) {
+    return error instanceof HostedBrowserError && error.status === 404;
+  }
+}
+
+/** The kept file vanished or changed under the page; only that copy is lost, not the folder. */
+function keptCopyLost(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "NotFoundError" || error.name === "NotReadableError")
+  );
 }
 
 /**
@@ -70,12 +90,23 @@ export class BrowserImportUpload {
   private active: Promise<void> | null = null;
   private controller: AbortController | null = null;
 
-  constructor(
-    private readonly files: ImportFile[] | null,
-    private readonly csrfToken: string,
-    importId?: string
-  ) {
-    this.id = importId ?? crypto.randomUUID();
+  private readonly files: ImportFile[] | null;
+  private readonly csrfToken: string;
+  private readonly account: string;
+
+  constructor(options: {
+    /** The folder to encrypt; null continues from the ciphertext this browser kept. */
+    files: ImportFile[] | null;
+    csrfToken: string;
+    /** The account's stable key, which names its own folder of kept copies. */
+    account: string;
+    /** An open import to continue; a new import gets a new ID. */
+    importId?: string;
+  }) {
+    this.files = options.files;
+    this.csrfToken = options.csrfToken;
+    this.account = options.account;
+    this.id = options.importId ?? crypto.randomUUID();
   }
 
   resume(
@@ -85,7 +116,7 @@ export class BrowserImportUpload {
     if (this.active) return this.active;
     const controller = new AbortController();
     this.controller = controller;
-    this.active = holdingImport(this.id, () =>
+    this.active = holdImport(this.id, () =>
       this.send(observed, progress, controller.signal)
     ).finally(() => {
       this.active = null;
@@ -102,9 +133,9 @@ export class BrowserImportUpload {
     this.pause();
     // Reap the producer and upload before removing their private ciphertext file.
     await this.active?.catch(() => {});
-    const stored = this.encrypted ?? (await storedImportCiphertext(this.id));
-    await stored?.remove();
     this.encrypted = null;
+    // A tab that holds the import keeps its copy; a later sweep removes it once the import ends.
+    await removeFreeImportCiphertext(this.account, this.id);
   }
 
   private async send(
@@ -162,6 +193,15 @@ export class BrowserImportUpload {
       }
     };
 
+    if (
+      this.encrypted &&
+      operation.ciphertext_sha256 !== null &&
+      (this.encrypted.report.ciphertext_sha256 !== operation.ciphertext_sha256 ||
+        this.encrypted.report.ciphertext_bytes !== operation.ciphertext_bytes)
+    ) {
+      // Another page reported different ciphertext; this page's copy cannot continue it.
+      this.encrypted = null;
+    }
     if (!this.encrypted && operation.ciphertext_sha256 !== null) {
       // The report is fixed; only the ciphertext it describes can continue this import.
       this.encrypted = await this.verifyStored(operation, progress, signal);
@@ -171,9 +211,12 @@ export class BrowserImportUpload {
       await waitFor((value) => value.observed_state === "key_ready" && Boolean(value.recipient));
       const recipient = operation.recipient;
       if (!recipient) throw new ImportStop("KEY_UNAVAILABLE");
-      // A new encryption replaces every kept copy. Copies that cannot be removed stay counted
-      // as used, so the space check below still decides; the preflight reports that failure.
-      await removeStaleImportCiphertext(null).catch(() => {});
+      // This tab holds the import, so its earlier copy can go; other copies go only when their
+      // imports have ended. A copy that stays is counted as used by the space check below.
+      await removeImportCiphertext(this.account, this.id).catch(() => {});
+      await sweepKeptCiphertext(this.account, this.id, (id) =>
+        keptCopyRetired(this.csrfToken, id)
+      ).catch(() => {});
       const forecast = await forecastImport(this.files, recipient, signal);
       const room = await browserStorageRoom();
       if (room && room.quota - room.usage < forecast.ciphertextBytes)
@@ -186,6 +229,7 @@ export class BrowserImportUpload {
       };
       progress({ phase: "encrypting", files: 0, plaintextBytes: 0, ciphertextBytes: 0, ...totals });
       this.encrypted = await encryptImportToBrowserFile(
+        this.account,
         this.id,
         this.files,
         recipient,
@@ -194,6 +238,7 @@ export class BrowserImportUpload {
       );
     }
     const encrypted = this.encrypted;
+    progress({ phase: "linking" });
     operation = await requestBrowserImport(
       this.csrfToken,
       this.id,
@@ -221,7 +266,11 @@ export class BrowserImportUpload {
         progress({ phase: "uploading", bytes, total: encrypted.report.ciphertext_bytes });
       },
       signal
-    );
+    ).catch((error: unknown) => {
+      // This page's copy can no longer serve the import; a later attempt looks for it afresh.
+      if (error instanceof ImportStop && error.code === "LOCAL_COPY_MISSING") this.encrypted = null;
+      throw error;
+    });
     signal.throwIfAborted();
     progress({ phase: "reporting" });
     operation = await requestBrowserImport(
@@ -245,7 +294,7 @@ export class BrowserImportUpload {
     progress: (value: ImportProgress) => void,
     signal: AbortSignal
   ): Promise<StoredCiphertext> {
-    const stored = await storedImportCiphertext(this.id);
+    const stored = await storedImportCiphertext(this.account, this.id);
     if (!stored || stored.ciphertext.size === 0) throw new ImportStop("LOCAL_COPY_MISSING");
     const total = stored.ciphertext.size;
     if (total !== operation.ciphertext_bytes) throw new ImportStop("LOCAL_COPY_CHANGED");
@@ -254,7 +303,9 @@ export class BrowserImportUpload {
       stored.ciphertext,
       (bytes) => progress({ phase: "verifying", bytes, total }),
       signal
-    );
+    ).catch((error: unknown) => {
+      throw keptCopyLost(error) ? new ImportStop("LOCAL_COPY_MISSING") : error;
+    });
     if (report.ciphertext_sha256 !== operation.ciphertext_sha256)
       throw new ImportStop("LOCAL_COPY_CHANGED");
     return { ...stored, report };

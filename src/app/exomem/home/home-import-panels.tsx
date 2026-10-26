@@ -1,14 +1,15 @@
 "use client";
 
+import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import { Switch } from "@/components/exomem/Switch";
-import { MAX_IMPORT_PARTS } from "@/lib/exomem/cloud-import-contract";
 import type { ImportForecast } from "@/lib/exomem-hosted/cloud-import-browser";
 import type { ImportProgress } from "@/lib/exomem-hosted/cloud-import-browser-upload";
-import type {
-  ImportSelection,
-  IncludeChoices,
-  SelectionTotals,
+import {
+  GITIGNORE_MAX_BYTES,
+  type ImportSelection,
+  type IncludeChoices,
+  type SelectionTotals,
 } from "@/lib/exomem-hosted/cloud-import-selection";
 import type { HomeStorage } from "./home-api";
 import { ago, byteSize, count } from "./home-format";
@@ -50,7 +51,8 @@ export function ImportExclusions({
   include: IncludeChoices;
   onInclude: (next: IncludeChoices) => void;
 }) {
-  if (!hiddenFiles && !gitignoredFiles) return null;
+  const skipped = selection.skippedRules;
+  if (!hiddenFiles && !gitignoredFiles && skipped === 0) return null;
   return (
     <>
       {hiddenFiles && (
@@ -77,6 +79,13 @@ export function ImportExclusions({
           onChange={(gitignored) => onInclude({ ...include, gitignored })}
         />
       )}
+      {skipped > 0 && (
+        <p className={dialog.text}>
+          {skipped === 1 ? "One .gitignore file is" : `${count(skipped)} .gitignore files are`}{" "}
+          larger than {byteSize(GITIGNORE_MAX_BYTES)}, so {skipped === 1 ? "its" : "their"} rules
+          are not applied.
+        </p>
+      )}
     </>
   );
 }
@@ -85,13 +94,20 @@ export function ImportExclusions({
 export function ImportLimits({
   forecast,
   room,
+  others,
   storage,
   now,
+  discarding,
+  onDiscardOthers,
 }: {
   forecast: ImportForecast;
   room: BrowserRoom;
+  /** Kept copies outside this account's folder; null when they could not be read. */
+  others: SelectionTotals | null;
   storage: HomeStorage | null;
   now: number;
+  discarding: boolean;
+  onDiscardOthers: () => void;
 }) {
   const browser = browserFree(room);
   const vault = vaultFree(storage);
@@ -114,11 +130,32 @@ export function ImportLimits({
               : `${byteSize(vault.bytes)}, measured ${ago(vault.observedAt, now)}`}
           </dd>
         </div>
-        <div>
-          <dt>Upload parts</dt>
-          <dd>at most {count(MAX_IMPORT_PARTS)}, set when the upload starts</dd>
-        </div>
+        {others === null ? (
+          <div>
+            <dt>Other kept copies</dt>
+            <dd>unknown</dd>
+          </div>
+        ) : (
+          others.files > 0 && (
+            <div>
+              <dt>Other kept copies</dt>
+              <dd>{totals(others)}</dd>
+            </div>
+          )
+        )}
       </dl>
+      {others !== null && others.files > 0 && (
+        <>
+          <p className={dialog.text}>
+            Other accounts, or earlier versions of this page, kept these encrypted copies in this
+            browser. Discarding a copy whose import is still open means that import must start
+            again.
+          </p>
+          <Button size="dialog" working={discarding} onClick={onDiscardOthers}>
+            {discarding ? "Discarding other copies…" : "Discard other kept copies"}
+          </Button>
+        </>
+      )}
       {browser !== null && browser < forecast.ciphertextBytes && (
         <Notice attention>
           The encrypted copy needs {byteSize(forecast.ciphertextBytes)}, and this browser can store{" "}
@@ -158,6 +195,8 @@ function progressTitle(progress: ImportProgress): string {
   switch (progress.phase) {
     case "preparing":
       return "Preparing the import…";
+    case "linking":
+      return "Waiting for the upload links…";
     case "encrypting":
       return "Encrypting on this device…";
     case "verifying":

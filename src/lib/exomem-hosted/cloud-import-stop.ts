@@ -53,7 +53,10 @@ const STOPS = {
   UNAVAILABLE: { next: "status", text: "The import is unavailable." },
   KEY_UNAVAILABLE: { next: "resume", text: "The import encryption key is unavailable." },
   REPLY_MISMATCH: { next: "status", text: "The import reply did not match this upload." },
-  OTHER_TAB: { next: "status", text: "This import is running in another tab or window." },
+  OTHER_TAB: {
+    next: "resume",
+    text: "This import is running in another tab or window.",
+  },
   STOPPED: { next: "resume", text: "The browser stopped the import." },
 } satisfies Record<string, { next: ImportStopNext; text: string }>;
 

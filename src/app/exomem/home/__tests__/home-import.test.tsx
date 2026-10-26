@@ -80,6 +80,7 @@ async function home(options: { quota?: number; api: ReturnType<typeof importApiD
     root.render(
       createElement(ImportDocuments, {
         csrfToken: "synthetic",
+        account: "SYNTH1",
         canStart: true,
         storage: null,
         onAccountLost: () => assert.fail("the account stays signed in"),
@@ -151,7 +152,7 @@ it("closing the dialog keeps the import running, and a pause shows how to resume
   await page.until(() => page.text().includes("Checking and staging your files."), "acceptance");
   const [row] = api.rows.values();
   assert.equal(row.requested_state, "uploaded");
-  assert.equal(page.browser.files.size, 0);
+  assert.equal(page.browser.files("exomem-import-uploads", "account-SYNTH1").size, 0);
 });
 
 it("after a reload, an import without its report continues only from the same folder chosen again", async () => {
