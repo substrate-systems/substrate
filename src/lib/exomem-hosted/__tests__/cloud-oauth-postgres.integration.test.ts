@@ -435,7 +435,10 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     const current = () => findCloudOAuthLogin(login, CLOUD_RESOURCE);
 
     await pool!.query(
-      "UPDATE exomem_oauth_access_tokens SET expires_at = now() - interval '1 minute' WHERE access_digest = $1",
+      // A 15-minute token issued 20 minutes ago, as an upload long after the handoff would see.
+      `UPDATE exomem_oauth_access_tokens
+       SET created_at = now() - interval '20 minutes', expires_at = now() - interval '5 minutes'
+       WHERE access_digest = $1`,
       [accessDigest]
     );
     assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
