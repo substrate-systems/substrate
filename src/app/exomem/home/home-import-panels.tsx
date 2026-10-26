@@ -23,7 +23,7 @@ function totals({ files, bytes }: SelectionTotals): string {
 }
 
 /** Free bytes in the vault from the last disk reading, or null when none is known. */
-export function vaultFree(storage: HomeStorage | null) {
+function vaultFree(storage: HomeStorage | null) {
   if (storage?.state !== "known") return null;
   return {
     bytes: Math.max(0, storage.filesystem_bytes - storage.used_bytes),
