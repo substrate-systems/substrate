@@ -394,23 +394,36 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     const tenantId = await newTenant();
     const id = cellId("z");
     await ownerPool!.query(
-      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1,$2,'running')", [id, tenantId]
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1,$2,'running')",
+      [id, tenantId]
     );
     await cellctlPool!.query(
-      "UPDATE exomem_cloud_cells SET cell_root_key_wrapped=$2,cell_root_key_version=1 WHERE cell_id=$1", [id, randomBytes(60)]
+      "UPDATE exomem_cloud_cells SET cell_root_key_wrapped=$2,cell_root_key_version=1 WHERE cell_id=$1",
+      [id, randomBytes(60)]
     );
-    await assert.rejects(appPool!.query(
-      "UPDATE exomem_cloud_cells SET cell_root_key_wrapped=NULL,cell_root_key_version=NULL WHERE cell_id=$1", [id]
-    ), /permission denied/);
-    await assert.rejects(gatewayPool!.query(
-      "SELECT cell_root_key_wrapped FROM exomem_cloud_cells WHERE cell_id=$1", [id]
-    ), /permission denied/);
+    await assert.rejects(
+      appPool!.query(
+        "UPDATE exomem_cloud_cells SET cell_root_key_wrapped=NULL,cell_root_key_version=NULL WHERE cell_id=$1",
+        [id]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("SELECT cell_root_key_wrapped FROM exomem_cloud_cells WHERE cell_id=$1", [
+        id,
+      ]),
+      /permission denied/
+    );
     await cellctlPool!.query(
-      "UPDATE exomem_cloud_cells SET cell_root_key_wrapped=NULL,cell_root_key_version=NULL,content_keys_retired_at=now() WHERE cell_id=$1", [id]
+      "UPDATE exomem_cloud_cells SET cell_root_key_wrapped=NULL,cell_root_key_version=NULL,content_keys_retired_at=now() WHERE cell_id=$1",
+      [id]
     );
-    await assert.rejects(cellctlPool!.query(
-      "UPDATE exomem_cloud_cells SET keys_expire_at=now() WHERE cell_id=$1", [id]
-    ), /check constraint/);
+    await assert.rejects(
+      cellctlPool!.query("UPDATE exomem_cloud_cells SET keys_expire_at=now() WHERE cell_id=$1", [
+        id,
+      ]),
+      /check constraint/
+    );
   });
 
   // Migration 0059 (Exomem move-cloud-cells-to-local-storage D10): cellctl
@@ -1037,6 +1050,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       "expires_at",
       "link_issued_at",
       "observed_state",
+      "packing_report",
       "ready_at",
       "upload_id",
     ]);
