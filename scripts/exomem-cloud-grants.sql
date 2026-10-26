@@ -154,6 +154,16 @@ BEGIN
       backup_key_wrapped, backup_key_version, b2_key_id, b2_key_wrapped, b2_key_version,
       hold_kind, hold_started_at
     ) ON exomem_cloud_cells TO exomem_cellctl;
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'cell_root_key_wrapped'
+    ) THEN
+      GRANT UPDATE (cell_root_key_wrapped, cell_root_key_version, content_keys_retired_at,
+        last_live_key_destroyed_at, key_retention_sources, keys_expire_at, custody_observation,
+        relocation_target_storage_class, relocation_old_volume_id, relocation_accepted_at)
+        ON exomem_cloud_cells TO exomem_cellctl;
+    END IF;
     -- Migration 0059 (move-cloud-cells-to-local-storage D10): the size cellctl
     -- grew a local cell's volume to, an observed column the Exomem design's
     -- C1 contract lists. Guarded on the column's own existence, as 0057's
@@ -268,6 +278,13 @@ BEGIN
       GRANT UPDATE (observed_state, error_code, archive_bytes, archive_sha256, archive_version_id, upload_id,
         ready_at, expires_at, download_url, download_url_expires_at, link_issued_at)
         ON exomem_cloud_exports TO exomem_cellctl;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = 'exomem_cloud_exports'
+          AND column_name = 'packing_report'
+      ) THEN
+        GRANT UPDATE (packing_report) ON exomem_cloud_exports TO exomem_cellctl;
+      END IF;
     END IF;
   END IF;
 
