@@ -80,7 +80,7 @@ Creation keeps its transaction and its cell-row lock. It runs these steps in ord
 3. When `import_limits` is unpublished, insert the import as today with `required_storage_gib` NULL, and reply with `limits: null`.
 4. When `declared_files` exceeds `max_members`, refuse with 422 `IMPORT_TOO_MANY_FILES`. The check is necessary only: folders count as members, and the cell and the clients count exactly.
 5. Compute the storage need (D4). When it exceeds `max_storage_gib` even with no content in the vault, refuse with 422 `IMPORT_STORAGE_LIMIT`.
-6. When the target size exceeds the cell's current size, run `UPDATE exomem_cloud_cells SET storage_gib = GREATEST(storage_gib, target)`. Then insert the import with `required_storage_gib`. A unique-index conflict on the open-import slot (23505) rolls back the growth with the transaction.
+6. Raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, then insert the import with that clamped requirement. A unique-index conflict on the open-import slot (23505) rolls back the growth with the transaction.
 
 Replay runs before every check, so a client that retries after a timeout cannot trigger a second growth or a refusal.
 
@@ -91,12 +91,13 @@ Prepare-upload keeps its flow. On the first report only, it refuses a `ciphertex
 A pure function in `src/lib/exomem/cloud-import-contract.ts` parses `import_limits` and computes the need and the target. The API and Home import it. Its parameters come only from `import_limits` and the cell's readings.
 
 - The need is `used + space_factor × declared_bytes + reserve_bytes`, in filesystem bytes.
-- It is scaled by the ratio of the volume's observed capacity to the measured filesystem size, because the filesystem is smaller than its claim.
+- It is scaled by the ratio of `observed_storage_capacity_bytes` (0071) to `filesystem_bytes` (0066), because the filesystem is smaller than its claim.
+- `used_bytes` and `filesystem_bytes` come from the cell's 0066 usage reading. Its age alone does not discard it; stale usage sizes growth but cannot alone refuse admission.
 - When `used_bytes` is unknown, the function sizes the import as if the whole current volume were used, with a ratio of 1.
 - The current size is `max(storage_gib, grown_storage_gib)`.
-- The target is the smaller of the need and `max_storage_gib`, rounded up to whole GiB.
+- The function returns `required_storage_gib = min(ceil(need / GiB), max_storage_gib)`, where one GiB is 1,073,741,824 bytes.
 
-The `IMPORT_STORAGE_LIMIT` check uses the need with `used = 0`. When existing content alone pushes the need above the cap, admission still grows the volume to the cap, and the cell's own per-member free-space check decides. Refusing only when necessary keeps a stale `used_bytes` reading from blocking an import that the cell can hold.
+The `IMPORT_STORAGE_LIMIT` check uses the need with `used = 0`. When existing content alone pushes the need above the cap, both the requested growth and the recorded requirement equal the cap. Growth can therefore reach `key_ready`, and the cell's own per-member free-space check decides. Refusing only when necessary keeps a stale `used_bytes` reading from blocking an import that the cell can hold.
 
 ### D5. Growth at creation, and `key_ready` waits for it
 

@@ -8,7 +8,7 @@ The packets P1 to P7 below match the paired Exomem change `publish-cloud-import-
 
 ## 2. Admission, refusals and replies (P4)
 
-- [ ] 2.1 Add the pure function to `cloud-import-contract.ts`: parse `import_limits`, compute the need and the target, and build each refusal's `limit`. Verify: unit cases for unpublished and unparseable limits, unknown `used_bytes`, the filesystem-to-capacity ratio, a need that fits only without vault content, and a paid cell above the configured cap.
+- [ ] 2.1 Add the pure function to `cloud-import-contract.ts`: parse limits, compute the need and clamped `required_storage_gib`, and build each refusal's `limit`. Verify: cases for unpublished or invalid limits, unknown usage, the capacity ratio, growth clamped below need, and a cell above the cap.
 - [ ] 2.2 Run the admission steps in `cloud-imports.ts` and add `limit` to the error envelope in `errors.ts`. Verify: PostgreSQL integration tests for growth with `GREATEST`, replay with no check and no growth, rollback on an open-slot conflict, each refusal, and unpublished limits.
 - [ ] 2.3 Refuse `IMPORT_PARTS_LIMIT` on the first prepare-upload report only. Verify: an integration case for the first report, and one for a replay that returns the stored import.
 - [ ] 2.4 Add `limits`, `required_storage_bytes`, `storage_ready`, `staged_files` and `staged_bytes` to the import routes and zod schemas. Verify: a schema test that parses a reply without the new fields, and an integration case for `storage_ready` while the claim is smaller than required.

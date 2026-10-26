@@ -13,7 +13,7 @@ Cellctl SHALL write `exomem_cloud_cells.import_limits` for each live cell, and S
 #### Scenario: Substrate writes the limits
 
 - **WHEN** Substrate attempts to write `import_limits`
-- **THEN** PostgreSQL rejects the write
+- **THEN** PostgreSQL rejects the write, including after the grants script runs again
 
 #### Scenario: A paid cell is larger than the usual cap
 
@@ -59,9 +59,11 @@ Creation SHALL run these steps in order inside its existing transaction, with th
 3. When the limits are unpublished, insert the import with `required_storage_gib` NULL and reply `limits: null`.
 4. When `declared_files` exceeds `max_members`, refuse with 422 `IMPORT_TOO_MANY_FILES`.
 5. When the storage need exceeds `max_storage_gib` even with no content in the vault, refuse with 422 `IMPORT_STORAGE_LIMIT`.
-6. When the target size exceeds the cell's current size, raise `storage_gib`. Then insert the import with `required_storage_gib`.
+6. Raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, then insert the import with that requirement.
 
-The storage need SHALL be `used + space_factor × declared_bytes + reserve_bytes`, scaled by the ratio of the volume's observed capacity to its measured filesystem size. When `used_bytes` is unknown, the need SHALL treat the whole current volume as used. One pure function SHALL compute the need, and the API and Home SHALL both use it with parameters taken only from `import_limits`.
+The storage need SHALL be `used + space_factor × declared_bytes + reserve_bytes`, scaled by the ratio of `observed_storage_capacity_bytes` to `filesystem_bytes`. The cell's `used_bytes` and `filesystem_bytes` readings come from migration 0066; its observed capacity comes from migration 0071. A recorded usage reading SHALL count regardless of its age. When `used_bytes` is unknown, the need SHALL treat the whole current volume as used with a ratio of 1. Stale usage SHALL NOT cause a refusal unless the import cannot fit even with no vault content.
+
+One pure function SHALL compute the need and `required_storage_gib = min(ceil(need / GiB), max_storage_gib)`, where one GiB is 1,073,741,824 bytes. The API and Home SHALL both use that function with the cell readings and the published limits. The recorded requirement SHALL be the clamped target, never the unclamped need.
 
 #### Scenario: A client retries a creation
 
@@ -94,7 +96,8 @@ The storage need SHALL be `used + space_factor × declared_bytes + reserve_bytes
 
 - **WHEN** the need with no vault content fits the cap, but the vault's used bytes push the full need above it
 - **THEN** creation raises `storage_gib` to the cap and inserts the import
-- **AND** the cell's own free-space check decides the outcome
+- **AND** `required_storage_gib` equals the cap, so the import reaches `key_ready` after that growth
+- **AND** the cell refuses insufficient free space at import time with its own free-space code
 
 #### Scenario: A concurrent import holds the open slot
 
@@ -103,7 +106,7 @@ The storage need SHALL be `used + space_factor × declared_bytes + reserve_bytes
 
 ### Requirement: Admission grows storage within the published cap before the key exists
 
-Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, target)`, so it SHALL never lower a size and SHALL never exceed `max_storage_gib`. It SHALL record the target as `required_storage_gib`. Cellctl SHALL NOT write `recipient` or report `key_ready` for an import that has a `required_storage_gib` until the cell's observed capacity covers it with no resize pending. While it waits, cellctl SHALL leave the cell mounted and running. A brief cell restart that the raise causes SHALL count as waiting, not as failure. When the claim has not grown within `import_growth_deadline_seconds` of the import's creation, cellctl SHALL fail the import with `IMPORT_STORAGE_UNAVAILABLE`. For a local-storage cell, cellctl SHALL check the node's room again before it reports `key_ready`. It SHALL fail the import with `IMPORT_STORAGE_NO_ROOM` when the node cannot hold the size.
+Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, so it SHALL never lower a size and SHALL never exceed `max_storage_gib`. It SHALL record the clamped target as `required_storage_gib`. Cellctl SHALL NOT write `recipient` or report `key_ready` for an import that has a `required_storage_gib` until the cell's observed capacity covers it with no resize pending. While it waits, cellctl SHALL leave the cell mounted and running. A brief cell restart that the raise causes SHALL count as waiting, not as failure. When the claim has not grown within `import_growth_deadline_seconds` of the import's creation, cellctl SHALL fail the import with `IMPORT_STORAGE_UNAVAILABLE`. For a local-storage cell, cellctl SHALL check the node's room again before it reports `key_ready`. It SHALL fail the import with `IMPORT_STORAGE_NO_ROOM` when the node cannot hold the size.
 
 #### Scenario: The volume grows
 
