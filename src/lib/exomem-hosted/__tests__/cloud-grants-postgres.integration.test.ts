@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
@@ -172,17 +175,23 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
 
     // First run: substrate_app/exomem_cellctl/exomem_gateway do not exist
     // yet -- applyGrants's every role-existence guard is false, so this
-    // creates and owns the whole schema of record with no grants applied,
+    // creates and owns the pre-0079 schema with no grants applied,
     // exactly the state a fresh install reaches before those roles are
     // provisioned.
-    await applyMigrations({ databaseUrl: ownerUrl });
-
-    for (const role of CLOUD_ROLES) await ensureRole(role);
-    await adminPool.query(`GRANT USAGE ON SCHEMA "${schema}" TO ${CLOUD_ROLES.join(", ")}`);
-
-    // Second run: zero pending migrations (the "up to date" path), applies
-    // the grants for real -- exercising exactly the ordering the migration
-    // runner promises: "applied ... when the roles exist".
+    const migrationRoot = await mkdtemp(join(tmpdir(), "cloud-grants-upgrade-"));
+    try {
+      for (const name of await readdir("migrations")) {
+        if (name.endsWith(".sql") && name < "0079")
+          await cp(join("migrations", name), join(migrationRoot, name));
+      }
+      await applyMigrations({ databaseUrl: ownerUrl, migrationsDir: migrationRoot });
+      for (const role of CLOUD_ROLES) await ensureRole(role);
+      await adminPool.query(`GRANT USAGE ON SCHEMA "${schema}" TO ${CLOUD_ROLES.join(", ")}`);
+      // Grants must also work before any of migration 0079's columns exist.
+      await applyMigrations({ databaseUrl: ownerUrl, migrationsDir: migrationRoot });
+    } finally {
+      await rm(migrationRoot, { recursive: true, force: true });
+    }
     await applyMigrations({ databaseUrl: ownerUrl });
 
     ownerPool = new Pool({ connectionString: ownerUrl });
@@ -753,7 +762,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       [id, tenantId]
     );
     const created = await appPool!.query(
-      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 12, 1) RETURNING import_id",
+      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files, required_storage_gib) VALUES ($1, 'adopt', 12, 1, 16) RETURNING import_id",
       [id]
     );
     const importId = created.rows[0].import_id;
@@ -776,9 +785,85 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
 
     // Simulate default table grants left by a migration before the runner applies its exceptions.
     await ownerPool!.query(
-      "GRANT ALL ON exomem_cloud_imports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+      "GRANT ALL ON exomem_cloud_imports, exomem_cloud_cells TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
     );
     await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET import_limits = '{}' WHERE cell_id = $1", [id]),
+      { code: "42501" }
+    );
+    await assert.rejects(
+      appPool!.query(
+        "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, import_limits) VALUES ($1, $2, '{}')",
+        [randomCloudCellId(), tenantId]
+      ),
+      { code: "42501" }
+    );
+    await assert.rejects(
+      cellctlPool!.query("UPDATE exomem_cloud_cells SET import_limits = '[]' WHERE cell_id = $1", [
+        id,
+      ]),
+      { code: "23514" }
+    );
+    const generation = (
+      await appPool!.query("SELECT generation FROM exomem_cloud_cells WHERE cell_id = $1", [id])
+    ).rows[0].generation;
+    const published = await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET import_limits = '{}' WHERE cell_id = $1 RETURNING generation",
+      [id]
+    );
+    assert.equal(published.rows[0].generation, generation);
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_imports SET staged_files = 1, staged_bytes = 12 WHERE import_id = $1",
+      [importId]
+    );
+    // The deployed controller omits all new columns from its observation update.
+    const observed = await cellctlPool!.query(
+      "UPDATE exomem_cloud_imports SET observed_state = 'importing', part_urls = '[]' WHERE import_id = $1 RETURNING required_storage_gib, staged_files, staged_bytes",
+      [importId]
+    );
+    assert.deepEqual(observed.rows[0], {
+      required_storage_gib: 16,
+      staged_files: "1",
+      staged_bytes: "12",
+    });
+    // C5 fixes these report columns; neither is writable by Substrate.
+    for (const column of ["staged_files", "staged_bytes"]) {
+      await assert.rejects(
+        appPool!.query(
+          `INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files, ${column}) VALUES ($1, 'adopt', 1, 1, 1)`,
+          [id]
+        ),
+        { code: "42501" }
+      );
+      await assert.rejects(
+        appPool!.query(`UPDATE exomem_cloud_imports SET ${column} = 1 WHERE import_id = $1`, [
+          importId,
+        ]),
+        { code: "42501" }
+      );
+    }
+    for (const client of [appPool!, cellctlPool!]) {
+      await assert.rejects(
+        client.query(
+          "UPDATE exomem_cloud_imports SET required_storage_gib = 16 WHERE import_id = $1",
+          [importId]
+        ),
+        { code: "42501" }
+      );
+    }
+    const gatewayLimits = await ownerPool!.query(
+      "SELECT has_column_privilege('exomem_gateway', 'exomem_cloud_cells', 'import_limits', 'SELECT, INSERT, UPDATE') AS allowed"
+    );
+    assert.equal(gatewayLimits.rows[0].allowed, false);
+    // These are the new C5 columns; the gateway holds no column privilege on them.
+    for (const column of ["required_storage_gib", "staged_files", "staged_bytes"]) {
+      const grants = await ownerPool!.query(
+        "SELECT has_column_privilege('exomem_gateway', 'exomem_cloud_imports', $1, 'SELECT, INSERT, UPDATE') AS allowed",
+        [column]
+      );
+      assert.equal(grants.rows[0].allowed, false, column);
+    }
     for (const client of [appPool!, cellctlPool!, gatewayPool!]) {
       await assert.rejects(
         client.query("DELETE FROM exomem_cloud_imports WHERE import_id = $1", [importId]),
