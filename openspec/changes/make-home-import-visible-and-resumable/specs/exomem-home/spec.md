@@ -49,6 +49,12 @@ A paused import SHALL show that it is paused and how to resume it. A failed impo
 - **WHEN** the owner pauses an import during upload
 - **THEN** the dialog says that the import is paused and offers to resume it
 
+#### Scenario: A script error occurs during an upload
+
+- **WHEN** the page's own code raises an error that is not a network failure
+- **THEN** the dialog shows the generic stop reason and the import ID
+- **AND** it does not say that the connection dropped
+
 #### Scenario: Storage refuses a part
 
 - **WHEN** storage answers a part upload with an error
@@ -64,7 +70,7 @@ A paused import SHALL show that it is paused and how to resume it. A failed impo
 
 Home SHALL keep an import's ciphertext under that import's ID, in a browser folder of the account's own. It SHALL remove one of the account's kept copies only while no tab holds that import and a fresh status read shows that the import is absent or no longer waits for an upload. It SHALL remove another account's copies only on the owner's explicit request, and never while a tab holds their import. When Home finds an open import that waits for an upload, it SHALL say so on the Home row and in the dialog.
 Before the import has an upload report, Home SHALL continue it from the same folder chosen again, only when the selection matches the declared file count and bytes.
-After the import has an upload report, Home SHALL continue it from the kept ciphertext only when that file's size and SHA-256 match the report. It SHALL then repeat the idempotent `prepare-upload` and send the parts.
+After the import has an upload report, Home SHALL continue it from the kept ciphertext only when that file's size and SHA-256 match the report. It SHALL then repeat the idempotent `prepare-upload` and send the parts. After storage confirms a part, Home SHALL record the part's number and ETag in this browser, beside the kept copy and bound to the import and the ciphertext's SHA-256. A resumed upload SHALL send only the parts that Home has not recorded for that import and ciphertext.
 
 #### Scenario: A reload interrupts encryption
 
@@ -80,6 +86,17 @@ After the import has an upload report, Home SHALL continue it from the kept ciph
 
 - **WHEN** an import has an upload report and this browser kept a matching ciphertext
 - **THEN** Home checks the kept file and completes the same import
+
+#### Scenario: A reload interrupts the upload after some parts
+
+- **WHEN** storage confirmed some parts of an import and the owner reloads Home
+- **THEN** Home sends the next part that it has not recorded
+- **AND** it sends no part that it recorded
+
+#### Scenario: The recorded parts belong to other ciphertext
+
+- **WHEN** the recorded parts name a SHA-256 that differs from the import's report
+- **THEN** Home ignores them and refuses the copy as in the mismatch case
 
 #### Scenario: A stale page prepares a new folder while another tab keeps an open import's copy
 

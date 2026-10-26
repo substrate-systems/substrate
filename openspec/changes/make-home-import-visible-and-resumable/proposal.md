@@ -11,7 +11,8 @@ A large folder import in Home can stop without a message. The dialog shows no me
 - Measure encryption progress from the work itself: files, plaintext bytes and ciphertext bytes against exact totals.
 - Show a pause as a pause and a failure as a content-free reason with the import ID and the next route. Close keeps the work running; leaving the page asks first.
 - Name the browser's ciphertext by the import ID, so a reloaded page continues the same import: before its report from the same folder chosen again, after its report from the kept copy once it matches the report.
-- Keep each account's copies in a browser folder of its own. Remove a copy only when no tab holds its import and a fresh read shows that the import has ended. Show other accounts' copies with their size and an explicit discard action.
+- Keep a receipt of each uploaded part beside the kept copy, so a reload after some parts sends only the parts that storage has not confirmed.
+- Keep each account's copies in a browser folder of its own. Remove a copy only when no tab holds its import and a fresh read shows that the import is absent or no longer waits for an upload. Show other accounts' copies with their size and an explicit discard action.
 - Show the space that staged originals take beside the vault reading, with the existing removal action.
 
 ## Capabilities
@@ -22,4 +23,4 @@ A large folder import in Home can stop without a message. The dialog shows no me
 
 ## Impact
 
-The change is in the website's Home import dialog and its browser modules. The C5 import states, the age X25519 envelope, idempotent creation and upload reports, ordered part ETags and content-free error codes stay as they are. It adds the maintained `ignore` package to read `.gitignore` rules. Member, path, name and upload-window limits stay with the cell until a published limits contract exists.
+The change is in the website's Home import dialog and its browser modules. The C5 import states, the age X25519 envelope, idempotent creation and upload reports, ordered part ETags and content-free error codes stay as they are. It adds the maintained `ignore` package to read `.gitignore` rules. The cell's member, storage and upload-window limits stay with the cell until `admit-cloud-imports-against-published-limits` publishes them. Path and name limits stay with the cell.
