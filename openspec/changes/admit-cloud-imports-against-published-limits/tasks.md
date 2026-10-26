@@ -8,16 +8,16 @@ The packets P1 to P7 below match the paired Exomem change `publish-cloud-import-
 
 ## 2. Admission, refusals and replies (P4)
 
-- [ ] 2.1 Add the pure function to `cloud-import-contract.ts`: parse limits, compute the need and clamped `required_storage_gib`, and build each refusal's `limit`. Verify: cases for unpublished or invalid limits, unknown usage, a stale capacity ratio that cannot refuse admission, growth clamped below need, and a cell above the cap.
-- [ ] 2.2 Run the admission steps in `cloud-imports.ts` and add `limit` to the error envelope in `errors.ts`. Verify: PostgreSQL integration tests for growth with `GREATEST`, replay with no check and no growth, rollback on an open-slot conflict, each refusal, and unpublished limits.
-- [ ] 2.3 Refuse `IMPORT_PARTS_LIMIT` on the first prepare-upload report only. Verify: an integration case for the first report, and one for a replay that returns the stored import.
-- [ ] 2.4 Add `limits`, `required_storage_bytes`, `storage_ready`, `staged_files` and `staged_bytes` to the import routes and zod schemas. Verify: a schema test that parses a reply without the new fields, and an integration case for `storage_ready` while the claim is smaller than required.
+- [x] 2.1 Add the pure function to `cloud-import-contract.ts`: parse limits, compute the need and clamped `required_storage_gib`, and build each refusal's `limit`. Verify: cases for unpublished or invalid limits, unknown usage, a stale capacity ratio that cannot refuse admission, growth clamped below need, and a cell above the cap.
+- [x] 2.2 Run the admission steps in `cloud-imports.ts` and add `limit` to the error envelope in `errors.ts`. Verify: PostgreSQL integration tests for growth with `GREATEST`, replay with no check and no growth, rollback on an open-slot conflict, each refusal, and unpublished limits.
+- [x] 2.3 Refuse `IMPORT_PARTS_LIMIT` on the first prepare-upload report only. Verify: an integration case for the first report, and one for a replay that returns the stored import.
+- [x] 2.4 Add `limits`, `required_storage_bytes`, `storage_ready`, `staged_files` and `staged_bytes` to the import routes and zod schemas. Verify: a schema test that parses a reply without the new fields, and integration cases for `storage_ready` while the claim is smaller than required, generation receipt changes, and staged counts hidden during cleanup or newer cancellation or discard.
 
 ## 3. Home preflight and states (P4)
 
-- [ ] 3.1 Run the shared function in the Home preflight: member count, storage need against the cap, the grows-to notice, the reserve in the vault warning, and the unpublished-limits message. Verify: component tests for each state in the Home requirement.
-- [ ] 3.2 Show the wait for growth, read the key-ready bound from `import_growth_deadline_seconds`, and map the three refusal codes and both growth failures to fixed reasons in the `STOPS` table. Verify: component tests; the Home dialog works in Chrome at desktop and phone widths in both themes against a synthetic API.
-- [ ] 3.3 Show the staged counts from the Job's report and "not recorded" for older imports. Verify: a component test with and without counts.
+- [x] 3.1 Run the shared function in the Home preflight: member count, storage need against the cap, the grows-to notice, the reserve in the vault warning, and the unpublished-limits message. Verify: component tests for each state in the Home requirement.
+- [x] 3.2 Show the wait for growth, read the key-ready bound from `import_growth_deadline_seconds`, and map the three refusal codes and both growth failures to fixed reasons in the `STOPS` table. Verify: component tests; the Home dialog works in Chrome at desktop and phone widths in both themes against a synthetic API.
+- [x] 3.3 Show the staged counts from the Job's report and "not recorded" for older imports. Verify: a component test with and without counts.
 
 ## 4. Browser follow-ups (P5)
 
@@ -33,3 +33,5 @@ The follow-ups from the first Home import change live in `make-home-import-visib
 - [ ] 6.1 Complete independent review of the integrated pull requests, with the C4 verdict, and the required checks.
 - [ ] 6.2 Roll out in this order, outside the 02:00–05:00 UTC window: 1. migration 0079 and grants; 2. the Exomem controller and image; 3. P4 and P5; 4. the CLI. Undo: leave the columns; return to the previous controller and set `import_limits` to NULL; roll the Substrate deployment back, because grown volumes stay grown; pin the earlier CLI.
 - [ ] 6.3 Archive `add-cloud-vault-import` and `make-home-import-visible-and-resumable` first. Then synchronize this change into the canonical specs and archive it with `openspec archive`. Verify: `openspec validate --all --strict` passes before and after the archive.
+
+- [ ] 6.4 Complete the local cutover only after paired Exomem task 1.7 supplies authoritative shared capacity accounting and the local rehearsal passes. Until then, cellctl actively publishes NULL for the actual local claim class. Verify: NULL-limits admission leaves its requirement NULL and both storage sizes and generation unchanged. The Hetzner delivery remains independent.

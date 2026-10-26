@@ -188,7 +188,10 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
   it("reports pending, protects another tenant's transport, and rejects caller-selected authority", async () => {
     const alice = await owner();
     const bob = await owner();
-    assert.deepEqual(await (await call(alice, "status")).json(), { import: null });
+    const empty = await (await call(alice, "status")).json();
+    assert.equal(empty.import, null);
+    assert.equal(empty.limits, null);
+    assert.equal(empty.storage.used_bytes, null);
     const pending = await create(alice);
     assert.equal(pending.observed_state, "pending");
     assert.equal(pending.part_urls, null);
@@ -230,6 +233,263 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
       400
     );
     assert.equal((await call(alice, "status", undefined, pending.import_id)).status, 200);
+  });
+
+  it("admits growth atomically, returns its receipt wait, and replays before changed limits", async () => {
+    const alice = await owner();
+    const GiB = 1024 ** 3;
+    const limits = {
+      max_members: 500,
+      reserve_bytes: GiB / 4,
+      space_factor: 2,
+      max_storage_gib: 20,
+      part_bytes: 128,
+      max_parts: 10,
+    };
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET storage_gib=2, import_limits=$2::jsonb, used_bytes=$3, filesystem_bytes=$4, usage_observed_at=now()-interval '1 year' WHERE cell_id=$1",
+      [alice.cellId, JSON.stringify(limits), GiB, 2 * GiB]
+    );
+    const id = randomUUID();
+    const body = { import_id: id, kind: "adopt", declared_files: 2, declared_bytes: 2 * GiB };
+    const response = await call(alice, "create", body);
+    assert.equal(response.status, 201);
+    const admitted = await response.json();
+    assert.equal(admitted.import.required_storage_bytes, 6 * GiB);
+    assert.equal(admitted.import.storage_ready, false);
+    assert.equal(admitted.storage.storage_gib, 6);
+    assert.deepEqual(admitted.limits, limits);
+    const grown = await pool.query(
+      "SELECT storage_gib, generation FROM exomem_cloud_cells WHERE cell_id=$1",
+      [alice.cellId]
+    );
+    await pool.query("UPDATE exomem_cloud_cells SET import_limits=$2::jsonb WHERE cell_id=$1", [
+      alice.cellId,
+      JSON.stringify({ ...limits, max_members: 1, max_storage_gib: 1 }),
+    ]);
+    assert.equal((await call(alice, "create", body)).status, 200);
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT storage_gib, generation FROM exomem_cloud_cells WHERE cell_id=$1",
+          [alice.cellId]
+        )
+      ).rows,
+      grown.rows
+    );
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET observed_storage_capacity_bytes=$2, observed_storage_generation=generation, observed_storage_pvc_uid='synthetic-pvc', observed_storage_pvc_version='1', observed_storage_at=now() WHERE cell_id=$1",
+      [alice.cellId, 5 * GiB]
+    );
+    assert.equal(
+      (await (await call(alice, "status", undefined, id)).json()).import.storage_ready,
+      false
+    );
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET observed_storage_capacity_bytes=$2 WHERE cell_id=$1",
+      [alice.cellId, 6 * GiB]
+    );
+    assert.equal(
+      (await (await call(alice, "status", undefined, id)).json()).import.storage_ready,
+      true
+    );
+    await pool.query("UPDATE exomem_cloud_cells SET storage_gib=7 WHERE cell_id=$1", [
+      alice.cellId,
+    ]);
+    assert.equal(
+      (await (await call(alice, "status", undefined, id)).json()).import.storage_ready,
+      false
+    );
+  });
+
+  it("rolls back growth when the open slot conflicts, and never lowers existing storage", async () => {
+    const alice = await owner();
+    const GiB = 1024 ** 3;
+    const limits = {
+      max_members: 500,
+      reserve_bytes: GiB / 4,
+      space_factor: 2,
+      max_storage_gib: 20,
+    };
+    await create(alice);
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET storage_gib=2, import_limits=$2::jsonb WHERE cell_id=$1",
+      [alice.cellId, JSON.stringify(limits)]
+    );
+    const before = (
+      await pool.query("SELECT storage_gib, generation FROM exomem_cloud_cells WHERE cell_id=$1", [
+        alice.cellId,
+      ])
+    ).rows;
+    const response = await call(alice, "create", {
+      kind: "adopt",
+      declared_files: 1,
+      declared_bytes: 4 * GiB,
+    });
+    assert.equal(response.status, 409);
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT storage_gib, generation FROM exomem_cloud_cells WHERE cell_id=$1",
+          [alice.cellId]
+        )
+      ).rows,
+      before
+    );
+    await pool.query("UPDATE exomem_cloud_imports SET observed_state='done' WHERE cell_id=$1", [
+      alice.cellId,
+    ]);
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET storage_gib=20, used_bytes=0, filesystem_bytes=21474836480, usage_observed_at=now() WHERE cell_id=$1",
+      [alice.cellId]
+    );
+    assert.equal(
+      (await call(alice, "create", { kind: "adopt", declared_files: 1, declared_bytes: 1 })).status,
+      201
+    );
+    assert.equal(
+      (
+        await pool.query("SELECT storage_gib FROM exomem_cloud_cells WHERE cell_id=$1", [
+          alice.cellId,
+        ])
+      ).rows[0].storage_gib,
+      20
+    );
+  });
+
+  it("returns typed refusals without creating an import or freezing a rejected report", async () => {
+    const alice = await owner();
+    const GiB = 1024 ** 3;
+    const limits = {
+      max_members: 2,
+      reserve_bytes: GiB / 4,
+      space_factor: 2,
+      max_storage_gib: 20,
+      part_bytes: 128,
+      max_parts: 2,
+    };
+    await pool.query("UPDATE exomem_cloud_cells SET import_limits=$2::jsonb WHERE cell_id=$1", [
+      alice.cellId,
+      JSON.stringify(limits),
+    ]);
+    for (const [declaration, code, limit] of [
+      [
+        { declared_files: 3, declared_bytes: 1 },
+        "IMPORT_TOO_MANY_FILES",
+        { unit: "files", value: 2, requested: 3 },
+      ],
+      [
+        { declared_files: 1, declared_bytes: 10 * GiB },
+        "IMPORT_STORAGE_LIMIT",
+        { unit: "bytes", value: 20 * GiB, requested: 20.25 * GiB },
+      ],
+    ] as const) {
+      const response = await call(alice, "create", { kind: "adopt", ...declaration });
+      assert.equal(response.status, 422);
+      const failure = await response.json();
+      assert.equal(failure.error.code, code);
+      assert.deepEqual(failure.error.limit, limit);
+    }
+    assert.equal(
+      (
+        await pool.query("SELECT count(*) FROM exomem_cloud_imports WHERE cell_id=$1", [
+          alice.cellId,
+        ])
+      ).rows[0].count,
+      "0"
+    );
+    const pending = await create(alice);
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET recipient='age1synthetic', observed_state='key_ready' WHERE import_id=$1",
+      [pending.import_id]
+    );
+    const report = { ciphertext_sha256: "a".repeat(64), ciphertext_bytes: 257 };
+    const refused = await call(alice, "prepare-upload", report, pending.import_id);
+    assert.equal(refused.status, 422);
+    assert.deepEqual((await refused.json()).error.limit, {
+      unit: "bytes",
+      value: 256,
+      requested: 257,
+    });
+    assert.equal(
+      (
+        await pool.query("SELECT ciphertext_sha256 FROM exomem_cloud_imports WHERE import_id=$1", [
+          pending.import_id,
+        ])
+      ).rows[0].ciphertext_sha256,
+      null
+    );
+    report.ciphertext_bytes = 256;
+    assert.equal((await call(alice, "prepare-upload", report, pending.import_id)).status, 200);
+    await pool.query("UPDATE exomem_cloud_cells SET import_limits=$2::jsonb WHERE cell_id=$1", [
+      alice.cellId,
+      JSON.stringify({ ...limits, max_parts: 1 }),
+    ]);
+    assert.equal((await call(alice, "prepare-upload", report, pending.import_id)).status, 200);
+  });
+
+  it("keeps unpublished admission compatible and publishes staged counts only for successful completion", async () => {
+    const alice = await owner();
+    await pool.query(
+      "UPDATE exomem_cloud_cells SET storage_gib=2, grown_storage_gib=4, import_limits=NULL WHERE cell_id=$1",
+      [alice.cellId]
+    );
+    const before = (
+      await pool.query(
+        "SELECT storage_gib, grown_storage_gib, generation FROM exomem_cloud_cells WHERE cell_id=$1",
+        [alice.cellId]
+      )
+    ).rows;
+    const row = await create(alice);
+    assert.equal(row.required_storage_bytes, null);
+    assert.equal(row.storage_ready, null);
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT required_storage_gib FROM exomem_cloud_imports WHERE import_id=$1",
+          [row.import_id]
+        )
+      ).rows[0].required_storage_gib,
+      null
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT storage_gib, grown_storage_gib, generation FROM exomem_cloud_cells WHERE cell_id=$1",
+          [alice.cellId]
+        )
+      ).rows,
+      before
+    );
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET staged_files=1, staged_bytes=77, observed_state='cleanup_running' WHERE import_id=$1",
+      [row.import_id]
+    );
+    const read = async () =>
+      (await (await call(alice, "status", undefined, row.import_id)).json()).import;
+    assert.equal((await read()).staged_files, null);
+    await pool.query("UPDATE exomem_cloud_imports SET observed_state='done' WHERE import_id=$1", [
+      row.import_id,
+    ]);
+    assert.equal((await read()).staged_files, 1);
+    assert.equal((await read()).staged_bytes, 77);
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET requested_state='cancelled' WHERE import_id=$1",
+      [row.import_id]
+    );
+    assert.equal((await read()).staged_files, null);
+    assert.equal((await read()).staged_bytes, null);
+    await call(alice, "discard", undefined, row.import_id);
+    assert.equal((await read()).staged_files, null);
+    assert.equal((await read()).staged_bytes, null);
+    assert.equal(
+      (
+        await pool.query("SELECT staged_files FROM exomem_cloud_imports WHERE import_id=$1", [
+          row.import_id,
+        ])
+      ).rows[0].staged_files,
+      "1"
+    );
   });
 
   it("freezes required storage at insertion, including an unpublished requirement", async () => {

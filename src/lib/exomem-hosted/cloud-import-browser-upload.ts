@@ -12,6 +12,8 @@ import {
   removeFreeImportCiphertext,
   removeImportCiphertext,
   storedImportCiphertext,
+  readImportPartReceipts,
+  writeImportPartReceipts,
   sweepKeptCiphertext,
   type StoredCiphertext,
 } from "./cloud-import-browser-file";
@@ -86,7 +88,6 @@ function keptCopyLost(error: unknown): boolean {
 export class BrowserImportUpload {
   readonly id: string;
   private encrypted: StoredCiphertext | null = null;
-  private readonly completed = new Map<number, string>();
   private active: Promise<void> | null = null;
   private controller: AbortController | null = null;
 
@@ -256,16 +257,28 @@ export class BrowserImportUpload {
       throw new ImportStop("LINKS_EXPIRED");
     }
     assertImportAccount(this.csrfToken);
+    const completed = await readImportPartReceipts(
+      this.account,
+      this.id,
+      encrypted.report.ciphertext_sha256
+    );
     progress({ phase: "uploading", bytes: 0, total: encrypted.report.ciphertext_bytes });
     const part_etags = await uploadImportParts(
       encrypted.ciphertext,
       operation.part_urls,
-      this.completed,
+      completed,
       (bytes) => {
         assertImportAccount(this.csrfToken);
         progress({ phase: "uploading", bytes, total: encrypted.report.ciphertext_bytes });
       },
-      signal
+      signal,
+      (part) =>
+        writeImportPartReceipts(
+          this.account,
+          this.id,
+          encrypted.report.ciphertext_sha256,
+          [...completed].map(([part_number, etag]) => ({ part_number, etag })).concat(part)
+        )
     ).catch((error: unknown) => {
       // This page's copy can no longer serve the import; a later attempt looks for it afresh.
       if (error instanceof ImportStop && error.code === "LOCAL_COPY_MISSING") this.encrypted = null;

@@ -5,6 +5,9 @@ import {
   type ImportFile,
 } from "./cloud-import-browser";
 import { ImportStop } from "./cloud-import-stop";
+import { z } from "zod";
+import { MAX_IMPORT_PARTS } from "../exomem/cloud-import-contract";
+import type { UploadedPart } from "./cloud-import-browser";
 
 const ROOT = "exomem-import-uploads";
 // Checks the shape of our own file names (an import UUID plus ".age"). Anything else, such as a
@@ -15,6 +18,24 @@ const KEPT_NAME = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 function ciphertextName(importId: string): string {
   return `${importId}.age`;
 }
+
+function receiptName(importId: string): string {
+  return `${importId}.parts.json`;
+}
+
+// The receipt is our closed multipart wire shape; the digest expression checks SHA-256 format.
+const receipt = z.object({
+  import_id: z.uuid(),
+  ciphertext_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  parts: z
+    .array(
+      z.object({
+        part_number: z.number().int().min(1).max(MAX_IMPORT_PARTS),
+        etag: z.string().min(1).max(1024),
+      })
+    )
+    .max(MAX_IMPORT_PARTS),
+});
 
 /** Origin-private storage exists only in secure contexts of browsers that implement it. */
 function privateStorage(): boolean {
@@ -47,6 +68,67 @@ async function removeEntry(directory: FileSystemDirectoryHandle, name: string) {
   } catch (error) {
     // The File System API's absent-entry result also means cleanup is complete.
     if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
+  }
+}
+
+async function removeCopy(directory: FileSystemDirectoryHandle, importId: string) {
+  await removeEntry(directory, ciphertextName(importId));
+  await removeEntry(directory, receiptName(importId));
+}
+
+/** Receipts belong only to this import and verified ciphertext; stale or malformed ones go. */
+export async function readImportPartReceipts(
+  account: string,
+  importId: string,
+  sha256: string
+): Promise<Map<number, string>> {
+  const directory = await accountDirectory(account);
+  let value: unknown;
+  try {
+    const file = await (await directory.getFileHandle(receiptName(importId))).getFile();
+    try {
+      value = JSON.parse(await file.text());
+    } catch {
+      value = null;
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotFoundError") return new Map();
+    throw error;
+  }
+  const parsed = receipt.safeParse(value);
+  if (
+    !parsed.success ||
+    parsed.data.import_id !== importId ||
+    parsed.data.ciphertext_sha256 !== sha256
+  ) {
+    await removeEntry(directory, receiptName(importId));
+    return new Map();
+  }
+  return new Map(parsed.data.parts.map(({ part_number, etag }) => [part_number, etag]));
+}
+
+/** Commit a confirmed part beside its ciphertext before the upload continues to the next part. */
+export async function writeImportPartReceipts(
+  account: string,
+  importId: string,
+  sha256: string,
+  parts: UploadedPart[]
+): Promise<void> {
+  const directory = await accountDirectory(account);
+  const handle = await directory.getFileHandle(receiptName(importId), { create: true });
+  const writer = (await handle.createWritable()).getWriter();
+  try {
+    await writer.write(
+      new TextEncoder().encode(
+        JSON.stringify({ import_id: importId, ciphertext_sha256: sha256, parts })
+      )
+    );
+    await writer.close();
+  } catch (error) {
+    await writer.abort(error).catch(() => {});
+    throw error;
+  } finally {
+    writer.releaseLock();
   }
 }
 
@@ -94,7 +176,7 @@ export async function encryptImportToBrowserFile(
   if (!privateStorage()) throw new ImportStop("BROWSER_UNSUPPORTED");
   const directory = await accountDirectory(account);
   const name = ciphertextName(importId);
-  const remove = () => removeEntry(directory, name);
+  const remove = () => removeCopy(directory, importId);
   const handle = await directory.getFileHandle(name, { create: true });
   try {
     if (typeof handle.createWritable !== "function") throw new ImportStop("BROWSER_UNSUPPORTED");
@@ -124,7 +206,7 @@ export async function storedImportCiphertext(
   const name = ciphertextName(importId);
   try {
     const handle = await directory.getFileHandle(name);
-    return { ciphertext: await handle.getFile(), remove: () => removeEntry(directory, name) };
+    return { ciphertext: await handle.getFile(), remove: () => removeCopy(directory, importId) };
   } catch (error) {
     if (error instanceof DOMException && error.name === "NotFoundError") return null;
     throw error;
@@ -134,7 +216,7 @@ export async function storedImportCiphertext(
 /** Removes this import's copy; the caller holds the import or has checked that no tab does. */
 export async function removeImportCiphertext(account: string, importId: string): Promise<void> {
   if (!privateStorage()) return;
-  await removeEntry(await accountDirectory(account), ciphertextName(importId));
+  await removeCopy(await accountDirectory(account), importId);
 }
 
 /** Removes this import's copy unless another tab holds the import; false when one does. */
@@ -167,10 +249,12 @@ export async function sweepKeptCiphertext(
   }
   for (const importId of candidates) {
     // One copy that cannot be removed now stays counted as used; the next sweep tries again.
-    await whileImportFree(importId, async () => {
-      if (await retired(importId)) await removeImportCiphertext(account, importId);
-      return true;
-    }).catch(() => false);
+    // An import that stops waiting never waits again, so the read stays valid until removal.
+    if (await retired(importId).catch(() => false))
+      await whileImportFree(importId, async () => {
+        await removeImportCiphertext(account, importId);
+        return true;
+      }).catch(() => false);
   }
 }
 
@@ -216,9 +300,9 @@ export async function otherKeptCiphertext(
 export async function discardOtherKeptCiphertext(account: string): Promise<{ kept: number }> {
   if (!privateStorage()) return { kept: 0 };
   let kept = 0;
-  for (const { directory, name, importId } of await otherCopies(account)) {
+  for (const { directory, importId } of await otherCopies(account)) {
     const removed = await whileImportFree(importId, async () => {
-      await removeEntry(directory, name);
+      await removeCopy(directory, importId);
       return true;
     }).catch(() => false);
     if (!removed) kept += 1;

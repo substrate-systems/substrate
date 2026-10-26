@@ -22,9 +22,7 @@ export type ImportSelection = {
 
 // git's per-directory exclude file, a name git itself fixes.
 const GITIGNORE = ".gitignore";
-// A larger .gitignore is not a rules file, and reading it whole could exhaust memory. This is
-// the Exomem CLI's limit, so both read a folder the same way; keep the two in step until the
-// published import limits carry it.
+// Home reads each rules file whole into browser memory; this cap bounds that allocation.
 export const GITIGNORE_MAX_BYTES = 4 * 1024 * 1024;
 
 function gitignoreFile(path: string): boolean {

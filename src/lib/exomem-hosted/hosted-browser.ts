@@ -4,6 +4,7 @@ export type HostedErrorBody = {
   retryable?: boolean;
   requestId?: string;
   remediation?: string;
+  limit?: unknown;
 };
 
 export class HostedBrowserError extends Error {
@@ -13,6 +14,7 @@ export class HostedBrowserError extends Error {
   // The cell computes a remediation for refusals a person can act on. It was
   // being dropped here, so a fixable refusal read as an unexplained failure.
   readonly remediation?: string;
+  readonly limit?: unknown;
 
   constructor(error: HostedErrorBody, status: number) {
     super(error.message || "That did not work. Please try again.");
@@ -21,6 +23,7 @@ export class HostedBrowserError extends Error {
     this.retryable = Boolean(error.retryable);
     this.status = status;
     if (error.remediation) this.remediation = error.remediation;
+    if (error.limit) this.limit = error.limit;
   }
 }
 
@@ -39,6 +42,7 @@ function errorFrom(value: unknown): HostedErrorBody {
         retryable: error.retryable === true,
         requestId: typeof error.requestId === "string" ? error.requestId : undefined,
         remediation: typeof error.remediation === "string" ? error.remediation : undefined,
+        limit: error.limit,
       };
     }
   }
@@ -88,10 +92,10 @@ export async function postPrivateJson(
   path: string,
   body: Record<string, unknown>,
   method: "POST" | "PUT" = "POST",
-  options: { csrfToken?: string; signal?: AbortSignal } = {}
+  options: { csrfToken?: string; signal?: AbortSignal; fetcher?: typeof fetch } = {}
 ): Promise<Record<string, unknown>> {
   const csrf = options.csrfToken === undefined ? csrfCookie() : options.csrfToken;
-  const response = await fetch(path, {
+  const response = await (options.fetcher ?? fetch)(path, {
     method,
     headers: {
       "content-type": "application/json",
@@ -107,9 +111,10 @@ export async function postPrivateJson(
 
 export async function getPrivateJson(
   path: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(path, {
+  const response = await fetcher(path, {
     method: "GET",
     credentials: "same-origin",
     cache: "no-store",

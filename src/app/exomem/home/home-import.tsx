@@ -5,6 +5,10 @@ import { Button } from "@/components/exomem/Button";
 import { Modal } from "@/components/exomem/Modal";
 import {
   cloudImportFinished,
+  calculateImportAdmission,
+  homeImportLimits,
+  type CloudImportReply,
+  type ImportLimit,
   stagedImportFolder,
   type CloudImport,
 } from "@/lib/exomem/cloud-import-contract";
@@ -14,7 +18,7 @@ import {
   type ImportForecast,
 } from "@/lib/exomem-hosted/cloud-import-browser";
 import {
-  readBrowserImport,
+  readBrowserImportContext,
   requestBrowserImport,
 } from "@/lib/exomem-hosted/cloud-import-browser-api";
 import {
@@ -77,7 +81,14 @@ type Preflight = {
 /** Why this page's upload is not running, shown until the person acts on it. */
 type Stop =
   | { kind: "paused"; unavailable: boolean; phase: ImportProgress["phase"] | null }
-  | { kind: "failed"; importId: string; code: string | null; text: string; next: ImportStopNext };
+  | {
+      kind: "failed";
+      importId: string;
+      code: string | null;
+      text: string;
+      next: ImportStopNext;
+      limit?: ImportLimit;
+    };
 
 const NEXT_STEP: Record<ImportStopNext, string> = {
   resume: "Resume to try again, or cancel the import.",
@@ -86,7 +97,18 @@ const NEXT_STEP: Record<ImportStopNext, string> = {
   status: "Check the import’s current status above.",
 };
 
+function growthWait(operation: CloudImport): string | null {
+  return operation.requested_state === "requested" &&
+    operation.observed_state === "pending" &&
+    operation.required_storage_bytes != null &&
+    operation.storage_ready === false
+    ? `Your vault’s storage is growing to about ${byteSize(operation.required_storage_bytes)}.`
+    : null;
+}
+
 function observation(operation: CloudImport): string {
+  const growth = growthWait(operation);
+  if (growth) return growth;
   if (
     operation.requested_state === "uploaded" &&
     (operation.observed_state === "pending" || operation.observed_state === "key_ready")
@@ -145,7 +167,7 @@ function rowProgress(progress: ImportProgress): string {
 function pausedText(stop: Extract<Stop, { kind: "paused" }>): string {
   if (stop.unavailable) return "Paused until uploads are available again.";
   if (stop.phase === "uploading" || stop.phase === "reporting" || stop.phase === "verifying")
-    return "Paused. Parts already uploaded from this page are kept.";
+    return "Paused. Confirmed parts are kept in this browser, including after a reload.";
   return stop.phase === "linking"
     ? "Paused. This browser keeps the encrypted copy for when you resume."
     : "Paused. Encryption starts again from the beginning when you resume.";
@@ -221,6 +243,7 @@ export function ImportDocuments({
   const [open, setOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [operation, setOperation] = useState<CloudImport | null>(null);
+  const [context, setContext] = useState<CloudImportReply | null>(null);
   // When this page last heard about the import: "measured N minutes ago" is read against it.
   const [heardAt, setHeardAt] = useState(0);
   const [folder, setFolder] = useState<FolderEntry[] | null>(null);
@@ -314,8 +337,10 @@ export function ImportDocuments({
     let timer: ReturnType<typeof setTimeout>;
     const read = async () => {
       try {
-        const value = await readBrowserImport(csrfToken, readImportId, controller.signal);
+        const response = await readBrowserImportContext(csrfToken, readImportId, controller.signal);
         if (controller.signal.aborted) return;
+        const value = response.import;
+        setContext(response);
         setOperation(value);
         setHeardAt(Date.now());
         setChecked(true);
@@ -405,6 +430,16 @@ export function ImportDocuments({
     return () => controller.abort();
   }, [measuring, resumingId, account, csrfToken, discards]);
   const measured = preflight && measuring && preflight.selection === measuring ? preflight : null;
+  const published = homeImportLimits.safeParse(context?.limits);
+  const admission =
+    measured && "forecast" in measured && context?.storage && published.success
+      ? calculateImportAdmission(
+          context.limits,
+          context.storage,
+          measured.forecast.plaintextBytes,
+          measured.forecast.members
+        )
+      : null;
 
   const storedId = open && reported && !holding && !busy ? awaiting.import_id : null;
   useEffect(() => {
@@ -515,12 +550,13 @@ export function ImportDocuments({
       code: reason?.code ?? (error instanceof HostedBrowserError ? error.code : null),
       text: reason?.message ?? friendlyHostedError(error),
       next: reason?.next ?? "resume",
+      limit: reason?.limit,
     });
     if (reason?.cleanupFailed) failCleanup();
   }
 
   function start() {
-    if (!selection) return;
+    if (!selection || admission?.refusal) return;
     const previous = upload.current;
     const resumeId = awaiting && !reported ? awaiting.import_id : undefined;
     upload.current = new BrowserImportUpload({
@@ -625,15 +661,17 @@ export function ImportDocuments({
     "forecast" in measured &&
     (browserFree(measured.room) ?? Infinity) < measured.forecast.ciphertextBytes;
   const rowStatus =
-    busy && progress
-      ? rowProgress(progress)
-      : stop?.kind === "paused"
-        ? "Import paused. Open it to resume."
-        : stop
-          ? "Import stopped. Open it to see why and what to do next."
-          : awaiting
-            ? "An upload is waiting to continue."
-            : null;
+    operation && growthWait(operation)
+      ? growthWait(operation)
+      : busy && progress
+        ? rowProgress(progress)
+        : stop?.kind === "paused"
+          ? "Import paused. Open it to resume."
+          : stop
+            ? "Import stopped. Open it to see why and what to do next."
+            : awaiting
+              ? "An upload is waiting to continue."
+              : null;
   return (
     <>
       {(canStart || operation !== null || readMessage !== null) && (
@@ -690,7 +728,21 @@ export function ImportDocuments({
                   Status updated {shortDateTime(operation.updated_at)}.
                 </p>
                 {operation.error_code && (
-                  <p className={dialog.text}>Exomem reported: {operation.error_code}</p>
+                  <>
+                    <p className={dialog.text} role="alert">
+                      {importStopFrom(
+                        new HostedBrowserError({ code: operation.error_code, message: "" }, 422)
+                      )?.message ?? "Exomem stopped the import."}
+                    </p>
+                    <ImportReference importId={operation.import_id} code={operation.error_code} />
+                  </>
+                )}
+                {growthWait(operation) && published.success && (
+                  <p className={dialog.text}>
+                    Exomem allows up to{" "}
+                    {count(Math.ceil(published.data.import_growth_deadline_seconds / 60))} minutes
+                    for storage growth. This page keeps checking while the import waits.
+                  </p>
                 )}
               </>
             )}
@@ -701,14 +753,18 @@ export function ImportDocuments({
                 <>
                   <ImportReviewHandoff key={operation.import_id} importId={operation.import_id} />
                   <StagedImportStorage
-                    stagedBytes={operation.declared_bytes}
-                    stagedFiles={operation.declared_files}
+                    stagedBytes={operation.staged_bytes ?? null}
+                    stagedFiles={operation.staged_files ?? null}
                     storage={storage}
                     now={heardAt}
                   />
                 </>
               )}
-            {busy && progress && <ImportProgressView progress={progress} />}
+            {busy &&
+              progress &&
+              !(progress.phase === "preparing" && operation && growthWait(operation)) && (
+                <ImportProgressView progress={progress} />
+              )}
             {busy && progress && (
               <>
                 <Button size="dialog" onClick={pause}>
@@ -730,6 +786,19 @@ export function ImportDocuments({
                 <p className={dialog.text} role="alert">
                   {stop.text} {NEXT_STEP[stop.next]}
                 </p>
+                {stop.limit && (
+                  <p className={dialog.text}>
+                    Requested:{" "}
+                    {stop.limit.unit === "files"
+                      ? `${count(stop.limit.requested)} files`
+                      : byteSize(stop.limit.requested)}
+                    . Published limit:{" "}
+                    {stop.limit.unit === "files"
+                      ? `${count(stop.limit.value)} files`
+                      : byteSize(stop.limit.value)}
+                    .
+                  </p>
+                )}
                 <ImportReference importId={stop.importId} code={stop.code ?? undefined} />
               </>
             )}
@@ -775,8 +844,8 @@ export function ImportDocuments({
               <>
                 {awaiting && folder === null && (
                   <p className={dialog.text}>
-                    This import stopped before its encrypted copy was finished. Choose the same
-                    folder again: it is encrypted again on this device, and the import continues.
+                    This import is waiting for its encrypted copy. Choose the same folder again;
+                    encryption starts on this device when your vault is ready.
                   </p>
                 )}
                 <Button
@@ -842,6 +911,8 @@ export function ImportDocuments({
                     {measured && "forecast" in measured && (
                       <ImportLimits
                         forecast={measured.forecast}
+                        admission={admission}
+                        importStorage={context?.storage ?? null}
                         room={measured.room}
                         others={measured.others}
                         storage={storage}
@@ -850,7 +921,7 @@ export function ImportDocuments({
                         onDiscardOthers={() => void discardOthers()}
                       />
                     )}
-                    {measured && "forecast" in measured && !browserShort && (
+                    {measured && "forecast" in measured && !browserShort && !admission?.refusal && (
                       <Button ref={startButton} variant="primary" size="dialog" onClick={start}>
                         {awaiting ? "Encrypt and continue" : "Encrypt and upload"}
                       </Button>

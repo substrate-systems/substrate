@@ -11,6 +11,11 @@ import {
   type IncludeChoices,
   type SelectionTotals,
 } from "@/lib/exomem-hosted/cloud-import-selection";
+import {
+  IMPORT_GIB,
+  type calculateImportAdmission,
+  type ImportStorage,
+} from "@/lib/exomem/cloud-import-contract";
 import type { HomeStorage } from "./home-api";
 import { ago, byteSize, count } from "./home-format";
 import styles from "./home.module.css";
@@ -23,10 +28,10 @@ function totals({ files, bytes }: SelectionTotals): string {
 }
 
 /** Free bytes in the vault from the last disk reading, or null when none is known. */
-function vaultFree(storage: HomeStorage | null) {
+function vaultFree(storage: HomeStorage | null, reserve: number) {
   if (storage?.state !== "known") return null;
   return {
-    bytes: Math.max(0, storage.filesystem_bytes - storage.used_bytes),
+    bytes: Math.max(0, storage.filesystem_bytes - storage.used_bytes - reserve),
     observedAt: storage.observed_at,
   };
 }
@@ -93,6 +98,8 @@ export function ImportExclusions({
 /** The selection beside every limit Home can measure before the upload starts. */
 export function ImportLimits({
   forecast,
+  admission,
+  importStorage,
   room,
   others,
   storage,
@@ -101,6 +108,8 @@ export function ImportLimits({
   onDiscardOthers,
 }: {
   forecast: ImportForecast;
+  admission: ReturnType<typeof calculateImportAdmission>;
+  importStorage: ImportStorage | null;
   room: BrowserRoom;
   /** Kept copies outside this account's folder; null when they could not be read. */
   others: SelectionTotals | null;
@@ -110,10 +119,40 @@ export function ImportLimits({
   onDiscardOthers: () => void;
 }) {
   const browser = browserFree(room);
-  const vault = vaultFree(storage);
+  const reserve = admission?.limits.reserve_bytes ?? 0;
+  const vaultReading: HomeStorage | null =
+    importStorage?.used_bytes != null &&
+    importStorage.filesystem_bytes != null &&
+    importStorage.usage_observed_at
+      ? {
+          state: "known",
+          used_bytes: importStorage.used_bytes,
+          filesystem_bytes: importStorage.filesystem_bytes,
+          observed_at: importStorage.usage_observed_at,
+        }
+      : storage;
+  const vault = vaultFree(vaultReading, reserve);
   return (
     <>
       <dl className={dialog.totals}>
+        {admission && (
+          <>
+            <div>
+              <dt>Archive members</dt>
+              <dd>
+                {count(forecast.members)} of {count(admission.limits.max_members)} (files and
+                folders)
+              </dd>
+            </div>
+            <div>
+              <dt>Storage needed</dt>
+              <dd>
+                {byteSize(admission.need_bytes)} of{" "}
+                {byteSize(admission.limits.max_storage_gib * IMPORT_GIB)} maximum
+              </dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>Encrypted copy</dt>
           <dd>{byteSize(forecast.ciphertextBytes)}</dd>
@@ -144,6 +183,24 @@ export function ImportLimits({
           )
         )}
       </dl>
+      {!admission && (
+        <p className={dialog.text}>Limits not published; the cell checks during import.</p>
+      )}
+      {admission?.refusal && (
+        <Notice attention>
+          {admission.refusal.code === "IMPORT_TOO_MANY_FILES"
+            ? "This folder has more members than the published maximum. Choose a smaller folder."
+            : "This import cannot fit within the published storage cap. Choose a smaller folder."}
+        </Notice>
+      )}
+      {admission &&
+        !admission.refusal &&
+        admission.required_storage_gib * IMPORT_GIB > admission.current_storage_bytes && (
+          <p className={dialog.text}>
+            Your vault’s storage grows to about{" "}
+            {byteSize(admission.required_storage_gib * IMPORT_GIB)} before encryption starts.
+          </p>
+        )}
       {others !== null && others.files > 0 && (
         <>
           <p className={dialog.text}>
@@ -165,7 +222,8 @@ export function ImportLimits({
       )}
       {vault !== null && vault.bytes < forecast.plaintextBytes && (
         <Notice>
-          Your vault had {byteSize(vault.bytes)} free when it was measured{" "}
+          Your vault had {byteSize(vault.bytes)} free
+          {admission ? ` after the ${byteSize(reserve)} reserve` : ""} when it was measured{" "}
           {ago(vault.observedAt, now)}, and this folder adds {byteSize(forecast.plaintextBytes)}.
           Exomem may stop the import while it stages the files. Add storage first, or choose a
           smaller folder.
@@ -290,8 +348,8 @@ export function StagedImportStorage({
   storage,
   now,
 }: {
-  stagedBytes: number;
-  stagedFiles: number;
+  stagedBytes: number | null;
+  stagedFiles: number | null;
   storage: HomeStorage | null;
   now: number;
 }) {
@@ -300,7 +358,11 @@ export function StagedImportStorage({
       <dl className={dialog.totals}>
         <div>
           <dt>Staged originals</dt>
-          <dd>{totals({ files: stagedFiles, bytes: stagedBytes })}</dd>
+          <dd>
+            {stagedFiles === null || stagedBytes === null
+              ? "not recorded"
+              : totals({ files: stagedFiles, bytes: stagedBytes })}
+          </dd>
         </div>
         <div>
           <dt>Your vault</dt>

@@ -18,14 +18,14 @@ export async function handleCloudImportRequest(
   try {
     const principal = await resolveCloudImportPrincipal(request);
     if (action === "status")
-      return Response.json({ import: await readCloudImport(principal, importId) }, { headers });
+      return Response.json(await readCloudImport(principal, importId), { headers });
     const body =
       action === "cancel" || action === "discard"
         ? undefined
         : await readBoundedJsonRequest(request, 2 * 1024 * 1024);
     const result = await mutateCloudImport(principal, action, body, importId);
     return Response.json(
-      { import: result.import },
+      { import: result.import, limits: result.limits, storage: result.storage },
       { status: result.created ? 201 : 200, headers }
     );
   } catch (error) {

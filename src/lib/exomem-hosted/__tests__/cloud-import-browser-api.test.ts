@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, mock, test } from "node:test";
 import { readBrowserImport, requestBrowserImport } from "../cloud-import-browser-api";
 import { HostedBrowserError } from "../hosted-browser";
+import { importStopFrom } from "../cloud-import-stop";
 
 const importId = "2495eb8e-01ba-445f-ac61-e481c51b68b5";
 const csrfToken = "synthetic-csrf";
@@ -33,6 +34,18 @@ const status = {
   created_at: "2026-01-01T00:00:00.000Z",
   updated_at: "2026-01-01T00:01:00.000Z",
 };
+
+test("only a fetch TypeError reads as a dropped connection", async () => {
+  const network = mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("network failure");
+  });
+  try {
+    await assert.rejects(readBrowserImport(csrfToken), { code: "CONNECTION" });
+    assert.equal(importStopFrom(new TypeError("application defect"))?.code, "STOPPED");
+  } finally {
+    network.mock.restore();
+  }
+});
 
 test("an accepted upload remains importing and retains the controller observation", async () => {
   const receive: typeof fetch = async (_input, init) => {
