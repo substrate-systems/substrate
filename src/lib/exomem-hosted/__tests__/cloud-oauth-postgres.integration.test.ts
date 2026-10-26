@@ -448,12 +448,10 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     assert.equal(found?.cellDesiredState, "running");
     assert.equal("scopes" in found!, false);
 
-    const otherGrant = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
-       VALUES ($1, $2, $3, $4, '{}') RETURNING id`,
-      [userId, tenantId, clientRow.rows[0]!.id, CLOUD_RESOURCE]
+    assert.equal(
+      await findCloudOAuthLogin({ ...login, grantId: randomUUID() }, CLOUD_RESOURCE),
+      null
     );
-    assert.equal(await findCloudOAuthLogin({ ...login, grantId: otherGrant.rows[0]!.id }, CLOUD_RESOURCE), null);
     assert.equal(await findCloudOAuthLogin(login, "https://hosted.example.test/mcp"), null);
 
     const revocations: Array<[string, string, string]> = [

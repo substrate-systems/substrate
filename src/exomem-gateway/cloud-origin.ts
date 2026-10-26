@@ -11,8 +11,8 @@ import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import type { ActiveCloudOAuthLogin } from "../lib/exomem-hosted/cloud-oauth";
 
 // Version 1 of the protocol; the Exomem cell verifies the same names and formats.
-export const CLOUD_ORIGIN_AUDIENCE = "exomem-cloud-origin";
-export const CLOUD_UPLOAD_ROUTE_AUDIENCE = "exomem-cloud-upload-route";
+const CLOUD_ORIGIN_AUDIENCE = "exomem-cloud-origin";
+const CLOUD_UPLOAD_ROUTE_AUDIENCE = "exomem-cloud-upload-route";
 export const CLOUD_ORIGIN_HEADER = "x-exomem-cloud-origin";
 export const CLOUD_UPLOAD_ROUTE_HEADER = "x-exomem-cloud-upload-route";
 export const CLOUD_UPLOAD_TICKET_HEADER = "x-exomem-cloud-upload-ticket";
@@ -53,7 +53,7 @@ export type CloudOAuthOrigin = z.infer<typeof originSchema>;
 export type CloudUploadRoute = z.infer<typeof routeSchema>;
 export type CloudUploadHandoff = { capsule: string; ticket: string };
 
-export class CloudUploadUnavailable extends Error {
+class CloudUploadUnavailable extends Error {
   constructor() {
     super("Cloud upload authority is unavailable");
     this.name = "CloudUploadUnavailable";
@@ -86,7 +86,7 @@ export function sameCloudOrigin(left: CloudOAuthOrigin, right: CloudOAuthOrigin)
  * The fixed upload endpoint beside the resource. HTTPS, or HTTP on a literal
  * loopback address: the same rule the Exomem CLI applies before sending bytes.
  */
-export function cloudUploadUrl(resource: string): string {
+function cloudUploadUrl(resource: string): string {
   const endpoint = new URL(CLOUD_UPLOAD_PATH, resource);
   const host = endpoint.hostname.replace(/^\[|\]$/g, "");
   const loopback =
