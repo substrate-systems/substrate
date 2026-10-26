@@ -6,11 +6,12 @@ A large folder import in Home can stop without a message. The dialog shows no me
 
 ## What changes
 
-- Show a preflight before the import exists: the files and bytes to import, the exact encrypted size, the browser's free space, the vault's free space with its age, and the upload-part ceiling.
+- Show a preflight before the import exists: the files and bytes to import, the exact encrypted size, the browser's free space, and the vault's free space with its age.
 - Leave out hidden items and the items that the folder's own `.gitignore` files exclude, show the totals for each reason, and let the owner bring them back.
 - Measure encryption progress from the work itself: files, plaintext bytes and ciphertext bytes against exact totals.
 - Show a pause as a pause and a failure as a content-free reason with the import ID and the next route. Close keeps the work running; leaving the page asks first.
 - Name the browser's ciphertext by the import ID, so a reloaded page continues the same import: before its report from the same folder chosen again, after its report from the kept copy once it matches the report.
+- Keep each account's copies in a browser folder of its own. Remove a copy only when no tab holds its import and a fresh read shows that the import has ended. Show other accounts' copies with their size and an explicit discard action.
 - Show the space that staged originals take beside the vault reading, with the existing removal action.
 
 ## Capabilities

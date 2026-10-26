@@ -2,9 +2,9 @@
 
 ### Requirement: Home checks a folder import before it creates one
 
-Before Home creates an import, the dialog SHALL show the selection's file count and bytes beside each limit it can measure. It SHALL show the exact encrypted size, the browser's free space for this site, the vault's free space with the age of that reading, and the upload-part ceiling.
+Before Home creates an import, the dialog SHALL show the selection's file count and bytes beside each limit it can measure. It SHALL show the exact encrypted size, the browser's free space for this site, and the vault's free space with the age of that reading. When other accounts' kept copies use this browser's space, it SHALL show their files and bytes and offer to discard them.
 Home SHALL refuse to start when the browser reports less free space than the exact encrypted size. A vault reading below the selection's bytes SHALL produce a warning only, because the reading can be stale.
-By default, the selection SHALL leave out hidden items and the items that the folder's own `.gitignore` files exclude. The dialog SHALL show the files and bytes left out for each reason and SHALL let the owner bring each reason's items back.
+By default, the selection SHALL leave out hidden items and the items that the folder's own `.gitignore` files exclude. The dialog SHALL show the files and bytes left out for each reason and SHALL let the owner bring each reason's items back. When a `.gitignore` file is too large to read as rules, the dialog SHALL say that its rules are not applied.
 Home SHALL NOT enforce the cell's member, path or name limits; the cell keeps enforcing them.
 
 #### Scenario: The encrypted copy cannot fit in the browser
@@ -62,7 +62,7 @@ A paused import SHALL show that it is paused and how to resume it. A failed impo
 
 ### Requirement: Home continues an open import after the page reloads
 
-Home SHALL keep an import's ciphertext under that import's ID. When Home finds an open import that waits for an upload, it SHALL say so on the Home row and in the dialog.
+Home SHALL keep an import's ciphertext under that import's ID, in a browser folder of the account's own. It SHALL remove one of the account's kept copies only while no tab holds that import and a fresh status read shows that the import is absent or no longer waits for an upload. It SHALL remove another account's copies only on the owner's explicit request, and never while a tab holds their import. When Home finds an open import that waits for an upload, it SHALL say so on the Home row and in the dialog.
 Before the import has an upload report, Home SHALL continue it from the same folder chosen again, only when the selection matches the declared file count and bytes.
 After the import has an upload report, Home SHALL continue it from the kept ciphertext only when that file's size and SHA-256 match the report. It SHALL then repeat the idempotent `prepare-upload` and send the parts.
 
@@ -80,6 +80,17 @@ After the import has an upload report, Home SHALL continue it from the kept ciph
 
 - **WHEN** an import has an upload report and this browser kept a matching ciphertext
 - **THEN** Home checks the kept file and completes the same import
+
+#### Scenario: A stale page prepares a new folder while another tab keeps an open import's copy
+
+- **WHEN** a page that has not seen an open import measures a new folder, and this account's folder holds that import's copy
+- **THEN** the copy stays, because a fresh read shows the import still waits for its upload
+
+#### Scenario: Another account's copy uses this browser's space
+
+- **WHEN** another account's kept copy is in this browser
+- **THEN** the preflight shows its files and bytes and keeps it until the owner discards it
+- **AND** a discard skips a copy whose import a tab holds
 
 #### Scenario: The kept ciphertext does not match the report
 
