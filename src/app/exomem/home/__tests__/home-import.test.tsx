@@ -325,7 +325,7 @@ it("Home shows the published growth wait on its row and dialog, then a fixed gro
   assert.ok(unavailable.text().includes("IMPORT_STORAGE_NO_ROOM"));
 });
 
-it("staged totals use the Job report and older imports say not recorded", async () => {
+it("staged and filed counts use their own observations and older imports remain unknown", async () => {
   const api = importApiDouble("unused");
   const id = crypto.randomUUID();
   const row = {
@@ -343,6 +343,7 @@ it("staged totals use the Job report and older imports say not recorded", async 
     ciphertext_bytes: 999,
     staged_files: 2,
     staged_bytes: 2048,
+    adopted_files: 1,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   };
@@ -350,12 +351,14 @@ it("staged totals use the Job report and older imports say not recorded", async 
   let page = await home({ api });
   await page.click("Import…");
   await page.until(() => page.text().includes("2 files · 2 kB"), "the staged report");
+  assert.ok(page.text().includes("Filed1 file"));
   await cleanup?.();
   cleanup = null;
-  Object.assign(row, { staged_files: null, staged_bytes: null });
+  Object.assign(row, { staged_files: null, staged_bytes: null, adopted_files: undefined });
   page = await home({ api });
   await page.click("Import…");
   await page.until(() => page.text().includes("not recorded"), "the unknown staged count");
+  assert.ok(page.text().includes("Filedunknown"));
 });
 
 for (const [code, unit, reason] of [

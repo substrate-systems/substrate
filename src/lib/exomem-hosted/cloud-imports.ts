@@ -12,6 +12,11 @@ import {
   type UploadPart,
 } from "../exomem/cloud-import-contract";
 import { resolveCloudOwnerPrincipal } from "./cloud-owner-principal";
+import {
+  readCloudImportAdoptedFiles,
+  type CloudHomeDependencies,
+  type CloudHomePrincipal,
+} from "./cloud-home-mcp";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
 
@@ -27,6 +32,7 @@ type CloudImportPrincipal = {
   tenantId: string;
   cellId: string;
   cellDesiredState: string;
+  homePrincipal?: CloudHomePrincipal;
 };
 type CellRow = {
   desired_state: string;
@@ -93,6 +99,7 @@ export async function resolveCloudImportPrincipal(request: Request): Promise<Clo
     tenantId: owner.tenantId,
     cellId: String(rows[0].cell_id),
     cellDesiredState: String(rows[0].desired_state),
+    homePrincipal: owner,
   };
 }
 
@@ -215,12 +222,17 @@ function status(row: ImportRow, cell: CellRow): CloudImport {
     storage_ready: storageReady,
     staged_files: staged && row.staged_files !== null ? storedCount(row.staged_files) : null,
     staged_bytes: staged && row.staged_bytes !== null ? storedCount(row.staged_bytes) : null,
+    adopted_files: null,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   };
 }
 
-export async function readCloudImport(principal: CloudImportPrincipal, importId?: string) {
+export async function readCloudImport(
+  principal: CloudImportPrincipal,
+  importId?: string,
+  dependencies: CloudHomeDependencies = {}
+) {
   const id = importId === undefined ? null : uuid(importId);
   // Migration 0061 fixes the open predicate; default status prefers unfinished work over history.
   const { rows } = await executeExomemSql`
@@ -244,8 +256,22 @@ export async function readCloudImport(principal: CloudImportPrincipal, importId?
   `;
   const row = rows[0] as (ImportRow & CellRow) | undefined;
   if (!row || (!row.import_id && id)) throw notFound();
+  const operation = row.import_id ? status(row, row) : null;
+  if (
+    principal.homePrincipal &&
+    operation?.kind === "adopt" &&
+    operation.observed_state === "done" &&
+    operation.requested_state !== "cancelled" &&
+    operation.requested_state !== "discard_requested"
+  ) {
+    operation.adopted_files = await readCloudImportAdoptedFiles(
+      principal.homePrincipal,
+      operation.import_id,
+      dependencies
+    );
+  }
   return {
-    import: row.import_id ? status(row, row) : null,
+    import: operation,
     limits: limits(row),
     storage: storage(row),
   };

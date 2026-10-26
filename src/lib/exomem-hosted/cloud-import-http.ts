@@ -8,17 +8,19 @@ import {
 } from "./cloud-imports";
 import { ExomemHostedError, safeErrorResponse } from "./errors";
 import { readBoundedJsonRequest } from "./http";
+import type { CloudHomeDependencies } from "./cloud-home-mcp";
 
 export async function handleCloudImportRequest(
   request: Request,
   action: CloudImportAction,
-  importId?: string
+  importId?: string,
+  dependencies: CloudHomeDependencies = {}
 ): Promise<Response> {
   const headers = { "cache-control": "no-store", "referrer-policy": "no-referrer" };
   try {
     const principal = await resolveCloudImportPrincipal(request);
     if (action === "status")
-      return Response.json(await readCloudImport(principal, importId), { headers });
+      return Response.json(await readCloudImport(principal, importId, dependencies), { headers });
     const body =
       action === "cancel" || action === "discard"
         ? undefined

@@ -8,13 +8,14 @@
  * logged. The gateway's own lookup re-checks revocation, account blocks and
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
- * Home calls only `configure_memory` and the `bootstrap` activity section.
+ * Home calls `configure_memory`, the `bootstrap` activity section and scoped adoption status.
  * The viewer reuses the same transport for three fixed read operations.
  * Browser callers never choose a tool, tenant, gateway or cell.
  */
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { stagedImportFolder } from "../exomem/cloud-import-contract";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
 import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
 import { executeExomemSql, withExomemTransaction } from "./db";
@@ -53,6 +54,10 @@ const ContextLevel = z.object({ level: Level, source: LevelSource });
 const ConfigureMemoryAnswer = z.object({
   revision: z.string().min(1).max(128),
   levels: z.object({ coding: ContextLevel, conversation: ContextLevel }),
+});
+const AdoptedFilesAnswer = z.object({
+  complete: z.literal(true),
+  adopted_files: z.number().int().nonnegative().safe(),
 });
 
 /**
@@ -167,7 +172,8 @@ type HomeToolCall =
           }
         | { action: "clear"; context: CloudHomeContext; expected_revision: string };
     }
-  | { name: "bootstrap"; arguments: { profile: "compact"; section: "activity" } };
+  | { name: "bootstrap"; arguments: { profile: "compact"; section: "activity" } }
+  | { name: "adoption_studio"; arguments: { action: "status"; path: string } };
 
 // These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
 export type CloudViewerToolCall =
@@ -469,6 +475,34 @@ export async function callCloudViewerTool(
   const cell = await servingCell(principal);
   if (cell.state !== "serving") return { kind: "unavailable", view: cell };
   return callHomeTool(principal, call, dependencies);
+}
+
+/** Read only the server-selected import's complete historical filing count. */
+export async function readCloudImportAdoptedFiles(
+  principal: CloudHomePrincipal,
+  importId: string,
+  dependencies: CloudHomeDependencies = {}
+): Promise<number | null> {
+  if (!cloudHomeChannelEnabled(dependencies.env)) return null;
+  try {
+    const cell = await servingCell(principal);
+    if (cell.state !== "serving") return null;
+    const answer = await callHomeTool(
+      principal,
+      {
+        name: "adoption_studio",
+        arguments: { action: "status", path: stagedImportFolder(importId) },
+      },
+      dependencies
+    );
+    if (answer.kind !== "result") return null;
+    const parsed = AdoptedFilesAnswer.safeParse(answer.value);
+    return parsed.success ? parsed.data.adopted_files : null;
+  } catch {
+    // Optional filing observations must not make the import's C5 status unavailable.
+    logUnavailable("adoption_studio", "CELL_UNREACHABLE");
+    return null;
+  }
 }
 
 function liveLevels(

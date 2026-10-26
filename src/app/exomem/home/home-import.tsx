@@ -755,6 +755,7 @@ export function ImportDocuments({
                   <StagedImportStorage
                     stagedBytes={operation.staged_bytes ?? null}
                     stagedFiles={operation.staged_files ?? null}
+                    adoptedFiles={operation.adopted_files ?? null}
                     storage={storage}
                     now={heardAt}
                   />

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { expect, test as base } from "@playwright/test";
 import { Decrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import { createTarDecoder } from "modern-tar";
-import { createOwner, pool, signIn } from "./seed";
+import { createOwner, pool, setCell, signIn } from "./seed";
 import { homeE2eEnvironment } from "./environment";
 
 const test = base.extend<object, { database: void }>({
@@ -16,6 +16,36 @@ const test = base.extend<object, { database: void }>({
     },
     { scope: "worker", auto: true },
   ],
+});
+
+test("Home shows the cell's complete filing count and keeps an incomplete count unknown after reload", async ({
+  page,
+  context,
+}) => {
+  const owner = await createOwner();
+  const result = await pool.query(
+    `INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files,
+       requested_state, observed_state, staged_files, staged_bytes, part_etags,
+       ciphertext_sha256, ciphertext_bytes)
+     VALUES ($1, 'adopt', 99, 9, 'uploaded', 'done', 4, 44,
+       '[{"part_number":1,"etag":"synthetic"}]', repeat('a',64), 77)
+     RETURNING import_id`,
+    [owner.cellId]
+  );
+  const path = `_Imports/${result.rows[0].import_id}`;
+  await setCell(owner, { adoptionStatus: { [path]: { complete: true, adopted_files: 3 } } });
+  await signIn(context, owner);
+  await page.goto("/exomem/home");
+  await page.getByRole("button", { name: "Import…", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("3 files", { exact: true })).toBeVisible();
+  await setCell(owner, { adoptionStatus: { [path]: { complete: false, adopted_files: 2 } } });
+  await page.reload();
+  await page.getByRole("button", { name: "Import…", exact: true }).click();
+  await expect(dialog.getByText("unknown", { exact: true })).toBeVisible();
+  const fresh = await page.evaluate(async () => (await fetch("/api/exomem/cloud/imports")).json());
+  expect(fresh.import.adopted_files).toBeNull();
+  expect(fresh.import.staged_files).toBe(4);
 });
 
 test("Home offers imports only while the cell permits starting one", async ({ page, context }) => {

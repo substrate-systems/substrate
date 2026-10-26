@@ -21,7 +21,7 @@ export type CloudOwnerPrincipal =
       cellDesiredState: string;
     }
   // A session names no cell: a caller that needs one looks it up from the tenant.
-  | { via: "session"; userId: string; tenantId: string };
+  | { via: "session"; userId: string; tenantId: string; reviewerCredentialId?: string | null };
 
 /**
  * A request that carries an `Authorization` header is a bearer request and
@@ -53,5 +53,10 @@ export async function resolveCloudOwnerPrincipal(
   const session = await resolveExomemSession(request);
   if (request.method !== "GET" && request.method !== "HEAD")
     validateMutationRequest(request, session);
-  return { via: "session", userId: session.userId, tenantId: session.tenantId };
+  return {
+    via: "session",
+    userId: session.userId,
+    tenantId: session.tenantId,
+    reviewerCredentialId: session.reviewerCredentialId,
+  };
 }

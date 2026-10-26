@@ -101,6 +101,7 @@ const cloudImport = z.object({
   storage_ready: z.boolean().nullable().optional(),
   staged_files: count.nullable().optional(),
   staged_bytes: count.nullable().optional(),
+  adopted_files: count.nullable().optional(),
   created_at: z.iso.datetime({ offset: true }),
   updated_at: z.iso.datetime({ offset: true }),
 });

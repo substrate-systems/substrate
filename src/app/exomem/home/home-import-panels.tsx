@@ -345,11 +345,13 @@ export function ImportReference({ importId, code }: { importId: string; code?: s
 export function StagedImportStorage({
   stagedBytes,
   stagedFiles,
+  adoptedFiles,
   storage,
   now,
 }: {
   stagedBytes: number | null;
   stagedFiles: number | null;
+  adoptedFiles: number | null;
   storage: HomeStorage | null;
   now: number;
 }) {
@@ -362,6 +364,14 @@ export function StagedImportStorage({
             {stagedFiles === null || stagedBytes === null
               ? "not recorded"
               : totals({ files: stagedFiles, bytes: stagedBytes })}
+          </dd>
+        </div>
+        <div>
+          <dt>Filed</dt>
+          <dd>
+            {adoptedFiles === null
+              ? "unknown"
+              : `${adoptedFiles} ${adoptedFiles === 1 ? "file" : "files"}`}
           </dd>
         </div>
         <div>
