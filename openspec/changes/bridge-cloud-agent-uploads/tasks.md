@@ -16,6 +16,8 @@
 ## 3. Integrated proof and delivery
 
 - [x] 3.1 Exercise MCP handoff, CLI upload, held handle, Source capture and exact original recovery in an isolated sandbox. Verify revocation before body reads and a substituted capsule/ticket race.
-- [ ] 3.2 Complete independent exact-content security review, scoped corrections, verification, builds and required CI for both source batches. Record the reviewed heads and unverified live steps.
+  Evidence: 19 of 19 sandbox checks; the stored original is byte-identical to the uploaded bytes. Recovery reads it through the unchanged export and artifact paths, which this sandbox did not exercise.
+- [x] 3.2 Complete independent exact-content security review, scoped corrections, verification, builds and required CI for both source batches. Record the reviewed heads and unverified live steps.
+  Evidence: APPROVE with no blocking findings on Exomem 945964e3c and Substrate bccb2f5, required CI green on both heads. Live activation (cell key rendering, chart values, ingress rule, upload timeout) is unverified and stays with the release owner.
 - [ ] 3.3 Deliver the compatible source through ordinary publication while issuance stays disabled. Verify containing artifacts and keep production activation separate.
 - [ ] 3.4 Synchronize and archive this change only after its non-optional delivery tasks have evidence. Verify strict OpenSpec validation before and after closure.
