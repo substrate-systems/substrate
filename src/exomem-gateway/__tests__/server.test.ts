@@ -125,6 +125,40 @@ describe("standalone Exomem gateway adapter", () => {
     }
   });
 
+  it("frees the inflight slot of a download abandoned while the cell is slow", async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const server = createGatewayServer({
+      maxInflight: 1,
+      handleCloudDownload: async () => {
+        calls += 1;
+        if (calls === 1) await slow;
+        return new Response("original");
+      },
+    });
+    const baseUrl = await listen(server);
+    const socket = await connectedSocket(Number(new URL(baseUrl).port));
+    try {
+      socket.write("GET /download HTTP/1.1\r\nHost: gateway\r\n\r\n");
+      await waitFor(() => calls === 1, "the handler to start");
+      socket.destroy();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const next = await fetch(`${baseUrl}/download`);
+      assert.equal(next.status, 200);
+      assert.equal(await next.text(), "original");
+    } finally {
+      release();
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    }
+  });
+
   it("returns readiness failure during drain and closes an active stream at the deadline", async () => {
     const server = createGatewayServer({
       handleCloudMcp: async () =>

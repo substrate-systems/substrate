@@ -74,8 +74,19 @@ function requestFromNode(request: IncomingMessage, signal: AbortSignal): Request
   } as RequestInit);
 }
 
-async function writeResponse(response: Response, target: ServerResponse): Promise<void> {
+async function writeResponse(
+  response: Response,
+  target: ServerResponse,
+  onHeadersWritten?: () => void
+): Promise<void> {
+  // The client may have gone while the handler waited. Its close event has fired, so
+  // piping would never settle and the caller would keep its slots.
+  if (target.destroyed) {
+    await response.body?.cancel().catch(() => undefined);
+    return;
+  }
   target.writeHead(response.status, responseHeaders(response));
+  onHeadersWritten?.();
   if (!response.body) {
     target.end();
     return;
@@ -197,7 +208,6 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       if (handle === handleCloudDownload) {
         // Destroying the response runs the close path below, which releases both slots.
         boundedDownload = true;
-        response.setTimeout(downloadIdleMs, () => response.destroy());
         downloadTotalTimer = setTimeout(() => {
           controller.abort();
           response.destroy();
@@ -205,7 +215,15 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       }
       request.once("aborted", cancel);
       response.once("close", cancel);
-      await writeResponse(await handle(requestFromNode(request, controller.signal)), response);
+      // The idle bound starts at the headers, so a slow staging or hydration is
+      // bounded by the total cap alone.
+      await writeResponse(
+        await handle(requestFromNode(request, controller.signal)),
+        response,
+        () => {
+          if (boundedDownload) response.setTimeout(downloadIdleMs, () => response.destroy());
+        }
+      );
     } catch (error) {
       if (!response.headersSent)
         response

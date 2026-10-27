@@ -90,7 +90,7 @@ The gateway SHALL serve `GET /download?path=` on selected Cloud cells only to a 
 It SHALL refuse a missing, invalid, revoked or expired token, or a login that is no longer current, with 401 before it contacts the cell.
 It SHALL sign a fresh origin proof for each GET, with `purpose` `download` and `target_sha256` over the UTF-8 path, and forward the cell bearer and any `Range`.
 It SHALL stream the cell's answer without buffering, relay only the content, range, disposition and `X-Exomem-*` headers, set `Cache-Control: no-store`, and never follow a redirect.
-It SHALL bound each download: it SHALL destroy a response that makes no write progress for `EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS` (default 60000 ms), and SHALL end the cell fetch and the stream after `EXOMEM_GATEWAY_DOWNLOAD_TOTAL_MS` (default 900000 ms).
+It SHALL bound each download: once the response headers are written it SHALL destroy a response that makes no write progress for `EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS` (default 60000 ms), and SHALL end the cell fetch and the stream after `EXOMEM_GATEWAY_DOWNLOAD_TOTAL_MS` (default 900000 ms), which also covers the wait for the cell before the headers.
 Ending a download SHALL release its gateway in-flight slot and its Cloud concurrency slot.
 
 #### Scenario: A token is not valid
