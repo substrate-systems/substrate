@@ -192,6 +192,15 @@ BEGIN
     ) THEN
       GRANT UPDATE (import_limits) ON exomem_cloud_cells TO exomem_cellctl;
     END IF;
+    -- Migration 0081: cellctl mints each media key bundle and wraps it under the cell root.
+    -- The grant lives here, not in the migration, because the REVOKE above runs after every migration.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'media_key_wrapped'
+    ) THEN
+      GRANT UPDATE (media_key_wrapped, media_key_version) ON exomem_cloud_cells TO exomem_cellctl;
+    END IF;
     GRANT INSERT, UPDATE ON exomem_cloud_capacity TO exomem_cellctl;
     GRANT UPDATE (paused, error_code, held_cell_id, last_good_image, updated_at)
       ON exomem_cloud_rollout TO exomem_cellctl;

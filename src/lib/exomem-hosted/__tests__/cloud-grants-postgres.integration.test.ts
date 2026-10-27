@@ -417,6 +417,37 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     );
   });
 
+  // Migration 0081 (Exomem add-cloud-media-store D5): cellctl stores each cell's
+  // media key bundle, wrapped under the cell root. The grants script revokes every
+  // grant on the cell table after each migration run, so a grant that only the
+  // migration wrote would be gone, and every bundle mint would fail in production.
+  it("lets exomem_cellctl store a cell's media key bundle, and neither substrate_app nor the gateway can", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("p");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    const bundle = randomBytes(92);
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET media_key_wrapped = $2, media_key_version = 1 WHERE cell_id = $1",
+      [id, bundle]
+    );
+    const { rows } = await cellctlPool!.query(
+      "SELECT media_key_wrapped, media_key_version FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    assert.deepEqual(rows[0], { media_key_wrapped: bundle, media_key_version: 1 });
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET media_key_wrapped = NULL WHERE cell_id = $1", [id]),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("SELECT media_key_wrapped FROM exomem_cloud_cells WHERE cell_id = $1", [id]),
+      /permission denied/
+    );
+  });
+
   it("lets exomem_cellctl write C1c and its own C1d fields, never C1b", async () => {
     await cellctlPool!.query(
       "INSERT INTO exomem_cloud_capacity (node, cell_slots, attachments_used) VALUES ($1, 2, 0)",
