@@ -17,6 +17,7 @@
 
 - [ ] 3.1 Exercise MCP handoff, CLI upload, held handle, Source capture and exact original recovery in an isolated sandbox. Verify revocation before body reads and a substituted capsule/ticket race.
   Evidence: 19 of 19 sandbox checks; the stored original under `Knowledge Base/Sources/` is byte-identical to the uploaded bytes. Open: Cloud has no agent-facing exact-original recovery. A Cloud cell refuses `transfer_artifact` downloads and serves no `/download` route. This sandbox exercised no recovery path.
+  Gateway route (add-cloud-media-store 5.2): `GET /download` is built in `handleCloudDownloadRequest`, with gateway unit evidence for 401 before cell contact, a path-bound `download` proof, `Range` and 206 passthrough, and no redirect following. It stays unticked: the cell route, the CLI, the sandbox run and the ingress rule (platform chart, 900 s read timeout, outside this repository) have no evidence yet.
 - [x] 3.2 Complete independent exact-content security review, scoped corrections, verification, builds and required CI for both source batches. Record the reviewed heads and unverified live steps.
   Evidence: APPROVE with no blocking findings on Exomem 945964e3c and Substrate bccb2f5, required CI green on both heads. Live activation (cell key rendering, chart values, ingress rule, upload timeout) is unverified and stays with the release owner.
 - [ ] 3.3 Deliver the compatible source through ordinary publication while issuance stays disabled. Verify containing artifacts and keep production activation separate.

@@ -17,6 +17,7 @@ export const CLOUD_ORIGIN_HEADER = "x-exomem-cloud-origin";
 export const CLOUD_UPLOAD_ROUTE_HEADER = "x-exomem-cloud-upload-route";
 export const CLOUD_UPLOAD_TICKET_HEADER = "x-exomem-cloud-upload-ticket";
 export const CLOUD_UPLOAD_PATH = "/upload";
+export const CLOUD_DOWNLOAD_PATH = "/download";
 const CLOUD_UPLOAD_PREFIX = "exomem-cloud-upload:v1:";
 const CELL_TICKET_PREFIX = "exomem-upload:";
 // The cell's portable handoff contract caps one handoff at 900 seconds.
@@ -146,21 +147,33 @@ export async function signCloudUploadRoute(
 
 /**
  * Fresh origin for one forwarded request. An upload proof also names the
- * ticket it carries, so it cannot authorize a different one.
+ * ticket it carries, and a download proof the path it reads, so neither can
+ * authorize a different one.
  */
 export function signCloudOriginProof(
   login: ActiveCloudOAuthLogin,
   key: KeyObject,
-  purpose: { purpose: "mcp" } | { purpose: "upload"; ticket: string },
+  purpose:
+    | { purpose: "mcp" }
+    | { purpose: "upload"; ticket: string }
+    | { purpose: "download"; path: string },
   now = nowSeconds()
 ): Promise<string> {
-  const payload: JWTPayload =
-    purpose.purpose === "upload"
-      ? {
-          purpose: "upload",
-          ticket_sha256: createHash("sha256").update(purpose.ticket, "ascii").digest("hex"),
-        }
-      : { purpose: "mcp" };
+  let payload: JWTPayload;
+  if (purpose.purpose === "upload") {
+    payload = {
+      purpose: "upload",
+      ticket_sha256: createHash("sha256").update(purpose.ticket, "ascii").digest("hex"),
+    };
+  } else if (purpose.purpose === "download") {
+    // The path as decoded from the query, hashed over its UTF-8 bytes; the cell hashes what it received.
+    payload = {
+      purpose: "download",
+      target_sha256: createHash("sha256").update(purpose.path, "utf8").digest("hex"),
+    };
+  } else {
+    payload = { purpose: "mcp" };
+  }
   return sign(payload, key, CLOUD_ORIGIN_AUDIENCE, login, ORIGIN_PROOF_TTL_SECONDS, now);
 }
 

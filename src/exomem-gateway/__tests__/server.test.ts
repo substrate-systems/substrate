@@ -58,6 +58,7 @@ describe("standalone Exomem gateway adapter", () => {
       handleCloudMcp: async () =>
         new Response("streamed", { headers: { "mcp-session-id": "session" } }),
       handleCloudUpload: async () => new Response("held", { status: 201 }),
+      handleCloudDownload: async () => new Response("original", { status: 200 }),
     });
     const baseUrl = await listen(server);
     try {
@@ -76,6 +77,8 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal(upload.status, 201);
       assert.equal(upload.headers.get("cache-control"), "private, no-store, max-age=0");
       assert.equal((await fetch(`${baseUrl}/upload`)).status, 404);
+      assert.equal(await (await fetch(`${baseUrl}/download?path=a`)).text(), "original");
+      assert.equal((await fetch(`${baseUrl}/download`, { method: "POST" })).status, 404);
     } finally {
       server.close();
       await once(server, "close");

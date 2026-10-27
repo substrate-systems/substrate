@@ -14,6 +14,7 @@ import {
   readCloudArtifactBody,
 } from "./cloud-artifacts";
 import {
+  CLOUD_DOWNLOAD_PATH,
   CLOUD_ORIGIN_HEADER,
   CLOUD_UPLOAD_ROUTE_HEADER,
   CLOUD_UPLOAD_TICKET_HEADER,
@@ -84,6 +85,17 @@ const CELL_PORT = 8765;
 const MAX_CLOUD_UPLOAD_BODY_BYTES = 100 * 1024 * 1024 + 1024 * 1024;
 // The cell answers an upload with one small JSON object.
 const MAX_CELL_UPLOAD_ANSWER_BYTES = 64 * 1024;
+// The cell's download answer headers the gateway relays, and no others. The
+// gateway sets its own cache-control, so the cell's is never on this list.
+const RELAYED_DOWNLOAD_HEADERS = [
+  "content-length",
+  "content-range",
+  "accept-ranges",
+  "content-type",
+  "content-disposition",
+  "x-exomem-sha256",
+  "x-exomem-size",
+];
 const MAX_CLOUD_CONCURRENCY = 16;
 const MAX_CLOUD_TENANT_CONCURRENCY = 4;
 // D2's required scope pair: a cell exposes one fixed non-owner principal and
@@ -766,4 +778,140 @@ async function readCellUploadAnswer(upstream: Response): Promise<Record<string, 
   } catch {
     return null;
   }
+}
+
+/**
+ * The exact-original download route (add-cloud-media-store). The caller holds
+ * its OAuth access token, as on the MCP route. Every check below runs before
+ * the cell is contacted; each GET, range requests included, gets its own proof.
+ */
+export async function handleCloudDownloadRequest(
+  request: Request,
+  dependencies: CloudGatewayDependencies = {}
+): Promise<Response> {
+  const config = dependencies.config ?? loadExomemCloudConfig();
+  const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
+  const findLogin = dependencies.findLogin ?? findCloudOAuthLogin;
+  const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
+  const key = config.artifactSigningKey;
+
+  // 1. With no cell selected the route does not exist; the cell serves it only for the same key.
+  if (!key || !config.uploadCells?.size) {
+    return new Response(null, { status: 404, headers: CACHE_HEADERS });
+  }
+  if (request.method !== "GET") {
+    return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "GET" } });
+  }
+  if (hasForbiddenGatewayHeaders(request.headers)) {
+    return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
+  }
+
+  // 2. Token lookup and IP bucket, in the MCP route's order.
+  const bearer = parseBearerAuthorization(request.headers.get("authorization"));
+  const access = bearer ? await findAccessToken(digestSecret(bearer), config.mcpUrl) : null;
+  if (!access?.firstParty) {
+    const ipKey = trustedIngressClientAddress(request);
+    if (ipKey === null) {
+      recordIpBucketSkip();
+    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+      return errorResponse(429, "RATE_LIMITED");
+    }
+  }
+  if (!access) return unauthorized(config);
+  if (!REQUIRED_CLOUD_SCOPES.every((scope) => access.scopes.includes(scope))) {
+    return errorResponse(403, "INSUFFICIENT_SCOPE");
+  }
+
+  // 3. The one query parameter, decoded once; the proof binds exactly this value.
+  const url = new URL(request.url);
+  const paths = url.searchParams.getAll("path");
+  if (paths.length !== 1 || paths[0] === "") return errorResponse(400, "PATH_REQUIRED");
+  const path = paths[0];
+
+  // 4. Only a selected, readable cell; the stored state is read here, not the eventually consistent `ready`.
+  if (!cloudUploadEnabled(config, access.cellId)) return errorResponse(404, "NOT_FOUND");
+  if (access.cellDesiredState !== "running" && access.cellDesiredState !== "read_only") {
+    return errorResponse(503, "CELL_NOT_READY");
+  }
+  if (!CELL_ID_FORMAT.test(access.cellId)) {
+    console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
+    return errorResponse(500, "CELL_ID_INVALID");
+  }
+  const identityKey = `${access.tenantId}:${access.clientId}`;
+  if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIdentity, identityKey))) {
+    return errorResponse(429, "RATE_LIMITED");
+  }
+  const release = acquireCloudConcurrency(identityKey);
+  if (!release) return errorResponse(429, "RATE_LIMITED");
+  try {
+    // 5. Re-check the login as it is now, as the upload relay does.
+    const login = await findLogin(
+      { familyId: access.familyId, grantId: access.grantId },
+      config.mcpUrl
+    );
+    if (!login || !sameCloudOrigin(cloudOAuthOrigin(login), cloudOAuthOrigin(access))) {
+      release();
+      return unauthorized(config);
+    }
+    return releaseConcurrencyWhenBodyEnds(
+      await relayDownloadFromCell(
+        request,
+        login,
+        path,
+        key,
+        config,
+        dependencies.fetchCell ?? fetch
+      ),
+      release
+    );
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
+async function relayDownloadFromCell(
+  request: Request,
+  login: ActiveCloudOAuthLogin,
+  path: string,
+  key: KeyObject,
+  config: ExomemCloudConfig,
+  fetchCell: typeof fetch
+): Promise<Response> {
+  // The caller's token and headers never reach the cell: only the cell bearer,
+  // a proof bound to this path, and the caller's Range.
+  const headers = new Headers({
+    "accept-encoding": "identity",
+    authorization: `Bearer ${deriveCloudCellBearer(config.cellTokenKey, login.cellId)}`,
+    "x-request-id": randomUUID(),
+    [CLOUD_ORIGIN_HEADER]: await signCloudOriginProof(login, key, { purpose: "download", path }),
+  });
+  const range = request.headers.get("range");
+  if (range !== null) headers.set("range", range);
+
+  let upstream: Response;
+  try {
+    upstream = await fetchCell(
+      `http://cell.exo-cell-${login.cellId}.svc.cluster.local:${CELL_PORT}${CLOUD_DOWNLOAD_PATH}?${new URLSearchParams({ path })}`,
+      // A redirect is never followed: the cell has no reason to send one.
+      { method: "GET", headers, redirect: "manual", signal: request.signal }
+    );
+  } catch {
+    return errorResponse(503, "CELL_NOT_READY");
+  }
+  if (upstream.status >= 300 && upstream.status < 400) {
+    await upstream.body?.cancel().catch(() => undefined);
+    return errorResponse(502, "CELL_ANSWER_INVALID");
+  }
+  // The cell refuses a bad proof or bearer with 401; to the caller that is a gateway fault, not its token.
+  if (upstream.status === 401) {
+    await upstream.body?.cancel().catch(() => undefined);
+    return errorResponse(502, "CELL_AUTH_MISMATCH");
+  }
+  const relayed = new Headers({ "cache-control": "no-store" });
+  for (const name of RELAYED_DOWNLOAD_HEADERS) {
+    const value = upstream.headers.get(name);
+    if (value !== null) relayed.set(name, value);
+  }
+  return new Response(upstream.body, { status: upstream.status, headers: relayed });
 }

@@ -2,10 +2,11 @@ import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   buildCloudProtectedResourceMetadata,
+  handleCloudDownloadRequest,
   handleCloudMcpRequest,
   handleCloudUploadRequest,
 } from "./cloud-handler";
-import { CLOUD_UPLOAD_PATH } from "./cloud-origin";
+import { CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./cloud-origin";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
@@ -31,6 +32,7 @@ class InvalidNodeRequestError extends Error {}
 export type GatewayServerOptions = {
   handleCloudMcp?: typeof handleCloudMcpRequest;
   handleCloudUpload?: typeof handleCloudUploadRequest;
+  handleCloudDownload?: typeof handleCloudDownloadRequest;
   maxInflight?: number;
 };
 
@@ -108,6 +110,7 @@ const UPLOAD_REQUEST_TIMEOUT_MS = 900_000;
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
   const handleCloudUpload = options.handleCloudUpload ?? handleCloudUploadRequest;
+  const handleCloudDownload = options.handleCloudDownload ?? handleCloudDownloadRequest;
   // validateGatewayEnvironment requires this at startup; without it the
   // server answers only its probes.
   const cloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH?.trim() || null;
@@ -146,7 +149,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
         response.writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" }).end(body);
         return;
       }
-      // The upload handler answers 404 itself unless a cell is selected for uploads.
+      // The upload and download handlers answer 404 themselves unless a cell is selected.
       const handle =
         cloudMcpPath &&
         path === cloudMcpPath &&
@@ -154,7 +157,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           ? handleCloudMcp
           : cloudMcpPath && path === CLOUD_UPLOAD_PATH && request.method === "POST"
             ? handleCloudUpload
-            : null;
+            : cloudMcpPath && path === CLOUD_DOWNLOAD_PATH && request.method === "GET"
+              ? handleCloudDownload
+              : null;
       if (!handle) {
         response.writeHead(404, CACHE_HEADERS).end();
         return;
