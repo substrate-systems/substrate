@@ -181,7 +181,6 @@ async function connect(owner: Owner, client: Client): Promise<Connection> {
     resource: CLOUD_RESOURCE,
     pkceChallenge: authorization.challenge,
     refreshDigest,
-    refreshExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     accessDigest,
     accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });
@@ -500,7 +499,6 @@ describe(
           resource: CLOUD_RESOURCE,
           pkceChallenge: authorization.challenge,
           refreshDigest: randomBytes(32),
-          refreshExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           accessDigest: randomBytes(32),
           accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
         });
@@ -853,7 +851,6 @@ describe(
             resource: CLOUD_RESOURCE,
             pkceChallenge: challenge,
             refreshDigest: randomBytes(32),
-            refreshExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
             accessDigest: randomBytes(32),
             accessExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
           });

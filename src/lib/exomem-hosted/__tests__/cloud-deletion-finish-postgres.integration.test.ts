@@ -236,7 +236,6 @@ async function admitCloudTenant(input: {
     resource: CLOUD_RESOURCE,
     pkceChallenge: "challenge",
     refreshDigest: randomBytes(32),
-    refreshExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     accessDigest: randomBytes(32),
     accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });

@@ -19,6 +19,7 @@ import {
 } from "./cloud-config";
 import { CONNECTABLE_EFFECTIVE_STATES, FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
+import { loadOAuthSessionPolicy, type OAuthSessionPolicy } from "./oauth-session-policy";
 
 export type OAuthTokenContext = {
   grantId: string;
@@ -28,6 +29,8 @@ export type OAuthTokenContext = {
   scopes: string[];
   refreshAllowed?: boolean;
   refreshInserted?: boolean;
+  /** Rotation only: a spent token came back from its own client inside the reuse interval. */
+  refreshReused?: boolean;
 };
 
 export type ApprovedOAuthClient = {
@@ -1005,12 +1008,13 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
   resource: string;
   pkceChallenge: string;
   refreshDigest: Buffer;
-  refreshExpiresAt: Date;
   accessDigest: Buffer;
   accessExpiresAt: Date;
+  sessionPolicy?: OAuthSessionPolicy;
 }): Promise<OAuthTokenContext | null> {
   const cloudResource = loadExomemCloudResource().mcpUrl;
   const cloudReviewersEnabled = cloudReviewerAccessEnabled();
+  const { refreshIdleDays, sessionMaxDays } = input.sessionPolicy ?? loadOAuthSessionPolicy();
   return withCohortLock(async (tx) => {
     const tenantLock = await tx`
     SELECT tenant.id
@@ -1089,7 +1093,8 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       INSERT INTO exomem_oauth_token_families (
         grant_id, client_id, expires_at, reviewer_credential_id
       )
-      SELECT grant_id, client_id, LEAST(now() + interval '30 days', reviewer_expires_at),
+      SELECT grant_id, client_id,
+             LEAST(now() + (${sessionMaxDays}::int * interval '1 day'), reviewer_expires_at),
              reviewer_credential_id
       FROM consumed_code
       RETURNING id, grant_id, client_id, expires_at
@@ -1098,7 +1103,8 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       INSERT INTO exomem_oauth_refresh_tokens (
         refresh_digest, family_id, expires_at, reviewer_credential_id
       )
-      SELECT ${input.refreshDigest}, id, LEAST(${input.refreshExpiresAt.toISOString()}, family.expires_at),
+      SELECT ${input.refreshDigest}, id,
+             LEAST(now() + (${refreshIdleDays}::int * interval '1 day'), family.expires_at),
              consumed_code.reviewer_credential_id
       FROM family
       JOIN consumed_code ON consumed_code.grant_id = family.grant_id
@@ -1155,9 +1161,20 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
 }
 
 /**
- * The replay branch runs in the same statement as the attempted rotation.
- * No replacement credential is retained, so a consumed digest permanently
- * revokes its family even if the original response was lost.
+ * Spends a refresh token and mints its replacement and a new access token.
+ * Each rotation renews the refresh token's idle window, up to the family's
+ * ceiling.
+ *
+ * A spent token presented again is one of two things, decided by the reuse
+ * interval. Its own client inside the interval is a lost reply or a second
+ * session on the same stored credential: it gets another pair in the same
+ * family, as a sibling of the first replacement, and nothing is revoked. After
+ * the interval, a consumed digest revokes its family. The replay branch runs in
+ * the same statement as the attempted rotation, and no earlier token material
+ * is kept, so a reused token gets a new pair, never the earlier one back.
+ *
+ * Every rotation holds the tenant row lock, so two simultaneous presentations
+ * of one token run one after the other: the first spends it, the second reuses.
  */
 export async function rotateOAuthRefreshTokenAtomic(input: {
   refreshDigest: Buffer;
@@ -1166,9 +1183,11 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
   accessExpiresAt: Date;
   clientId: string;
   resource: string;
+  sessionPolicy?: OAuthSessionPolicy;
 }): Promise<OAuthTokenContext | null> {
   const cloudResource = loadExomemCloudResource().mcpUrl;
   const cloudReviewersEnabled = cloudReviewerAccessEnabled();
+  const { refreshIdleDays, refreshReuseSeconds } = input.sessionPolicy ?? loadOAuthSessionPolicy();
   return withCohortLock(async (tx) => {
     const tenantLock = await tx`
     SELECT tenant.id
@@ -1248,6 +1267,12 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
         )
     ),
+    -- A presentation that waited on the tenant lock can have begun before the one
+    -- it waited for, so now() can precede that token's consumed_at. The wall
+    -- clock cannot, and with it a zero interval is off.
+    reuse_interval AS (
+      SELECT clock_timestamp() - (${refreshReuseSeconds}::int * interval '1 second') AS opens_at
+    ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token
       SET consumed_at = now()
@@ -1258,15 +1283,33 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND token.expires_at > now()
         AND credential.revoked_at IS NULL
         AND credential.family_expires_at > now()
-      RETURNING credential.family_id, credential.grant_id, credential.client_id
+      RETURNING token.id AS token_id, credential.family_id, credential.grant_id, credential.client_id
+    ),
+    -- The same admission as a first use, for a token spent inside the interval.
+    reusable AS (
+      SELECT credential.id AS token_id, credential.family_id, credential.grant_id, credential.client_id
+      FROM credential
+      JOIN current_policy ON current_policy.id = credential.id
+      CROSS JOIN reuse_interval
+      WHERE credential.consumed_at > reuse_interval.opens_at
+        AND credential.expires_at > now()
+        AND credential.revoked_at IS NULL
+        AND credential.family_expires_at > now()
+    ),
+    spent AS (
+      SELECT token_id, family_id, grant_id, client_id, false AS reused FROM consumed
+      UNION ALL
+      SELECT token_id, family_id, grant_id, client_id, true AS reused FROM reusable
     ),
     replay_revocation AS (
       UPDATE exomem_oauth_token_families AS family
       SET revoked_at = now(),
           revoked_reason = 'refresh_replayed'
       FROM credential
+      CROSS JOIN reuse_interval
       WHERE family.id = credential.family_id
         AND credential.consumed_at IS NOT NULL
+        AND credential.consumed_at <= reuse_interval.opens_at
         AND family.revoked_at IS NULL
       RETURNING family.id
     ),
@@ -1274,13 +1317,17 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       INSERT INTO exomem_oauth_refresh_tokens (
         refresh_digest, family_id, parent_refresh_token_id, expires_at, reviewer_credential_id
       )
-      SELECT ${input.replacementRefreshDigest}, consumed.family_id, credential.id,
-             LEAST(family.expires_at, reviewer_credential.expires_at),
+      SELECT ${input.replacementRefreshDigest}, spent.family_id, credential.id,
+             LEAST(
+               now() + (${refreshIdleDays}::int * interval '1 day'),
+               family.expires_at,
+               reviewer_credential.expires_at
+             ),
              credential.reviewer_credential_id
-      FROM consumed
-      JOIN credential ON credential.family_id = consumed.family_id
-      JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
-      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
+      FROM spent
+      JOIN credential ON credential.id = spent.token_id
+      JOIN exomem_oauth_token_families AS family ON family.id = spent.family_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = spent.grant_id
       LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
         ON reviewer_credential.id = oauth_grant.reviewer_credential_id
        AND reviewer_credential.revoked_at IS NULL
@@ -1293,22 +1340,23 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at,
         reviewer_credential_id
       )
-      SELECT ${input.accessDigest}, consumed.grant_id, consumed.family_id,
-             consumed.client_id, oauth_grant.resource, oauth_grant.scopes,
+      SELECT ${input.accessDigest}, spent.grant_id, spent.family_id,
+             spent.client_id, oauth_grant.resource, oauth_grant.scopes,
              LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at),
              credential.reviewer_credential_id
-      FROM consumed
-      JOIN credential ON credential.family_id = consumed.family_id
-      JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
-      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
+      FROM spent
+      JOIN credential ON credential.id = spent.token_id
+      JOIN exomem_oauth_token_families AS family ON family.id = spent.family_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = spent.grant_id
       RETURNING id
     )
-    SELECT consumed.grant_id, consumed.family_id, client.client_id, oauth_grant.resource, oauth_grant.scopes
-    FROM consumed
-    JOIN replacement ON replacement.family_id = consumed.family_id
+    SELECT spent.grant_id, spent.family_id, client.client_id, oauth_grant.resource, oauth_grant.scopes,
+           spent.reused AS refresh_reused
+    FROM spent
+    JOIN replacement ON replacement.family_id = spent.family_id
     JOIN access ON true
-    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
-    JOIN exomem_oauth_clients AS client ON client.id = consumed.client_id
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = spent.grant_id
+    JOIN exomem_oauth_clients AS client ON client.id = spent.client_id
   `;
     const row = rows[0] as
       | {
@@ -1317,6 +1365,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           client_id: string;
           resource: string;
           scopes: string[];
+          refresh_reused: boolean;
         }
       | undefined;
     return row
@@ -1326,6 +1375,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           clientId: row.client_id,
           resource: row.resource,
           scopes: row.scopes,
+          refreshReused: row.refresh_reused,
         }
       : null;
   });

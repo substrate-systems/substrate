@@ -29,7 +29,6 @@ import { tokenDigest } from "@/lib/exomem-hosted/security";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TOKEN_FIELDS = [
   "grant_type",
   "code",
@@ -290,7 +289,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         resource,
         pkceChallenge: pkceS256(form.code_verifier),
         refreshDigest: material.refreshTokenDigest!,
-        refreshExpiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
         accessDigest: material.accessTokenDigest,
         accessExpiresAt: material.accessTokenExpiresAt,
       });
@@ -344,12 +342,17 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (refetch === "unavailable") return connectorMetadataUnavailable(form.client_id);
         if (refetch === "fresh") issued = await rotate();
       }
-      // Rotation also answers null for a replayed refresh token, which revokes
-      // the family -- so this line is the operator's only sight of a replay.
+      // Rotation also answers null for a refresh token replayed outside the reuse
+      // interval, which revokes the family -- so this line is the operator's only
+      // sight of a replay.
       if (!issued)
         return refusedGrant(form.client_id, "refresh_rotation", { client_id: form.client_id });
       if (!(await assertCloudTokenIssuancePermitted(issued.grantId)))
         return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
+      // A reuse is the operator's only sight of lost replies and of sessions that
+      // share one stored credential; the client ID is public, the token is not logged.
+      if (issued.refreshReused)
+        console.info({ event: "exomem_oauth_refresh_reused", client_id: form.client_id });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
         refreshToken: material.refreshToken!.reveal(),
