@@ -34,6 +34,8 @@ export type GatewayServerOptions = {
   handleCloudUpload?: typeof handleCloudUploadRequest;
   handleCloudDownload?: typeof handleCloudDownloadRequest;
   maxInflight?: number;
+  downloadIdleMs?: number;
+  downloadTotalMs?: number;
 };
 
 export function validateGatewayEnvironment(
@@ -107,6 +109,13 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
 
 const UPLOAD_REQUEST_TIMEOUT_MS = 900_000;
 
+function boundedMilliseconds(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 1 || value > 3_600_000) {
+    throw new Error(`${name} must be an integer from 1 to 3600000`);
+  }
+  return value;
+}
+
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
   const handleCloudUpload = options.handleCloudUpload ?? handleCloudUploadRequest;
@@ -121,11 +130,22 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
   if (!Number.isInteger(maxInflight) || maxInflight < 1 || maxInflight > 128) {
     throw new Error("EXOMEM_GATEWAY_MAX_INFLIGHT must be an integer from 1 to 128");
   }
+  // A reader that stops reading would keep its slots, which the MCP route shares.
+  const downloadIdleMs = boundedMilliseconds(
+    options.downloadIdleMs ?? Number(process.env.EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS ?? 60_000),
+    "EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS"
+  );
+  const downloadTotalMs = boundedMilliseconds(
+    options.downloadTotalMs ?? Number(process.env.EXOMEM_GATEWAY_DOWNLOAD_TOTAL_MS ?? 900_000),
+    "EXOMEM_GATEWAY_DOWNLOAD_TOTAL_MS"
+  );
   let inflight = 0;
   const state: GatewayServerState = { draining: false, aborts: new Set() };
   const server = createServer(async (request, response) => {
     let counted = false;
     let abort: AbortController | undefined;
+    let downloadTotalTimer: NodeJS.Timeout | undefined;
+    let boundedDownload = false;
     try {
       const path = new URL(request.url ?? "/", "http://gateway.invalid").pathname;
       if (path === "/healthz/canary" && request.method === "GET") {
@@ -174,6 +194,15 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       abort = controller;
       state.aborts.add(controller);
       const cancel = () => controller.abort();
+      if (handle === handleCloudDownload) {
+        // Destroying the response runs the close path below, which releases both slots.
+        boundedDownload = true;
+        response.setTimeout(downloadIdleMs, () => response.destroy());
+        downloadTotalTimer = setTimeout(() => {
+          controller.abort();
+          response.destroy();
+        }, downloadTotalMs);
+      }
       request.once("aborted", cancel);
       response.once("close", cancel);
       await writeResponse(await handle(requestFromNode(request, controller.signal)), response);
@@ -184,6 +213,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           .end();
       else response.destroy();
     } finally {
+      clearTimeout(downloadTotalTimer);
+      if (boundedDownload) response.setTimeout(0);
       if (counted) inflight -= 1;
       if (abort) state.aborts.delete(abort);
     }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { once } from "node:events";
+import { connect } from "node:net";
 import { beforeEach, describe, it } from "node:test";
 import { jwtVerify } from "jose";
 import { deriveCloudCellBearer } from "../../lib/exomem-hosted/cloud-cell-bearer";
@@ -10,6 +12,7 @@ import {
   resetCloudGatewayConcurrencyForTests,
   type CloudGatewayDependencies,
 } from "../cloud-handler";
+import { createGatewayServer } from "../server";
 
 // add-cloud-media-store: the gateway half of the exact-original download.
 // The cell half is proved in the Exomem repository.
@@ -208,5 +211,68 @@ describe("Cloud exact-original download at the gateway", () => {
       deps({ config: { ...CONFIG, uploadCells: new Set(["bbbbbbbbbbbbbbbb"]) } })
     );
     assert.equal(other.status, 404);
+  });
+
+  it("destroys a download whose reader stops reading and returns its slots", async () => {
+    const previousPath = process.env.EXOMEM_CLOUD_MCP_PATH;
+    process.env.EXOMEM_CLOUD_MCP_PATH = "/mcp";
+    const server = createGatewayServer({
+      downloadIdleMs: 150,
+      handleCloudDownload: (request) =>
+        handleCloudDownloadRequest(
+          request,
+          deps({
+            // An endless original: only backpressure from the client stops it.
+            fetchCell: async () =>
+              new Response(
+                new ReadableStream({
+                  pull: (controller) => controller.enqueue(new Uint8Array(64 * 1024)),
+                })
+              ),
+          })
+        ),
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const open = async () => {
+      const socket = connect(address.port, "127.0.0.1");
+      await once(socket, "connect");
+      socket.write(
+        `GET /download?path=${encodeURIComponent(PATH)} HTTP/1.1\r\nhost: gateway.invalid\r\nauthorization: Bearer ${"a".repeat(43)}\r\n\r\n`
+      );
+      // The reader never reads past the first chunk, so the stream stalls on backpressure.
+      socket.pause();
+      return socket;
+    };
+    const sockets = [];
+    try {
+      for (let index = 0; index < 4; index += 1) sockets.push(await open());
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const refused = await open();
+      sockets.push(refused);
+      refused.resume();
+      let refusal = "";
+      refused.on("data", (chunk) => (refusal += chunk.toString()));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.match(refusal, /^HTTP\/1\.1 429/, "the stalled readers hold every per-owner slot");
+
+      // A paused socket never sees the close, so wait out the idle bound instead.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const admitted = await open();
+      sockets.push(admitted);
+      admitted.resume();
+      let answer = "";
+      admitted.on("data", (chunk) => (answer += chunk.toString()));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.match(answer, /^HTTP\/1\.1 200/, "the destroyed readers returned their slots");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      server.closeAllConnections();
+      if (previousPath === undefined) delete process.env.EXOMEM_CLOUD_MCP_PATH;
+      else process.env.EXOMEM_CLOUD_MCP_PATH = previousPath;
+    }
   });
 });
