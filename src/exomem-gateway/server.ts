@@ -2,10 +2,11 @@ import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   buildCloudProtectedResourceMetadata,
+  handleCloudDownloadRequest,
   handleCloudMcpRequest,
   handleCloudUploadRequest,
 } from "./cloud-handler";
-import { CLOUD_UPLOAD_PATH } from "./cloud-origin";
+import { CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./cloud-origin";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
@@ -31,7 +32,10 @@ class InvalidNodeRequestError extends Error {}
 export type GatewayServerOptions = {
   handleCloudMcp?: typeof handleCloudMcpRequest;
   handleCloudUpload?: typeof handleCloudUploadRequest;
+  handleCloudDownload?: typeof handleCloudDownloadRequest;
   maxInflight?: number;
+  downloadIdleMs?: number;
+  downloadTotalMs?: number;
 };
 
 export function validateGatewayEnvironment(
@@ -70,8 +74,19 @@ function requestFromNode(request: IncomingMessage, signal: AbortSignal): Request
   } as RequestInit);
 }
 
-async function writeResponse(response: Response, target: ServerResponse): Promise<void> {
+async function writeResponse(
+  response: Response,
+  target: ServerResponse,
+  onHeadersWritten?: () => void
+): Promise<void> {
+  // The client may have gone while the handler waited. Its close event has fired, so
+  // piping would never settle and the caller would keep its slots.
+  if (target.destroyed) {
+    await response.body?.cancel().catch(() => undefined);
+    return;
+  }
   target.writeHead(response.status, responseHeaders(response));
+  onHeadersWritten?.();
   if (!response.body) {
     target.end();
     return;
@@ -105,9 +120,17 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
 
 const UPLOAD_REQUEST_TIMEOUT_MS = 900_000;
 
+function boundedMilliseconds(value: number, name: string): number {
+  if (!Number.isInteger(value) || value < 1 || value > 3_600_000) {
+    throw new Error(`${name} must be an integer from 1 to 3600000`);
+  }
+  return value;
+}
+
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
   const handleCloudUpload = options.handleCloudUpload ?? handleCloudUploadRequest;
+  const handleCloudDownload = options.handleCloudDownload ?? handleCloudDownloadRequest;
   // validateGatewayEnvironment requires this at startup; without it the
   // server answers only its probes.
   const cloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH?.trim() || null;
@@ -118,11 +141,22 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
   if (!Number.isInteger(maxInflight) || maxInflight < 1 || maxInflight > 128) {
     throw new Error("EXOMEM_GATEWAY_MAX_INFLIGHT must be an integer from 1 to 128");
   }
+  // A reader that stops reading would keep its slots, which the MCP route shares.
+  const downloadIdleMs = boundedMilliseconds(
+    options.downloadIdleMs ?? Number(process.env.EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS ?? 60_000),
+    "EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS"
+  );
+  const downloadTotalMs = boundedMilliseconds(
+    options.downloadTotalMs ?? Number(process.env.EXOMEM_GATEWAY_DOWNLOAD_TOTAL_MS ?? 900_000),
+    "EXOMEM_GATEWAY_DOWNLOAD_TOTAL_MS"
+  );
   let inflight = 0;
   const state: GatewayServerState = { draining: false, aborts: new Set() };
   const server = createServer(async (request, response) => {
     let counted = false;
     let abort: AbortController | undefined;
+    let downloadTotalTimer: NodeJS.Timeout | undefined;
+    let boundedDownload = false;
     try {
       const path = new URL(request.url ?? "/", "http://gateway.invalid").pathname;
       if (path === "/healthz/canary" && request.method === "GET") {
@@ -146,7 +180,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
         response.writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" }).end(body);
         return;
       }
-      // The upload handler answers 404 itself unless a cell is selected for uploads.
+      // The upload and download handlers answer 404 themselves unless a cell is selected.
       const handle =
         cloudMcpPath &&
         path === cloudMcpPath &&
@@ -154,7 +188,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           ? handleCloudMcp
           : cloudMcpPath && path === CLOUD_UPLOAD_PATH && request.method === "POST"
             ? handleCloudUpload
-            : null;
+            : cloudMcpPath && path === CLOUD_DOWNLOAD_PATH && request.method === "GET"
+              ? handleCloudDownload
+              : null;
       if (!handle) {
         response.writeHead(404, CACHE_HEADERS).end();
         return;
@@ -169,9 +205,25 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       abort = controller;
       state.aborts.add(controller);
       const cancel = () => controller.abort();
+      if (handle === handleCloudDownload) {
+        // Destroying the response runs the close path below, which releases both slots.
+        boundedDownload = true;
+        downloadTotalTimer = setTimeout(() => {
+          controller.abort();
+          response.destroy();
+        }, downloadTotalMs);
+      }
       request.once("aborted", cancel);
       response.once("close", cancel);
-      await writeResponse(await handle(requestFromNode(request, controller.signal)), response);
+      // The idle bound starts at the headers, so a slow staging or hydration is
+      // bounded by the total cap alone.
+      await writeResponse(
+        await handle(requestFromNode(request, controller.signal)),
+        response,
+        () => {
+          if (boundedDownload) response.setTimeout(downloadIdleMs, () => response.destroy());
+        }
+      );
     } catch (error) {
       if (!response.headersSent)
         response
@@ -179,6 +231,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           .end();
       else response.destroy();
     } finally {
+      clearTimeout(downloadTotalTimer);
+      if (boundedDownload) response.setTimeout(0);
       if (counted) inflight -= 1;
       if (abort) state.aborts.delete(abort);
     }

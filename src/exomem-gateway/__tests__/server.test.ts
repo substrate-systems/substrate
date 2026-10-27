@@ -58,6 +58,7 @@ describe("standalone Exomem gateway adapter", () => {
       handleCloudMcp: async () =>
         new Response("streamed", { headers: { "mcp-session-id": "session" } }),
       handleCloudUpload: async () => new Response("held", { status: 201 }),
+      handleCloudDownload: async () => new Response("original", { status: 200 }),
     });
     const baseUrl = await listen(server);
     try {
@@ -76,6 +77,8 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal(upload.status, 201);
       assert.equal(upload.headers.get("cache-control"), "private, no-store, max-age=0");
       assert.equal((await fetch(`${baseUrl}/upload`)).status, 404);
+      assert.equal(await (await fetch(`${baseUrl}/download?path=a`)).text(), "original");
+      assert.equal((await fetch(`${baseUrl}/download`, { method: "POST" })).status, 404);
     } finally {
       server.close();
       await once(server, "close");
@@ -116,6 +119,40 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal(second.status, 200);
       assert.equal(await second.text(), "second");
     } finally {
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    }
+  });
+
+  it("frees the inflight slot of a download abandoned while the cell is slow", async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const server = createGatewayServer({
+      maxInflight: 1,
+      handleCloudDownload: async () => {
+        calls += 1;
+        if (calls === 1) await slow;
+        return new Response("original");
+      },
+    });
+    const baseUrl = await listen(server);
+    const socket = await connectedSocket(Number(new URL(baseUrl).port));
+    try {
+      socket.write("GET /download HTTP/1.1\r\nHost: gateway\r\n\r\n");
+      await waitFor(() => calls === 1, "the handler to start");
+      socket.destroy();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const next = await fetch(`${baseUrl}/download`);
+      assert.equal(next.status, 200);
+      assert.equal(await next.text(), "original");
+    } finally {
+      release();
       server.closeAllConnections();
       server.close();
       await once(server, "close");
