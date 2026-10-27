@@ -148,6 +148,11 @@ describe("standalone Exomem gateway adapter", () => {
     await assert.rejects(active.text());
   });
 
+  it("gives a slow 100 MiB upload the full 900 s instead of Node's 300 s default", () => {
+    const server = createGatewayServer({ handleCloudMcp: async () => new Response("unreachable") });
+    assert.equal(server.requestTimeout, 900_000);
+  });
+
   it("returns bounded bad-request output when a malformed Host reaches the adapter", async () => {
     const server = createGatewayServer({ handleCloudMcp: async () => new Response("unreachable") });
     await listen(server);

@@ -103,6 +103,8 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
   });
 }
 
+const UPLOAD_REQUEST_TIMEOUT_MS = 900_000;
+
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
   const handleCloudUpload = options.handleCloudUpload ?? handleCloudUploadRequest;
@@ -181,6 +183,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       if (abort) state.aborts.delete(abort);
     }
   });
+  // Node's 300 s default would cut a 100 MiB upload slower than about 2.8 Mbit/s.
+  // 900 s matches the read timeout the platform chart requires on the Cloud ingress.
+  server.requestTimeout = UPLOAD_REQUEST_TIMEOUT_MS;
   gatewayStates.set(server, state);
   return server;
 }
