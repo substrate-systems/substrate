@@ -1275,7 +1275,8 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token
-      SET consumed_at = now()
+      -- The wall clock, so a wait on the tenant lock does not shorten the interval.
+      SET consumed_at = clock_timestamp()
       FROM credential
       JOIN current_policy ON current_policy.id = credential.id
       WHERE token.id = credential.id

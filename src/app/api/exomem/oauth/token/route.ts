@@ -350,9 +350,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (!(await assertCloudTokenIssuancePermitted(issued.grantId)))
         return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       // A reuse is the operator's only sight of lost replies and of sessions that
-      // share one stored credential; the client ID is public, the token is not logged.
+      // share one stored credential. The family ID names the family to revoke when
+      // its reuses are unexplained; neither it nor the client ID is a credential.
       if (issued.refreshReused)
-        console.info({ event: "exomem_oauth_refresh_reused", client_id: form.client_id });
+        console.info({
+          event: "exomem_oauth_refresh_reused",
+          client_id: form.client_id,
+          family_id: issued.familyId,
+        });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
         refreshToken: material.refreshToken!.reveal(),

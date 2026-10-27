@@ -82,7 +82,7 @@ An OAuth authorization transaction SHALL resume through the existing email-bound
 
 ### Requirement: Token Families Provide Durable Revocable Continuity
 
-The authorization server SHALL issue high-entropy opaque authorization codes, short-lived access tokens, and one-time rotating refresh tokens while storing only their digests. Every token MUST be bound to the Exomem issuer, exact MCP resource audience, client, identity, grant, scopes, and token family. Access checks SHALL enforce current grant, entitlement, tenant, and explicit account/lifecycle policy; transient cell readiness MUST NOT revoke or prevent an otherwise valid ordinary refresh. Command dispatch SHALL separately require the exact ready compatible cell. Refresh tokens SHALL slide: each rotation renews a configurable idle window, bounded by a configurable absolute family ceiling and any reviewer credential expiry. Both are operator configuration with secure maximums, and an invalid value MUST use the default and log a warning. A spent refresh token presented again by its own client within a bounded, configurable reuse interval SHALL receive a fresh pair in the same family without revoking it, while the family and grant are unrevoked and the family is unexpired. Refresh replay outside that interval MUST revoke the affected family; raw credentials MUST NOT be logged or persisted, and no earlier replacement token is recoverable.
+The authorization server SHALL issue high-entropy opaque authorization codes, short-lived access tokens, and one-time rotating refresh tokens while storing only their digests. Every token MUST be bound to the Exomem issuer, exact MCP resource audience, client, identity, grant, scopes, and token family. Access checks SHALL enforce current grant, entitlement, tenant, and explicit account/lifecycle policy; transient cell readiness MUST NOT revoke or prevent an otherwise valid ordinary refresh. Command dispatch SHALL separately require the exact ready compatible cell. Refresh tokens SHALL slide: each rotation renews a configurable idle window, bounded by a configurable absolute family ceiling and any reviewer credential expiry. All three limits are operator configuration with secure maximums. An unset value uses the default; a value that is not a whole number in range MUST log a warning and use the default for the idle window and the family ceiling, and 0 for the reuse interval; a value above the maximum MUST log a warning and use the maximum. A spent refresh token presented again by its own client within a bounded, configurable reuse interval SHALL receive a fresh pair in the same family without revoking it, while the family and grant are unrevoked and the family is unexpired. The client identifier is public and does not authenticate the presenter, so each such reuse starts an independent chain that only a family or grant revocation ends. Refresh replay outside that interval MUST revoke the affected family; raw credentials MUST NOT be logged or persisted, and no earlier replacement token is recoverable.
 
 #### Scenario: Client restarts after initial login
 
@@ -107,6 +107,12 @@ The authorization server SHALL issue high-entropy opaque authorization codes, sh
 - **THEN** the server returns a fresh access token plus refresh token in the same family
 - **AND** the family and grant remain unrevoked, and the same admission checks apply as for a first rotation
 
+#### Scenario: Each reuse starts a chain that replay detection does not revoke
+
+- **WHEN** one spent refresh token is presented more than once inside the reuse interval
+- **THEN** each presentation returns its own pair, and each pair's refresh token rotates and slides independently up to the family ceiling
+- **AND** only revoking the family or grant ends those chains, and every reuse is logged with its family
+
 #### Scenario: Two simultaneous presentations of one refresh token
 
 - **WHEN** one client presents the same refresh token twice at the same moment
@@ -114,7 +120,7 @@ The authorization server SHALL issue high-entropy opaque authorization codes, sh
 
 #### Scenario: Reuse interval is turned off
 
-- **WHEN** the reuse interval is configured as zero
+- **WHEN** the reuse interval is configured as zero, or as a value that is not a whole number in range
 - **THEN** any presentation of a spent refresh token is a replay
 
 #### Scenario: Rotated refresh token is replayed

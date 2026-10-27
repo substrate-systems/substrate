@@ -38,17 +38,29 @@ describe("OAuth session policy", () => {
     assert.equal(warn.mock.callCount(), 3);
   });
 
-  it("reads a malformed or out-of-range value as the default, and warns", () => {
+  it("reads a malformed day count as its default, and warns", () => {
     const warn = mock.method(console, "warn", () => undefined);
 
     assert.deepEqual(
       loadOAuthSessionPolicy({
         EXOMEM_OAUTH_REFRESH_IDLE_DAYS: "0",
         EXOMEM_OAUTH_SESSION_MAX_DAYS: "a year",
-        EXOMEM_OAUTH_REFRESH_REUSE_SECONDS: "-5",
       }),
       { refreshIdleDays: 30, sessionMaxDays: 365, refreshReuseSeconds: 60 }
     );
-    assert.equal(warn.mock.callCount(), 3);
+    assert.equal(warn.mock.callCount(), 2);
+  });
+
+  it("reads a malformed reuse interval as 0, strict replay, and warns", () => {
+    const warn = mock.method(console, "warn", () => undefined);
+
+    for (const value of ["off", "false", "-1", "-5", "Infinity", "1.5", "1e20"]) {
+      assert.equal(
+        loadOAuthSessionPolicy({ EXOMEM_OAUTH_REFRESH_REUSE_SECONDS: value }).refreshReuseSeconds,
+        0,
+        value
+      );
+    }
+    assert.equal(warn.mock.callCount(), 7);
   });
 });

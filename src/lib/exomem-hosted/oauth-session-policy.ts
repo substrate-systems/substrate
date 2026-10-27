@@ -12,7 +12,15 @@ export type OAuthSessionPolicy = {
   refreshReuseSeconds: number;
 };
 
-type Bound = { variable: string; fallback: number; min: number; max: number };
+type Bound = {
+  variable: string;
+  /** The value when the variable is unset. */
+  fallback: number;
+  /** The value when the variable is set but is not a whole number of at least `min`. */
+  invalid: number;
+  min: number;
+  max: number;
+};
 
 // Each maximum is the longest the operator may choose, not a target; the
 // fallback is the shipped default. They are policy bounds, so they live here
@@ -23,20 +31,38 @@ type Bound = { variable: string; fallback: number; min: number; max: number };
 //   that kept rotating unnoticed.
 // - Reuse: long enough for a lost reply or parallel sessions that share one
 //   stored credential; short enough that a stolen just-spent token goes stale.
+//   A malformed value reads as 0, not as the default: a reuse interval widens
+//   what a stolen token can do, and an operator who wrote `off` or `-1` wants
+//   strict replay. Strict replay is what ran before reuse existed, so a wrong
+//   read costs only that.
 const BOUNDS = {
-  refreshIdleDays: { variable: "EXOMEM_OAUTH_REFRESH_IDLE_DAYS", fallback: 30, min: 1, max: 90 },
-  sessionMaxDays: { variable: "EXOMEM_OAUTH_SESSION_MAX_DAYS", fallback: 365, min: 1, max: 730 },
+  refreshIdleDays: {
+    variable: "EXOMEM_OAUTH_REFRESH_IDLE_DAYS",
+    fallback: 30,
+    invalid: 30,
+    min: 1,
+    max: 90,
+  },
+  sessionMaxDays: {
+    variable: "EXOMEM_OAUTH_SESSION_MAX_DAYS",
+    fallback: 365,
+    invalid: 365,
+    min: 1,
+    max: 730,
+  },
   refreshReuseSeconds: {
     variable: "EXOMEM_OAUTH_REFRESH_REUSE_SECONDS",
     fallback: 60,
+    invalid: 0,
     min: 0,
     max: 300,
   },
 } as const satisfies Record<keyof OAuthSessionPolicy, Bound>;
 
-// A bad value must not fail sign-in for everyone, so it reads as the default
-// and the operator sees a warning. A value above the maximum reads as the
-// maximum, which is the nearest value the operator is allowed to choose.
+// A bad value must not fail sign-in for everyone, so it reads as the bound's
+// `invalid` value and the operator sees a warning. A value above the maximum
+// reads as the maximum, which is the nearest value the operator is allowed to
+// choose.
 function boundedWholeNumber(env: EnvironmentSource, bound: Bound): number {
   const raw = env[bound.variable]?.trim();
   if (!raw) return bound.fallback;
@@ -46,9 +72,9 @@ function boundedWholeNumber(env: EnvironmentSource, bound: Bound): number {
       event: "exomem_oauth_session_config_invalid",
       variable: bound.variable,
       reason: "not_a_whole_number_in_range",
-      used: bound.fallback,
+      used: bound.invalid,
     });
-    return bound.fallback;
+    return bound.invalid;
   }
   if (value > bound.max) {
     console.warn({

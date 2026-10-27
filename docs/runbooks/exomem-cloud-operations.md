@@ -51,7 +51,7 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`                              | Optional. Hours before the sweep retires a generic client holding nothing, or a connector with no grant since it registered. Default 24. A value that is not a whole number of at least 1 fails the sweep.                            |
 | `EXOMEM_OAUTH_REFRESH_IDLE_DAYS`                                    | Optional. Days a connected app's refresh token stays valid unused. Every refresh renews it. Default 30, maximum 90. See "Connected-app sessions" below.                                                                               |
 | `EXOMEM_OAUTH_SESSION_MAX_DAYS`                                     | Optional. Days from sign-in at which a connected app must authorize again, however active it is. Default 365, maximum 730. Applies to new sign-ins only.                                                                             |
-| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 60, maximum 300, and 0 turns it off.                                                                     |
+| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 60, maximum 300. Unset reads as 60; 0, or a value that is not a whole number, turns it off.                                                                     |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -85,28 +85,44 @@ sign-in. Then the person authorizes the app once more. A change to either
 setting applies to the next token that Substrate issues. A family that exists
 already keeps the ceiling it was issued with.
 
-Each variable takes a whole number. A malformed value, or one below the
-minimum, reads as the default. A value above the maximum reads as the maximum.
-Each such read logs a warning with the event
+Each variable takes a whole number. An unset variable reads as its default. A
+value that is not a whole number of at least the minimum (for example `off`,
+`-1` or `Infinity`) reads as the default for the two day settings, and as 0 for
+the reuse interval, which turns reuse off. A value above the maximum reads as
+the maximum. Each such read logs a warning with the event
 `exomem_oauth_session_config_invalid`, the variable name and the value used.
 Check for it after a deploy that changes these variables.
 
 Parallel sessions of one app often share one stored refresh token, and a reply
 to a refresh can be lost. Both make a client present a token that Substrate has
-just spent. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` after the spend, the same
-client gets a fresh pair in the same family, and Substrate logs
-`exomem_oauth_refresh_reused` with the client ID. The family stays live. This
-applies only while the family and its grant are unrevoked and the family is
-unexpired.
+just spent. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` after the spend, such a
+presentation gets a fresh pair in the same family, and Substrate logs
+`exomem_oauth_refresh_reused` with the client ID and the family ID. The
+family stays live. This applies only while the family and its grant are
+unrevoked and the family is unexpired.
 
 After that interval, a spent token is a replay: Substrate revokes the whole
 family with the reason `refresh_replayed`, and the person connects the app
-again. A spent token that another client presents gets no tokens. A stolen
-just-spent token is therefore usable for at most the reuse interval, and only
-with the client identity it was issued to. Set the variable to 0 to restore the
-strict behavior. Many `exomem_oauth_refresh_reused` events for one client mean
-that the client refreshes in parallel from a shared credential; that is normal
-and needs no action.
+again. A spent token that another client presents gets no tokens.
+
+Know what the reuse interval gives away. The client ID is public and does not
+authenticate the party that presents a token, so anyone who holds a refresh
+token within the interval of its legitimate spend can use it:
+
+- Each reuse starts an independent chain. That chain rotates and renews like any
+  other, up to the session ceiling (365 days by default).
+- Replay detection never revokes that chain. Only revoking the family, or the
+  grant through Disconnect, ends it.
+- The number of reuses of one spent token is not limited inside the interval.
+  Only the per-address token rate limit of 30 requests per minute bounds it.
+
+A token stolen after the interval is a replay and revokes the family, as before.
+Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to restore strict replay.
+
+One or two `exomem_oauth_refresh_reused` events for a family match a lost reply
+or a parallel session. A pinned client's ID is shared by every user of its
+platform, so read the family ID. When one family keeps reusing and its owner
+cannot explain it, revoke that family as described below.
 
 ### Revoke connected apps
 
@@ -133,7 +149,7 @@ checks the family and grant, and a refresh token fails at its next use.
    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
    JOIN exomem_oauth_clients AS client ON client.id = family.client_id
    WHERE oauth_grant.user_id = '<user-uuid>' AND oauth_grant.tenant_id = '<tenant-uuid>'
-     AND family.revoked_at IS NULL;
+     AND family.revoked_at IS NULL AND family.expires_at > now();
    ```
 3. To revoke every family on an account, send the same request with
    `"action":"account"` and no `familyId`. This revokes every grant, family and
