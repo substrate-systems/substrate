@@ -726,7 +726,6 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
       resource: "https://cloud.example.test/mcp/v1",
       pkceChallenge: "challenge",
       refreshDigest: randomBytes(32),
-      refreshExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       accessDigest: randomBytes(32),
       accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
@@ -1054,7 +1053,6 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
           resource: "https://cloud.example.test/mcp/v1",
           pkceChallenge: "challenge",
           refreshDigest: randomBytes(32),
-          refreshExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           accessDigest: randomBytes(32),
           accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
         },

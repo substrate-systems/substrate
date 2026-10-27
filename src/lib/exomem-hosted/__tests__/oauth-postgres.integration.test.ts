@@ -21,9 +21,12 @@ import {
   registerAdmittedCimdClient,
   registerGenericMcpClient,
   revokeOAuthAccountForOwnerTenantAtomic,
+  revokeOAuthTokenFamilyForOwner,
   revokeOAuthTokenForClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
+import type { OAuthSessionPolicy } from "../oauth-session-policy";
+import { disconnectOwnerApp } from "../owner-apps";
 import {
   createOAuthContinuation,
   resolveOAuthContinuationToken,
@@ -368,7 +371,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       resource: `${resource}/wrong`,
       pkceChallenge: "challenge",
       refreshDigest: digest(111),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
       accessDigest: digest(112),
       accessExpiresAt: new Date(Date.now() + 60_000),
     });
@@ -745,7 +747,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           resource,
           pkceChallenge: "challenge",
           refreshDigest,
-          refreshExpiresAt: new Date(Date.now() + 3_600_000),
           accessDigest: randomBytes(32),
           accessExpiresAt: new Date(Date.now() + 60_000),
         })
@@ -798,7 +799,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       resource,
       pkceChallenge: "challenge",
       refreshDigest: digest(141),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
       accessDigest: digest(142),
       accessExpiresAt: new Date(Date.now() + 60_000),
     });
@@ -842,7 +842,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       resource,
       pkceChallenge: "challenge",
       refreshDigest: digest(151),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
       accessDigest: digest(152),
       accessExpiresAt: new Date(Date.now() + 60_000),
     });
@@ -869,7 +868,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       resource,
       pkceChallenge: "challenge",
       refreshDigest: digest(121),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
       accessDigest: digest(122),
       accessExpiresAt: new Date(Date.now() + 60_000),
     });
@@ -880,7 +878,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       resource,
       pkceChallenge: "challenge",
       refreshDigest: digest(131),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
       accessDigest: digest(132),
       accessExpiresAt: new Date(Date.now() + 60_000),
     });
@@ -935,6 +932,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       2
     );
 
+    // The replay arrives after the reuse interval, so it is a replay and not a retry.
+    await pool!.query(
+      "UPDATE exomem_oauth_refresh_tokens SET consumed_at = now() - interval '1 hour' WHERE refresh_digest = $1",
+      [digest(131)]
+    );
     const replay = await rotateOAuthRefreshTokenAtomic({
       refreshDigest: digest(131),
       replacementRefreshDigest: digest(135),
@@ -963,7 +965,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       resource,
       pkceChallenge: "challenge",
       refreshDigest: digest(251),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
       accessDigest: digest(252),
       accessExpiresAt: new Date(Date.now() + 60_000),
     });
@@ -1718,7 +1719,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
             resource,
             pkceChallenge: "challenge",
             refreshDigest,
-            refreshExpiresAt: new Date(Date.now() + 3_600_000),
             accessDigest,
             accessExpiresAt: new Date(Date.now() + 60_000),
           });
@@ -2509,7 +2509,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           resource,
           pkceChallenge: "challenge",
           refreshDigest: digest(7302),
-          refreshExpiresAt: new Date(Date.now() + 30 * 86_400_000),
           accessDigest: digest(7303),
           accessExpiresAt: new Date(Date.now() + 900_000),
         })
@@ -2561,5 +2560,257 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [connector]);
       await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
     }
+  });
+  // A connected client stays signed in for as long as it keeps refreshing, and a
+  // refresh token spent a moment ago is not yet a stolen one: parallel sessions
+  // that share one stored credential, and a client retrying after a lost reply,
+  // present it twice. The interval is 60 seconds and the idle window 10 days here.
+  describe("refresh token lifetime and reuse", () => {
+    const policy: OAuthSessionPolicy = {
+      refreshIdleDays: 10,
+      sessionMaxDays: 30,
+      refreshReuseSeconds: 60,
+    };
+    const otherClientId = "https://other-client.example.test/metadata.json";
+
+    /** A client that exchanged its code: the first refresh token and the family it opened. */
+    async function signIn(sequence: number, sessionPolicy = policy) {
+      const internal = await seedClient();
+      const fixture = await seedAuthorizationCode(internal, sequence, true);
+      await pool!.query(
+        "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+        [randomCloudCellId(), fixture.tenantId]
+      );
+      const refreshDigest = randomBytes(32);
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: fixture.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest,
+        accessDigest: randomBytes(32),
+        accessExpiresAt: new Date(Date.now() + 900_000),
+        sessionPolicy,
+      });
+      assert.ok(issued);
+      return { ...fixture, familyId: issued.familyId, refreshDigest };
+    }
+
+    /** One refresh request, with the digests it asks the server to store. */
+    async function refresh(
+      refreshDigest: Buffer,
+      options: { client?: string; sessionPolicy?: OAuthSessionPolicy } = {}
+    ) {
+      const replacementRefreshDigest = randomBytes(32);
+      const accessDigest = randomBytes(32);
+      const issued = await rotateOAuthRefreshTokenAtomic({
+        refreshDigest,
+        replacementRefreshDigest,
+        accessDigest,
+        accessExpiresAt: new Date(Date.now() + 900_000),
+        clientId: options.client ?? clientId,
+        resource,
+        sessionPolicy: options.sessionPolicy ?? policy,
+      });
+      return { issued, replacementRefreshDigest, accessDigest };
+    }
+
+    async function daysUntilRefreshExpiry(refreshDigest: Buffer): Promise<number> {
+      const { rows } = await pool!.query(
+        `SELECT extract(epoch FROM token.expires_at - now()) / 86400 AS days
+         FROM exomem_oauth_refresh_tokens AS token WHERE token.refresh_digest = $1`,
+        [refreshDigest]
+      );
+      return Number(rows[0]!.days);
+    }
+
+    async function familyState(familyId: string) {
+      const { rows } = await pool!.query(
+        `SELECT revoked_at IS NOT NULL AS revoked, revoked_reason,
+                extract(epoch FROM expires_at - now()) / 86400 AS days
+         FROM exomem_oauth_token_families WHERE id = $1`,
+        [familyId]
+      );
+      return { ...rows[0]!, days: Number(rows[0]!.days) } as {
+        revoked: boolean;
+        revoked_reason: string | null;
+        days: number;
+      };
+    }
+
+    /** Moves a refresh token's spend back in time, as if its client came back later. */
+    async function spentSecondsAgo(refreshDigest: Buffer, seconds: number): Promise<void> {
+      await pool!.query(
+        `UPDATE exomem_oauth_refresh_tokens
+         SET consumed_at = now() - make_interval(secs => $2) WHERE refresh_digest = $1`,
+        [refreshDigest, seconds]
+      );
+    }
+
+    it("renews the refresh window on every rotation and never carries it past the family ceiling", async () => {
+      const session = await signIn(8101);
+      assert.ok(Math.abs((await familyState(session.familyId)).days - 30) < 0.01);
+      assert.ok(Math.abs((await daysUntilRefreshExpiry(session.refreshDigest)) - 10) < 0.01);
+
+      // The first token has one day of idle time left; its replacement gets a full window.
+      await pool!.query(
+        "UPDATE exomem_oauth_refresh_tokens SET expires_at = now() + interval '1 day' WHERE refresh_digest = $1",
+        [session.refreshDigest]
+      );
+      const renewed = await refresh(session.refreshDigest);
+      assert.ok(renewed.issued);
+      const renewedDays = await daysUntilRefreshExpiry(renewed.replacementRefreshDigest);
+      assert.ok(Math.abs(renewedDays - 10) < 0.01);
+
+      // Three days from the ceiling, the next window stops at the ceiling.
+      await pool!.query(
+        "UPDATE exomem_oauth_token_families SET expires_at = now() + interval '3 days' WHERE id = $1",
+        [session.familyId]
+      );
+      const capped = await refresh(renewed.replacementRefreshDigest);
+      assert.ok(capped.issued);
+      const { rows } = await pool!.query(
+        `SELECT token.expires_at = family.expires_at AS at_ceiling
+         FROM exomem_oauth_refresh_tokens AS token
+         JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+         WHERE token.refresh_digest = $1`,
+        [capped.replacementRefreshDigest]
+      );
+      assert.equal(rows[0]!.at_ceiling, true);
+    });
+
+    it("gives the same client a working pair when it presents a spent token again inside the interval", async () => {
+      const session = await signIn(8102);
+      const first = await refresh(session.refreshDigest);
+      assert.ok(first.issued);
+
+      const retry = await refresh(session.refreshDigest);
+
+      assert.equal(retry.issued?.familyId, session.familyId);
+      assert.equal(retry.issued?.refreshReused, true);
+      assert.equal((await familyState(session.familyId)).revoked, false);
+      assert.ok(await findCloudOAuthAccessToken(retry.accessDigest, resource));
+      // Neither session loses its credential: both replacements rotate.
+      assert.ok((await refresh(first.replacementRefreshDigest)).issued);
+      assert.ok((await refresh(retry.replacementRefreshDigest)).issued);
+    });
+
+    it("revokes the family when a spent token is presented after the interval", async () => {
+      const session = await signIn(8103);
+      const first = await refresh(session.refreshDigest);
+      assert.ok(first.issued);
+      await spentSecondsAgo(session.refreshDigest, 120);
+
+      assert.equal((await refresh(session.refreshDigest)).issued, null);
+
+      const family = await familyState(session.familyId);
+      assert.equal(family.revoked, true);
+      assert.equal(family.revoked_reason, "refresh_replayed");
+      assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
+      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+    });
+
+    it("treats a spent token as replayed at once when the interval is set to 0", async () => {
+      const off = { ...policy, refreshReuseSeconds: 0 };
+      const session = await signIn(8104, off);
+      assert.ok((await refresh(session.refreshDigest, { sessionPolicy: off })).issued);
+
+      assert.equal((await refresh(session.refreshDigest, { sessionPolicy: off })).issued, null);
+
+      assert.equal((await familyState(session.familyId)).revoked_reason, "refresh_replayed");
+    });
+
+    it("gives another client nothing for a token that was just spent", async () => {
+      await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+           client_platform, oauth_client_config_sha256
+         ) VALUES ($1, 'pinned', true, '["https://other-client.example.test/callback"]'::jsonb,
+                   digest(convert_to('["https://other-client.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                   'claude', $2)
+         ON CONFLICT (client_id) DO UPDATE SET enabled = true`,
+        [otherClientId, "e".repeat(64)]
+      );
+      const session = await signIn(8105);
+      assert.ok((await refresh(session.refreshDigest)).issued);
+
+      const presented = await refresh(session.refreshDigest, { client: otherClientId });
+
+      assert.equal(presented.issued, null);
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+          session.familyId,
+        ]),
+        2
+      );
+    });
+
+    it("lets two simultaneous presentations of one token both succeed without revoking the family", async () => {
+      const session = await signIn(8106);
+
+      const [one, other] = await Promise.all([
+        refresh(session.refreshDigest),
+        refresh(session.refreshDigest),
+      ]);
+
+      assert.ok(one.issued);
+      assert.ok(other.issued);
+      assert.equal([one.issued, other.issued].filter((issued) => issued.refreshReused).length, 1);
+      assert.equal((await familyState(session.familyId)).revoked, false);
+    });
+
+    it("refuses a retry once the family ceiling has passed", async () => {
+      const session = await signIn(8107);
+      assert.ok((await refresh(session.refreshDigest)).issued);
+      await pool!.query(
+        `UPDATE exomem_oauth_token_families
+         SET created_at = now() - interval '2 days', expires_at = now() - interval '1 day'
+         WHERE id = $1`,
+        [session.familyId]
+      );
+
+      assert.equal((await refresh(session.refreshDigest)).issued, null);
+    });
+
+    it("ends access when the owner disconnects the app, retry inside the interval included", async () => {
+      const session = await signIn(8108);
+      const first = await refresh(session.refreshDigest);
+      assert.ok(first.issued);
+      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
+
+      assert.equal(
+        await disconnectOwnerApp({
+          userId: session.userId,
+          tenantId: session.tenantId,
+          appId: session.grantId,
+        }),
+        true
+      );
+
+      assert.equal((await refresh(session.refreshDigest)).issued, null);
+      assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
+      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+    });
+
+    it("ends access when one family is revoked, retry inside the interval included", async () => {
+      const session = await signIn(8109);
+      const first = await refresh(session.refreshDigest);
+      assert.ok(first.issued);
+      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
+
+      assert.equal(
+        await revokeOAuthTokenFamilyForOwner({
+          ownerUserId: session.userId,
+          tenantId: session.tenantId,
+          familyId: session.familyId,
+        }),
+        true
+      );
+
+      assert.equal((await refresh(session.refreshDigest)).issued, null);
+      assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
+      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+    });
   });
 });
