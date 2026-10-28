@@ -6,7 +6,7 @@ import {
   keptCopyRetired,
   type ImportProgress,
 } from "../cloud-import-browser-upload";
-import { encryptImportToBrowserFile } from "../cloud-import-browser-file";
+import { encryptImportToBrowserFile, writeImportPartReceipts } from "../cloud-import-browser-file";
 import { browserStorageDouble, importApiDouble, webLocksDouble } from "./browser-import-doubles";
 
 const ACCOUNT = "SYNTH1";
@@ -64,7 +64,7 @@ test("an interrupted part upload resumes the same ciphertext and receipts, then 
     ),
     { code: "STORAGE_REFUSED" }
   );
-  assert.equal(browser.kept().size, 1);
+  assert.equal([...browser.kept().keys()].filter((name) => name.endsWith(".age")).length, 1);
   await upload.resume(
     (value) => observations.push(value.observed_state),
     (value) => progress.push(value)
@@ -86,6 +86,58 @@ test("an interrupted part upload resumes the same ciphertext and receipts, then 
   assert.equal(encrypted.ciphertextBytes, encrypted.totalCiphertextBytes);
   const row = [...api.rows.values()][0];
   assert.equal(encrypted.totalCiphertextBytes, row.ciphertext_bytes);
+});
+
+test("a reload resumes at the next unrecorded part and removes the durable receipt with the copy", async () => {
+  const browser = useBrowserStorage();
+  const api = importApiDouble(await identityToRecipient(await generateIdentity()));
+  mock.method(globalThis, "fetch", api.receive);
+  const first = browserUpload(folder());
+  api.refusePartOnce(2);
+  await assert.rejects(
+    first.resume(
+      () => {},
+      () => {}
+    ),
+    { code: "STORAGE_REFUSED" }
+  );
+  const receipt = browser.kept().get(`${first.id}.parts.json`)!;
+  assert.ok(receipt);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(receipt[0])).parts, [
+    { part_number: 1, etag: '"1"' },
+  ]);
+  const prior = api.parts.length;
+  await browserUpload(null, first.id).resume(
+    () => {},
+    () => {}
+  );
+  assert.ok(api.parts.slice(prior).every(({ url }) => !url.endsWith("/1")));
+  assert.equal(api.parts.filter(({ url }) => url.endsWith("/1")).length, 1);
+  assert.equal(browser.kept().size, 0);
+});
+
+test("a receipt for different ciphertext never skips a part of the verified copy", async () => {
+  const browser = useBrowserStorage();
+  const api = importApiDouble(await identityToRecipient(await generateIdentity()));
+  mock.method(globalThis, "fetch", api.receive);
+  const first = browserUpload(folder());
+  api.refusePartOnce(2);
+  await assert.rejects(
+    first.resume(
+      () => {},
+      () => {}
+    ),
+    { code: "STORAGE_REFUSED" }
+  );
+  await writeImportPartReceipts(ACCOUNT, first.id, "f".repeat(64), [
+    { part_number: 1, etag: "unrelated" },
+  ]);
+  await browserUpload(null, first.id).resume(
+    () => {},
+    () => {}
+  );
+  assert.equal(api.parts.filter(({ url }) => url.endsWith("/1")).length, 2);
+  assert.equal(browser.kept().size, 0);
 });
 
 test("a browser storage refusal leaves no ciphertext entry behind", async () => {

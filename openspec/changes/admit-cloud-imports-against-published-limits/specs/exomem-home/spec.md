@@ -3,7 +3,7 @@
 ### Requirement: Home checks a folder import before it creates one
 
 Before Home creates an import, the dialog SHALL show the selection's file count and bytes beside each limit it can measure. It SHALL show the exact encrypted size, the browser's free space for this site, and the vault's free space with the age of that reading. When other accounts' kept copies use this browser's space, it SHALL show their files and bytes and offer to discard them.
-When the cell has published its import limits, the dialog SHALL also show the selection's member count against the published maximum, counting each folder as a member. It SHALL show the storage that the import needs against the published cap, computed by the function that admission uses. When the import needs more than the vault's current size, the dialog SHALL say that the vault's storage grows to about that size.
+When the cell has published its import limits, the dialog SHALL also show the actual archive member count against the published maximum. The browser writes one file entry per selected file; implicit parent folders SHALL NOT add members. It SHALL show the storage that the import needs against the published cap, computed by the function that admission uses. When the import needs more than the vault's current size, the dialog SHALL say that the vault's storage grows to about that size.
 Home SHALL refuse to start in three cases: the browser reports less free space than the exact encrypted size, the member count exceeds the published maximum, or the unscaled empty-vault lower bound exceeds the published cap. A vault reading whose free space, less the published reserve, is below the selection's bytes SHALL produce a warning only, because the reading can be stale.
 When the cell has published no limits, the dialog SHALL say that limits are not published and that the cell checks during the import. It SHALL NOT substitute a built-in value for a limit.
 By default, the selection SHALL leave out hidden items and the items that the folder's own `.gitignore` files exclude. The dialog SHALL show the files and bytes left out for each reason and SHALL let the owner bring each reason's items back. When a `.gitignore` file is too large to read as rules, the dialog SHALL say that its rules are not applied.
@@ -29,7 +29,7 @@ Home SHALL NOT enforce the cell's path or name limits; the cell keeps enforcing 
 
 #### Scenario: The folder has more members than the cell accepts
 
-- **WHEN** the selection's files and folders exceed the published maximum
+- **WHEN** the selection's archive entries exceed the published maximum
 - **THEN** the dialog shows both numbers and offers no start
 - **AND** no import is created
 

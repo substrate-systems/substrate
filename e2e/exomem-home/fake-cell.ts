@@ -36,6 +36,7 @@ export type FakeCellState = {
   viewerMap?: unknown;
   viewerSearch?: unknown;
   viewerNotes?: Record<string, unknown>;
+  adoptionStatus?: Record<string, unknown>;
 };
 
 function initialState(): FakeCellState {
@@ -83,6 +84,8 @@ export function startFakeCell(options: {
   };
 
   function call(state: FakeCellState, name: string, args: Record<string, unknown>): unknown {
+    if (name === "adoption_studio")
+      return state.adoptionStatus?.[String(args.path)] ?? { runs: [] };
     if (name === "viewer_map") return state.viewerMap ?? { available: false };
     if (name === "ask_memory") return { result: state.viewerSearch ?? [] };
     if (name === "read_memory") return state.viewerNotes?.[String(args.path)] ?? {};

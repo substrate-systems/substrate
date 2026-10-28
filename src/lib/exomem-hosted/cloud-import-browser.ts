@@ -14,6 +14,7 @@ export type EncryptionProgress = { files: number; plaintextBytes: number; cipher
 /** The exact sizes one selection produces, before anything is read or written. */
 export type ImportForecast = {
   files: number;
+  members: number;
   plaintextBytes: number;
   tarBytes: number;
   ciphertextBytes: number;
@@ -104,6 +105,8 @@ export async function forecastImport(
   const stand = recipient ?? (await identityToRecipient(await generateX25519Identity()));
   return {
     files: files.length,
+    // The writer emits file entries only; parent paths do not add TAR members.
+    members: files.length,
     plaintextBytes: files.reduce((total, { file }) => total + file.size, 0),
     tarBytes: archive,
     ciphertextBytes: await ageBytes(archive, stand),
@@ -208,7 +211,8 @@ export async function uploadImportParts(
   parts: UploadPart[],
   completed: Map<number, string>,
   onProgress: (uploadedBytes: number) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onConfirmed: (part: UploadedPart) => Promise<void> = async () => {}
 ): Promise<UploadedPart[]> {
   let total = 0;
   for (const [index, part] of parts.entries()) {
@@ -253,11 +257,13 @@ export async function uploadImportParts(
         // the part tells a lost encrypted copy from a dropped connection.
         if (error instanceof TypeError && !(await readable(body)))
           throw new ImportStop("LOCAL_COPY_MISSING");
+        if (error instanceof TypeError) throw new ImportStop("CONNECTION");
         throw error;
       }
       if (!response.ok) throw new ImportStop("STORAGE_REFUSED");
       const etag = response.headers.get("etag");
       if (!etag) throw new ImportStop("STORAGE_UNCONFIRMED");
+      await onConfirmed({ part_number: part.part_number, etag });
       completed.set(part.part_number, etag);
     }
     offset = end;

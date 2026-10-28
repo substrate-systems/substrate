@@ -33,6 +33,8 @@ Current state, read from source on 2026-10-26:
 
 Cellctl owns the values: it enforces them and renders them into the import Jobs. It writes them to `exomem_cloud_cells.import_limits`. A copy of any number in Substrate would drift, because the storage cap is operator configuration and a local cell's room depends on its node. Substrate branches on no storage-class name. It reads only `max_storage_gib`.
 
+The first delivery publishes limits for Hetzner claims. Cellctl reads the actual claim class and actively writes NULL for local claims, including clearing an older object. Local publication and import growth stay gated on authoritative capacity accounting shared by the local volume consumers and the local rehearsal. The paired Exomem task 1.7 remains open. Substrate keeps its unpublished-limits path: the requirement stays NULL and neither desired nor grown storage changes.
+
 *Rejected: constants in Substrate.* They need a code change each time the operator changes a cap.
 
 ### D2. New C5 fields
@@ -69,7 +71,7 @@ The cells touch trigger does not change. A write of `import_limits` bumps no gen
 | `import_deadline_seconds`        | How long the import hold may last                            |
 | `import_growth_deadline_seconds` | How long cellctl waits for growth before the key exists       |
 
-A reader treats a value as unpublished when it is not an object, or when a key that the reader needs is missing or invalid. Admission needs the first four keys for creation and the two part keys for prepare-upload. Home also needs the two deadline keys.
+A reader treats a value as unpublished when it is not an object, or when a key that the reader needs is missing or invalid. Admission needs the first four keys for creation and the two part keys for prepare-upload. Home also needs `import_growth_deadline_seconds` for the growth wait.
 
 ### D3. Admission at creation
 
@@ -101,7 +103,7 @@ The `IMPORT_STORAGE_LIMIT` check uses the unscaled lower bound `space_factor × 
 
 ### D5. Growth at creation, and `key_ready` waits for it
 
-Admission writes the growth. Cellctl does not mint the import key until the claim has grown, so the owner never encrypts for a volume that cannot hold the archive. The exact wait, its deadline and its local-storage check belong to the Exomem change `publish-cloud-import-limits`. Before every larger local claim request, cellctl checks room and retains the last accepted request when it cannot grow. That includes cleanup and later ordinary reconciliation after a failed import. Desired `storage_gib` stays raised; no claim shrinks. Unknown room waits, while known insufficient room fails the import. The local cutover check must prove this before local import growth ships.
+Admission writes growth only when limits are published. Local limits stay NULL until the capacity accounting and rehearsal gates pass. Cellctl does not mint the import key until the claim has grown, so the owner never encrypts for a volume that cannot hold the archive. The exact wait, its deadline and its local-storage check belong to the Exomem change `publish-cloud-import-limits`. Before every larger local claim request, cellctl checks room and retains the last accepted request when it cannot grow. That includes cleanup and later ordinary reconciliation after a failed import. Desired `storage_gib` stays raised; no claim shrinks. Unknown room waits, while known insufficient room fails the import. The local cutover check must prove this before local import growth ships.
 
 The raise changes the cell's render digest, so it restarts the cell pod once. Home shows that wait as the cell preparing the import, not as a fault.
 
@@ -124,11 +126,11 @@ The three codes join the closed set of import protocol codes. Their error envelo
 
 ### D7. Replies
 
-`GET /api/exomem/cloud/imports` and the create reply gain a top-level `limits`, the cell's published object or null. Each import gains `required_storage_bytes`, `storage_ready`, `staged_files` and `staged_bytes`. The zod schemas stay non-strict, so older clients ignore them.
+`GET /api/exomem/cloud/imports` and the create reply gain a top-level `limits`, the cell's published object or null. Each reply also carries a nullable `storage` object with the calculator readings: `storage_gib`, `grown_storage_gib`, `observed_storage_capacity_bytes`, `used_bytes`, `filesystem_bytes` and `usage_observed_at`. Unknown readings remain null. The same owner-scoped query reads these fields and the limits. Home reads the response once for its import and preflight context. Each import gains `required_storage_bytes`, `storage_ready`, `staged_files` and `staged_bytes`. The fields are optional in the zod schemas, so older replies and clients stay readable.
 
 ### D8. Home
 
-Home runs the shared function in its preflight, beside the checks from S1. It shows the member count against `max_members`, the storage need against the cap, and "grows to about N GB" when the need exceeds the current size. It refuses to start where admission would refuse. The vault warning from S1 now subtracts `reserve_bytes` from the free space.
+Home runs the shared function in its preflight, beside the checks from S1. It shows the member count against `max_members`, the storage need against the cap, and "grows to about N GB" when the need exceeds the current size. The browser writes one file entry per selected file; implicit parent folders add no TAR members. It refuses to start where admission would refuse. The vault warning from S1 now subtracts `reserve_bytes` from the free space.
 
 With no published limits, Home says "limits not published; the cell checks during import". It substitutes no constant.
 
@@ -136,7 +138,9 @@ Home's wait for `key_ready` has no bound of its own. It follows the import's obs
 
 ### D9. Staged and adopted counts
 
-Cellctl writes `staged_files` and `staged_bytes` when the import Job succeeds, from the report that the Job already emits. Home shows them instead of the declared counts. An import without them shows "not recorded".
+Cellctl records `staged_files` and `staged_bytes` from a valid successful Job report before cleanup deletes its Pods. This immutable pair records a successful staging observation and survives cleanup retries. A later cancellation, failure or expiry can retain that historical observation in the row. Terminal publication still waits for every phase Job and Pod to disappear.
+
+Import replies expose the pair only when the import is `done` with no pending cancellation or discard. Otherwise both fields are null. Home shows recorded counts instead of the declared counts. An import without them shows "not recorded". Missing or malformed reports remain unknown and do not block cleanup.
 
 Filing happens later, after C5 reports `done`, so the Job cannot supply the adopted count. Home calls `adoption_studio(action="status", path="_Imports/<import id>")` through the existing owner channel. The scoped status returns `adopted_files`, counted by distinct original path across successful outcomes in all matching runs. Repeated and overlapping runs count each original once. Compact rows still carry `source_root` for grouping; Home never sums their totals. An incomplete status, or an older cell without the aggregate, leaves the adopted count unknown. This stays in P7.
 
@@ -158,11 +162,11 @@ Roll out outside the 02:00–05:00 UTC backup window.
 
 1. Deploy migration 0079 and the grants. Undo: leave the columns. Older code ignores them.
 2. Roll out the Exomem controller and image through the ordinary cell rollout. Undo: return to the previous controller. The operator can set `import_limits` to NULL to stop growth.
-3. Deploy the admission code and the Home flow. Undo: roll the deployment back. Volumes that grew stay grown, which is harmless.
+3. Deploy the admission code and the Home flow for the Hetzner delivery. Keep local limits NULL until its separate cutover passes. Undo: roll the deployment back. Volumes that grew stay grown, which is harmless.
 4. Release the CLI. Undo: pin the earlier CLI. Its fallback works against older servers.
 
 ## Proof Plan
 
-The workflow that changes is an owner importing a folder. One check proves it: Home starts an import that needs growth against a disposable PostgreSQL database and a stub controller, then reaches `key_ready` with the larger `storage_gib`.
+The workflow that changes is an owner importing a folder. One check proves it: Home starts an import that needs growth against a disposable PostgreSQL database and a stub controller, then reaches `key_ready` with the larger `storage_gib`. After one part is confirmed, a reload resumes at the next unrecorded part. A fresh database read verifies growth and accepted part receipts.
 
-Disposable PostgreSQL tests cover grants, trigger immutability, the update from a controller that omits the new columns, growth, replay, rollback on a conflict, each refusal, unpublished limits and a paid cell above the cap. Component tests cover the Home states. Chrome DevTools inspects the dialog at desktop and phone widths in both themes. Strict OpenSpec validation precedes review.
+Disposable PostgreSQL tests cover grants, trigger immutability, the update from a controller that omits the new columns, growth, replay, rollback on a conflict, each refusal, unpublished limits and a paid cell above the cap. The NULL-limits case verifies that required storage stays NULL and that desired storage, grown storage and generation all stay unchanged. Status tests keep historical staged counts private during cleanup and after cancellation or discard, then publish the pair only for successful completion. Component tests cover the Home states. Chrome DevTools inspects the dialog at desktop and phone widths in both themes. Strict OpenSpec validation precedes review.

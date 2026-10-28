@@ -33,4 +33,6 @@ Cellctl publishes each cell's effective limits. Admission grows `storage_gib` wi
 
 The change adds migration 0079, the grants script, the C5 types, the import API handlers and the Home import dialog. The paired Exomem change `publish-cloud-import-limits` adds the cellctl, image and CLI side. The Cloud control-plane owner reviews the migration and the C5 text.
 
+The Hetzner delivery remains independent. Cellctl actively publishes NULL for actual local claims until authoritative shared capacity accounting and the local rehearsal pass. Local publication and import growth remain open in paired Exomem task 1.7. NULL limits retain legacy admission without a storage requirement or a change to either storage size or generation.
+
 Archive order: the C5 requirements that this change builds on exist only in the active change `add-cloud-vault-import`. The Home requirement that it modifies exists only in `make-home-import-visible-and-resumable`. Archive both of those first. Then archive this change.

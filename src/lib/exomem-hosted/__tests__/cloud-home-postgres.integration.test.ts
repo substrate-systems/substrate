@@ -10,6 +10,7 @@ import { randomCloudCellId } from "../cloud-admission";
 import { cloudExportReply } from "../../exomem/cloud-export-contract";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest, handleCloudHomeLiveRequest } from "../cloud-home-mcp";
+import { handleCloudImportRequest } from "../cloud-import-http";
 import { handleCloudViewerRequest } from "../cloud-viewer";
 import { findCloudOAuthAccessToken, resolveApprovedCloudOAuthClient } from "../cloud-oauth";
 import { getOwnerCloudHomeStatus } from "../cloud-status";
@@ -68,15 +69,15 @@ function taggedSql(client: Pool | PoolClient): ExomemSql {
 }
 
 async function owner(
-  cell: { desired?: string; ready?: boolean; image?: string | null } = {}
+  cell: { desired?: string; ready?: boolean; image?: string | null; reviewerPurpose?: boolean } = {}
 ): Promise<Owner> {
   const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
     `home-${randomUUID()}@example.test`,
   ]);
   const userId = user.rows[0].id;
   const tenant = await pool.query(
-    "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
-    [userId]
+    "INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose) VALUES ($1, 'active', 'running', $2) RETURNING id",
+    [userId, cell.reviewerPurpose ?? false]
   );
   const tenantId = tenant.rows[0].id;
   const cellId = randomCloudCellId();
@@ -629,6 +630,142 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
   });
 
   describe("Home channel", () => {
+    it("keeps the browser reviewer's credential on the optional filing observation", async () => {
+      const prior = process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
+      let credentialId: string | undefined;
+      process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
+      try {
+        const alice = await owner({ reviewerPurpose: true });
+        await pool.query(
+          `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+           VALUES ($1, 'complimentary', 'complimentary_active', 'active')`,
+          [alice.tenantId]
+        );
+        const credential = await pool.query(
+          `INSERT INTO exomem_marketplace_reviewer_credentials (
+             provider, username_digest, password_hash, owner_user_id, tenant_id, fixture_version,
+             fixture_payload_digest, created_by_principal_digest, expires_at, credential_kind
+           ) VALUES ('anthropic', $1, '$argon2id$test', $2, $3, 'sample-v1', $4, $5,
+                     now() + interval '1 day', 'cloud_provider_review') RETURNING id`,
+          [
+            digestSecret(randomUUID()),
+            alice.userId,
+            alice.tenantId,
+            "a".repeat(64),
+            digestSecret(randomUUID()),
+          ]
+        );
+        credentialId = credential.rows[0].id;
+        await pool.query(
+          "UPDATE exomem_sessions SET reviewer_credential_id=$1 WHERE session_digest=$2",
+          [credentialId, digestSecret(alice.cookie)]
+        );
+        await pool.query(
+          `INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files, observed_state)
+           VALUES ($1, 'adopt', 99, 9, 'done')`,
+          [alice.cellId]
+        );
+        const cell = fakeCell(() => ({ complete: true, adopted_files: 1 }));
+        const response = await handleCloudImportRequest(
+          browserRequest(alice, "GET", "/api/exomem/cloud/imports"),
+          "status",
+          undefined,
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+        assert.equal(response.status, 200);
+        assert.equal((await response.json()).import.adopted_files, 1);
+        const token = await pool.query(
+          "SELECT reviewer_credential_id FROM exomem_oauth_access_tokens WHERE access_digest=$1",
+          [digestSecret(cell.calls[0].bearer)]
+        );
+        assert.equal(token.rows[0].reviewer_credential_id, credentialId);
+      } finally {
+        if (credentialId)
+          await pool.query(
+            "UPDATE exomem_marketplace_reviewer_credentials SET revoked_at=now() WHERE id=$1",
+            [credentialId]
+          );
+        if (prior === undefined) delete process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
+        else process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = prior;
+      }
+    });
+
+    it("reads the filed count through the owner's channel after the owned import lookup", async () => {
+      const alice = await owner();
+      const bob = await owner();
+      const importId = randomUUID();
+      await pool.query(
+        `INSERT INTO exomem_cloud_imports (import_id, cell_id, kind, declared_bytes, declared_files,
+          observed_state, staged_files, staged_bytes)
+         VALUES ($1, $2, 'adopt', 99, 9, 'done', 4, 44)`,
+        [importId, alice.cellId]
+      );
+      const cell = fakeCell(() => ({ adopted_files: 3, complete: true }));
+      const read = (who: Owner, id = importId) =>
+        handleCloudImportRequest(
+          browserRequest(
+            who,
+            "GET",
+            `/api/exomem/cloud/imports/${id}?path=other&tenant_id=${bob.tenantId}`
+          ),
+          "status",
+          id,
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+      assert.equal((await read(bob)).status, 404);
+      assert.equal(cell.calls.length, 0);
+      const response = await read(alice);
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.import.adopted_files, 3);
+      assert.equal(result.import.staged_files, 4);
+      assert.ok("limits" in result && "storage" in result);
+      assert.deepEqual(cell.calls[0].arguments, { action: "status", path: `_Imports/${importId}` });
+      assert.equal(cell.calls[0].tool, "adoption_studio");
+      assert.equal(cell.calls[0].routedTenantId, alice.tenantId);
+      assert.equal(cell.calls[0].routedCellId, alice.cellId);
+      assert.equal(cell.calls[0].firstParty, true);
+      await pool.query(
+        "UPDATE exomem_cloud_imports SET requested_state='cancelled' WHERE import_id=$1",
+        [importId]
+      );
+      assert.equal((await (await read(alice)).json()).import.adopted_files, null);
+      assert.equal(cell.calls.length, 1);
+    });
+
+    it("keeps import status available when the filed count is incomplete, old or unavailable", async () => {
+      const alice = await owner();
+      const importId = randomUUID();
+      await pool.query(
+        `INSERT INTO exomem_cloud_imports (import_id, cell_id, kind, declared_bytes, declared_files,
+          observed_state) VALUES ($1, $2, 'adopt', 99, 9, 'done')`,
+        [importId, alice.cellId]
+      );
+      for (const answer of [
+        { adopted_files: 0, complete: true },
+        { adopted_files: 2, complete: false },
+        { runs: [] },
+        { adopted_files: -1, complete: true },
+        { adopted_files: 1.5, complete: true },
+        { adopted_files: "2", complete: true },
+        { success: false, error: { code: "READ_DENIED" } },
+        Response.json({ error: "CELL_NOT_READY" }, { status: 503 }),
+      ]) {
+        const cell = fakeCell(() => answer);
+        const response = await handleCloudImportRequest(
+          browserRequest(alice, "GET", "/api/exomem/cloud/imports"),
+          "status",
+          undefined,
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+        assert.equal(response.status, 200);
+        assert.equal(
+          (await response.json()).import.adopted_files,
+          "adopted_files" in answer && answer.adopted_files === 0 ? 0 : null
+        );
+      }
+    });
+
     it("mints a token that the gateway routes only to the session's own cell, for 120 seconds", async () => {
       const alice = await owner();
       const bob = await owner();

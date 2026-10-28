@@ -164,7 +164,7 @@ test("a part whose encrypted copy can no longer be read stops as a lost copy, no
     );
     await assert.rejects(
       uploadImportParts(new Blob([new Uint8Array(4)]), parts, new Map(), () => {}),
-      TypeError
+      { code: "CONNECTION" }
     );
   } finally {
     storage.mock.restore();

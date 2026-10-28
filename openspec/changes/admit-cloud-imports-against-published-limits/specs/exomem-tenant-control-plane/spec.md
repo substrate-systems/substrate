@@ -2,7 +2,7 @@
 
 ### Requirement: Cells publish their import limits in C5
 
-Cellctl SHALL write `exomem_cloud_cells.import_limits` for each live cell, and SHALL rewrite it only when its content changes. The value SHALL be a JSON object, or NULL when the cell has published nothing. Its keys SHALL be `max_members`, `reserve_bytes`, `space_factor`, `max_storage_gib`, `part_bytes`, `max_parts`, `upload_window_seconds`, `import_deadline_seconds` and `import_growth_deadline_seconds`, each a positive integer. Readers SHALL ignore keys they do not use. A reader SHALL treat the value as unpublished when it is not an object, or when a key that the reader needs is missing or invalid. `max_storage_gib` SHALL be at least the cell's current size, `max(storage_gib, grown_storage_gib)`. Only cellctl SHALL write the column, and a write SHALL NOT change the cell's generation.
+Cellctl SHALL write `exomem_cloud_cells.import_limits` for each live cell whose storage has passed its rollout gate. It SHALL rewrite the value only when its content changes. Cellctl SHALL inspect the actual claim class and actively write NULL for local claims until authoritative shared capacity accounting and the local rehearsal pass. This SHALL clear any previously published object. Local publication and import growth SHALL remain open work in the paired Exomem task 1.7. The value SHALL be a JSON object, or NULL when the cell has published nothing. Its keys SHALL be `max_members`, `reserve_bytes`, `space_factor`, `max_storage_gib`, `part_bytes`, `max_parts`, `upload_window_seconds`, `import_deadline_seconds` and `import_growth_deadline_seconds`, each a positive integer. Readers SHALL ignore keys they do not use. A reader SHALL treat the value as unpublished when it is not an object, or when a key that the reader needs is missing or invalid. `max_storage_gib` SHALL be at least the cell's current size, `max(storage_gib, grown_storage_gib)`. Only cellctl SHALL write the column, and a write SHALL NOT change the cell's generation.
 
 #### Scenario: Cellctl publishes a changed limit
 
@@ -26,9 +26,15 @@ Cellctl SHALL write `exomem_cloud_cells.import_limits` for each live cell, and S
 - **WHEN** `import_limits` is not an object, or lacks a key that the reader needs
 - **THEN** the reader treats the limits as unpublished and applies no limit of its own
 
+#### Scenario: Local import growth has not passed its cutover
+
+- **WHEN** the actual claim class is local and authoritative shared capacity accounting or the local rehearsal remains incomplete
+- **THEN** cellctl writes `import_limits` NULL, including replacing an earlier object
+- **AND** legacy admission leaves `required_storage_gib` NULL, with desired storage, grown storage and generation unchanged
+
 ### Requirement: Import records carry the storage they require and the files they staged
 
-C5 SHALL add `required_storage_gib` (integer greater than 0), `staged_files` and `staged_bytes` (not negative) to `exomem_cloud_imports`. Each column SHALL be nullable, and `staged_files` and `staged_bytes` SHALL be both set or both NULL. Substrate SHALL write `required_storage_gib` at INSERT only. Cellctl SHALL write `staged_files` and `staged_bytes` from the import Job's report when the Job succeeds. The touch trigger SHALL make `required_storage_gib` immutable, and SHALL make each staged column immutable once set. The gateway SHALL have no access to these columns. The migration SHALL be additive, so a deployed cellctl that does not know the columns keeps working.
+C5 SHALL add `required_storage_gib` (integer greater than 0), `staged_files` and `staged_bytes` (not negative) to `exomem_cloud_imports`. Each column SHALL be nullable, and `staged_files` and `staged_bytes` SHALL be both set or both NULL. Substrate SHALL write `required_storage_gib` at INSERT only. Cellctl SHALL persist a valid successful Job report's staged counts before cleanup removes the reporting Pods. The pair SHALL remain a historical staging observation if later cancellation, failure or expiry prevents successful completion. Missing or malformed reports SHALL leave both counts unknown without blocking cleanup. The touch trigger SHALL make `required_storage_gib` immutable, and SHALL make each staged column immutable once set. The gateway SHALL have no access to these columns. The migration SHALL be additive, so a deployed cellctl that does not know the columns keeps working.
 
 #### Scenario: A role writes outside its columns
 
@@ -113,7 +119,7 @@ One pure function SHALL compute the need and `required_storage_gib = min(ceil(ne
 
 ### Requirement: Admission grows storage within the published cap before the key exists
 
-Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, so it SHALL never lower a size and SHALL never exceed `max_storage_gib`. It SHALL record the clamped target as `required_storage_gib`. Cellctl SHALL NOT write `recipient` or report `key_ready` for an import that has a `required_storage_gib` until the cell's observed capacity covers it with no resize pending. While it waits, cellctl SHALL leave the cell mounted and running. A brief cell restart that the raise causes SHALL count as waiting, not as failure. When the claim has not grown within `import_growth_deadline_seconds` of the import's creation, cellctl SHALL fail the import with `IMPORT_STORAGE_UNAVAILABLE`. For a local-storage cell, cellctl SHALL check the node's room again before it reports `key_ready`. It SHALL fail the import with `IMPORT_STORAGE_NO_ROOM` when the node cannot hold the size. Before any larger local claim request, cellctl SHALL check the node's room. If room is unavailable, it SHALL retain the last accepted claim request, including during cleanup and later reconciliation. The desired `storage_gib` SHALL stay raised, and cellctl SHALL NOT lower a claim. Unknown room SHALL leave growth waiting until its deadline. Known insufficient room SHALL fail the import with `IMPORT_STORAGE_NO_ROOM`. Local import growth SHALL ship only after this behavior passes the local cutover check.
+Admission SHALL raise `storage_gib` with `GREATEST(storage_gib, required_storage_gib)`, so it SHALL never lower a size and SHALL never exceed `max_storage_gib`. It SHALL record the clamped target as `required_storage_gib`. Cellctl SHALL NOT write `recipient` or report `key_ready` for an import that has a `required_storage_gib` until the cell's observed capacity covers it with no resize pending. While it waits, cellctl SHALL leave the cell mounted and running. A brief cell restart that the raise causes SHALL count as waiting, not as failure. When the claim has not grown within `import_growth_deadline_seconds` of the import's creation, cellctl SHALL fail the import with `IMPORT_STORAGE_UNAVAILABLE`. For a local-storage cell, cellctl SHALL check the node's room again before it reports `key_ready`. It SHALL fail the import with `IMPORT_STORAGE_NO_ROOM` when the node cannot hold the size. Before any larger local claim request, cellctl SHALL check the node's room. If room is unavailable, it SHALL retain the last accepted claim request, including during cleanup and later reconciliation. The desired `storage_gib` SHALL stay raised, and cellctl SHALL NOT lower a claim. Unknown room SHALL leave growth waiting until its deadline. Known insufficient room SHALL fail the import with `IMPORT_STORAGE_NO_ROOM`. Local import growth SHALL ship only after authoritative capacity accounting shared by local volume consumers and this behavior pass the local cutover check. Until that gate passes, cellctl SHALL actively publish NULL for local claims.
 
 #### Scenario: The volume grows
 
@@ -164,7 +170,12 @@ The error envelope of `IMPORT_TOO_MANY_FILES`, `IMPORT_STORAGE_LIMIT` and `IMPOR
 
 ### Requirement: Import replies carry the limits, the growth state and the staged counts
 
-`GET /api/exomem/cloud/imports` and the creation reply SHALL carry `limits`, the cell's published object or null, beside `import`. Each import SHALL carry `required_storage_bytes` (null when not required), `storage_ready` (null when not required), `staged_files` and `staged_bytes` (null when not recorded). `storage_ready` SHALL be true only when the cell's observed capacity covers `required_storage_bytes` and its storage receipt shows no resize pending. Replies SHALL stay readable to clients that predate these fields.
+`GET /api/exomem/cloud/imports` and the creation reply SHALL carry `limits`, the cell's published object or null, beside `import`. The reply SHALL also carry nullable `storage` with `storage_gib`, `grown_storage_gib`, `observed_storage_capacity_bytes`, `used_bytes`, `filesystem_bytes` and `usage_observed_at`, read through the same owner scope. Unknown readings SHALL remain null. Home SHALL use these readings for the shared calculation. Each import SHALL carry `required_storage_bytes` (null when not required), `storage_ready` (null when not required), `staged_files` and `staged_bytes` (null when not recorded). Replies SHALL expose staged counts only when `observed_state` is `done` without pending cancellation or discard; otherwise both SHALL be null. `storage_ready` SHALL be true only when the cell's observed capacity covers `required_storage_bytes` and its storage receipt shows no resize pending. Replies SHALL stay readable to clients that predate these fields.
+
+#### Scenario: Cancellation follows successful staging
+
+- **WHEN** the row holds staged counts and newer cancellation or discard intent prevents successful completion
+- **THEN** the row retains its immutable historical counts, but the import reply returns both counts as null
 
 #### Scenario: An import waits for growth
 
@@ -175,3 +186,9 @@ The error envelope of `IMPORT_TOO_MANY_FILES`, `IMPORT_STORAGE_LIMIT` and `IMPOR
 
 - **WHEN** a client that predates these fields reads an import
 - **THEN** it ignores the new fields and reads the others as before
+
+#### Scenario: Home reads the admission context
+
+- **WHEN** the owner reads imports before creating one
+- **THEN** the reply carries the cell's published limits and calculator readings even when no import exists
+- **AND** a reply that omits the new optional fields still parses

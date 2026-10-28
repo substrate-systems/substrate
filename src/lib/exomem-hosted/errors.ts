@@ -1,3 +1,5 @@
+import type { ImportLimit } from "../exomem/cloud-import-contract";
+
 export type ExomemHostedErrorEnvelope = {
   success: false;
   error: {
@@ -7,6 +9,7 @@ export type ExomemHostedErrorEnvelope = {
     retryable: boolean;
     retryAfterMs?: number;
     remediation?: string;
+    limit?: ImportLimit;
   };
 };
 
@@ -16,6 +19,7 @@ export class ExomemHostedError extends Error {
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
   readonly remediation?: string;
+  readonly limit?: ImportLimit;
 
   constructor(params: {
     code: string;
@@ -24,6 +28,7 @@ export class ExomemHostedError extends Error {
     retryable?: boolean;
     retryAfterMs?: number;
     remediation?: string;
+    limit?: ImportLimit;
   }) {
     super(params.message);
     this.name = "ExomemHostedError";
@@ -32,6 +37,7 @@ export class ExomemHostedError extends Error {
     this.retryable = params.retryable ?? false;
     this.retryAfterMs = params.retryAfterMs;
     this.remediation = params.remediation;
+    this.limit = params.limit;
   }
 
   toJSON(): ExomemHostedErrorEnvelope["error"] {
@@ -41,6 +47,7 @@ export class ExomemHostedError extends Error {
       retryable: this.retryable,
       ...(this.retryAfterMs ? { retryAfterMs: this.retryAfterMs } : {}),
       ...(this.remediation ? { remediation: this.remediation } : {}),
+      ...(this.limit ? { limit: this.limit } : {}),
     };
   }
 }
@@ -180,6 +187,7 @@ export function safeErrorEnvelope(error: unknown, requestId?: string): ExomemHos
       retryable: safe.retryable,
       ...(safe.retryAfterMs ? { retryAfterMs: safe.retryAfterMs } : {}),
       ...(safe.remediation ? { remediation: safe.remediation } : {}),
+      ...(safe.limit ? { limit: safe.limit } : {}),
     },
   };
 }

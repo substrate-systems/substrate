@@ -1,4 +1,5 @@
 import { HostedBrowserError } from "./hosted-browser";
+import { importLimit, type ImportLimit } from "../exomem/cloud-import-contract";
 
 /**
  * The route that can still finish a stopped import: resume it, choose the folder again, cancel
@@ -6,7 +7,7 @@ import { HostedBrowserError } from "./hosted-browser";
  */
 export type ImportStopNext = "resume" | "choose" | "cancel" | "status";
 
-// Our own reasons for stopping a browser import. The text never carries a file name, a path
+// These are closed browser and C5 protocol codes. The text never carries a file name, a path
 // or a browser's message, because those can name private folder content.
 const STOPS = {
   FOLDER_EMPTY: { next: "choose", text: "Choose a folder that contains files." },
@@ -57,6 +58,26 @@ const STOPS = {
     next: "resume",
     text: "This import is running in another tab or window.",
   },
+  IMPORT_TOO_MANY_FILES: {
+    next: "choose",
+    text: "The folder has more members than this vault accepts. Choose a smaller folder.",
+  },
+  IMPORT_STORAGE_LIMIT: {
+    next: "choose",
+    text: "The import cannot fit within this vault’s storage limit. Choose a smaller folder.",
+  },
+  IMPORT_PARTS_LIMIT: {
+    next: "cancel",
+    text: "The encrypted copy exceeds this vault’s upload limit.",
+  },
+  IMPORT_STORAGE_UNAVAILABLE: {
+    next: "choose",
+    text: "The vault’s storage did not grow in time. Start a new import to try again.",
+  },
+  IMPORT_STORAGE_NO_ROOM: {
+    next: "choose",
+    text: "The vault cannot grow its storage right now. Start a new import later.",
+  },
   STOPPED: { next: "resume", text: "The browser stopped the import." },
 } satisfies Record<string, { next: ImportStopNext; text: string }>;
 
@@ -67,13 +88,18 @@ export class ImportStop extends Error {
   readonly next: ImportStopNext;
   /** The temporary encrypted file could not be removed after this stop. */
   readonly cleanupFailed: boolean;
+  readonly limit?: ImportLimit;
 
-  constructor(code: ImportStopCode, options: { cleanupFailed?: boolean } = {}) {
+  constructor(
+    code: ImportStopCode,
+    options: { cleanupFailed?: boolean; limit?: ImportLimit } = {}
+  ) {
     super(STOPS[code].text);
     this.name = "ImportStop";
     this.code = code;
     this.next = STOPS[code].next;
     this.cleanupFailed = options.cleanupFailed ?? false;
+    this.limit = options.limit;
   }
 }
 
@@ -97,14 +123,18 @@ export function importPaused(error: unknown): boolean {
  * keep their own content-free codes and wording.
  */
 export function importStopFrom(error: unknown): ImportStop | null {
-  if (importPaused(error) || error instanceof HostedBrowserError) return null;
+  if (importPaused(error)) return null;
+  if (error instanceof HostedBrowserError)
+    return Object.hasOwn(STOPS, error.code)
+      ? new ImportStop(error.code as ImportStopCode, {
+          limit: importLimit.safeParse(error.limit).data,
+        })
+      : null;
   if (error instanceof ImportStop) return error;
   if (error instanceof AggregateError) {
     const cause = importStopFrom(error.errors[0]);
     return new ImportStop(cause?.code ?? "STOPPED", { cleanupFailed: true });
   }
   if (error instanceof DOMException) return new ImportStop(DOM_STOPS[error.name] ?? "STOPPED");
-  // Fetch reports a network failure as a TypeError (Fetch standard, "network error").
-  if (error instanceof TypeError) return new ImportStop("CONNECTION");
   return new ImportStop("STOPPED");
 }

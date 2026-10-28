@@ -46,7 +46,11 @@ function folder(name: string, notes: number) {
   });
 }
 
-async function home(options: { quota?: number; api: ReturnType<typeof importApiDouble> }) {
+async function home(options: {
+  quota?: number;
+  api: ReturnType<typeof importApiDouble>;
+  context?: Record<string, unknown>;
+}) {
   const dom = new JSDOM('<!doctype html><div id="mount"></div>', {
     url: "http://localhost/exomem/home",
   });
@@ -66,7 +70,15 @@ async function home(options: { quota?: number; api: ReturnType<typeof importApiD
     document: dom.window.document,
     navigator: { userAgent: "synthetic", storage: browser.storage },
     IS_REACT_ACT_ENVIRONMENT: true,
-    fetch: options.api.receive,
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await options.api.receive(input, init);
+      if (!String(input).startsWith("/api/exomem/cloud/imports") || !options.context)
+        return response;
+      return Response.json(
+        { ...(await response.json()), ...options.context },
+        { status: response.status }
+      );
+    },
   })) {
     originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
@@ -142,7 +154,10 @@ it("closing the dialog keeps the import running, and a pause shows how to resume
   await page.click("Import…");
   await page.click("Pause");
   await page.until(
-    () => page.text().includes("Paused. Parts already uploaded from this page are kept."),
+    () =>
+      page
+        .text()
+        .includes("Paused. Confirmed parts are kept in this browser, including after a reload."),
     "the paused state"
   );
   assert.ok(page.button("Resume upload"));
@@ -200,3 +215,181 @@ it("a folder whose encrypted copy cannot fit in this browser is refused before a
   assert.equal(page.button("Encrypt and upload"), undefined);
   assert.ok(!api.requests.some(({ body }) => body?.kind === "adopt"));
 });
+
+const GiB = 1024 ** 3;
+const published = {
+  max_members: 500,
+  reserve_bytes: GiB / 4,
+  space_factor: 2,
+  max_storage_gib: 20,
+  import_growth_deadline_seconds: 3600,
+};
+const readings = {
+  storage_gib: 2,
+  grown_storage_gib: null,
+  used_bytes: 2 * GiB,
+  filesystem_bytes: 2 * GiB,
+  observed_storage_capacity_bytes: 2 * GiB,
+  usage_observed_at: "2026-01-01T00:00:00Z",
+};
+
+it("preflight admits a file at the member limit without counting its parent folder", async () => {
+  const api = importApiDouble("unused");
+  const page = await home({
+    api,
+    context: { limits: { ...published, max_members: 1 }, storage: readings },
+  });
+  await page.click("Import…");
+  await page.choose(folder("research", 1));
+  await page.until(() => page.text().includes("1 of 1"), "the archive's actual member count");
+  assert.ok(page.button("Encrypt and upload"));
+  assert.equal(api.rows.size, 0);
+});
+
+it("preflight shows growth, the reserve warning and the measured reading without refusing existing-content pressure", async () => {
+  const page = await home({
+    api: importApiDouble("unused"),
+    context: { limits: published, storage: readings },
+  });
+  await page.click("Import…");
+  await page.choose(folder("research", 1));
+  await page.until(() => page.text().includes("grows to about"), "the storage growth estimate");
+  assert.ok(page.text().includes("reserve"));
+  assert.ok(page.button("Encrypt and upload"));
+});
+
+it("preflight refuses the unscaled lower bound above the cap and leaves no import", async () => {
+  const api = importApiDouble("unused");
+  const page = await home({
+    api,
+    context: { limits: { ...published, space_factor: GiB, max_storage_gib: 1 }, storage: readings },
+  });
+  await page.click("Import…");
+  await page.choose(folder("research", 1));
+  await page.until(() => page.text().includes("cannot fit within"), "the storage refusal");
+  assert.equal(page.button("Encrypt and upload"), undefined);
+  assert.equal(api.rows.size, 0);
+});
+
+it("unpublished limits stay visibly unknown while a selection remains available", async () => {
+  const page = await home({ api: importApiDouble("unused") });
+  await page.click("Import…");
+  await page.choose(folder("research", 1));
+  await page.until(
+    () => page.text().includes("Limits not published"),
+    "the unpublished limit notice"
+  );
+  assert.ok(page.button("Encrypt and upload"));
+});
+
+it("Home shows the published growth wait on its row and dialog, then a fixed growth failure", async () => {
+  const api = importApiDouble("unused");
+  const importId = crypto.randomUUID();
+  const row = {
+    import_id: importId,
+    kind: "adopt",
+    declared_files: 1,
+    declared_bytes: 99,
+    requested_state: "requested",
+    observed_state: "pending",
+    recipient: null,
+    part_urls: null,
+    urls_expire_at: null,
+    error_code: null,
+    ciphertext_sha256: null,
+    ciphertext_bytes: null,
+    required_storage_bytes: 3 * GiB,
+    storage_ready: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+  api.rows.set(importId, row);
+  const page = await home({ api, context: { limits: published, storage: readings } });
+  await page.until(() => page.text().includes("growing to about"), "the row's growth wait");
+  await page.click("Import…");
+  await page.until(() => page.text().includes("60 minutes"), "the published wait bound");
+  assert.ok(page.text().includes("waiting for its encrypted copy"));
+  assert.ok(!page.text().includes("stopped before"));
+  Object.assign(row, { observed_state: "failed", error_code: "IMPORT_STORAGE_UNAVAILABLE" });
+  await page.until(() => page.text().includes("did not grow in time"), "the fixed growth failure");
+  assert.ok(page.text().includes(importId));
+  await cleanup?.();
+  cleanup = null;
+  Object.assign(row, { error_code: "IMPORT_STORAGE_NO_ROOM" });
+  const unavailable = await home({ api, context: { limits: published, storage: readings } });
+  await unavailable.click("Import…");
+  await unavailable.until(
+    () => unavailable.text().includes("cannot grow its storage right now"),
+    "the local growth refusal"
+  );
+  assert.ok(unavailable.text().includes("IMPORT_STORAGE_NO_ROOM"));
+});
+
+it("staged and filed counts use their own observations and older imports remain unknown", async () => {
+  const api = importApiDouble("unused");
+  const id = crypto.randomUUID();
+  const row = {
+    import_id: id,
+    kind: "adopt",
+    declared_files: 99,
+    declared_bytes: 9999,
+    requested_state: "uploaded",
+    observed_state: "done",
+    recipient: null,
+    part_urls: null,
+    urls_expire_at: null,
+    error_code: null,
+    ciphertext_sha256: "a".repeat(64),
+    ciphertext_bytes: 999,
+    staged_files: 2,
+    staged_bytes: 2048,
+    adopted_files: 1,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+  api.rows.set(id, row);
+  let page = await home({ api });
+  await page.click("Import…");
+  await page.until(() => page.text().includes("2 files · 2 kB"), "the staged report");
+  assert.ok(page.text().includes("Filed1 file"));
+  await cleanup?.();
+  cleanup = null;
+  Object.assign(row, { staged_files: null, staged_bytes: null, adopted_files: undefined });
+  page = await home({ api });
+  await page.click("Import…");
+  await page.until(() => page.text().includes("not recorded"), "the unknown staged count");
+  assert.ok(page.text().includes("Filedunknown"));
+});
+
+for (const [code, unit, reason] of [
+  ["IMPORT_TOO_MANY_FILES", "files", "more members than this vault accepts"],
+  ["IMPORT_STORAGE_LIMIT", "bytes", "cannot fit within this vault’s storage limit"],
+  ["IMPORT_PARTS_LIMIT", "bytes", "exceeds this vault’s upload limit"],
+] as const) {
+  it(`Home shows the fixed ${code} reason and typed limit from a stale preflight refusal`, async () => {
+    const api = importApiDouble("unused");
+    const receive = api.receive;
+    api.receive = async (input, init) =>
+      String(input) === "/api/exomem/cloud/imports" && init?.method === "POST"
+        ? Response.json(
+            {
+              error: {
+                code,
+                message: "untrusted wording",
+                limit: { unit, value: 2, requested: 3 },
+              },
+            },
+            { status: 422 }
+          )
+        : receive(input, init);
+    const page = await home({ api });
+    await page.click("Import…");
+    await page.choose(folder("research", 1));
+    await page.click("Encrypt and upload");
+    await page.until(() => page.text().includes(reason), "the fixed refusal");
+    assert.ok(page.text().includes("Requested:"));
+    assert.ok(page.text().includes("Published limit:"));
+    assert.ok(!page.text().includes("untrusted wording"));
+    assert.ok(page.text().includes(code));
+  });
+}
