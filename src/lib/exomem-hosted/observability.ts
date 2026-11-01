@@ -24,6 +24,7 @@ const EVENT_NAMES = new Set([
   "alerts.notification.delivered",
   "alerts.notification.failed",
   "alerts.backlog.undelivered",
+  "alerts.key_watcher.check",
   "oauth.authorize.declined",
   "oauth.authorize.kept",
 ]);

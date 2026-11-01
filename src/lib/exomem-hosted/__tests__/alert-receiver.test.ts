@@ -501,19 +501,9 @@ describe("deliverClaimedAlert", () => {
   });
 
   it("renders a resolution distinctly", async () => {
-    seed({ transition_id: OTHER_ID, notification_state: "delivered", notified_at: clock });
     seed({ transition_id: TRANSITION_ID, active: false });
     await receiver.deliverClaimedAlert(TRANSITION_ID);
     assert.match(sent[0].subject, /RESOLVED: scheduler_missed_run/);
-  });
-
-  it("stays quiet about resolving something that was never delivered", async () => {
-    // The key watcher restates every inactive check daily and marks each run
-    // inactive; neither may mail the founder.
-    seed({ transition_id: TRANSITION_ID, active: false });
-    const outcome = await receiver.deliverClaimedAlert(TRANSITION_ID);
-    assert.equal(outcome.skipped, true);
-    assert.equal(sent.length, 0);
   });
 
   it("leaves a failed send pending and retryable below the ceiling", async () => {
@@ -720,14 +710,33 @@ describe("evaluateKeyWatcherHeartbeat", () => {
     assert.equal(result.enabled && result.stale, true);
   });
 
-  it("records a quiet clear while runs keep arriving", async () => {
+  it("records a clear while runs keep arriving", async () => {
     process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
     heartbeatAgeSeconds = 30 * 60;
     const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
     assert.ok(result.enabled);
     assert.equal(result.stale, false);
+  });
+
+  it("raises KEY_WATCHER_STALE even when another job already used its public id", async () => {
+    // A scheduler-capability holder can compute the cron's plain id and post
+    // it first under its own job; the job-scoped key keeps the rows apart.
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    const publicId = createHash("sha256")
+      .update("b2-key-watcher|KEY_WATCHER_STALE|true|2026-11-02", "utf8")
+      .digest("hex");
+    seed({
+      transition_id: publicId,
+      job: "exomem-reconcile",
+      active: false,
+      notification_state: "delivered",
+      notified_at: clock,
+    });
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.ok(result.enabled);
+    assert.equal(result.accepted, true);
     await receiver.deliverClaimedAlert(result.transitionId);
-    assert.equal(sent.length, 0, "a clear with no earlier raise must not mail");
+    assert.match(sent[0].subject, /FIRING: KEY_WATCHER_STALE \(b2-key-watcher\)/);
   });
 
   it("restates the same day's state under one transition id", async () => {

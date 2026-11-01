@@ -5,6 +5,7 @@ import {
   ALERT_MAX_BODY_BYTES,
   ALERT_TRANSITION_HEADER,
   assertJobForCredential,
+  storedTransitionId,
   countAlertBacklog,
   parseAlertTransition,
   recordAlertTransition,
@@ -38,8 +39,9 @@ export async function POST(
     const { token } = await params;
     const credential = verifyAlertToken(token);
     const payload = await readBoundedJsonRequest(request, ALERT_MAX_BODY_BYTES);
-    transition = parseAlertTransition(payload, request.headers.get(ALERT_TRANSITION_HEADER));
-    assertJobForCredential(credential, transition.job);
+    const sent = parseAlertTransition(payload, request.headers.get(ALERT_TRANSITION_HEADER));
+    assertJobForCredential(credential, sent.job);
+    transition = { ...sent, transitionId: storedTransitionId(sent.job, sent.transitionId) };
   } catch (error) {
     // Carries the code, so probing for the capability is distinguishable from
     // a malformed or oversized body in the log stream.

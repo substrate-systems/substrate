@@ -92,20 +92,6 @@ function constantTimeEqualHex(provided: string, expected: string): boolean {
   return candidate.length === reference.length && timingSafeEqual(candidate, reference);
 }
 
-/** Authenticate the URL capability against a stored digest.
- *
- * Only the SHA-256 of the token lives in Vercel configuration. The plaintext
- * exists solely inside the SOPS-delivered `ALERT_WEBHOOK_URL` on the K3s side,
- * so reading the receiver's environment does not yield a forgeable URL. It does
- * travel in the request path, so it is present in the platform's own request
- * logs; that residual is recorded in the secrets runbook.
- *
- * One explicit previous digest is accepted so rotation has no gap: the new
- * digest is published first, the single-version K3s sender URL cuts over, and
- * only then is the previous digest retired. This mirrors the two-version
- * receiver overlap used for `EXOMEM_HOSTED_SCHEDULER_SECRET`; no larger key
- * ring and no implicit fallback are accepted.
- */
 export type AlertCredential = "scheduler" | "key-watcher";
 
 function digestRing(activeVariable: string, previousVariable: string): string[] {
@@ -117,6 +103,21 @@ function digestRing(activeVariable: string, previousVariable: string): string[] 
   );
 }
 
+/** Authenticate the URL capability against a stored digest.
+ *
+ * Only the SHA-256 of the token lives in Vercel configuration. The plaintext
+ * exists solely inside the SOPS-delivered `ALERT_WEBHOOK_URL` on the K3s side,
+ * so reading the receiver's environment does not yield a forgeable URL. It does
+ * travel in the request path, so it is present in the platform's own request
+ * logs; that residual is recorded in the secrets runbook.
+ *
+ * One explicit previous digest is accepted so rotation has no gap: the new
+ * digest is published first, the single-version K3s sender URL cuts over, and
+ * only then is the previous digest retired. This mirrors the two-version
+ * receiver overlap used for `EXOMEM_HOSTED_SCHEDULER_SECRET`. Each capability
+ * (scheduler, key watcher) has exactly this two-slot ring and no implicit
+ * fallback; the returned credential decides which jobs it may report.
+ */
 export function verifyAlertToken(token: string | undefined): AlertCredential {
   const scheduler = digestRing(ALERT_TOKEN_DIGEST_VARIABLE, ALERT_TOKEN_DIGEST_PREVIOUS_VARIABLE);
   const keyWatcher = digestRing(
@@ -129,6 +130,19 @@ export function verifyAlertToken(token: string | undefined): AlertCredential {
   if (scheduler.some((digest) => constantTimeEqualHex(actual, digest))) return "scheduler";
   if (keyWatcher.some((digest) => constantTimeEqualHex(actual, digest))) return "key-watcher";
   throw notFound();
+}
+
+/** The stored key for a sender's transition id.
+ *
+ * Transition ids are chosen by senders and are often derived from public
+ * strings, while the table's key is global. Hashing the job into the key gives
+ * every job its own id space, so one capability cannot insert a row under an
+ * id that another job will later need and have `ON CONFLICT DO NOTHING`
+ * swallow the genuine transition. `CONTRACT_LABEL` excludes `|`, so the
+ * input is unambiguous.
+ */
+export function storedTransitionId(job: string, senderTransitionId: string): string {
+  return createHash("sha256").update(`${job}|${senderTransitionId}`, "utf8").digest("hex");
 }
 
 /** Bind each capability to its own jobs, so neither sender can speak for the other. */
@@ -283,10 +297,7 @@ export async function isRedundantTransition(transition: AlertTransition): Promis
     LIMIT 1
   `;
   const row = rows[0];
-  // A resolution of something never delivered tells the founder nothing. The
-  // key watcher is stateless and restates every inactive check each day, and
-  // its hourly run marker is always inactive, so this is what keeps both quiet.
-  if (!row) return !transition.active;
+  if (!row) return false;
   return (row.active === true) === transition.active;
 }
 
@@ -504,9 +515,12 @@ export async function evaluateKeyWatcherHeartbeat(now: Date): Promise<KeyWatcher
   const stale =
     ageSeconds === null || !Number.isFinite(ageSeconds) || ageSeconds > KEY_WATCHER_STALE_AFTER_SECONDS;
   const day = now.toISOString().slice(0, 10);
-  const transitionId = createHash("sha256")
-    .update(`${KEY_WATCHER_JOB}|${KEY_WATCHER_STALE_ALERT}|${stale}|${day}`, "utf8")
-    .digest("hex");
+  const transitionId = storedTransitionId(
+    KEY_WATCHER_JOB,
+    createHash("sha256")
+      .update(`${KEY_WATCHER_JOB}|${KEY_WATCHER_STALE_ALERT}|${stale}|${day}`, "utf8")
+      .digest("hex")
+  );
   const { accepted } = await recordAlertTransition({
     transitionId,
     job: KEY_WATCHER_JOB,
