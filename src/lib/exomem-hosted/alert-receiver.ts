@@ -26,7 +26,8 @@ const KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_KEY_WATCHER_ALERT_TOK
  * scheduler capability may never report. Fixed by the watcher's contract
  * (`infra/scripts/b2_key_watcher.py` in the Exomem repository). */
 export const KEY_WATCHER_JOB = "b2-key-watcher";
-/** Sent once per completed watcher run, always inactive, so it never notifies. */
+/** Sent once per completed watcher run, always inactive. After the first
+ * delivered marker the redundancy check keeps every later one silent. */
 export const KEY_WATCHER_RUN_ALERT = "KEY_WATCHER_RUN";
 export const KEY_WATCHER_STALE_ALERT = "KEY_WATCHER_STALE";
 /** The watcher runs hourly; two missed runs mean it stopped. */

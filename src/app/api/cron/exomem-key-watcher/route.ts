@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyCronAuth } from "@/lib/hosted-backup/cron-auth";
 import { emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
 import {
+  KEY_WATCHER_JOB,
+  KEY_WATCHER_STALE_ALERT,
   evaluateKeyWatcherHeartbeat,
   runAlertNotificationPass,
 } from "@/lib/exomem-hosted/alert-receiver";
@@ -34,8 +36,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       event: "alerts.key_watcher.check",
       outcome: "succeeded",
       requestId,
-      alertJob: "b2-key-watcher",
-      alertName: heartbeat.stale ? "KEY_WATCHER_STALE" : "KEY_WATCHER_FRESH",
+      alertJob: KEY_WATCHER_JOB,
+      alertName: heartbeat.stale ? KEY_WATCHER_STALE_ALERT : "KEY_WATCHER_FRESH",
     });
     return NextResponse.json(
       {
