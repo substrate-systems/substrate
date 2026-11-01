@@ -79,6 +79,8 @@ let table: Map<string, Row>;
 let clock = 1_000_000;
 let sequence = 0;
 let failMarkers: Set<string>;
+/** Seconds since the last key-watcher run marker; null models "never ran". */
+let heartbeatAgeSeconds: number | null = null;
 
 function markerOf(strings: TemplateStringsArray): string {
   const match = strings[0].match(/\/\* (exomem:[a-z-]+) \*\//);
@@ -200,6 +202,10 @@ function installFakeSql(): void {
       return Promise.resolve({ rows });
     }
 
+    if (marker === "exomem:key-watcher-heartbeat-age") {
+      return Promise.resolve({ rows: [{ age_seconds: heartbeatAgeSeconds }] });
+    }
+
     if (marker === "exomem:count-alert-backlog") {
       const all = [...table.values()];
       return Promise.resolve({
@@ -241,6 +247,7 @@ beforeEach(() => {
   failMarkers = new Set();
   clock = 1_000_000;
   sequence = 0;
+  heartbeatAgeSeconds = null;
   installFakeSql();
   process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256 = TOKEN_DIGEST;
 });
@@ -250,6 +257,7 @@ afterEach(() => {
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256;
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS;
   delete process.env.EXOMEM_HOSTED_ALERT_RECIPIENT;
+  delete process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256;
 });
 
 function expectRejection(fn: () => unknown, code: string, status: number): void {
@@ -493,9 +501,19 @@ describe("deliverClaimedAlert", () => {
   });
 
   it("renders a resolution distinctly", async () => {
+    seed({ transition_id: OTHER_ID, notification_state: "delivered", notified_at: clock });
     seed({ transition_id: TRANSITION_ID, active: false });
     await receiver.deliverClaimedAlert(TRANSITION_ID);
     assert.match(sent[0].subject, /RESOLVED: scheduler_missed_run/);
+  });
+
+  it("stays quiet about resolving something that was never delivered", async () => {
+    // The key watcher restates every inactive check daily and marks each run
+    // inactive; neither may mail the founder.
+    seed({ transition_id: TRANSITION_ID, active: false });
+    const outcome = await receiver.deliverClaimedAlert(TRANSITION_ID);
+    assert.equal(outcome.skipped, true);
+    assert.equal(sent.length, 0);
   });
 
   it("leaves a failed send pending and retryable below the ceiling", async () => {
@@ -673,5 +691,51 @@ describe("countAlertBacklog", () => {
     seed({ transition_id: OTHER_ID, notification_state: "failed" });
     seed({ transition_id: "c".repeat(64), notification_state: "delivered", notified_at: clock });
     assert.deepEqual(await receiver.countAlertBacklog(), { pending: 1, failed: 1 });
+  });
+});
+
+describe("evaluateKeyWatcherHeartbeat", () => {
+  const WATCHER_DIGEST = createHash("sha256").update("watcher-capability", "utf8").digest("hex");
+  const NOW = new Date("2026-11-02T07:41:00Z");
+
+  it("does nothing until the key-watcher capability is configured", async () => {
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.deepEqual(result, { enabled: false });
+    assert.equal(table.size, 0);
+  });
+
+  it("raises KEY_WATCHER_STALE when the watcher never reported", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.equal(result.enabled && result.stale, true);
+    assert.ok(result.enabled);
+    await receiver.deliverClaimedAlert(result.transitionId);
+    assert.match(sent[0].subject, /FIRING: KEY_WATCHER_STALE \(b2-key-watcher\)/);
+  });
+
+  it("raises KEY_WATCHER_STALE after two missed hourly runs", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    heartbeatAgeSeconds = 2 * 60 * 60 + 1;
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.equal(result.enabled && result.stale, true);
+  });
+
+  it("records a quiet clear while runs keep arriving", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    heartbeatAgeSeconds = 30 * 60;
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.ok(result.enabled);
+    assert.equal(result.stale, false);
+    await receiver.deliverClaimedAlert(result.transitionId);
+    assert.equal(sent.length, 0, "a clear with no earlier raise must not mail");
+  });
+
+  it("restates the same day's state under one transition id", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    const first = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    const again = await receiver.evaluateKeyWatcherHeartbeat(new Date("2026-11-02T23:00:00Z"));
+    assert.ok(first.enabled && again.enabled);
+    assert.equal(first.transitionId, again.transitionId);
+    assert.equal(again.accepted, false);
   });
 });

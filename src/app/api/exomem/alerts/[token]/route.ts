@@ -4,6 +4,7 @@ import { emitAccessEvent, newRequestId, readBoundedJsonRequest } from "@/lib/exo
 import {
   ALERT_MAX_BODY_BYTES,
   ALERT_TRANSITION_HEADER,
+  assertJobForCredential,
   countAlertBacklog,
   parseAlertTransition,
   recordAlertTransition,
@@ -35,9 +36,10 @@ export async function POST(
   let transition: AlertTransition;
   try {
     const { token } = await params;
-    verifyAlertToken(token);
+    const credential = verifyAlertToken(token);
     const payload = await readBoundedJsonRequest(request, ALERT_MAX_BODY_BYTES);
     transition = parseAlertTransition(payload, request.headers.get(ALERT_TRANSITION_HEADER));
+    assertJobForCredential(credential, transition.job);
   } catch (error) {
     // Carries the code, so probing for the capability is distinguishable from
     // a malformed or oversized body in the log stream.
