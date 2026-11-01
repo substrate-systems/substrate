@@ -79,6 +79,8 @@ let table: Map<string, Row>;
 let clock = 1_000_000;
 let sequence = 0;
 let failMarkers: Set<string>;
+/** Seconds since the last key-watcher run marker; null models "never ran". */
+let heartbeatAgeSeconds: number | null = null;
 
 function markerOf(strings: TemplateStringsArray): string {
   const match = strings[0].match(/\/\* (exomem:[a-z-]+) \*\//);
@@ -200,6 +202,10 @@ function installFakeSql(): void {
       return Promise.resolve({ rows });
     }
 
+    if (marker === "exomem:key-watcher-heartbeat-age") {
+      return Promise.resolve({ rows: [{ age_seconds: heartbeatAgeSeconds }] });
+    }
+
     if (marker === "exomem:count-alert-backlog") {
       const all = [...table.values()];
       return Promise.resolve({
@@ -241,6 +247,7 @@ beforeEach(() => {
   failMarkers = new Set();
   clock = 1_000_000;
   sequence = 0;
+  heartbeatAgeSeconds = null;
   installFakeSql();
   process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256 = TOKEN_DIGEST;
 });
@@ -250,6 +257,7 @@ afterEach(() => {
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256;
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS;
   delete process.env.EXOMEM_HOSTED_ALERT_RECIPIENT;
+  delete process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256;
 });
 
 function expectRejection(fn: () => unknown, code: string, status: number): void {
@@ -673,5 +681,70 @@ describe("countAlertBacklog", () => {
     seed({ transition_id: OTHER_ID, notification_state: "failed" });
     seed({ transition_id: "c".repeat(64), notification_state: "delivered", notified_at: clock });
     assert.deepEqual(await receiver.countAlertBacklog(), { pending: 1, failed: 1 });
+  });
+});
+
+describe("evaluateKeyWatcherHeartbeat", () => {
+  const WATCHER_DIGEST = createHash("sha256").update("watcher-capability", "utf8").digest("hex");
+  const NOW = new Date("2026-11-02T07:41:00Z");
+
+  it("does nothing until the key-watcher capability is configured", async () => {
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.deepEqual(result, { enabled: false });
+    assert.equal(table.size, 0);
+  });
+
+  it("raises KEY_WATCHER_STALE when the watcher never reported", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.equal(result.enabled && result.stale, true);
+    assert.ok(result.enabled);
+    await receiver.deliverClaimedAlert(result.transitionId);
+    assert.match(sent[0].subject, /FIRING: KEY_WATCHER_STALE \(b2-key-watcher\)/);
+  });
+
+  it("raises KEY_WATCHER_STALE after two missed hourly runs", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    heartbeatAgeSeconds = 2 * 60 * 60 + 1;
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.equal(result.enabled && result.stale, true);
+  });
+
+  it("records a clear while runs keep arriving", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    heartbeatAgeSeconds = 30 * 60;
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.ok(result.enabled);
+    assert.equal(result.stale, false);
+  });
+
+  it("raises KEY_WATCHER_STALE even when another job already used its public id", async () => {
+    // A scheduler-capability holder can compute the cron's plain id and post
+    // it first under its own job; the job-scoped key keeps the rows apart.
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    const publicId = createHash("sha256")
+      .update("b2-key-watcher|KEY_WATCHER_STALE|true|2026-11-02", "utf8")
+      .digest("hex");
+    seed({
+      transition_id: publicId,
+      job: "exomem-reconcile",
+      active: false,
+      notification_state: "delivered",
+      notified_at: clock,
+    });
+    const result = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    assert.ok(result.enabled);
+    assert.equal(result.accepted, true);
+    await receiver.deliverClaimedAlert(result.transitionId);
+    assert.match(sent[0].subject, /FIRING: KEY_WATCHER_STALE \(b2-key-watcher\)/);
+  });
+
+  it("restates the same day's state under one transition id", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_DIGEST;
+    const first = await receiver.evaluateKeyWatcherHeartbeat(NOW);
+    const again = await receiver.evaluateKeyWatcherHeartbeat(new Date("2026-11-02T23:00:00Z"));
+    assert.ok(first.enabled && again.enabled);
+    assert.equal(first.transitionId, again.transitionId);
+    assert.equal(again.accepted, false);
   });
 });

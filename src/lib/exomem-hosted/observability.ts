@@ -24,6 +24,7 @@ const EVENT_NAMES = new Set([
   "alerts.notification.delivered",
   "alerts.notification.failed",
   "alerts.backlog.undelivered",
+  "alerts.key_watcher.check",
   "oauth.authorize.declined",
   "oauth.authorize.kept",
 ]);
@@ -64,6 +65,9 @@ const ERROR_CODES = new Set([
   "NOTIFICATION_STATE_WRITE_FAILED",
   "NOTIFICATION_NOT_SCHEDULED",
   "UNKNOWN",
+  "CRON_AUTH_REJECTED",
+  "KEY_WATCHER_NOT_CONFIGURED",
+  "KEY_WATCHER_CHECK_UNAVAILABLE",
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
