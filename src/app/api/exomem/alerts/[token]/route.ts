@@ -35,12 +35,16 @@ export async function POST(
 ): Promise<NextResponse> {
   const requestId = newRequestId();
   let transition: AlertTransition;
+  // The sender's own id, so these events still match the sender's logs; the
+  // stored key is job-scoped (see `storedTransitionId`).
+  let senderTransitionId: string;
   try {
     const { token } = await params;
     const credential = verifyAlertToken(token);
     const payload = await readBoundedJsonRequest(request, ALERT_MAX_BODY_BYTES);
     const sent = parseAlertTransition(payload, request.headers.get(ALERT_TRANSITION_HEADER));
     assertJobForCredential(credential, sent.job);
+    senderTransitionId = sent.transitionId;
     transition = { ...sent, transitionId: storedTransitionId(sent.job, sent.transitionId) };
   } catch (error) {
     // Carries the code, so probing for the capability is distinguishable from
@@ -72,7 +76,7 @@ export async function POST(
       errorCode: "ALERT_STORE_UNAVAILABLE",
       alertJob: transition.job,
       alertName: transition.alert,
-      transitionHash: transition.transitionId,
+      transitionHash: senderTransitionId,
     });
     return NextResponse.json(
       { success: false, error: { code: "ALERT_STORE_UNAVAILABLE", retryable: true } },
@@ -86,7 +90,7 @@ export async function POST(
     requestId,
     alertJob: transition.job,
     alertName: transition.alert,
-    transitionHash: transition.transitionId,
+    transitionHash: senderTransitionId,
   });
 
   // Deliberately runs for a duplicate too. A redelivery whose first attempt
