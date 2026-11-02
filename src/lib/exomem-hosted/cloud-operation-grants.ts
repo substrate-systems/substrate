@@ -26,7 +26,7 @@ import {
 } from "./cloud-config";
 import { signCloudJwt } from "./cloud-jwt";
 
-export const CLOUD_GRANT_AUDIENCE = "exomem-cell-operation";
+const CLOUD_GRANT_AUDIENCE = "exomem-cell-operation";
 /**
  * The cell accepts `exp - iat` up to 72 hours (`GRANT_MAX_LIFETIME`). A grant names one operation
  * ID, one key and, for an import, one digest, so the full window adds no capability, and a Job

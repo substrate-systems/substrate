@@ -193,7 +193,7 @@ function loadArtifactSigningKey(
  * is not an Ed25519 private key is treated the same way and logged by name only: while the
  * cells report and do not refuse, a mistyped key must not stop an owner's export or import.
  */
-export const CLOUD_GRANT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_GRANT_SIGNING_KEY";
+const CLOUD_GRANT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_GRANT_SIGNING_KEY";
 
 export function loadCloudGrantSigningKey(
   env: EnvironmentSource = process.env
