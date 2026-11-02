@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,7 @@ import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
 import { findCloudOAuthAccessToken, findCloudOAuthLogin, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
+import { assertCellAcceptsGrant } from "./cell-grant-rules";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // D7 (reopened task 3.2): scripts/exomem-cloud-grants.sql is the single
@@ -1031,6 +1032,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       "cell_id",
       "export_id",
       "link_requested_at",
+      "operation_grant",
       "requested_state",
     ]);
     assert.deepEqual(await columnPrivileges("substrate_app", "exomem_cloud_exports", "UPDATE"), [
@@ -1070,6 +1072,113 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     assert.deepEqual(appUpdates.filter((column) => usage.includes(column)), []);
     const gatewayReads = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "SELECT");
     assert.deepEqual(gatewayReads.filter((column) => usage.includes(column)), []);
+  });
+
+  // contain-cloud-controller-compromise D4: cellctl relays the signed grant to the Job and must not
+  // be able to plant one. substrate_app alone writes the column, checked after a blanket grant and a
+  // rerun, as the C5 and C6 suites above check their own columns.
+  it("lets substrate_app write the operation grant and cellctl only read it, on exports and imports", async () => {
+    await ownerPool!.query(
+      "GRANT ALL ON exomem_cloud_imports, exomem_cloud_exports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+    );
+    await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
+
+    const can = async (role: string, table: string, privilege: string) =>
+      (
+        await ownerPool!.query<{ allowed: boolean }>(
+          "SELECT has_column_privilege($1, $2, 'operation_grant', $3) AS allowed",
+          [role, table, privilege]
+        )
+      ).rows[0]!.allowed;
+    for (const table of ["exomem_cloud_exports", "exomem_cloud_imports"]) {
+      assert.equal(await can("exomem_cellctl", table, "SELECT"), true, `cellctl reads ${table}`);
+      for (const privilege of ["INSERT", "UPDATE"]) {
+        assert.equal(
+          await can("exomem_cellctl", table, privilege),
+          false,
+          `cellctl ${privilege} ${table}`
+        );
+      }
+      for (const privilege of ["SELECT", "INSERT", "UPDATE"]) {
+        assert.equal(
+          await can("exomem_gateway", table, privilege),
+          false,
+          `gateway ${privilege} ${table}`
+        );
+      }
+    }
+    // substrate_app signs an export once, at creation, and an import once, at completion.
+    assert.deepEqual(
+      [
+        await can("substrate_app", "exomem_cloud_exports", "INSERT"),
+        await can("substrate_app", "exomem_cloud_exports", "UPDATE"),
+      ],
+      [true, false]
+    );
+    assert.deepEqual(
+      [
+        await can("substrate_app", "exomem_cloud_imports", "INSERT"),
+        await can("substrate_app", "exomem_cloud_imports", "UPDATE"),
+      ],
+      [false, true]
+    );
+
+    // The same, through statements as each role.
+    const tenantId = await newTenant();
+    const id = randomCloudCellId();
+    await appPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    const exported = await appPool!.query(
+      "INSERT INTO exomem_cloud_exports (cell_id, operation_grant) VALUES ($1, 'signed-by-substrate') RETURNING export_id",
+      [id]
+    );
+    const exportId = exported.rows[0].export_id;
+    const imported = await appPool!.query(
+      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1) RETURNING import_id",
+      [id]
+    );
+    const importId = imported.rows[0].import_id;
+    await appPool!.query(
+      "UPDATE exomem_cloud_imports SET operation_grant = 'signed-by-substrate' WHERE import_id = $1",
+      [importId]
+    );
+    for (const [table, key, value] of [
+      ["exomem_cloud_exports", "export_id", exportId],
+      ["exomem_cloud_imports", "import_id", importId],
+    ]) {
+      const read = await cellctlPool!.query(
+        `SELECT operation_grant FROM ${table} WHERE ${key} = $1`,
+        [value]
+      );
+      assert.equal(read.rows[0].operation_grant, "signed-by-substrate");
+      await assert.rejects(
+        cellctlPool!.query(
+          `UPDATE ${table} SET operation_grant = 'planted-by-cellctl' WHERE ${key} = $1`,
+          [value]
+        ),
+        { code: "42501" }
+      );
+      await assert.rejects(gatewayPool!.query(`SELECT operation_grant FROM ${table}`), {
+        code: "42501",
+      });
+    }
+    await assert.rejects(
+      cellctlPool!.query(
+        "INSERT INTO exomem_cloud_exports (cell_id, operation_grant) VALUES ($1, 'planted-by-cellctl')",
+        [id]
+      ),
+      { code: "42501" }
+    );
+    // Substrate cannot rewrite an export's grant either: it signs an export once.
+    await assert.rejects(
+      appPool!.query(
+        "UPDATE exomem_cloud_exports SET operation_grant = 'rewritten' WHERE export_id = $1",
+        [exportId]
+      ),
+      { code: "42501" }
+    );
   });
 
   it("runs the Home mint and the export request AS substrate_app, and the gateway resolves the Home token AS exomem_gateway", async () => {
@@ -1159,11 +1268,55 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       assert.equal(routed?.cellId, homeCellId);
       assert.equal(routed?.firstParty, true);
 
-      const started = await handleCloudExportsRequest(browser("POST", "/api/exomem/cloud/exports", {}), {
-        env: resourceEnv,
-      });
+      // No grant key is configured: the export is created, and its grant stays NULL for the cells to report.
+      const unsigned = await handleCloudExportsRequest(
+        browser("POST", "/api/exomem/cloud/exports", {}),
+        { env: resourceEnv }
+      );
+      assert.equal(unsigned.status, 201);
+      const unsignedId = ((await unsigned.json()) as { export: { export_id: string } }).export
+        .export_id;
+      assert.equal(
+        (
+          await cellctlPool!.query(
+            "SELECT operation_grant FROM exomem_cloud_exports WHERE export_id = $1",
+            [unsignedId]
+          )
+        ).rows[0].operation_grant,
+        null
+      );
+      await cellctlPool!.query(
+        "UPDATE exomem_cloud_exports SET observed_state = 'failed', error_code = 'EXPORT_FAILED' WHERE export_id = $1",
+        [unsignedId]
+      );
+
+      // With the key, the request path stores a grant that the cell accepts, and cellctl can read it.
+      const grantKey = generateKeyPairSync("ed25519");
+      const started = await handleCloudExportsRequest(
+        browser("POST", "/api/exomem/cloud/exports", {}),
+        {
+          env: {
+            ...resourceEnv,
+            EXOMEM_CLOUD_GRANT_SIGNING_KEY: grantKey.privateKey
+              .export({ format: "pem", type: "pkcs8" })
+              .toString(),
+          },
+        }
+      );
       assert.equal(started.status, 201);
-      const exportId = ((await started.json()) as { export: { export_id: string } }).export.export_id;
+      const exportId = ((await started.json()) as { export: { export_id: string } }).export
+        .export_id;
+      const stored = await cellctlPool!.query(
+        "SELECT operation_grant FROM exomem_cloud_exports WHERE export_id = $1",
+        [exportId]
+      );
+      await assertCellAcceptsGrant(stored.rows[0].operation_grant, grantKey.publicKey, {
+        operation: "export",
+        tenantId,
+        cellId: homeCellId,
+        operationId: exportId,
+        objectKey: `cells/${homeCellId}/exports/${exportId}.zip`,
+      });
       await cellctlPool!.query(
         `UPDATE exomem_cloud_exports
          SET observed_state = 'ready', archive_bytes = 10, archive_sha256 = repeat('d', 64),

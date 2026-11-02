@@ -2,7 +2,8 @@
  * Owner exports (`launch-exomem-cloud-web`, task 5.6; shared contract C6).
  *
  * Substrate writes only the request columns of `exomem_cloud_exports`:
- * `export_id`, `cell_id`, `requested_state` and `link_requested_at`. The cell
+ * `export_id`, `cell_id`, `requested_state`, `link_requested_at` and the signed
+ * `operation_grant` that it stores once, at creation. The cell
  * controller packs the ZIP, records what it observes and presigns each link.
  * Every read and write here joins the export to the caller's own tenant, so
  * an export id from another tenant is simply not found. The caller is the
@@ -21,6 +22,7 @@ import { z } from "zod";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
 import { cloudBearerChallenge } from "./cloud-oauth";
+import { signCloudOperationGrant } from "./cloud-operation-grants";
 import { resolveCloudOwnerPrincipal } from "./cloud-owner-principal";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
 import { readBoundedJsonRequest } from "./http";
@@ -200,6 +202,7 @@ export async function readCloudExport(
 async function createCloudExport(
   principal: CloudExportPrincipal,
   requestedId: string | undefined,
+  env: EnvironmentSource | undefined,
   now: Date = new Date()
 ): Promise<{ export: CloudExportSummary; created: boolean }> {
   const exportId = requestedId ?? randomUUID();
@@ -248,9 +251,19 @@ async function createCloudExport(
         UPDATE exomem_cloud_exports SET requested_state = 'superseded'
         WHERE cell_id = ${cell.cell_id} AND requested_state = 'requested' AND observed_state = 'ready'
       `;
+      // Null when no grant key is configured; the cells then log `grant_missing`.
+      const operationGrant = await signCloudOperationGrant(
+        {
+          operation: "export",
+          tenantId: principal.tenantId,
+          cellId: cell.cell_id,
+          operationId: exportId,
+        },
+        { env }
+      );
       await tx`
-        INSERT INTO exomem_cloud_exports (export_id, cell_id)
-        VALUES (${exportId}::uuid, ${cell.cell_id})
+        INSERT INTO exomem_cloud_exports (export_id, cell_id, operation_grant)
+        VALUES (${exportId}::uuid, ${cell.cell_id}, ${operationGrant})
       `;
       const row = await exportRow(tx, cell.cell_id, exportId);
       return { export: cloudExportSummary(row, cell.desired_state, now), created: true };
@@ -445,7 +458,11 @@ export async function handleCloudExportsRequest(
       request.body ? await readBoundedJsonRequest(request, 1024) : {}
     );
     if (!body.success) throw exomemErrors.invalidRequest();
-    const result = await createCloudExport(owner, body.data.export_id?.toLowerCase());
+    const result = await createCloudExport(
+      owner,
+      body.data.export_id?.toLowerCase(),
+      dependencies.env
+    );
     return respond({ export: result.export }, result.created ? 201 : 200);
   } catch (error) {
     return errorResponse(error, request, dependencies.env);

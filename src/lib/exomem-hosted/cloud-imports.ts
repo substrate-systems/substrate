@@ -6,6 +6,7 @@ import {
   type CloudImport,
   type UploadPart,
 } from "../exomem/cloud-import-contract";
+import { signCloudOperationGrant } from "./cloud-operation-grants";
 import { resolveCloudOwnerPrincipal } from "./cloud-owner-principal";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -284,11 +285,25 @@ export async function mutateCloudImport(
             throw conflict();
           }
         }
+        // The upload is complete once the part ETags arrive, and the declared size and digest are
+        // frozen by then. The grant binds both; a prepare-upload has no grant to sign yet. Null when
+        // no grant key is configured; the cells then log `grant_missing`.
+        const operationGrant = parts
+          ? await signCloudOperationGrant({
+              operation: "import",
+              tenantId: principal.tenantId,
+              cellId: principal.cellId,
+              operationId: id,
+              ciphertextBytes: prepared.ciphertext_bytes,
+              ciphertextSha256: prepared.ciphertext_sha256,
+            })
+          : null;
         const updated = await tx`
           UPDATE exomem_cloud_imports
           SET ciphertext_sha256 = ${prepared.ciphertext_sha256}, ciphertext_bytes = ${prepared.ciphertext_bytes},
               part_etags = ${parts === null ? null : JSON.stringify(parts)}::jsonb,
-              requested_state = ${parts ? "uploaded" : "requested"}
+              requested_state = ${parts ? "uploaded" : "requested"},
+              operation_grant = ${operationGrant}
           WHERE import_id = ${id}::uuid AND cell_id = ${principal.cellId} RETURNING *
         `;
         return { import: status(updated.rows[0] as ImportRow), created: false };

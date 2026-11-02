@@ -3,11 +3,12 @@
  * (bridge-cloud-agent-uploads). Neither object carries a bearer: the cell's
  * single-use ticket stays the upload authority, and these name whose it is.
  */
-import { createHash, createPublicKey, randomUUID, type KeyObject } from "node:crypto";
+import { createHash, createPublicKey, type KeyObject } from "node:crypto";
 import { isIP } from "node:net";
-import { SignJWT, jwtVerify, type JWTPayload } from "jose";
+import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import { signCloudJwt } from "../lib/exomem-hosted/cloud-jwt";
 import type { ActiveCloudOAuthLogin } from "../lib/exomem-hosted/cloud-oauth";
 
 // Version 1 of the protocol; the Exomem cell verifies the same names and formats.
@@ -114,14 +115,10 @@ function sign(
   lifetime: number,
   now: number
 ): Promise<string> {
-  return new SignJWT({ v: 1, ...cloudOAuthOrigin(login), ...payload })
-    .setProtectedHeader({ alg: "EdDSA", typ: "JWT" })
-    .setIssuer(login.resource)
-    .setAudience(audience)
-    .setIssuedAt(now)
-    .setExpirationTime(now + lifetime)
-    .setJti(randomUUID())
-    .sign(key);
+  return signCloudJwt(
+    { v: 1, ...cloudOAuthOrigin(login), ...payload },
+    { key, audience, lifetimeSeconds: lifetime, now, issuer: login.resource }
+  );
 }
 
 /** The routing capsule an upload handoff carries; the cell embeds it in its token. */

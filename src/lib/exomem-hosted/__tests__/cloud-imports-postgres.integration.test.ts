@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { digestSecret, generateExternalToken } from "../security";
 import { handleCloudImportRequest } from "../cloud-import-http";
 import { resolveApprovedCloudOAuthClient } from "../cloud-oauth";
 import { redirectUriApproved } from "../oauth-client-admission";
+import { assertCellAcceptsGrant } from "./cell-grant-rules";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
@@ -470,6 +471,72 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
       ]),
       /immutable/
     );
+  });
+
+  async function storedGrant(importId: string): Promise<string | null> {
+    const { rows } = await pool.query(
+      "SELECT operation_grant FROM exomem_cloud_imports WHERE import_id = $1",
+      [importId]
+    );
+    return rows[0].operation_grant;
+  }
+
+  it("signs the import grant when the upload completes, binding the declared ciphertext", async () => {
+    const grantKey = generateKeyPairSync("ed25519");
+    const savedKey = process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY;
+    process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY = grantKey.privateKey
+      .export({ format: "pem", type: "pkcs8" })
+      .toString();
+    try {
+      const alice = await owner();
+      // transport() creates the import and prepares the upload: nothing is complete, so nothing is signed.
+      const ready = await transport(alice);
+      assert.equal(await storedGrant(ready.id), null);
+
+      const completed = await call(alice, "complete", ready.completion, ready.id);
+      assert.equal(completed.status, 200);
+      const grant = await storedGrant(ready.id);
+      await assertCellAcceptsGrant(grant, grantKey.publicKey, {
+        operation: "import",
+        tenantId: alice.tenantId,
+        cellId: alice.cellId,
+        operationId: ready.id,
+        objectKey: `cells/${alice.cellId}/imports/${ready.id}.age`,
+        ciphertextBytes: ready.report.ciphertext_bytes,
+        ciphertextSha256: ready.report.ciphertext_sha256,
+      });
+      // The status answer is the owner's; the grant is for the cell's Job.
+      assert.doesNotMatch(await completed.text(), /operation_grant/);
+      assert.doesNotMatch(
+        JSON.stringify((await (await call(alice, "status")).json()).import),
+        /operation_grant/
+      );
+
+      // A retried completion is answered from the row and signs nothing new.
+      assert.equal((await call(alice, "complete", ready.completion, ready.id)).status, 200);
+      assert.equal(await storedGrant(ready.id), grant);
+    } finally {
+      if (savedKey === undefined) delete process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY;
+      else process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY = savedKey;
+    }
+  });
+
+  it("completes an import with a NULL grant while no grant key is configured", async () => {
+    const savedKey = process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY;
+    delete process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY;
+    try {
+      const alice = await owner();
+      const ready = await transport(alice);
+      assert.equal((await call(alice, "complete", ready.completion, ready.id)).status, 200);
+      assert.equal(await storedGrant(ready.id), null);
+      const { rows } = await pool.query(
+        "SELECT requested_state FROM exomem_cloud_imports WHERE import_id = $1",
+        [ready.id]
+      );
+      assert.equal(rows[0].requested_state, "uploaded");
+    } finally {
+      if (savedKey !== undefined) process.env.EXOMEM_CLOUD_GRANT_SIGNING_KEY = savedKey;
+    }
   });
 
   it("refuses unready and expired transport and malformed metadata before accepting completion", async () => {

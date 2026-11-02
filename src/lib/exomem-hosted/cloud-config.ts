@@ -135,6 +135,32 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   }
 }
 
+/**
+ * The key that signs export and import grants (contain-cloud-controller-compromise D4):
+ * an Ed25519 private key in PEM form, apart from the gateway's request-signing key, so a
+ * gateway compromise cannot authorize an export. Only the web app reads it.
+ *
+ * Absent, the control plane signs no grant and the cells log `grant_missing`. A value that
+ * is not an Ed25519 private key is treated the same way and logged by name only: while the
+ * cells report and do not refuse, a mistyped key must not stop an owner's export or import.
+ */
+export const CLOUD_GRANT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_GRANT_SIGNING_KEY";
+
+export function loadCloudGrantSigningKey(
+  env: EnvironmentSource = process.env
+): KeyObject | undefined {
+  const pem = env[CLOUD_GRANT_SIGNING_KEY_ENV]?.trim();
+  if (!pem) return undefined;
+  try {
+    const key = createPrivateKey(pem);
+    if (key.asymmetricKeyType === "ed25519") return key;
+  } catch {
+    // Key parser errors may echo supplied material; fall through to the value-free warning.
+  }
+  console.warn({ event: "exomem_cloud_grant_key_invalid", variable: CLOUD_GRANT_SIGNING_KEY_ENV });
+  return undefined;
+}
+
 function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
   let cells: unknown;
   try {
