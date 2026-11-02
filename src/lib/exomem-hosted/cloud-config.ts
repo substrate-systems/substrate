@@ -4,6 +4,7 @@
  */
 
 import { createPrivateKey, type KeyObject } from "node:crypto";
+import { loggedOccurrence } from "./logged-occurrence";
 
 export type EnvironmentSource = Record<string, string | undefined>;
 
@@ -37,6 +38,11 @@ export type ExomemCloudResource = Readonly<{
 export type ExomemCloudConfig = ExomemCloudResource &
   Readonly<{
     cellTokenKey: Buffer;
+    /**
+     * Signs the origin proof of every request the gateway forwards, whatever features are on
+     * (contain-cloud-controller-compromise D1). Having it never turns a feature on: artifact
+     * transport and uploads each need their own switch and their own cell selection below.
+     */
     artifactSigningKey?: KeyObject;
     artifactCells?: ReadonlySet<string>;
     artifactAllCells?: boolean;
@@ -77,6 +83,8 @@ export function loadExomemCloudResource(env: EnvironmentSource = process.env): E
   return { mcpUrl, mcpPath };
 }
 
+const ARTIFACT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY";
+
 /**
  * Loads the Cloud resource plus the cell-bearer derivation key (C4), for the
  * gateway, which derives each cell's bearer.
@@ -103,8 +111,18 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   const transportEnabled = transport === "1" || transport === "true";
   // Exactly "true" turns uploads on, the same reading as the transfer-tools switch.
   const uploadsEnabled = env.EXOMEM_CLOUD_UPLOAD_ENABLED?.trim().toLowerCase() === "true";
-  if (!transportEnabled && !uploadsEnabled) {
-    return { mcpUrl, mcpPath, cellTokenKey, transferToolsEnabled };
+  // Loaded whenever it is set, so the gateway can sign a proof for every cell, not only the cells
+  // that a feature selects.
+  const featureNeedsKey = transportEnabled || uploadsEnabled;
+  const artifactSigningKey = loadArtifactSigningKey(env, featureNeedsKey);
+  if (!featureNeedsKey) {
+    return {
+      mcpUrl,
+      mcpPath,
+      cellTokenKey,
+      ...(artifactSigningKey ? { artifactSigningKey } : {}),
+      transferToolsEnabled,
+    };
   }
   const artifactCells = transportEnabled
     ? cellIdList(env, "EXOMEM_CLOUD_ARTIFACT_CELL_IDS")
@@ -116,24 +134,84 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   // loads this on every request, its readiness check never loads it, and a
   // throw would let a rollout pass and then fail every request.
   const allCells = transportEnabled && env.EXOMEM_CLOUD_ARTIFACT_ALL_CELLS === "true";
-  try {
-    // Artifact grants and upload authority share this key; each object has its own audience.
-    const artifactSigningKey = createPrivateKey(env.EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY ?? "");
-    if (artifactSigningKey.asymmetricKeyType !== "ed25519") throw new Error();
-    return {
-      mcpUrl,
-      mcpPath,
-      cellTokenKey,
-      artifactSigningKey,
-      ...(artifactCells ? { artifactCells, artifactAllCells: allCells } : {}),
-      ...(uploadCells ? { uploadCells } : {}),
-      transferToolsEnabled,
-    };
-  } catch {
-    // Key parser errors may echo supplied material; keep startup failures value-free.
-    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY"]);
-  }
+  // A feature that signs artifact grants or upload routes cannot run without the key.
+  if (!artifactSigningKey) throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
+  return {
+    mcpUrl,
+    mcpPath,
+    cellTokenKey,
+    artifactSigningKey,
+    ...(artifactCells ? { artifactCells, artifactAllCells: allCells } : {}),
+    ...(uploadCells ? { uploadCells } : {}),
+    transferToolsEnabled,
+  };
 }
+
+// Configuration loads on every request, before authentication, so any client can drive this count.
+let unusableArtifactKeyLoads = 0;
+
+/**
+ * The gateway's request-signing key: one Ed25519 key for origin proofs, artifact grants and
+ * upload routes, each with its own audience. Unset or blank is absent.
+ *
+ * A value that is set and is not an Ed25519 private key fails the configuration when a feature
+ * needs the key. Otherwise it reads as unset and logs the variable name only, on the 1st, 2nd,
+ * 4th, 8th... load: every cell then reports the request as unproven, whereas a throw here would
+ * fail every /mcp request and OAuth discovery for every tenant, which costs far more than the
+ * missing proof.
+ */
+function loadArtifactSigningKey(
+  env: EnvironmentSource,
+  featureNeedsKey: boolean
+): KeyObject | undefined {
+  const pem = env[ARTIFACT_SIGNING_KEY_ENV];
+  if (!pem?.trim()) return undefined;
+  try {
+    const key = createPrivateKey(pem);
+    if (key.asymmetricKeyType === "ed25519") return key;
+  } catch {
+    // Key parser errors may echo supplied material; keep failures and logs value-free.
+  }
+  if (featureNeedsKey) throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
+  unusableArtifactKeyLoads += 1;
+  if (loggedOccurrence(unusableArtifactKeyLoads)) {
+    console.warn({
+      event: "exomem_cloud_artifact_signing_key_invalid",
+      variable: ARTIFACT_SIGNING_KEY_ENV,
+      count: unusableArtifactKeyLoads,
+    });
+  }
+  return undefined;
+}
+
+/**
+ * The key that signs export and import grants (contain-cloud-controller-compromise D4):
+ * an Ed25519 private key in PEM form, apart from the gateway's request-signing key, so a
+ * gateway compromise cannot authorize an export. Only the web app reads it.
+ *
+ * Absent, the control plane signs no grant and the cells log `grant_missing`. A value that
+ * is not an Ed25519 private key is treated the same way and logged by name only: while the
+ * cells report and do not refuse, a mistyped key must not stop an owner's export or import.
+ */
+const CLOUD_GRANT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_GRANT_SIGNING_KEY";
+
+export function loadCloudGrantSigningKey(
+  env: EnvironmentSource = process.env
+): KeyObject | undefined {
+  const pem = env[CLOUD_GRANT_SIGNING_KEY_ENV]?.trim();
+  if (!pem) return undefined;
+  try {
+    const key = createPrivateKey(pem);
+    if (key.asymmetricKeyType === "ed25519") return key;
+  } catch {
+    // Key parser errors may echo supplied material; fall through to the value-free warning.
+  }
+  console.warn({ event: "exomem_cloud_grant_key_invalid", variable: CLOUD_GRANT_SIGNING_KEY_ENV });
+  return undefined;
+}
+
+/** A Cloud cell ID: 16 lowercase base32 characters. */
+export const CLOUD_CELL_ID_PATTERN = /^[a-z2-7]{16}$/;
 
 function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
   let cells: unknown;
@@ -145,7 +223,7 @@ function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
   if (
     !Array.isArray(cells) ||
     cells.length > 1024 ||
-    cells.some((cell) => typeof cell !== "string" || !/^[a-z2-7]{16}$/.test(cell))
+    cells.some((cell) => typeof cell !== "string" || !CLOUD_CELL_ID_PATTERN.test(cell))
   ) {
     throw new ExomemCloudConfigurationError([name]);
   }

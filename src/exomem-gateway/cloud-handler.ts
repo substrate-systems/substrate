@@ -31,6 +31,7 @@ import { answerCloudTransferCall, parseCloudTransferCall } from "./cloud-transfe
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import { loggedOccurrence } from "../lib/exomem-hosted/logged-occurrence";
 import {
   APP_USE_WINDOW_SECONDS,
   findCloudOAuthAccessToken,
@@ -167,11 +168,6 @@ function noteAppUse(grantId: string, record: typeof recordCloudAppUse): void {
   }
   appUseAskedAt.set(grantId, now);
   record(grantId).catch(recordAppUseLoss);
-}
-
-// The 1st, 2nd, 4th, 8th... occurrence: loud for a lasting fault, never one line per request.
-function loggedOccurrence(count: number): boolean {
-  return (count & (count - 1)) === 0;
 }
 
 /**
@@ -524,18 +520,22 @@ async function proxyToCell(
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
   forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
-  // bridge-cloud-agent-uploads: a selected cell learns which login sent this
-  // request, and receives the route capsule that its upload handoff carries.
-  if (config.artifactSigningKey && cloudUploadEnabled(config, access.cellId)) {
+  // contain-cloud-controller-compromise D1: with the signing key set, every cell learns which
+  // login sent this request. Only a cell selected for uploads also gets the route capsule that
+  // its upload handoff carries (bridge-cloud-agent-uploads).
+  if (config.artifactSigningKey) {
     try {
       const key = config.artifactSigningKey;
       forwardHeaders.set(
         CLOUD_ORIGIN_HEADER,
         await signCloudOriginProof(access, key, { purpose: "mcp" })
       );
-      forwardHeaders.set(CLOUD_UPLOAD_ROUTE_HEADER, await signCloudUploadRoute(access, key));
+      if (cloudUploadEnabled(config, access.cellId)) {
+        forwardHeaders.set(CLOUD_UPLOAD_ROUTE_HEADER, await signCloudUploadRoute(access, key));
+      }
     } catch {
-      // Without both, the cell reports uploads unavailable; the MCP request itself proceeds.
+      // Without the proof the cell counts the request as bearer-only, and an upload cell
+      // reports uploads unavailable; the MCP request itself proceeds.
       forwardHeaders.delete(CLOUD_ORIGIN_HEADER);
       forwardHeaders.delete(CLOUD_UPLOAD_ROUTE_HEADER);
       console.warn({ event: "exomem_cloud_gateway_upload_origin_unsigned" });
