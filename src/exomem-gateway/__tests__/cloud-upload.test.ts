@@ -357,23 +357,23 @@ describe("Cloud upload handoff at the gateway", () => {
       assert.equal(warn.mock.callCount(), 0);
     });
 
-    it("reads an unusable key as unset while no feature needs it, and warns by variable name only", (context) => {
+    it("reads an unusable key as unset while no feature needs it, and warns by variable name only on a thinning schedule", (context) => {
       const warn = context.mock.method(console, "warn", () => undefined);
-      const config = loadExomemCloudConfig({
-        ...env,
-        EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: UNUSABLE_KEY,
-      });
-      assert.equal(config.artifactSigningKey, undefined);
+      const unusable = { ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: UNUSABLE_KEY };
+      // The count is per process, and this is the only case that reaches it.
+      for (let load = 1; load <= 5; load += 1) {
+        assert.equal(loadExomemCloudConfig(unusable).artifactSigningKey, undefined);
+      }
+      // The 1st, 2nd and 4th load log; the 3rd and 5th stay quiet.
       assert.deepEqual(
         warn.mock.calls.map((call) => call.arguments),
-        [
-          [
-            {
-              event: "exomem_cloud_artifact_signing_key_invalid",
-              variable: "EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY",
-            },
-          ],
-        ]
+        [1, 2, 4].map((count) => [
+          {
+            event: "exomem_cloud_artifact_signing_key_invalid",
+            variable: "EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY",
+            count,
+          },
+        ])
       );
       assert.equal(JSON.stringify(warn.mock.calls).includes(UNUSABLE_KEY), false);
     });

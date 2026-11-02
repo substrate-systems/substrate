@@ -550,6 +550,7 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
     );
     for (const bad of [
       { ...report, ciphertext_bytes: -1 },
+      { ...report, ciphertext_bytes: 0 },
       { ...report, ciphertext_sha256: "bad" },
       { ...report, member_names: ["private"] },
     ]) {

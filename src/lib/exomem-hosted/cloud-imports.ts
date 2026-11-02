@@ -95,9 +95,13 @@ function report(body: Record<string, unknown>) {
   ) {
     throw exomemErrors.invalidRequest();
   }
+  const ciphertextBytes = count(body.ciphertext_bytes);
+  // No upload is empty, and the cell's operation grant needs a positive size, so zero fails the
+  // same way with or without a grant key.
+  if (ciphertextBytes === 0) throw exomemErrors.invalidRequest();
   return {
     ciphertext_sha256: body.ciphertext_sha256.toLowerCase(),
-    ciphertext_bytes: count(body.ciphertext_bytes),
+    ciphertext_bytes: ciphertextBytes,
   };
 }
 

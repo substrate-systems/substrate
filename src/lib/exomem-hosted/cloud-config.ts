@@ -4,6 +4,7 @@
  */
 
 import { createPrivateKey, type KeyObject } from "node:crypto";
+import { loggedOccurrence } from "./logged-occurrence";
 
 export type EnvironmentSource = Record<string, string | undefined>;
 
@@ -146,14 +147,18 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   };
 }
 
+// Configuration loads on every request, before authentication, so any client can drive this count.
+let unusableArtifactKeyLoads = 0;
+
 /**
  * The gateway's request-signing key: one Ed25519 key for origin proofs, artifact grants and
  * upload routes, each with its own audience. Unset or blank is absent.
  *
  * A value that is set and is not an Ed25519 private key fails the configuration when a feature
- * needs the key. Otherwise it reads as unset and logs the variable name only: every cell then
- * reports the request as unproven, whereas a throw here would fail every /mcp request and OAuth
- * discovery for every tenant, which costs far more than the missing proof.
+ * needs the key. Otherwise it reads as unset and logs the variable name only, on the 1st, 2nd,
+ * 4th, 8th... load: every cell then reports the request as unproven, whereas a throw here would
+ * fail every /mcp request and OAuth discovery for every tenant, which costs far more than the
+ * missing proof.
  */
 function loadArtifactSigningKey(
   env: EnvironmentSource,
@@ -168,10 +173,14 @@ function loadArtifactSigningKey(
     // Key parser errors may echo supplied material; keep failures and logs value-free.
   }
   if (featureNeedsKey) throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
-  console.warn({
-    event: "exomem_cloud_artifact_signing_key_invalid",
-    variable: ARTIFACT_SIGNING_KEY_ENV,
-  });
+  unusableArtifactKeyLoads += 1;
+  if (loggedOccurrence(unusableArtifactKeyLoads)) {
+    console.warn({
+      event: "exomem_cloud_artifact_signing_key_invalid",
+      variable: ARTIFACT_SIGNING_KEY_ENV,
+      count: unusableArtifactKeyLoads,
+    });
+  }
   return undefined;
 }
 
@@ -201,6 +210,9 @@ export function loadCloudGrantSigningKey(
   return undefined;
 }
 
+/** A Cloud cell ID: 16 lowercase base32 characters. */
+export const CLOUD_CELL_ID_PATTERN = /^[a-z2-7]{16}$/;
+
 function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
   let cells: unknown;
   try {
@@ -211,7 +223,7 @@ function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
   if (
     !Array.isArray(cells) ||
     cells.length > 1024 ||
-    cells.some((cell) => typeof cell !== "string" || !/^[a-z2-7]{16}$/.test(cell))
+    cells.some((cell) => typeof cell !== "string" || !CLOUD_CELL_ID_PATTERN.test(cell))
   ) {
     throw new ExomemCloudConfigurationError([name]);
   }

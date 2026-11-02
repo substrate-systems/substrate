@@ -19,7 +19,11 @@
  */
 
 import { z } from "zod";
-import { loadCloudGrantSigningKey, type EnvironmentSource } from "./cloud-config";
+import {
+  CLOUD_CELL_ID_PATTERN,
+  loadCloudGrantSigningKey,
+  type EnvironmentSource,
+} from "./cloud-config";
 import { signCloudJwt } from "./cloud-jwt";
 
 export const CLOUD_GRANT_AUDIENCE = "exomem-cell-operation";
@@ -35,7 +39,7 @@ const CANONICAL_UUID = z.string().regex(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{
 const SHA256 = z.string().regex(/^[0-9a-f]{64}$/);
 const common = {
   tenantId: CANONICAL_UUID,
-  cellId: z.string().regex(/^[a-z2-7]{16}$/),
+  cellId: z.string().regex(CLOUD_CELL_ID_PATTERN),
   operationId: CANONICAL_UUID,
 };
 const requestSchema = z.discriminatedUnion("operation", [

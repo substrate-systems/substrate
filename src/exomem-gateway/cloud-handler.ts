@@ -31,6 +31,7 @@ import { answerCloudTransferCall, parseCloudTransferCall } from "./cloud-transfe
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import { loggedOccurrence } from "../lib/exomem-hosted/logged-occurrence";
 import {
   APP_USE_WINDOW_SECONDS,
   findCloudOAuthAccessToken,
@@ -167,11 +168,6 @@ function noteAppUse(grantId: string, record: typeof recordCloudAppUse): void {
   }
   appUseAskedAt.set(grantId, now);
   record(grantId).catch(recordAppUseLoss);
-}
-
-// The 1st, 2nd, 4th, 8th... occurrence: loud for a lasting fault, never one line per request.
-function loggedOccurrence(count: number): boolean {
-  return (count & (count - 1)) === 0;
 }
 
 /**
