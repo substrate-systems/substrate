@@ -112,8 +112,9 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   const uploadsEnabled = env.EXOMEM_CLOUD_UPLOAD_ENABLED?.trim().toLowerCase() === "true";
   // Loaded whenever it is set, so the gateway can sign a proof for every cell, not only the cells
   // that a feature selects.
-  const artifactSigningKey = loadArtifactSigningKey(env);
-  if (!transportEnabled && !uploadsEnabled) {
+  const featureNeedsKey = transportEnabled || uploadsEnabled;
+  const artifactSigningKey = loadArtifactSigningKey(env, featureNeedsKey);
+  if (!featureNeedsKey) {
     return {
       mcpUrl,
       mcpPath,
@@ -147,19 +148,31 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
 
 /**
  * The gateway's request-signing key: one Ed25519 key for origin proofs, artifact grants and
- * upload routes, each with its own audience. Unset or blank is absent. A value that is set and
- * is not an Ed25519 private key fails the configuration, as it did when a feature was on.
+ * upload routes, each with its own audience. Unset or blank is absent.
+ *
+ * A value that is set and is not an Ed25519 private key fails the configuration when a feature
+ * needs the key. Otherwise it reads as unset and logs the variable name only: every cell then
+ * reports the request as unproven, whereas a throw here would fail every /mcp request and OAuth
+ * discovery for every tenant, which costs far more than the missing proof.
  */
-function loadArtifactSigningKey(env: EnvironmentSource): KeyObject | undefined {
+function loadArtifactSigningKey(
+  env: EnvironmentSource,
+  featureNeedsKey: boolean
+): KeyObject | undefined {
   const pem = env[ARTIFACT_SIGNING_KEY_ENV];
   if (!pem?.trim()) return undefined;
   try {
     const key = createPrivateKey(pem);
     if (key.asymmetricKeyType === "ed25519") return key;
   } catch {
-    // Key parser errors may echo supplied material; keep startup failures value-free.
+    // Key parser errors may echo supplied material; keep failures and logs value-free.
   }
-  throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
+  if (featureNeedsKey) throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
+  console.warn({
+    event: "exomem_cloud_artifact_signing_key_invalid",
+    variable: ARTIFACT_SIGNING_KEY_ENV,
+  });
+  return undefined;
 }
 
 /**

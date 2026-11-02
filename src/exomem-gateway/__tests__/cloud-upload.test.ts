@@ -334,25 +334,66 @@ describe("Cloud upload handoff at the gateway", () => {
     assert.equal(bodyRead(), false);
   });
 
-  it("loads the signing key without turning on a feature, and rejects a key that is set and unusable", () => {
-    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  describe("signing key configuration", () => {
+    const UNUSABLE_KEY = "unusable-key-material-4c1f";
     const env = {
       EXOMEM_CLOUD_MCP_URL: RESOURCE,
       EXOMEM_CLOUD_MCP_PATH: CONFIG.mcpPath,
       EXOMEM_CLOUD_CELL_TOKEN_KEY: CELL_TOKEN_KEY.toString("hex"),
     };
-    const keyOnly = loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: pem });
-    assert.equal(keyOnly.artifactSigningKey?.asymmetricKeyType, "ed25519");
-    assert.equal(cloudUploadEnabled(keyOnly, CELL), false);
-    assert.equal(cloudArtifactTransportEnabled(keyOnly, CELL), false);
-    assert.equal(
-      loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: "  " }).artifactSigningKey,
-      undefined
-    );
-    assert.throws(
-      () => loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: "not a key" }),
-      /EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY/
-    );
+
+    it("loads the key without turning on a feature", () => {
+      const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+      const keyOnly = loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: pem });
+      assert.equal(keyOnly.artifactSigningKey?.asymmetricKeyType, "ed25519");
+      assert.equal(cloudUploadEnabled(keyOnly, CELL), false);
+      assert.equal(cloudArtifactTransportEnabled(keyOnly, CELL), false);
+    });
+
+    it("reads a blank key as unset without a warning", (context) => {
+      const warn = context.mock.method(console, "warn", () => undefined);
+      const config = loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: "  " });
+      assert.equal(config.artifactSigningKey, undefined);
+      assert.equal(warn.mock.callCount(), 0);
+    });
+
+    it("reads an unusable key as unset while no feature needs it, and warns by variable name only", (context) => {
+      const warn = context.mock.method(console, "warn", () => undefined);
+      const config = loadExomemCloudConfig({
+        ...env,
+        EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: UNUSABLE_KEY,
+      });
+      assert.equal(config.artifactSigningKey, undefined);
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [
+          [
+            {
+              event: "exomem_cloud_artifact_signing_key_invalid",
+              variable: "EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY",
+            },
+          ],
+        ]
+      );
+      assert.equal(JSON.stringify(warn.mock.calls).includes(UNUSABLE_KEY), false);
+    });
+
+    it("fails the configuration for an unusable key once a feature needs it, without echoing it", (context) => {
+      const warn = context.mock.method(console, "warn", () => undefined);
+      assert.throws(
+        () =>
+          loadExomemCloudConfig({
+            ...env,
+            EXOMEM_CLOUD_UPLOAD_ENABLED: "true",
+            EXOMEM_CLOUD_UPLOAD_CELL_IDS: JSON.stringify([CELL]),
+            EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: UNUSABLE_KEY,
+          }),
+        (error: Error) =>
+          error.message.includes("EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY") &&
+          !error.message.includes(UNUSABLE_KEY)
+      );
+      assert.equal(warn.mock.callCount(), 0);
+    });
   });
 
   it("selects upload cells and artifact cells independently", () => {
