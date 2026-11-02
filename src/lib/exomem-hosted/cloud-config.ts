@@ -37,6 +37,11 @@ export type ExomemCloudResource = Readonly<{
 export type ExomemCloudConfig = ExomemCloudResource &
   Readonly<{
     cellTokenKey: Buffer;
+    /**
+     * Signs the origin proof of every request the gateway forwards, whatever features are on
+     * (contain-cloud-controller-compromise D1). Having it never turns a feature on: artifact
+     * transport and uploads each need their own switch and their own cell selection below.
+     */
     artifactSigningKey?: KeyObject;
     artifactCells?: ReadonlySet<string>;
     artifactAllCells?: boolean;
@@ -77,6 +82,8 @@ export function loadExomemCloudResource(env: EnvironmentSource = process.env): E
   return { mcpUrl, mcpPath };
 }
 
+const ARTIFACT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY";
+
 /**
  * Loads the Cloud resource plus the cell-bearer derivation key (C4), for the
  * gateway, which derives each cell's bearer.
@@ -103,8 +110,17 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   const transportEnabled = transport === "1" || transport === "true";
   // Exactly "true" turns uploads on, the same reading as the transfer-tools switch.
   const uploadsEnabled = env.EXOMEM_CLOUD_UPLOAD_ENABLED?.trim().toLowerCase() === "true";
+  // Loaded whenever it is set, so the gateway can sign a proof for every cell, not only the cells
+  // that a feature selects.
+  const artifactSigningKey = loadArtifactSigningKey(env);
   if (!transportEnabled && !uploadsEnabled) {
-    return { mcpUrl, mcpPath, cellTokenKey, transferToolsEnabled };
+    return {
+      mcpUrl,
+      mcpPath,
+      cellTokenKey,
+      ...(artifactSigningKey ? { artifactSigningKey } : {}),
+      transferToolsEnabled,
+    };
   }
   const artifactCells = transportEnabled
     ? cellIdList(env, "EXOMEM_CLOUD_ARTIFACT_CELL_IDS")
@@ -116,23 +132,34 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   // loads this on every request, its readiness check never loads it, and a
   // throw would let a rollout pass and then fail every request.
   const allCells = transportEnabled && env.EXOMEM_CLOUD_ARTIFACT_ALL_CELLS === "true";
+  // A feature that signs artifact grants or upload routes cannot run without the key.
+  if (!artifactSigningKey) throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
+  return {
+    mcpUrl,
+    mcpPath,
+    cellTokenKey,
+    artifactSigningKey,
+    ...(artifactCells ? { artifactCells, artifactAllCells: allCells } : {}),
+    ...(uploadCells ? { uploadCells } : {}),
+    transferToolsEnabled,
+  };
+}
+
+/**
+ * The gateway's request-signing key: one Ed25519 key for origin proofs, artifact grants and
+ * upload routes, each with its own audience. Unset or blank is absent. A value that is set and
+ * is not an Ed25519 private key fails the configuration, as it did when a feature was on.
+ */
+function loadArtifactSigningKey(env: EnvironmentSource): KeyObject | undefined {
+  const pem = env[ARTIFACT_SIGNING_KEY_ENV];
+  if (!pem?.trim()) return undefined;
   try {
-    // Artifact grants and upload authority share this key; each object has its own audience.
-    const artifactSigningKey = createPrivateKey(env.EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY ?? "");
-    if (artifactSigningKey.asymmetricKeyType !== "ed25519") throw new Error();
-    return {
-      mcpUrl,
-      mcpPath,
-      cellTokenKey,
-      artifactSigningKey,
-      ...(artifactCells ? { artifactCells, artifactAllCells: allCells } : {}),
-      ...(uploadCells ? { uploadCells } : {}),
-      transferToolsEnabled,
-    };
+    const key = createPrivateKey(pem);
+    if (key.asymmetricKeyType === "ed25519") return key;
   } catch {
     // Key parser errors may echo supplied material; keep startup failures value-free.
-    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY"]);
   }
+  throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
 }
 
 /**

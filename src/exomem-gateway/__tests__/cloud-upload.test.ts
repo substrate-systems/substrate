@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { beforeEach, describe, it } from "node:test";
+import { isDeepStrictEqual } from "node:util";
 import { jwtVerify } from "jose";
 import { deriveCloudCellBearer } from "../../lib/exomem-hosted/cloud-cell-bearer";
 import {
@@ -14,7 +15,8 @@ import {
   resetCloudGatewayConcurrencyForTests,
   type CloudGatewayDependencies,
 } from "../cloud-handler";
-import { signCloudUploadRoute } from "../cloud-origin";
+import { cloudArtifactTransportEnabled } from "../cloud-artifacts";
+import { cloudUploadEnabled, signCloudUploadRoute } from "../cloud-origin";
 
 // bridge-cloud-agent-uploads: the gateway half of the Cloud upload handoff.
 // The cell half, and the two together, are proved in the Exomem repository
@@ -91,34 +93,36 @@ function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDe
   };
 }
 
+/** The headers that the gateway forwards to the cell for one signed-in /mcp request. */
+async function forwardMcp(config: ExomemCloudConfig, login = LOGIN): Promise<Headers> {
+  let forwarded: Headers | undefined;
+  await handleCloudMcpRequest(
+    new Request("http://gateway.invalid/api/exomem/cloud/mcp/v1", {
+      method: "POST",
+      headers: { authorization: `Bearer ${"a".repeat(43)}` },
+      body: "{}",
+    }),
+    {
+      config,
+      findAccessToken: async () => ({ ...login, scopes: ["exomem.read", "exomem.write"] }),
+      recordAppUse: async () => undefined,
+      takeRateLimit: async () => true,
+      fetchCell: async (_url, init) => {
+        forwarded = new Headers(init?.headers);
+        return new Response("ok");
+      },
+    }
+  );
+  return forwarded!;
+}
+
 describe("Cloud upload handoff at the gateway", () => {
   beforeEach(() => resetCloudGatewayConcurrencyForTests());
 
-  it("gives a selected cell this login's origin and route capsule, and an unselected cell neither", async () => {
-    const forwarded: Headers[] = [];
-    const proxy = (config: ExomemCloudConfig) =>
-      handleCloudMcpRequest(
-        new Request("http://gateway.invalid/api/exomem/cloud/mcp/v1", {
-          method: "POST",
-          headers: { authorization: `Bearer ${"a".repeat(43)}` },
-          body: "{}",
-        }),
-        {
-          config,
-          findAccessToken: async () => ({ ...LOGIN, scopes: ["exomem.read", "exomem.write"] }),
-          recordAppUse: async () => undefined,
-          takeRateLimit: async () => true,
-          fetchCell: async (_url, init) => {
-            forwarded.push(new Headers(init?.headers));
-            return new Response("ok");
-          },
-        }
-      );
-    await proxy(CONFIG);
-    await proxy({ ...CONFIG, uploadCells: new Set(["bbbbbbbbbbbbbbbb"]) });
-    const [selected, unselected] = forwarded;
+  it("gives an upload cell this login's origin proof and the route capsule", async () => {
+    const headers = await forwardMcp(CONFIG);
 
-    const origin = await jwtVerify(selected!.get("x-exomem-cloud-origin")!, publicKey, {
+    const origin = await jwtVerify(headers.get("x-exomem-cloud-origin")!, publicKey, {
       issuer: RESOURCE,
       audience: "exomem-cloud-origin",
     });
@@ -130,7 +134,7 @@ describe("Cloud upload handoff at the gateway", () => {
       [origin.payload.grant_id, origin.payload.family_id, origin.payload.purpose],
       [LOGIN.grantId, LOGIN.familyId, "mcp"]
     );
-    const route = await jwtVerify(selected!.get("x-exomem-cloud-upload-route")!, publicKey, {
+    const route = await jwtVerify(headers.get("x-exomem-cloud-upload-route")!, publicKey, {
       issuer: RESOURCE,
       audience: "exomem-cloud-upload-route",
     });
@@ -139,12 +143,48 @@ describe("Cloud upload handoff at the gateway", () => {
     assert.ok(route.payload.exp! - route.payload.iat! <= 900);
     // A route capsule never verifies as origin, so a leaked handoff cannot impersonate a request.
     await assert.rejects(
-      jwtVerify(selected!.get("x-exomem-cloud-upload-route")!, publicKey, {
+      jwtVerify(headers.get("x-exomem-cloud-upload-route")!, publicKey, {
         audience: "exomem-cloud-origin",
       })
     );
-    assert.equal(unselected!.get("x-exomem-cloud-origin"), null);
-    assert.equal(unselected!.get("x-exomem-cloud-upload-route"), null);
+  });
+
+  it("gives a cell that no upload selects the origin proof and no route capsule", async () => {
+    const headers = await forwardMcp({ ...CONFIG, uploadCells: new Set(["bbbbbbbbbbbbbbbb"]) });
+
+    assert.ok(headers.get("x-exomem-cloud-origin"), "the origin proof is missing");
+    const origin = await jwtVerify(headers.get("x-exomem-cloud-origin")!, publicKey, {
+      issuer: RESOURCE,
+      audience: "exomem-cloud-origin",
+    });
+    assert.deepEqual(
+      [origin.payload.tenant_id, origin.payload.cell_id, origin.payload.purpose],
+      [LOGIN.tenantId, CELL, "mcp"]
+    );
+    assert.equal(headers.get("x-exomem-cloud-upload-route"), null);
+  });
+
+  it("forwards the request without either header when the proof cannot be signed", async (context) => {
+    const warn = context.mock.method(console, "warn", () => undefined);
+    // An empty client_id fails the origin schema, so signing throws.
+    const headers = await forwardMcp(CONFIG, { ...LOGIN, clientId: "" });
+
+    assert.equal(headers.get("x-exomem-cloud-origin"), null);
+    assert.equal(headers.get("x-exomem-cloud-upload-route"), null);
+    assert.ok(
+      warn.mock.calls.some((call) =>
+        isDeepStrictEqual(call.arguments, [
+          { event: "exomem_cloud_gateway_upload_origin_unsigned" },
+        ])
+      )
+    );
+  });
+
+  it("sends neither header while no signing key is configured", async () => {
+    const headers = await forwardMcp({ ...CONFIG, artifactSigningKey: undefined });
+
+    assert.equal(headers.get("x-exomem-cloud-origin"), null);
+    assert.equal(headers.get("x-exomem-cloud-upload-route"), null);
   });
 
   it("refuses an identity too long for the agent's handoff instead of truncating it", async () => {
@@ -292,6 +332,27 @@ describe("Cloud upload handoff at the gateway", () => {
     );
     assert.equal(response.status, 404);
     assert.equal(bodyRead(), false);
+  });
+
+  it("loads the signing key without turning on a feature, and rejects a key that is set and unusable", () => {
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const env = {
+      EXOMEM_CLOUD_MCP_URL: RESOURCE,
+      EXOMEM_CLOUD_MCP_PATH: CONFIG.mcpPath,
+      EXOMEM_CLOUD_CELL_TOKEN_KEY: CELL_TOKEN_KEY.toString("hex"),
+    };
+    const keyOnly = loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: pem });
+    assert.equal(keyOnly.artifactSigningKey?.asymmetricKeyType, "ed25519");
+    assert.equal(cloudUploadEnabled(keyOnly, CELL), false);
+    assert.equal(cloudArtifactTransportEnabled(keyOnly, CELL), false);
+    assert.equal(
+      loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: "  " }).artifactSigningKey,
+      undefined
+    );
+    assert.throws(
+      () => loadExomemCloudConfig({ ...env, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: "not a key" }),
+      /EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY/
+    );
   });
 
   it("selects upload cells and artifact cells independently", () => {
