@@ -100,3 +100,12 @@ CREATE TABLE exomem_cloud_access_challenges (
 CREATE INDEX exomem_cloud_access_grants_expiry_idx ON exomem_cloud_access_grants(expires_at);
 CREATE INDEX exomem_cloud_access_sessions_expiry_idx ON exomem_cloud_access_sessions(expires_at);
 CREATE INDEX exomem_cloud_access_challenges_expiry_idx ON exomem_cloud_access_challenges(expires_at);
+
+-- The wire schema fixes access kinds. Heartbeat and metric series never become access entries.
+CREATE INDEX exomem_cloud_access_records_attribution_idx
+  ON exomem_cloud_access_records (provider_at,id)
+  WHERE kind IN ('kubernetes','node_session','sudo');
+
+CREATE INDEX exomem_cloud_access_records_metrics_idx
+  ON exomem_cloud_access_records (node,target,source_at DESC)
+  WHERE kind = 'shipper_metric';
