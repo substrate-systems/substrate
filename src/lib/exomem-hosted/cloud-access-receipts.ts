@@ -14,7 +14,7 @@ export type AccessReceiptConfig = {
   signingSecret: string;
 };
 
-export function accessReceiptConfig(): AccessReceiptConfig {
+function accessReceiptConfig(): AccessReceiptConfig {
   return {
     enabled: process.env.EXOMEM_CLOUD_ACCESS_LOG_ENABLED === "true",
     bucketId: process.env.EXOMEM_ACCESS_RECORD_BUCKET_ID ?? "",

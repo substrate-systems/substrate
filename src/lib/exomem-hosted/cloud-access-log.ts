@@ -67,7 +67,7 @@ export async function issueLogRecovery(userId: string, tenantId: string, cellId:
   return { code, expiresAt: expiresAt.toISOString() };
 }
 
-export async function exchangeLogRecovery(code: string, challenge: string) {
+async function exchangeLogRecovery(code: string, challenge: string) {
   const codeDigest = tokenDigest(code);
   const challengeDigest = tokenDigest(challenge);
   if (!codeDigest || !challengeDigest) throw exomemErrors.sessionInvalid();

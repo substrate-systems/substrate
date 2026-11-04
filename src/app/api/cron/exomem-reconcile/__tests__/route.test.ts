@@ -18,6 +18,8 @@ let oauthPruneCalls = 0;
 let oauthPruneShouldFail = false;
 let contactCalls = 0;
 let contactShouldFail = false;
+let accessLogIsEnabled = false;
+let accessLogPruneCalls = 0;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/cloud-admission", {
@@ -99,6 +101,15 @@ before(() => {
   mock.module("@/lib/exomem-hosted/email-change", {
     namedExports: { pruneExpiredExomemEmailChanges: async () => 2 },
   });
+  mock.module("@/lib/exomem-hosted/cloud-access-log", {
+    namedExports: {
+      accessLogEnabled: () => accessLogIsEnabled,
+      pruneAccessLogAuth: async () => {
+        accessLogPruneCalls += 1;
+        return { challenges: 3, sessions: 2, grants: 1 };
+      },
+    },
+  });
   mock.module("@/lib/exomem-hosted/paddle-reconciliation-runtime", {
     namedExports: {
       runBoundedPaddleReconcile: async () => {
@@ -138,6 +149,8 @@ afterEach(() => {
   oauthPruneShouldFail = false;
   contactCalls = 0;
   contactShouldFail = false;
+  accessLogIsEnabled = false;
+  accessLogPruneCalls = 0;
   if (ORIGINAL_SCHEDULER_SECRET === undefined) delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
   else process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = ORIGINAL_SCHEDULER_SECRET;
 });
@@ -159,12 +172,14 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 describe("GET /api/cron/exomem-reconcile", () => {
   it("fails closed before touching billing or Cloud work", async () => {
     process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    accessLogIsEnabled = true;
     const { GET } = await import("../route");
     const response = await GET(request("wrong"));
     assert.equal(response.status, 401);
     assert.equal(paddleRunCalls, 0);
     assert.equal(cloudReconcileCalls, 0);
     assert.equal(contactCalls, 0);
+    assert.equal(accessLogPruneCalls, 0);
   });
 
   it("runs a bounded authenticated pass and exposes counts only", async () => {
@@ -177,6 +192,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(cloudReconcileCalls, 1);
     assert.equal(cloudNoticeRetryCalls, 1);
     assert.equal(cloudDeletionFinishCalls, 1);
+    assert.equal(accessLogPruneCalls, 0);
     const text = await response.text();
     assert.equal(text.includes(SENTINEL), false);
     const body = JSON.parse(text) as { result: Record<string, unknown> };
@@ -216,7 +232,19 @@ describe("GET /api/cron/exomem-reconcile", () => {
         superseded: 0,
       },
       emailChangesPruned: 2,
+      accessLogAuthPruned: null,
     });
+  });
+
+  it("prunes expired log-only authority when access logging is enabled", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    accessLogIsEnabled = true;
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 200);
+    assert.equal(accessLogPruneCalls, 1);
+    const body = (await response.json()) as { result: Record<string, unknown> };
+    assert.deepEqual(body.result.accessLogAuthPruned, { challenges: 3, sessions: 2, grants: 1 });
   });
 
   it("reports a failed waitlist promotion as failed, not as zero promotions", async () => {
