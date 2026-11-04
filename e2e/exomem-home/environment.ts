@@ -44,6 +44,9 @@ export function homeE2eEnvironment() {
       EXOMEM_PADDLE_STORAGE_PRICE_ID: "pri_" + "b".repeat(26),
       EXOMEM_CLOUD_VIEWER_ENABLED: "true",
       EXOMEM_CLOUD_EXPORTS_ENABLED: "true",
+      EXOMEM_CLOUD_ACCESS_LOG_ENABLED: "true",
+      EXOMEM_ACCESS_LOG_RETENTION_DAYS: "365",
+      EXOMEM_ACCESS_RECORD_HEARTBEAT_MAX_AGE_SECONDS: "180",
       EXOMEM_EXPORT_TTL_HOURS: "24",
       EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true",
       // Emails carry links to this origin; a test opens a link's path on the test server.

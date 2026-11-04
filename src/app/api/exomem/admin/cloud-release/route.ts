@@ -29,7 +29,7 @@ function nonEmptyString(value: unknown): string | null {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request, "read");
+    await requireRateLimitedExomemOperator(request, "read", "deploy");
     const view = await getCloudOperatorView();
     operatorSuccessEvent(requestId);
     return NextResponse.json({ success: true, view, requestId });
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function PUT(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request);
+    await requireRateLimitedExomemOperator(request, "mutation", "deploy");
     const body = await readOperatorJsonRecord(request);
 
     const hasCellImage = "cellImage" in body;
