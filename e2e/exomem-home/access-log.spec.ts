@@ -31,6 +31,10 @@ test("a stopped cell's received log survives erasure through a fresh restricted 
   const owner = await createOwner({ plan: "complimentary" });
   const other = await createOwner({ plan: "complimentary" });
   await setCell(owner, { desired_state: "stopped", observed_state: "stopped", ready: false });
+  await pool.query(
+    "UPDATE exomem_cloud_cells SET desired_state='stopped', observed_state='stopped', ready=false WHERE cell_id=$1",
+    [owner.cellId]
+  );
   const receipt = await pool.query(
     "INSERT INTO exomem_cloud_access_receipts(bucket_id,object_key,version_id,provider_at,processed_at) VALUES('fixture-bucket',$1,'retained-version',now(),now()) RETURNING id",
     [`access/node-a/${owner.cellId}`]
