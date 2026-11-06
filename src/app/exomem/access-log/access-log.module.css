@@ -1,0 +1,38 @@
+.column {
+  padding-bottom: 40px;
+}
+.muted {
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 0 18px;
+}
+.events {
+  display: flex;
+  flex-direction: column;
+}
+.event {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--exo-border-card);
+  overflow-wrap: anywhere;
+}
+.event:last-child {
+  border-bottom: 0;
+}
+.details {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(0, 3fr);
+  gap: 8px 16px;
+  font-size: 13px;
+}
+.details dt {
+  color: var(--fg-muted);
+}
+.details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

@@ -1,6 +1,6 @@
 import { exomemErrors } from "./errors";
 import { newRequestId, readBoundedJsonRequest } from "./http";
-import { requireExomemOperator } from "./operator-auth";
+import { requireExomemDeployer, requireExomemOperator } from "./operator-auth";
 import { emitOperatorControlSuccess, operatorControlErrorResponse } from "./operator-observability";
 import { clientAddressKey, EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 
@@ -8,7 +8,8 @@ export const OPERATOR_BODY_MAX_BYTES = 16 * 1024;
 
 export async function requireRateLimitedExomemOperator(
   request: Request,
-  operation: "read" | "mutation" = "mutation"
+  operation: "read" | "mutation" = "mutation",
+  scope: "admin" | "deploy" = "admin"
 ) {
   const preAuthAllowed = await takeExomemRateLimit(
     operation === "read"
@@ -17,7 +18,8 @@ export async function requireRateLimitedExomemOperator(
     clientAddressKey(request) ?? "unknown"
   );
   if (!preAuthAllowed) throw exomemErrors.rateLimited();
-  const operator = requireExomemOperator(request);
+  const operator =
+    scope === "deploy" ? requireExomemDeployer(request) : requireExomemOperator(request);
   const allowed = await takeExomemRateLimit(
     operation === "read"
       ? EXOMEM_RATE_LIMITS.adminAuthenticatedRead

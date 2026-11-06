@@ -1,3 +1,4 @@
+import { accessLogEnabled, pruneAccessLogAuth } from "@/lib/exomem-hosted/cloud-access-log";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyHostedSchedulerAuth } from "@/lib/exomem-hosted/scheduler-auth";
 import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconciliation-runtime";
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // of clients that can no longer be used (reclaim-oauth-client-slots). It is
     // bounded per run and runs beside the other lanes, so a failure in any one
     // still lets the others finish this tick before the route reports it.
-    const [paddleResult, cloudResult, oauthResult, contactsResult, changesResult] =
+    const [paddleResult, cloudResult, oauthResult, contactsResult, changesResult, accessLogResult] =
       await Promise.allSettled([
         runBoundedPaddleReconcile({
           maxSubscriptions: 5,
@@ -137,6 +138,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         pruneExpiredOAuthState(),
         runBoundedPaddleReceiptContacts({ maxContacts: 5, timeBudgetMs: 8_000 }),
         pruneExpiredExomemEmailChanges(),
+        accessLogEnabled() ? pruneAccessLogAuth() : Promise.resolve(null),
       ]);
     if (oauthResult.status === "rejected") {
       console.error("exomem-oauth: expired state and client retirement lane failed");
@@ -145,6 +147,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (changesResult.status === "rejected")
       console.error("exomem: expired email change cleanup failed");
     if (
+      accessLogResult.status === "rejected" ||
       contactsResult.status === "rejected" ||
       changesResult.status === "rejected" ||
       paddleResult.status === "rejected" ||
@@ -170,6 +173,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           cloud: cloudResult.value,
           receiptContacts: contactsResult.value,
           emailChangesPruned: changesResult.value,
+          accessLogAuthPruned: accessLogResult.value,
           oauth: {
             disabledCimd: oauthResult.value.disabledCimd,
             retiredAutoRegistered: oauthResult.value.retired.autoRegistered,

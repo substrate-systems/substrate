@@ -38,6 +38,18 @@ const C1_TABLES = [
   "exomem_cloud_capacity",
   "exomem_cloud_rollout",
 ] as const;
+// Migration 0083 fixes these evidence and authentication tables, not tenant vocabulary.
+const ACCESS_RECORD_TABLES = [
+  "exomem_cloud_access_receipts",
+  "exomem_cloud_access_records",
+  "exomem_cloud_access_entries",
+  "exomem_cloud_placements",
+] as const;
+const ACCESS_AUTH_TABLES = [
+  "exomem_cloud_access_grants",
+  "exomem_cloud_access_sessions",
+  "exomem_cloud_access_challenges",
+] as const;
 const CLOUD_RESOURCE = "https://cloud.example.test/mcp/v1";
 
 let adminPool: Pool | undefined;
@@ -124,24 +136,27 @@ async function publicTableNames(): Promise<string[]> {
   return rows.map((row) => row.table_name);
 }
 
-/** Every relation and column ACL in the schema, for the "second run changes
- * nothing" proof -- relacl/attacl, not a narrower per-table has_privilege
- * spot check, so nothing this script grants can drift unnoticed. */
+/** Compare every relation/column grant by meaning, including grant options.
+ * PostgreSQL can reorder equivalent ACL entries when grants are reapplied. */
 async function aclSnapshot(): Promise<{ relacl: unknown[]; attacl: unknown[] }> {
   const relacl = await adminPool!.query(
-    `SELECT c.relname, c.relacl
+    `SELECT c.relname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN LATERAL aclexplode(COALESCE(c.relacl,
+       acldefault(CASE WHEN c.relkind = 'S' THEN 's'::"char" ELSE 'r'::"char" END, c.relowner)
+     )) acl ON true
      WHERE n.nspname = $1 AND c.relkind IN ('r', 'S')
-     ORDER BY c.relname`,
+     ORDER BY c.relname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable`,
     [schema]
   );
   const attacl = await adminPool!.query(
-    `SELECT c.relname, a.attname, a.attacl
+    `SELECT c.relname, a.attname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable
      FROM pg_attribute a
      JOIN pg_class c ON c.oid = a.attrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = $1 AND a.attacl IS NOT NULL AND a.attnum > 0 AND NOT a.attisdropped
-     ORDER BY c.relname, a.attname`,
+     CROSS JOIN LATERAL aclexplode(a.attacl) acl
+     WHERE n.nspname = $1 AND a.attnum > 0 AND NOT a.attisdropped
+     ORDER BY c.relname, a.attname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable`,
     [schema]
   );
   return { relacl: relacl.rows, attacl: attacl.rows };
@@ -210,11 +225,12 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await adminPool?.end();
   });
 
-  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside C1-C1d, C5 and C6, proven with a real round trip", async () => {
+  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside restricted Cloud tables, proven with a real round trip", async () => {
     const tableNames = await publicTableNames();
     const nonCloudTables = tableNames.filter(
       (name) =>
         !(C1_TABLES as readonly string[]).includes(name) &&
+        !(ACCESS_RECORD_TABLES as readonly string[]).includes(name) &&
         name !== "schema_migrations" &&
         name !== "exomem_cloud_imports" &&
         name !== "exomem_cloud_exports"
@@ -247,6 +263,43 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       [host]
     );
     assert.equal(gone.rowCount, 0);
+  });
+
+  it("keeps retained evidence append-only and log-only credentials outside controller and gateway grants", async () => {
+    const none = { select: false, insert: false, update: false, delete: false };
+    const read = { ...none, select: true };
+    const append = { ...read, insert: true };
+    const authTables = Object.fromEntries(ACCESS_AUTH_TABLES.map((name) => [name, none]));
+    assert.deepEqual(await tablePrivileges("substrate_app", ACCESS_RECORD_TABLES), {
+      exomem_cloud_access_receipts: append,
+      exomem_cloud_access_records: read,
+      exomem_cloud_access_entries: read,
+      exomem_cloud_placements: read,
+    });
+    assert.deepEqual(await tablePrivileges("exomem_cellctl", ACCESS_RECORD_TABLES), {
+      exomem_cloud_access_receipts: { ...read, update: true },
+      exomem_cloud_access_records: append,
+      exomem_cloud_access_entries: append,
+      exomem_cloud_placements: { ...append, update: true },
+    });
+    assert.deepEqual(
+      await tablePrivileges("exomem_gateway", ACCESS_RECORD_TABLES),
+      Object.fromEntries(ACCESS_RECORD_TABLES.map((name) => [name, none]))
+    );
+    assert.deepEqual(await tablePrivileges("exomem_cellctl", ACCESS_AUTH_TABLES), authTables);
+    assert.deepEqual(await tablePrivileges("exomem_gateway", ACCESS_AUTH_TABLES), authTables);
+    assert.deepEqual(
+      await tablePrivileges("substrate_app", ACCESS_AUTH_TABLES),
+      Object.fromEntries(ACCESS_AUTH_TABLES.map((name) => [name, { ...append, update: true, delete: true }]))
+    );
+    await assert.rejects(appPool!.query("UPDATE exomem_cloud_access_records SET target = 'changed'"), {
+      code: "42501",
+    });
+    await assert.rejects(cellctlPool!.query("DELETE FROM exomem_cloud_access_entries"), { code: "42501" });
+    await assert.rejects(cellctlPool!.query("SELECT code_digest FROM exomem_cloud_access_grants"), {
+      code: "42501",
+    });
+    await assert.rejects(gatewayPool!.query("SELECT 1 FROM exomem_cloud_access_records"), { code: "42501" });
   });
 
   // D7: schema_migrations belongs to the migration runner. No runtime code
@@ -783,7 +836,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     }
   });
 
-  it("changes nothing on a second application (relacl/attacl snapshot)", async () => {
+  it("changes no relation or column grant on a second application", async () => {
     const before1 = await aclSnapshot();
     const ownerUrl = roleUrl(databaseUrl!, "substrate_owner");
     await applyMigrations({ databaseUrl: ownerUrl });

@@ -11,6 +11,7 @@ export function DeleteDialog({
   step,
   linkMinutes,
   exportOffered,
+  accessLogOffered = false,
   onSend,
   onClose,
 }: {
@@ -19,6 +20,7 @@ export function DeleteDialog({
   linkMinutes: number | null;
   /** False while the export flag is off: support makes the copy (design.md deviation (s)). */
   exportOffered: boolean;
+  accessLogOffered?: boolean;
   onSend: () => void;
   onClose: () => void;
 }) {
@@ -60,6 +62,15 @@ export function DeleteDialog({
               </>
             )}
           </p>
+          {accessLogOffered && (
+            <p className={styles.dialogText}>
+              To read your access log after deletion,{" "}
+              <a className={styles.inlineButton} href="/exomem/access-log">
+                save its recovery code
+              </a>{" "}
+              first. You can still delete without it.
+            </p>
+          )}
           {step === "failed" && (
             <p className={styles.dialogText} role="alert">
               That didn’t finish. Try again in a minute.
