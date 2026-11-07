@@ -72,6 +72,19 @@ type CloudCellUsageRow = {
   used_bytes: string | null;
   filesystem_bytes: string | null;
   usage_observed_at: Date | null;
+  custody_observation: Record<string, unknown> | null;
+  content_keys_retired_at: Date | null;
+  last_live_key_destroyed_at: Date | null;
+  key_retention_sources: unknown[] | null;
+  keys_expire_at: Date | null;
+};
+
+export type CloudCustodyObservation = {
+  observation: Record<string, unknown> | null;
+  content_keys_retired_at: string | null;
+  last_live_key_destroyed_at: string | null;
+  retention_sources: unknown[] | null;
+  keys_expire_at: string | null;
 };
 
 export function mapCloudCellToLifecycleStatus(
@@ -152,6 +165,8 @@ async function readNewestCloudCell(
     /* exomem-cloud:home-status */
     SELECT cell.desired_state, cell.observed_state, cell.ready, cell.last_error_code,
            cell.hold_kind, cell.used_bytes, cell.filesystem_bytes, cell.usage_observed_at,
+           cell.custody_observation, cell.content_keys_retired_at, cell.last_live_key_destroyed_at,
+           cell.key_retention_sources, cell.keys_expire_at,
            entitlement.source_state
     FROM exomem_cloud_cells AS cell
     LEFT JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
@@ -171,11 +186,19 @@ export async function getOwnerCloudHomeStatus(tenantId: string): Promise<{
   status: LifecycleStatus;
   storage: CloudStorageObservation;
   importAvailable: boolean;
+  custody: CloudCustodyObservation;
 }> {
   const row = await readNewestCloudCell(tenantId);
   return {
     status: mapCloudCellToLifecycleStatus(row),
     storage: mapCloudCellToStorage(row),
     importAvailable: cloudImportAvailable(row?.desired_state),
+    custody: {
+      observation: row?.custody_observation ?? null,
+      content_keys_retired_at: row?.content_keys_retired_at?.toISOString() ?? null,
+      last_live_key_destroyed_at: row?.last_live_key_destroyed_at?.toISOString() ?? null,
+      retention_sources: row?.key_retention_sources ?? null,
+      keys_expire_at: row?.keys_expire_at?.toISOString() ?? null,
+    },
   };
 }

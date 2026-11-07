@@ -1913,6 +1913,27 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
   });
 
   describe("storage", () => {
+    it("reports custody and retained-copy evidence without changing cell availability", async () => {
+      const alice = await owner();
+      const before = await getOwnerCloudHomeStatus(alice.tenantId);
+      assert.equal(before.custody.observation, null);
+      const observation = {
+        volume: "legacy-shared-key",
+        scratch: "configured",
+        node_swap: "unknown",
+      };
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET custody_observation=$2::jsonb,content_keys_retired_at='2026-10-20T03:00:00Z' WHERE cell_id=$1",
+        [alice.cellId, JSON.stringify(observation)]
+      );
+      const after = await getOwnerCloudHomeStatus(alice.tenantId);
+      assert.deepEqual(after.status, before.status);
+      assert.deepEqual(after.custody.observation, observation);
+      assert.equal(after.custody.content_keys_retired_at, "2026-10-20T03:00:00.000Z");
+      assert.equal(after.custody.keys_expire_at, null);
+      assert.equal(after.custody.retention_sources, null);
+    });
+
     it("reports measured storage when cellctl has reported it, unknown before, and refuses an impossible report", async () => {
       const alice = await owner();
       assert.deepEqual((await getOwnerCloudHomeStatus(alice.tenantId)).storage, {
