@@ -182,8 +182,11 @@ export async function applyMigrations(
     grantsFile?: string;
   } = {}
 ): Promise<void> {
-  const { dry = false, migrationsDir = DEFAULT_MIGRATIONS_DIR, grantsFile = DEFAULT_GRANTS_FILE } =
-    opts;
+  const {
+    dry = false,
+    migrationsDir = DEFAULT_MIGRATIONS_DIR,
+    grantsFile = DEFAULT_GRANTS_FILE,
+  } = opts;
   const client = getClient(opts.databaseUrl);
   await client.connect();
   let locked = false;
@@ -246,6 +249,12 @@ export async function applyMigrations(
       process.stdout.write("[migrate] applying grants ... ");
       try {
         await applyGrants(client, grantsFile);
+        // The separate additive access contract also supports the controller's pinned fixtures.
+        if (grantsFile === DEFAULT_GRANTS_FILE)
+          await applyGrants(
+            client,
+            resolve(process.cwd(), "scripts/exomem-cloud-access-grants.sql")
+          );
         console.log("ok");
       } catch (err) {
         console.log("FAIL");

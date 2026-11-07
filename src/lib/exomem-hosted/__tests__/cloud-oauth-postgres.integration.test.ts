@@ -9,6 +9,7 @@ import {
   assertPrincipalOwnsCloudCell,
   CloudPrincipalHasNoCellError,
   findCloudOAuthAccessToken,
+  findCloudOAuthLogin,
   resolveApprovedCloudOAuthClient,
 } from "../cloud-oauth";
 import { __setExomemSqlForTests, type ExomemSql } from "../db";
@@ -401,5 +402,91 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
 
     const deletedOnly = await grantFor(await newTenantWithCell("deleted"));
     await assert.rejects(assertGrantOwnsCloudCell(deletedOnly), CloudPrincipalHasNoCellError);
+  });
+
+  // bridge-cloud-agent-uploads: a delegated upload holds no bearer and may
+  // outlive one 15-minute access token, so its login family is what counts.
+  it("follows a delegated upload's login family through each revocation, not its access token", async () => {
+    const clientId = `https://upload-login-${randomUUID()}.example.test/client.json`;
+    const host = new URL(clientId).hostname;
+    await admitCimdHost("claude", host);
+    await createCimdClient({ clientId, host });
+    const clientRow = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
+      [clientId]
+    );
+    const tenantId = await newTenantWithCell("running");
+    const tenant = await pool!.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+      [tenantId]
+    );
+    const userId = tenant.rows[0]!.owner_user_id;
+    const accessDigest = await mintAccessToken({
+      clientDbId: clientRow.rows[0]!.id,
+      tenantId,
+      userId,
+      resource: CLOUD_RESOURCE,
+    });
+    const token = await pool!.query<{ family_id: string; grant_id: string }>(
+      "SELECT family_id, grant_id FROM exomem_oauth_access_tokens WHERE access_digest = $1",
+      [accessDigest]
+    );
+    const login = { familyId: token.rows[0]!.family_id, grantId: token.rows[0]!.grant_id };
+    const current = () => findCloudOAuthLogin(login, CLOUD_RESOURCE);
+
+    await pool!.query(
+      // A 15-minute token issued 20 minutes ago, as an upload long after the handoff would see.
+      `UPDATE exomem_oauth_access_tokens
+       SET created_at = now() - interval '20 minutes', expires_at = now() - interval '5 minutes'
+       WHERE access_digest = $1`,
+      [accessDigest]
+    );
+    assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+    const found = await current();
+    assert.equal(found?.tenantId, tenantId);
+    assert.equal(found?.clientId, clientId);
+    assert.equal(found?.cellDesiredState, "running");
+    assert.equal("scopes" in found!, false);
+
+    assert.equal(
+      await findCloudOAuthLogin({ ...login, grantId: randomUUID() }, CLOUD_RESOURCE),
+      null
+    );
+    assert.equal(await findCloudOAuthLogin(login, "https://hosted.example.test/mcp"), null);
+
+    const revocations: Array<[string, string, string]> = [
+      [
+        "UPDATE exomem_oauth_token_families SET revoked_at = now() WHERE id = $1",
+        "UPDATE exomem_oauth_token_families SET revoked_at = NULL WHERE id = $1",
+        login.familyId,
+      ],
+      [
+        "UPDATE exomem_oauth_grants SET revoked_at = now() WHERE id = $1",
+        "UPDATE exomem_oauth_grants SET revoked_at = NULL WHERE id = $1",
+        login.grantId,
+      ],
+      [
+        `INSERT INTO exomem_oauth_account_blocks (owner_user_id, tenant_id, blocked_reason)
+         SELECT owner_user_id, id, 'operator_revoked' FROM exomem_tenants WHERE id = $1`,
+        "DELETE FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+        tenantId,
+      ],
+      [
+        "UPDATE exomem_tenants SET status = 'deletion_pending' WHERE id = $1",
+        "UPDATE exomem_tenants SET status = 'provisioning' WHERE id = $1",
+        tenantId,
+      ],
+      [
+        "UPDATE exomem_oauth_clients SET enabled = false WHERE client_id = $1",
+        "UPDATE exomem_oauth_clients SET enabled = true WHERE client_id = $1",
+        clientId,
+      ],
+    ];
+    for (const [revoke, restore, id] of revocations) {
+      await pool!.query(revoke, [id]);
+      assert.equal(await current(), null, revoke);
+      await pool!.query(restore, [id]);
+      assert.equal((await current())?.familyId, login.familyId, restore);
+    }
   });
 });

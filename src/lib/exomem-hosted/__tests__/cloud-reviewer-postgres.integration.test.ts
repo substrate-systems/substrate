@@ -188,7 +188,6 @@ async function grantCode(fixture: Awaited<ReturnType<typeof reviewerFixture>>) {
     resource: CLOUD_RESOURCE,
     pkceChallenge: "challenge",
     refreshDigest: randomBytes(32),
-    refreshExpiresAt: new Date(Date.now() + 86_400_000),
     accessDigest: randomBytes(32),
     accessExpiresAt: new Date(Date.now() + 86_400_000),
   };

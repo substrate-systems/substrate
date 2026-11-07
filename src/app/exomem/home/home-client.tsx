@@ -92,6 +92,7 @@ export default function HomeClient({
   channelOn,
   statusPageUrl,
   storageOffered = false,
+  accessLogOffered = false,
 }: {
   priceId: string | null;
   /** Whether Home offers an export: the export flag (design.md deviation (s)). */
@@ -104,6 +105,7 @@ export default function HomeClient({
   /** "Status page ↗" on the trouble notice; null when none is configured. */
   statusPageUrl: string | null;
   storageOffered?: boolean;
+  accessLogOffered?: boolean;
   viewerOffered?: boolean;
 }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
@@ -553,6 +555,7 @@ export default function HomeClient({
         step={deleteStep}
         linkMinutes={deleteMinutes}
         exportOffered={exportOffered}
+        accessLogOffered={accessLogOffered}
         onSend={() => void onSendDeletion()}
         onClose={() => setDeleteStep(null)}
       />
@@ -852,6 +855,11 @@ export default function HomeClient({
             </div>
           </div>
           <div className={styles.secondaryColumn}>
+            {accessLogOffered && (
+              <a className={styles.inlineButton} href="/exomem/access-log">
+                Access log
+              </a>
+            )}
             <PlanAndAccount
               plan={planView(variant, account, billing, clock)}
               storage={storage}

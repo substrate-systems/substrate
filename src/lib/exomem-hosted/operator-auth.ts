@@ -25,3 +25,18 @@ export function requireExomemOperator(request: Request): ExomemOperatorContext {
     principalDigest: digestSecret(`exomem-admin\0${configured}`),
   };
 }
+
+/** The release route alone accepts this image-setting principal. */
+export function requireExomemDeployer(request: Request): ExomemOperatorContext {
+  const configured = process.env.EXOMEM_DEPLOY_TOKEN;
+  const presented = bearerToken(request);
+  if (
+    configured &&
+    tokenDigest(configured) &&
+    presented &&
+    constantTimeSecretEqual(configured, presented)
+  ) {
+    return { principalDigest: digestSecret(`exomem-deploy\0${configured}`) };
+  }
+  return requireExomemOperator(request);
+}

@@ -202,6 +202,15 @@ BEGIN
     ) THEN
       GRANT UPDATE (import_limits) ON exomem_cloud_cells TO exomem_cellctl;
     END IF;
+    -- Migration 0081: cellctl mints each media key bundle and wraps it under the cell root.
+    -- The grant lives here, not in the migration, because the REVOKE above runs after every migration.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'media_key_wrapped'
+    ) THEN
+      GRANT UPDATE (media_key_wrapped, media_key_version) ON exomem_cloud_cells TO exomem_cellctl;
+    END IF;
     GRANT INSERT, UPDATE ON exomem_cloud_capacity TO exomem_cellctl;
     GRANT UPDATE (paused, error_code, held_cell_id, last_good_image, updated_at)
       ON exomem_cloud_rollout TO exomem_cellctl;
@@ -235,6 +244,15 @@ BEGIN
       END IF;
       GRANT UPDATE (requested_state, part_etags, ciphertext_sha256, ciphertext_bytes)
         ON exomem_cloud_imports TO substrate_app;
+      -- Migration 0082: the signed grant, written when the upload completes. exomem_cellctl reads
+      -- it with its table SELECT and holds no write on it.
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = 'exomem_cloud_imports'
+          AND column_name = 'operation_grant'
+      ) THEN
+        GRANT UPDATE (operation_grant) ON exomem_cloud_imports TO substrate_app;
+      END IF;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
       GRANT SELECT ON exomem_cloud_imports TO exomem_cellctl;
@@ -272,6 +290,15 @@ BEGIN
       GRANT SELECT ON exomem_cloud_exports TO substrate_app;
       GRANT INSERT (export_id, cell_id, requested_state, link_requested_at) ON exomem_cloud_exports TO substrate_app;
       GRANT UPDATE (requested_state, link_requested_at) ON exomem_cloud_exports TO substrate_app;
+      -- Migration 0082: the signed grant, written once when the export is created. exomem_cellctl
+      -- reads it with its table SELECT and holds no write on it.
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = 'exomem_cloud_exports'
+          AND column_name = 'operation_grant'
+      ) THEN
+        GRANT INSERT (operation_grant) ON exomem_cloud_exports TO substrate_app;
+      END IF;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
       GRANT SELECT ON exomem_cloud_exports TO exomem_cellctl;

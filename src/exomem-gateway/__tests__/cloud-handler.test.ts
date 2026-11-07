@@ -1190,7 +1190,7 @@ describe("Cloud artifact fetch authority", () => {
     }
   });
 
-  it("loads a separate signer only for enabled, explicitly selected cells", () => {
+  it("requires a usable signer once artifact transport is on, without echoing a bad key", () => {
     const env = {
       EXOMEM_CLOUD_MCP_URL: TEST_CONFIG.mcpUrl,
       EXOMEM_CLOUD_MCP_PATH: TEST_CONFIG.mcpPath,

@@ -17,6 +17,21 @@ export const ALERT_MAX_BODY_BYTES = 4096;
 export const ALERT_TRANSITION_HEADER = "x-exomem-alert-transition";
 const ALERT_TOKEN_DIGEST_VARIABLE = "EXOMEM_HOSTED_ALERT_TOKEN_SHA256";
 const ALERT_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS";
+/** The object-store key watcher runs outside the cluster with its own
+ * capability, so a cluster component that holds the scheduler capability can
+ * neither forge its heartbeat nor clear its alerts. */
+const KEY_WATCHER_TOKEN_DIGEST_VARIABLE = "EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256";
+const KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256_PREVIOUS";
+/** The only job the key-watcher capability may report, and a job the
+ * scheduler capability may never report. Fixed by the watcher's contract
+ * (`infra/scripts/b2_key_watcher.py` in the Exomem repository). */
+export const KEY_WATCHER_JOB = "b2-key-watcher";
+/** Sent once per completed watcher run, always inactive. After the first
+ * delivered marker the redundancy check keeps every later one silent. */
+export const KEY_WATCHER_RUN_ALERT = "KEY_WATCHER_RUN";
+export const KEY_WATCHER_STALE_ALERT = "KEY_WATCHER_STALE";
+/** The watcher runs hourly; two missed runs mean it stopped. */
+const KEY_WATCHER_STALE_AFTER_SECONDS = 2 * 60 * 60;
 const ALERT_RECIPIENT_VARIABLE = "EXOMEM_HOSTED_ALERT_RECIPIENT";
 const DEFAULT_ALERT_RECIPIENT = "founder@substratesystems.io";
 /** Longest URL segment we will hash. Bounds work before any comparison. */
@@ -78,6 +93,17 @@ function constantTimeEqualHex(provided: string, expected: string): boolean {
   return candidate.length === reference.length && timingSafeEqual(candidate, reference);
 }
 
+export type AlertCredential = "scheduler" | "key-watcher";
+
+function digestRing(activeVariable: string, previousVariable: string): string[] {
+  const active = process.env[activeVariable];
+  if (!active || !HEX_64.test(active)) return [];
+  const previous = process.env[previousVariable];
+  return [active, previous].filter(
+    (digest): digest is string => typeof digest === "string" && HEX_64.test(digest)
+  );
+}
+
 /** Authenticate the URL capability against a stored digest.
  *
  * Only the SHA-256 of the token lives in Vercel configuration. The plaintext
@@ -89,19 +115,41 @@ function constantTimeEqualHex(provided: string, expected: string): boolean {
  * One explicit previous digest is accepted so rotation has no gap: the new
  * digest is published first, the single-version K3s sender URL cuts over, and
  * only then is the previous digest retired. This mirrors the two-version
- * receiver overlap used for `EXOMEM_HOSTED_SCHEDULER_SECRET`; no larger key
- * ring and no implicit fallback are accepted.
+ * receiver overlap used for `EXOMEM_HOSTED_SCHEDULER_SECRET`. Each capability
+ * (scheduler, key watcher) has exactly this two-slot ring and no implicit
+ * fallback; the returned credential decides which jobs it may report.
  */
-export function verifyAlertToken(token: string | undefined): void {
-  const active = process.env[ALERT_TOKEN_DIGEST_VARIABLE];
-  if (!active || !HEX_64.test(active)) throw notFound();
-  if (!token || token.length > ALERT_TOKEN_MAX_LENGTH) throw notFound();
-  const previous = process.env[ALERT_TOKEN_DIGEST_PREVIOUS_VARIABLE];
-  const accepted = [active, previous].filter(
-    (digest): digest is string => typeof digest === "string" && HEX_64.test(digest)
+export function verifyAlertToken(token: string | undefined): AlertCredential {
+  const scheduler = digestRing(ALERT_TOKEN_DIGEST_VARIABLE, ALERT_TOKEN_DIGEST_PREVIOUS_VARIABLE);
+  const keyWatcher = digestRing(
+    KEY_WATCHER_TOKEN_DIGEST_VARIABLE,
+    KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE
   );
+  if (scheduler.length === 0 && keyWatcher.length === 0) throw notFound();
+  if (!token || token.length > ALERT_TOKEN_MAX_LENGTH) throw notFound();
   const actual = createHash("sha256").update(token, "utf8").digest("hex");
-  if (!accepted.some((digest) => constantTimeEqualHex(actual, digest))) throw notFound();
+  if (scheduler.some((digest) => constantTimeEqualHex(actual, digest))) return "scheduler";
+  if (keyWatcher.some((digest) => constantTimeEqualHex(actual, digest))) return "key-watcher";
+  throw notFound();
+}
+
+/** The stored key for a sender's transition id.
+ *
+ * Transition ids are chosen by senders and are often derived from public
+ * strings, while the table's key is global. Hashing the job into the key gives
+ * every job its own id space, so one capability cannot insert a row under an
+ * id that another job will later need and have `ON CONFLICT DO NOTHING`
+ * swallow the genuine transition. `CONTRACT_LABEL` excludes `|`, so the
+ * input is unambiguous.
+ */
+export function storedTransitionId(job: string, senderTransitionId: string): string {
+  return createHash("sha256").update(`${job}|${senderTransitionId}`, "utf8").digest("hex");
+}
+
+/** Bind each capability to its own jobs, so neither sender can speak for the other. */
+export function assertJobForCredential(credential: AlertCredential, job: string): void {
+  const isKeyWatcherJob = job === KEY_WATCHER_JOB;
+  if ((credential === "key-watcher") !== isKeyWatcherJob) throw payloadInvalid();
 }
 
 /** Accept exactly the sender's shape and nothing else.
@@ -439,4 +487,46 @@ export async function runAlertNotificationPass(options: {
     outcomes.push(await deliverClaimedAlert(transitionId));
   }
   return outcomes;
+}
+
+export type KeyWatcherHeartbeat =
+  | { enabled: false }
+  | { enabled: true; stale: boolean; transitionId: string; accepted: boolean };
+
+/** Raise or clear `KEY_WATCHER_STALE` from the age of the last run marker.
+ *
+ * A missed run is the one failure the watcher cannot report itself, so the
+ * check lives here, on a schedule the cluster does not run. Disabled until the
+ * key-watcher capability is configured, so an unconfigured deploy raises
+ * nothing. The transition id repeats within a UTC day, which keeps a daily
+ * restatement idempotent.
+ */
+export async function evaluateKeyWatcherHeartbeat(now: Date): Promise<KeyWatcherHeartbeat> {
+  const ring = digestRing(KEY_WATCHER_TOKEN_DIGEST_VARIABLE, KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE);
+  if (ring.length === 0) return { enabled: false };
+  const { rows } = await executeExomemSql`
+    /* exomem:key-watcher-heartbeat-age */
+    SELECT EXTRACT(EPOCH FROM (${now.toISOString()}::timestamptz - max(received_at))) AS age_seconds
+    FROM exomem_hosted_alert_transitions
+    WHERE job = ${KEY_WATCHER_JOB}
+      AND alert = ${KEY_WATCHER_RUN_ALERT}
+  `;
+  const age = rows[0]?.age_seconds;
+  const ageSeconds = age === null || age === undefined ? null : Number(age);
+  const stale =
+    ageSeconds === null || !Number.isFinite(ageSeconds) || ageSeconds > KEY_WATCHER_STALE_AFTER_SECONDS;
+  const day = now.toISOString().slice(0, 10);
+  const transitionId = storedTransitionId(
+    KEY_WATCHER_JOB,
+    createHash("sha256")
+      .update(`${KEY_WATCHER_JOB}|${KEY_WATCHER_STALE_ALERT}|${stale}|${day}`, "utf8")
+      .digest("hex")
+  );
+  const { accepted } = await recordAlertTransition({
+    transitionId,
+    job: KEY_WATCHER_JOB,
+    alert: KEY_WATCHER_STALE_ALERT,
+    active: stale,
+  });
+  return { enabled: true, stale, transitionId, accepted };
 }

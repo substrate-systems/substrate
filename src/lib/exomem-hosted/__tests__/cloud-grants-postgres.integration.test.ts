@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,9 +10,10 @@ import { randomCloudCellId, redeemCloudInviteAtomic } from "../cloud-admission";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest } from "../cloud-home-mcp";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
-import { findCloudOAuthAccessToken, recordCloudAppUse } from "../cloud-oauth";
+import { findCloudOAuthAccessToken, findCloudOAuthLogin, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
+import { assertCellAcceptsGrant } from "./cell-grant-rules";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // D7 (reopened task 3.2): scripts/exomem-cloud-grants.sql is the single
@@ -36,6 +37,18 @@ const C1_TABLES = [
   "exomem_cloud_settings",
   "exomem_cloud_capacity",
   "exomem_cloud_rollout",
+] as const;
+// Migration 0083 fixes these evidence and authentication tables, not tenant vocabulary.
+const ACCESS_RECORD_TABLES = [
+  "exomem_cloud_access_receipts",
+  "exomem_cloud_access_records",
+  "exomem_cloud_access_entries",
+  "exomem_cloud_placements",
+] as const;
+const ACCESS_AUTH_TABLES = [
+  "exomem_cloud_access_grants",
+  "exomem_cloud_access_sessions",
+  "exomem_cloud_access_challenges",
 ] as const;
 const CLOUD_RESOURCE = "https://cloud.example.test/mcp/v1";
 
@@ -123,24 +136,27 @@ async function publicTableNames(): Promise<string[]> {
   return rows.map((row) => row.table_name);
 }
 
-/** Every relation and column ACL in the schema, for the "second run changes
- * nothing" proof -- relacl/attacl, not a narrower per-table has_privilege
- * spot check, so nothing this script grants can drift unnoticed. */
+/** Compare every relation/column grant by meaning, including grant options.
+ * PostgreSQL can reorder equivalent ACL entries when grants are reapplied. */
 async function aclSnapshot(): Promise<{ relacl: unknown[]; attacl: unknown[] }> {
   const relacl = await adminPool!.query(
-    `SELECT c.relname, c.relacl
+    `SELECT c.relname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable
      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN LATERAL aclexplode(COALESCE(c.relacl,
+       acldefault(CASE WHEN c.relkind = 'S' THEN 's'::"char" ELSE 'r'::"char" END, c.relowner)
+     )) acl ON true
      WHERE n.nspname = $1 AND c.relkind IN ('r', 'S')
-     ORDER BY c.relname`,
+     ORDER BY c.relname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable`,
     [schema]
   );
   const attacl = await adminPool!.query(
-    `SELECT c.relname, a.attname, a.attacl
+    `SELECT c.relname, a.attname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable
      FROM pg_attribute a
      JOIN pg_class c ON c.oid = a.attrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = $1 AND a.attacl IS NOT NULL AND a.attnum > 0 AND NOT a.attisdropped
-     ORDER BY c.relname, a.attname`,
+     CROSS JOIN LATERAL aclexplode(a.attacl) acl
+     WHERE n.nspname = $1 AND a.attnum > 0 AND NOT a.attisdropped
+     ORDER BY c.relname, a.attname, acl.grantor, acl.grantee, acl.privilege_type, acl.is_grantable`,
     [schema]
   );
   return { relacl: relacl.rows, attacl: attacl.rows };
@@ -209,11 +225,12 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await adminPool?.end();
   });
 
-  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside C1-C1d, C5 and C6, proven with a real round trip", async () => {
+  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside restricted Cloud tables, proven with a real round trip", async () => {
     const tableNames = await publicTableNames();
     const nonCloudTables = tableNames.filter(
       (name) =>
         !(C1_TABLES as readonly string[]).includes(name) &&
+        !(ACCESS_RECORD_TABLES as readonly string[]).includes(name) &&
         name !== "schema_migrations" &&
         name !== "exomem_cloud_imports" &&
         name !== "exomem_cloud_exports"
@@ -246,6 +263,43 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       [host]
     );
     assert.equal(gone.rowCount, 0);
+  });
+
+  it("keeps retained evidence append-only and log-only credentials outside controller and gateway grants", async () => {
+    const none = { select: false, insert: false, update: false, delete: false };
+    const read = { ...none, select: true };
+    const append = { ...read, insert: true };
+    const authTables = Object.fromEntries(ACCESS_AUTH_TABLES.map((name) => [name, none]));
+    assert.deepEqual(await tablePrivileges("substrate_app", ACCESS_RECORD_TABLES), {
+      exomem_cloud_access_receipts: append,
+      exomem_cloud_access_records: read,
+      exomem_cloud_access_entries: read,
+      exomem_cloud_placements: read,
+    });
+    assert.deepEqual(await tablePrivileges("exomem_cellctl", ACCESS_RECORD_TABLES), {
+      exomem_cloud_access_receipts: { ...read, update: true },
+      exomem_cloud_access_records: append,
+      exomem_cloud_access_entries: append,
+      exomem_cloud_placements: { ...append, update: true },
+    });
+    assert.deepEqual(
+      await tablePrivileges("exomem_gateway", ACCESS_RECORD_TABLES),
+      Object.fromEntries(ACCESS_RECORD_TABLES.map((name) => [name, none]))
+    );
+    assert.deepEqual(await tablePrivileges("exomem_cellctl", ACCESS_AUTH_TABLES), authTables);
+    assert.deepEqual(await tablePrivileges("exomem_gateway", ACCESS_AUTH_TABLES), authTables);
+    assert.deepEqual(
+      await tablePrivileges("substrate_app", ACCESS_AUTH_TABLES),
+      Object.fromEntries(ACCESS_AUTH_TABLES.map((name) => [name, { ...append, update: true, delete: true }]))
+    );
+    await assert.rejects(appPool!.query("UPDATE exomem_cloud_access_records SET target = 'changed'"), {
+      code: "42501",
+    });
+    await assert.rejects(cellctlPool!.query("DELETE FROM exomem_cloud_access_entries"), { code: "42501" });
+    await assert.rejects(cellctlPool!.query("SELECT code_digest FROM exomem_cloud_access_grants"), {
+      code: "42501",
+    });
+    await assert.rejects(gatewayPool!.query("SELECT 1 FROM exomem_cloud_access_records"), { code: "42501" });
   });
 
   // D7: schema_migrations belongs to the migration runner. No runtime code
@@ -449,6 +503,37 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       appPool!.query("UPDATE exomem_cloud_cells SET grown_storage_gib = 12 WHERE cell_id = $1", [
         id,
       ]),
+      /permission denied/
+    );
+  });
+
+  // Migration 0081 (Exomem add-cloud-media-store D5): cellctl stores each cell's
+  // media key bundle, wrapped under the cell root. The grants script revokes every
+  // grant on the cell table after each migration run, so a grant that only the
+  // migration wrote would be gone, and every bundle mint would fail in production.
+  it("lets exomem_cellctl store a cell's media key bundle, and neither substrate_app nor the gateway can", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("p");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    const bundle = randomBytes(92);
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET media_key_wrapped = $2, media_key_version = 1 WHERE cell_id = $1",
+      [id, bundle]
+    );
+    const { rows } = await cellctlPool!.query(
+      "SELECT media_key_wrapped, media_key_version FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    assert.deepEqual(rows[0], { media_key_wrapped: bundle, media_key_version: 1 });
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET media_key_wrapped = NULL WHERE cell_id = $1", [id]),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("SELECT media_key_wrapped FROM exomem_cloud_cells WHERE cell_id = $1", [id]),
       /permission denied/
     );
   });
@@ -667,12 +752,16 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
           [found!.grantId],
         );
         assert.equal(recorded.rowCount, 1);
+        // A delegated upload names its login family instead of a token, through the same role.
+        const login = { familyId: family.rows[0]!.id, grantId: grant.rows[0]!.id };
+        assert.equal((await findCloudOAuthLogin(login, CLOUD_RESOURCE))?.tenantId, tenantId);
         if (reviewerPurpose) {
           await ownerPool!.query(
             "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",
             [tenantId],
           );
           assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+          assert.equal(await findCloudOAuthLogin(login, CLOUD_RESOURCE), null);
         }
       } finally {
         __setExomemSqlForTests(null);
@@ -783,7 +872,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     }
   });
 
-  it("changes nothing on a second application (relacl/attacl snapshot)", async () => {
+  it("changes no relation or column grant on a second application", async () => {
     const before1 = await aclSnapshot();
     const ownerUrl = roleUrl(databaseUrl!, "substrate_owner");
     await applyMigrations({ databaseUrl: ownerUrl });
@@ -1032,6 +1121,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       "cell_id",
       "export_id",
       "link_requested_at",
+      "operation_grant",
       "requested_state",
     ]);
     assert.deepEqual(await columnPrivileges("substrate_app", "exomem_cloud_exports", "UPDATE"), [
@@ -1072,6 +1162,113 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     assert.deepEqual(appUpdates.filter((column) => usage.includes(column)), []);
     const gatewayReads = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "SELECT");
     assert.deepEqual(gatewayReads.filter((column) => usage.includes(column)), []);
+  });
+
+  // contain-cloud-controller-compromise D4: cellctl relays the signed grant to the Job and must not
+  // be able to plant one. substrate_app alone writes the column, checked after a blanket grant and a
+  // rerun, as the C5 and C6 suites above check their own columns.
+  it("lets substrate_app write the operation grant and cellctl only read it, on exports and imports", async () => {
+    await ownerPool!.query(
+      "GRANT ALL ON exomem_cloud_imports, exomem_cloud_exports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+    );
+    await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
+
+    const can = async (role: string, table: string, privilege: string) =>
+      (
+        await ownerPool!.query<{ allowed: boolean }>(
+          "SELECT has_column_privilege($1, $2, 'operation_grant', $3) AS allowed",
+          [role, table, privilege]
+        )
+      ).rows[0]!.allowed;
+    for (const table of ["exomem_cloud_exports", "exomem_cloud_imports"]) {
+      assert.equal(await can("exomem_cellctl", table, "SELECT"), true, `cellctl reads ${table}`);
+      for (const privilege of ["INSERT", "UPDATE"]) {
+        assert.equal(
+          await can("exomem_cellctl", table, privilege),
+          false,
+          `cellctl ${privilege} ${table}`
+        );
+      }
+      for (const privilege of ["SELECT", "INSERT", "UPDATE"]) {
+        assert.equal(
+          await can("exomem_gateway", table, privilege),
+          false,
+          `gateway ${privilege} ${table}`
+        );
+      }
+    }
+    // substrate_app signs an export once, at creation, and an import once, at completion.
+    assert.deepEqual(
+      [
+        await can("substrate_app", "exomem_cloud_exports", "INSERT"),
+        await can("substrate_app", "exomem_cloud_exports", "UPDATE"),
+      ],
+      [true, false]
+    );
+    assert.deepEqual(
+      [
+        await can("substrate_app", "exomem_cloud_imports", "INSERT"),
+        await can("substrate_app", "exomem_cloud_imports", "UPDATE"),
+      ],
+      [false, true]
+    );
+
+    // The same, through statements as each role.
+    const tenantId = await newTenant();
+    const id = randomCloudCellId();
+    await appPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    const exported = await appPool!.query(
+      "INSERT INTO exomem_cloud_exports (cell_id, operation_grant) VALUES ($1, 'signed-by-substrate') RETURNING export_id",
+      [id]
+    );
+    const exportId = exported.rows[0].export_id;
+    const imported = await appPool!.query(
+      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1) RETURNING import_id",
+      [id]
+    );
+    const importId = imported.rows[0].import_id;
+    await appPool!.query(
+      "UPDATE exomem_cloud_imports SET operation_grant = 'signed-by-substrate' WHERE import_id = $1",
+      [importId]
+    );
+    for (const [table, key, value] of [
+      ["exomem_cloud_exports", "export_id", exportId],
+      ["exomem_cloud_imports", "import_id", importId],
+    ]) {
+      const read = await cellctlPool!.query(
+        `SELECT operation_grant FROM ${table} WHERE ${key} = $1`,
+        [value]
+      );
+      assert.equal(read.rows[0].operation_grant, "signed-by-substrate");
+      await assert.rejects(
+        cellctlPool!.query(
+          `UPDATE ${table} SET operation_grant = 'planted-by-cellctl' WHERE ${key} = $1`,
+          [value]
+        ),
+        { code: "42501" }
+      );
+      await assert.rejects(gatewayPool!.query(`SELECT operation_grant FROM ${table}`), {
+        code: "42501",
+      });
+    }
+    await assert.rejects(
+      cellctlPool!.query(
+        "INSERT INTO exomem_cloud_exports (cell_id, operation_grant) VALUES ($1, 'planted-by-cellctl')",
+        [id]
+      ),
+      { code: "42501" }
+    );
+    // Substrate cannot rewrite an export's grant either: it signs an export once.
+    await assert.rejects(
+      appPool!.query(
+        "UPDATE exomem_cloud_exports SET operation_grant = 'rewritten' WHERE export_id = $1",
+        [exportId]
+      ),
+      { code: "42501" }
+    );
   });
 
   it("runs the Home mint and the export request AS substrate_app, and the gateway resolves the Home token AS exomem_gateway", async () => {
@@ -1161,11 +1358,55 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       assert.equal(routed?.cellId, homeCellId);
       assert.equal(routed?.firstParty, true);
 
-      const started = await handleCloudExportsRequest(browser("POST", "/api/exomem/cloud/exports", {}), {
-        env: resourceEnv,
-      });
+      // No grant key is configured: the export is created, and its grant stays NULL for the cells to report.
+      const unsigned = await handleCloudExportsRequest(
+        browser("POST", "/api/exomem/cloud/exports", {}),
+        { env: resourceEnv }
+      );
+      assert.equal(unsigned.status, 201);
+      const unsignedId = ((await unsigned.json()) as { export: { export_id: string } }).export
+        .export_id;
+      assert.equal(
+        (
+          await cellctlPool!.query(
+            "SELECT operation_grant FROM exomem_cloud_exports WHERE export_id = $1",
+            [unsignedId]
+          )
+        ).rows[0].operation_grant,
+        null
+      );
+      await cellctlPool!.query(
+        "UPDATE exomem_cloud_exports SET observed_state = 'failed', error_code = 'EXPORT_FAILED' WHERE export_id = $1",
+        [unsignedId]
+      );
+
+      // With the key, the request path stores a grant that the cell accepts, and cellctl can read it.
+      const grantKey = generateKeyPairSync("ed25519");
+      const started = await handleCloudExportsRequest(
+        browser("POST", "/api/exomem/cloud/exports", {}),
+        {
+          env: {
+            ...resourceEnv,
+            EXOMEM_CLOUD_GRANT_SIGNING_KEY: grantKey.privateKey
+              .export({ format: "pem", type: "pkcs8" })
+              .toString(),
+          },
+        }
+      );
       assert.equal(started.status, 201);
-      const exportId = ((await started.json()) as { export: { export_id: string } }).export.export_id;
+      const exportId = ((await started.json()) as { export: { export_id: string } }).export
+        .export_id;
+      const stored = await cellctlPool!.query(
+        "SELECT operation_grant FROM exomem_cloud_exports WHERE export_id = $1",
+        [exportId]
+      );
+      await assertCellAcceptsGrant(stored.rows[0].operation_grant, grantKey.publicKey, {
+        operation: "export",
+        tenantId,
+        cellId: homeCellId,
+        operationId: exportId,
+        objectKey: `cells/${homeCellId}/exports/${exportId}.zip`,
+      });
       await cellctlPool!.query(
         `UPDATE exomem_cloud_exports
          SET observed_state = 'ready', archive_bytes = 10, archive_sha256 = repeat('d', 64),

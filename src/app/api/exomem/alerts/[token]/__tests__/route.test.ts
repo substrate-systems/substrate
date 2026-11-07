@@ -7,6 +7,8 @@ import { setOperationalEventSinkForTests } from "@/lib/exomem-hosted/observabili
 const TOKEN = "1f0c7a2b9d4e6f8a0b1c2d3e4f5a6b7c";
 const TOKEN_DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
 const TRANSITION_ID = "c3d4".repeat(16);
+const WATCHER_TOKEN = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b";
+const WATCHER_TOKEN_DIGEST = createHash("sha256").update(WATCHER_TOKEN, "utf8").digest("hex");
 
 let sent: Array<{ to: string; subject: string }> = [];
 
@@ -24,6 +26,7 @@ before(() => {
 after(() => mock.reset());
 
 let recorded: string[] = [];
+let insertedIds: unknown[] = [];
 let logLines: string[] = [];
 let insertConflicts = false;
 let storeFails = false;
@@ -36,6 +39,7 @@ function markerOf(strings: TemplateStringsArray): string {
 beforeEach(() => {
   sent = [];
   recorded = [];
+  insertedIds = [];
   logLines = [];
   insertConflicts = false;
   storeFails = false;
@@ -45,6 +49,7 @@ beforeEach(() => {
     const marker = markerOf(strings);
     recorded.push(marker);
     if (marker === "exomem:record-alert-transition") {
+      insertedIds.push(values[0]);
       if (storeFails) return Promise.reject(new Error("database unavailable"));
       return Promise.resolve({ rows: insertConflicts ? [] : [{ transition_id: values[0] }] });
     }
@@ -56,7 +61,12 @@ afterEach(() => {
   __setExomemSqlForTests(null);
   setOperationalEventSinkForTests(null);
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256;
+  delete process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256;
 });
+
+function watcherBytes(job: string): string {
+  return `{"active":false,"alert":"KEY_WATCHER_RUN","job":"${job}","schema_version":1,"transition_id":"${TRANSITION_ID}"}`;
+}
 
 /** Byte-identical to `json.dumps(..., separators=(",", ":"), sort_keys=True)`
  * in `infra/helm/platform/files/scheduler_runtime.py`. */
@@ -90,6 +100,42 @@ function params(token = TOKEN) {
 }
 
 describe("POST /api/exomem/alerts/[token]", () => {
+  it("refuses a key-watcher heartbeat sent with the scheduler capability", async () => {
+    // cellctl can read the scheduler capability; it must not be able to keep
+    // a stopped key watcher looking alive.
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_TOKEN_DIGEST;
+    const { POST } = await import("../route");
+    const response = await POST(senderRequest({ body: watcherBytes("b2-key-watcher") }), params());
+    assert.equal(response.status, 400);
+    assert.ok(!recorded.includes("exomem:record-alert-transition"));
+  });
+
+  it("stores each transition under a job-scoped key, so jobs cannot squat each other's ids", async () => {
+    const { POST } = await import("../route");
+    await POST(senderRequest({}), params());
+    const expected = createHash("sha256")
+      .update(`exomem-reconcile|${TRANSITION_ID}`, "utf8")
+      .digest("hex");
+    assert.deepEqual(insertedIds, [expected]);
+  });
+
+  it("accepts the key watcher's own capability only for its own job", async () => {
+    process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256 = WATCHER_TOKEN_DIGEST;
+    const { POST } = await import("../route");
+    const own = await POST(
+      senderRequest({ token: WATCHER_TOKEN, body: watcherBytes("b2-key-watcher") }),
+      params(WATCHER_TOKEN)
+    );
+    assert.equal(own.status, 200);
+    recorded = [];
+    const foreign = await POST(
+      senderRequest({ token: WATCHER_TOKEN, body: senderBytes() }),
+      params(WATCHER_TOKEN)
+    );
+    assert.equal(foreign.status, 400);
+    assert.ok(!recorded.includes("exomem:record-alert-transition"));
+  });
+
   it("exports only supported Next.js route handlers and configuration", async () => {
     const route = await import("../route");
     assert.deepEqual(Object.keys(route).sort(), [
