@@ -7,6 +7,7 @@ import {
   handleCloudUploadRequest,
 } from "./cloud-handler";
 import { CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./cloud-origin";
+import { FAVICON, FAVICON_HEADERS, FAVICON_PATH } from "./favicon";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
@@ -169,6 +170,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       }
       if (path === "/readyz") {
         response.writeHead(state.draining ? 503 : 200, CACHE_HEADERS).end();
+        return;
+      }
+      if (path === FAVICON_PATH && (request.method === "GET" || request.method === "HEAD")) {
+        response
+          .writeHead(200, FAVICON_HEADERS)
+          .end(request.method === "GET" ? FAVICON : undefined);
         return;
       }
       if (cloudMetadataPath && path === cloudMetadataPath) {

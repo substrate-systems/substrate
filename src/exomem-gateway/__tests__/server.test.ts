@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { after, before, describe, it } from "node:test";
@@ -53,7 +54,7 @@ describe("standalone Exomem gateway adapter", () => {
     );
   });
 
-  it("serves only probes and the Cloud MCP resource with private no-store responses", async () => {
+  it("serves probes and the Cloud MCP resource with private no-store responses", async () => {
     const server = createGatewayServer({
       handleCloudMcp: async () =>
         new Response("streamed", { headers: { "mcp-session-id": "session" } }),
@@ -79,6 +80,31 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal((await fetch(`${baseUrl}/upload`)).status, 404);
       assert.equal(await (await fetch(`${baseUrl}/download?path=a`)).text(), "original");
       assert.equal((await fetch(`${baseUrl}/download`, { method: "POST" })).status, 404);
+    } finally {
+      server.close();
+      await once(server, "close");
+    }
+  });
+
+  it("serves the Exomem icon at /favicon.ico so clients do not fall back to the parent domain's", async () => {
+    const server = createGatewayServer();
+    const baseUrl = await listen(server);
+    try {
+      const response = await fetch(`${baseUrl}/favicon.ico`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "image/x-icon");
+      const brandKit = readFileSync(
+        new URL("../../../public/exomem/icons/favicon.ico", import.meta.url)
+      );
+      assert.deepEqual(
+        Buffer.from(await response.arrayBuffer()),
+        brandKit,
+        "the brand-kit favicon"
+      );
+      const head = await fetch(`${baseUrl}/favicon.ico`, { method: "HEAD" });
+      assert.equal(head.status, 200);
+      assert.equal(await head.text(), "");
+      assert.equal((await fetch(`${baseUrl}/favicon.ico`, { method: "POST" })).status, 404);
     } finally {
       server.close();
       await once(server, "close");
