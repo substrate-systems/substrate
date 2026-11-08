@@ -85,6 +85,26 @@ describe("standalone Exomem gateway adapter", () => {
     }
   });
 
+  it("serves the Exomem icon at /favicon.ico so clients do not fall back to the parent domain's", async () => {
+    const server = createGatewayServer();
+    const baseUrl = await listen(server);
+    try {
+      const response = await fetch(`${baseUrl}/favicon.ico`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "image/x-icon");
+      const icon = Buffer.from(await response.arrayBuffer());
+      assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0], "an ICO header");
+      assert.equal(icon.readUInt16LE(4), 3, "16, 32 and 48 px images");
+      const head = await fetch(`${baseUrl}/favicon.ico`, { method: "HEAD" });
+      assert.equal(head.status, 200);
+      assert.equal(await head.text(), "");
+      assert.equal((await fetch(`${baseUrl}/favicon.ico`, { method: "POST" })).status, 404);
+    } finally {
+      server.close();
+      await once(server, "close");
+    }
+  });
+
   it("cancels an aborted response stream and frees the inflight slot", async () => {
     let cancelled = false;
     let calls = 0;
