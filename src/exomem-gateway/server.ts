@@ -173,7 +173,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
         return;
       }
       if (path === FAVICON_PATH && (request.method === "GET" || request.method === "HEAD")) {
-        response.writeHead(200, FAVICON_HEADERS).end(request.method === "GET" ? FAVICON : undefined);
+        response
+          .writeHead(200, FAVICON_HEADERS)
+          .end(request.method === "GET" ? FAVICON : undefined);
         return;
       }
       if (cloudMetadataPath && path === cloudMetadataPath) {

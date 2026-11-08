@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { after, before, describe, it } from "node:test";
@@ -53,7 +54,7 @@ describe("standalone Exomem gateway adapter", () => {
     );
   });
 
-  it("serves only probes and the Cloud MCP resource with private no-store responses", async () => {
+  it("serves probes and the Cloud MCP resource with private no-store responses", async () => {
     const server = createGatewayServer({
       handleCloudMcp: async () =>
         new Response("streamed", { headers: { "mcp-session-id": "session" } }),
@@ -92,9 +93,14 @@ describe("standalone Exomem gateway adapter", () => {
       const response = await fetch(`${baseUrl}/favicon.ico`);
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("content-type"), "image/x-icon");
-      const icon = Buffer.from(await response.arrayBuffer());
-      assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0], "an ICO header");
-      assert.equal(icon.readUInt16LE(4), 3, "16, 32 and 48 px images");
+      const brandKit = readFileSync(
+        new URL("../../../public/exomem/icons/favicon.ico", import.meta.url)
+      );
+      assert.deepEqual(
+        Buffer.from(await response.arrayBuffer()),
+        brandKit,
+        "the brand-kit favicon"
+      );
       const head = await fetch(`${baseUrl}/favicon.ico`, { method: "HEAD" });
       assert.equal(head.status, 200);
       assert.equal(await head.text(), "");
