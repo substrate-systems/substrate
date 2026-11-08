@@ -3,6 +3,7 @@ import { INVOLVEMENT_LEVELS } from "@/components/exomem/involvement-levels";
 import { CLIENT_PLATFORM_LISTING_URLS } from "@/lib/exomem-hosted/client-platforms";
 import { exomemCloudMcpUrlOrNull } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
+import { cloudHomeChannelEnabled } from "@/lib/exomem-hosted/cloud-home-mcp";
 import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
@@ -17,6 +18,8 @@ export default function ExomemDocsPage() {
   // Both read at build, as the privacy page does: this page is static.
   const address = exomemCloudMcpUrlOrNull();
   const exportOffered = cloudExportsEnabled();
+  // Home shows the levels only while its channel flag is on (design row (u)).
+  const levelsOnHome = cloudHomeChannelEnabled();
   const levels = INVOLVEMENT_LEVELS.map((level) => `“${level.label}”`).join(", ");
   const home = <Link href="/exomem/home">Home</Link>;
   const theAddress = address ? <code>{address}</code> : <>the address that {home} shows</>;
@@ -111,7 +114,7 @@ export default function ExomemDocsPage() {
         <li>Open the connector or MCP server settings of your app.</li>
         <li>Add a remote server with {theAddress}.</li>
         <li>Sign in to Exomem with your email, and approve the connection.</li>
-        <li>On {home}, select “Add another app”, then “Set up”.</li>
+        <li>On {home}, find “Add another app”, and select “Set up”.</li>
         <li>Pick how much the app joins in, and select “Copy”.</li>
         <li>
           Paste the text into the instructions of your app, or into its rules file, such as{" "}
@@ -135,8 +138,15 @@ export default function ExomemDocsPage() {
         </li>
         <li>
           <strong>Changes:</strong> Exomem saves notes, sources, evidence, plans and corrections
-          when you ask. Your level on {home}, under “How much Exomem joins in”, decides how much
-          your assistant saves without asking: {levels}.
+          when you ask.{" "}
+          {levelsOnHome ? (
+            <>
+              Your level on {home}, under “How much Exomem joins in”, decides how much your
+              assistant saves without asking: {levels}.
+            </>
+          ) : (
+            <>Your assistant can also save without asking when its Exomem instructions allow it.</>
+          )}
         </li>
         <li>
           <strong>Corrections:</strong> a correction replaces old knowledge in a visible way. Exomem
@@ -150,8 +160,8 @@ export default function ExomemDocsPage() {
       <p>
         The Exomem service cannot open files on your device or your other connectors, and it does
         not import your past conversations. In Claude Code, the plugin hooks read the current
-        session on your device to suggest when to search or save. They keep their state on your
-        device.
+        session and the repository name and branch on your device, to suggest when to search or
+        save. They keep their state and checkpoints on your device.
       </p>
       <p>
         Your app decides when a tool runs. In Claude, for example, you can set each Exomem tool to
@@ -167,7 +177,8 @@ export default function ExomemDocsPage() {
         </li>
         <li>
           Exomem Cloud is not end-to-end encrypted. Our servers see your requests and answers while
-          they serve them, and we hold the keys to your storage.
+          they serve them. We hold the keys to your storage, so we could deliberately read your
+          content.
         </li>
         <li>We do not use your content to train AI models.</li>
       </ul>
@@ -182,8 +193,8 @@ export default function ExomemDocsPage() {
         <li>Select “Disconnect” again to confirm.</li>
       </ol>
       <p>
-        The app can no longer reach your Exomem. Removing the connector inside the app alone does
-        not end its access.
+        The app can no longer reach your Exomem. Removing the connector inside the app may not end
+        its access on Exomem’s side. “Disconnect” on Home always does.
       </p>
 
       <h2>Export</h2>
@@ -191,7 +202,8 @@ export default function ExomemDocsPage() {
         <>
           <ol>
             <li>On {home}, under “Your data”, find “Export everything”.</li>
-            <li>Select “Export”.</li>
+            <li>Select “Export”, and wait until the export is ready.</li>
+            <li>Select “Download”. The download link works for 5 minutes.</li>
           </ol>
           <p>
             You get a ZIP file of your Markdown notes and files. Your connected assistants can pause
@@ -206,7 +218,8 @@ export default function ExomemDocsPage() {
 
       <h2>Delete your Exomem</h2>
       <ol>
-        <li>On {home}, under “Your data”, select “Delete Exomem”, then “Delete…”.</li>
+        <li>Sign in to Exomem in your browser.</li>
+        <li>On {home}, under “Your data”, find “Delete Exomem”, and select “Delete…”.</li>
         <li>Select “Email me a confirmation link”.</li>
         <li>Open the link in the email, and select “Permanently delete my Exomem”.</li>
       </ol>
