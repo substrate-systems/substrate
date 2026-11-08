@@ -160,8 +160,9 @@ export default function ExomemDocsPage() {
       <p>
         The Exomem service cannot open files on your device or your other connectors, and it does
         not import your past conversations. In Claude Code, the plugin hooks read the current
-        session and the repository name and branch on your device, to suggest when to search or
-        save. They keep their state and checkpoints on your device.
+        session and Git details, such as the branch and the names of changed files, on your
+        device. They use them to suggest when to search or save, and keep their state and
+        checkpoints on your device.
       </p>
       <p>
         Your app decides when a tool runs. In Claude, for example, you can set each Exomem tool to
@@ -221,7 +222,8 @@ export default function ExomemDocsPage() {
         <li>Sign in to Exomem in your browser.</li>
         <li>On {home}, under “Your data”, find “Delete Exomem”, and select “Delete…”.</li>
         <li>Select “Email me a confirmation link”.</li>
-        <li>Open the link in the email, and select “Permanently delete my Exomem”.</li>
+        <li>Open the link in the email in the same browser.</li>
+        <li>Select “Permanently delete my Exomem”.</li>
       </ol>
       <p>
         We delete your knowledge base, its storage and its keys. The privacy policy says what we
