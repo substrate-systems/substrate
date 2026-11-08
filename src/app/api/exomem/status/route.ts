@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { exomemCloudMcpUrlOrNull } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled, readCloudExport } from "@/lib/exomem-hosted/cloud-exports";
 import { getOwnerCloudHomeStatus } from "@/lib/exomem-hosted/cloud-status";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
@@ -13,11 +13,7 @@ export const dynamic = "force-dynamic";
 // whole status check -- the caller still gets a status, just without a
 // connector URL to show.
 function cloudConnectorUrl(): string | undefined {
-  try {
-    return loadExomemCloudResource().mcpUrl;
-  } catch {
-    return undefined;
-  }
+  return exomemCloudMcpUrlOrNull() ?? undefined;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

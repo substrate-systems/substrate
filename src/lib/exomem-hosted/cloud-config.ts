@@ -83,6 +83,19 @@ export function loadExomemCloudResource(env: EnvironmentSource = process.env): E
   return { mcpUrl, mcpPath };
 }
 
+/**
+ * The Cloud MCP address for a page or status that shows it, or null when the deployment
+ * lacks it. A display shows the gap instead of failing or guessing an address.
+ */
+export function exomemCloudMcpUrlOrNull(env: EnvironmentSource = process.env): string | null {
+  try {
+    return loadExomemCloudResource(env).mcpUrl;
+  } catch (error) {
+    if (error instanceof ExomemCloudConfigurationError) return null;
+    throw error;
+  }
+}
+
 const ARTIFACT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY";
 
 /**

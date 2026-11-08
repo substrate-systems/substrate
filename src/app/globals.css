@@ -493,3 +493,7 @@ body {
 .brand-exomem .exo-prose li {
   margin: 0 0 8px;
 }
+/* A long address or command breaks anywhere rather than widening a phone page. */
+.brand-exomem .exo-prose code {
+  overflow-wrap: anywhere;
+}

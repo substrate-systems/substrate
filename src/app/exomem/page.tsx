@@ -204,6 +204,7 @@ export default function ExomemPage() {
     { label: "How it works", href: "#lp-true" },
     { label: "Benchmarks", href: "#lp-proof" },
     { label: "Pricing", href: "#lp-doors" },
+    { label: "Docs", href: "/exomem/docs" },
     { label: "Privacy", href: "/exomem/privacy" },
     { label: "Terms", href: "/exomem/terms" },
     { label: "Support", href: "/exomem/support" },
@@ -253,6 +254,12 @@ export default function ExomemPage() {
             >
               Cloud
             </a>
+            <Link
+              href="/exomem/docs"
+              className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
+            >
+              Docs
+            </Link>
             <a
               href={GITHUB}
               {...external}
