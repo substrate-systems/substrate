@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { CLIENT_PLATFORM_LISTING_URLS } from "@/lib/exomem-hosted/client-platforms";
 import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { exomemCloudMcpUrlOrNull } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
 import { connectorSettingsUrl } from "@/lib/exomem-hosted/consent-view";
@@ -26,16 +26,6 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-// The MCP address an app without the plugin pastes: the Cloud URL from configuration
-// (deviation (h)). Unconfigured is a visible gap on the page, not a guessed address.
-function mcpAddress(): string | null {
-  try {
-    return loadExomemCloudResource().mcpUrl;
-  } catch {
-    return null;
-  }
-}
-
 async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts | null> {
   const digest = sessionCookie ? tokenDigest(sessionCookie) : null;
   if (!digest) return null;
@@ -54,7 +44,8 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
     tenantId: session.tenantId,
     keptUntil: account.keptUntil,
     supportReference: account.supportReference,
-    mcpAddress: mcpAddress(),
+    // The address an app without the plugin pastes (deviation (h)); unconfigured is a visible gap.
+    mcpAddress: exomemCloudMcpUrlOrNull(),
     // Reconnection returns to client settings, while initial installation can use a public listing.
     settings: {
       claude: connectorSettingsUrl("claude", false).value,

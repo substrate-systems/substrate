@@ -35,10 +35,7 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/cloud-config", {
     namedExports: {
-      loadExomemCloudResource: () => {
-        if (!cloudResourceConfigured) throw new Error("Exomem Cloud configuration is incomplete");
-        return { mcpUrl: CLOUD_MCP_URL, mcpPath: "/mcp" };
-      },
+      exomemCloudMcpUrlOrNull: () => (cloudResourceConfigured ? CLOUD_MCP_URL : null),
     },
   });
 });
