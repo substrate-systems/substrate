@@ -53,7 +53,7 @@ export async function GET(
   } catch (error) {
     // A refusal is the shared 404; anything else is a read failure, which the
     // watcher reports as DELETIONS_UNKNOWN rather than acting on a partial set.
-    const denied = error instanceof ExomemHostedError;
+    const denied = error instanceof ExomemHostedError && error.status === 404;
     emitAccessEvent({
       event: denied ? "exomem.cell-deletions.denied" : "exomem.cell-deletions.failed",
       outcome: denied ? "denied" : "failed",

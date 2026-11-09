@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { format } from "node:util";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { terminateExomemBillingForDeletion } from "../billing-deletion";
 import {
@@ -1061,7 +1062,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
 
     const logged: string[] = [];
     const warnLog = mock.method(console, "warn", (...args: unknown[]) => {
-      logged.push(args.map(String).join(" "));
+      logged.push(format(...args));
     });
     try {
       await confirmCloudDeletion(tenant, () => Promise.resolve());

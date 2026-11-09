@@ -64,15 +64,7 @@ export type AlertNotificationOutcome = {
   errorCode?: string;
 };
 
-/** Deliberately a 404 rather than a 401.
- *
- * The unguessable capability is the security control; this only avoids handing
- * a prober a positive confirmation for free. It is defence in depth, not the
- * boundary — see the method handlers in the route, and note that the JSON error
- * envelope still differs from the framework's own not-found page. The other
- * capability-authenticated endpoints throw this same error, so no refusal is
- * distinguishable from another.
- */
+/** Shared with every capability endpoint; lives in errors.ts. */
 export { alertEndpointNotFound };
 
 function payloadInvalid(): ExomemHostedError {

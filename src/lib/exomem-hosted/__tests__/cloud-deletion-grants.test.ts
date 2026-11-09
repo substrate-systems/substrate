@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 import { decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
 import { CLOUD_CELL_ID_PATTERN } from "../cloud-config";
 import {
@@ -37,8 +37,6 @@ function grantEnv() {
 }
 
 describe("deletion grant signer", () => {
-  afterEach(() => mock.restoreAll());
-
   it("signs a grant every executor accepts: the fixture's header, claim set, audience, grace and cell shape", async () => {
     const { env, publicKey } = grantEnv();
     const token = await signCloudDeletionGrant(CELL_ID, { env, now: 1_790_000_000 });

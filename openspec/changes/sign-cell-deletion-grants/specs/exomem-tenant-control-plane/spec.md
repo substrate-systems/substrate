@@ -2,7 +2,7 @@
 
 ### Requirement: Substrate signs a deletion grant when it deletes a cell
 
-When the control plane sets a cell's `desired_state` to `deleted`, it SHALL sign a deletion grant in the same transaction and store it in `exomem_cloud_cells.deletion_grant`. The grant SHALL be an Ed25519 JWT whose payload is exactly `aud`, `iat`, `jti`, `cell_id` and `purge_after`, with `aud` equal to `exomem-cell-delete` and `purge_after` equal to `iat` plus the seven-day deletion grace. The grant SHALL carry no `exp`. The signature key SHALL be `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`, apart from the operation grant key. cellctl's role SHALL read the column and SHALL hold no write on it or on `deletion_stopped_at`. While no key is configured, the deletion SHALL still commit and the row SHALL keep a NULL grant. A grant SHALL never sit on a live cell.
+When the control plane sets a cell's `desired_state` to `deleted`, it SHALL sign a deletion grant in the same transaction and store it in `exomem_cloud_cells.deletion_grant`. The grant SHALL be an Ed25519 JWT whose payload is exactly `aud`, `iat`, `jti`, `cell_id` and `purge_after`, with `aud` equal to `exomem-cell-delete` and `purge_after` equal to `iat` plus the seven-day deletion grace. The grant SHALL carry no `exp`. The signature key SHALL be `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`, apart from the operation grant key. cellctl's role SHALL read the column and SHALL hold no write on it or on `deletion_stopped_at`. While no key is configured, the deletion SHALL still commit and the row SHALL keep a NULL grant. A grant SHALL never sit on a live cell. Once stored, a grant SHALL NOT be replaced or cleared.
 
 #### Scenario: A cell deletion stores a grant
 

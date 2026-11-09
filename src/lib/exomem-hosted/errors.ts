@@ -189,10 +189,16 @@ export function safeErrorResponse(error: unknown, requestId?: string): Response 
   return Response.json(safeErrorEnvelope(error, requestId), { status });
 }
 
-/** The shared not-found refusal of the capability-authenticated endpoints.
- * One place for the code, so no route's refusal is distinguishable from
- * another's. Kept here, not with the receiver, so the generic error adapter
- * does not pull the receiver's imports into every route. */
+/** Deliberately a 404 rather than a 401, shared by every
+ * capability-authenticated endpoint.
+ *
+ * The unguessable capability is the security control; this only avoids handing
+ * a prober a positive confirmation for free. It is defence in depth, not the
+ * boundary — see the method handlers in the route, and note that the JSON error
+ * envelope still differs from the framework's own not-found page. Every
+ * refused capability throws this same error, so no route's refusal is
+ * distinguishable from another's. Kept here, not with the receiver, so the
+ * generic error adapter does not pull the receiver's imports into every route. */
 export function alertEndpointNotFound(): ExomemHostedError {
   return new ExomemHostedError({
     code: "ALERT_ENDPOINT_NOT_FOUND",

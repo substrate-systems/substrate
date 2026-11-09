@@ -43,6 +43,7 @@ CREATE TRIGGER exomem_cloud_cells_deletion_final_trigger
 BEFORE UPDATE ON exomem_cloud_cells
 FOR EACH ROW EXECUTE FUNCTION exomem_cloud_cells_deletion_final();
 
+
 -- The stop time is the first UPDATE that reports the cell deleted on both
 -- sides. A BEFORE trigger's writes to NEW bypass column privileges, as the
 -- 0056 touch trigger already relies on, so cellctl's observed-only write can
@@ -57,6 +58,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
 
 CREATE TRIGGER exomem_cloud_cells_deletion_stopped_trigger
 BEFORE UPDATE ON exomem_cloud_cells

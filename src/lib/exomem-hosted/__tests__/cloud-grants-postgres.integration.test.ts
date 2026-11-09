@@ -540,21 +540,24 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       [id]
     );
     const { rows } = await ownerPool!.query(
-      "SELECT deletion_stopped_at, clock_timestamp() AS db_now FROM exomem_cloud_cells WHERE cell_id = $1",
+      "SELECT deletion_stopped_at::text AS stopped FROM exomem_cloud_cells WHERE cell_id = $1",
       [id]
     );
-    const first = rows[0]!.deletion_stopped_at;
-    assert.ok(first instanceof Date, "the deleted report lands the stop time");
-    assert.ok(first <= rows[0]!.db_now, "the stop time is the database clock's, not a caller's");
+    const first = rows[0]!.stopped;
+    assert.ok(first, "the deleted report lands the stop time");
+    // A second report must not move it, even inside one millisecond: compare
+    // the stored text, and prove the later report's own timestamp came after.
     await cellctlPool!.query(
       "UPDATE exomem_cloud_cells SET observed_at = clock_timestamp() WHERE cell_id = $1",
       [id]
     );
     const { rows: again } = await ownerPool!.query(
-      "SELECT deletion_stopped_at FROM exomem_cloud_cells WHERE cell_id = $1",
-      [id]
+      `SELECT deletion_stopped_at::text = $2 AS unmoved,
+              deletion_stopped_at < observed_at AS earlier_than_report
+       FROM exomem_cloud_cells WHERE cell_id = $1`,
+      [id, first]
     );
-    assert.deepEqual(again[0]!.deletion_stopped_at, first);
+    assert.deepEqual(again[0], { unmoved: true, earlier_than_report: true });
   });
 
   // A stored grant is write-once: a replace could move purge_after earlier,
