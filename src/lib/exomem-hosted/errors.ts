@@ -188,3 +188,15 @@ export function safeErrorResponse(error: unknown, requestId?: string): Response 
   const status = error instanceof ExomemHostedError ? error.status : 500;
   return Response.json(safeErrorEnvelope(error, requestId), { status });
 }
+
+/** The shared not-found refusal of the capability-authenticated endpoints.
+ * One place for the code, so no route's refusal is distinguishable from
+ * another's. Kept here, not with the receiver, so the generic error adapter
+ * does not pull the receiver's imports into every route. */
+export function alertEndpointNotFound(): ExomemHostedError {
+  return new ExomemHostedError({
+    code: "ALERT_ENDPOINT_NOT_FOUND",
+    status: 404,
+    message: "not found",
+  });
+}

@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { executeExomemSql } from "./db";
-import { ExomemHostedError } from "./errors";
+import { alertEndpointNotFound, ExomemHostedError } from "./errors";
 
 /** The K3s scheduler alert sender is a fixed contract we do not control.
  *
@@ -73,13 +73,7 @@ export type AlertNotificationOutcome = {
  * capability-authenticated endpoints throw this same error, so no refusal is
  * distinguishable from another.
  */
-export function alertEndpointNotFound(): ExomemHostedError {
-  return new ExomemHostedError({
-    code: "ALERT_ENDPOINT_NOT_FOUND",
-    status: 404,
-    message: "not found",
-  });
-}
+export { alertEndpointNotFound };
 
 function payloadInvalid(): ExomemHostedError {
   return new ExomemHostedError({
