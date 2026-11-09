@@ -42,7 +42,6 @@ function brevoEmailUrl(): string {
 // from-address + DKIM/SPF/DMARC — the name is just for the human reading.
 // Override via BREVO_SENDER_NAME if needed (e.g. for the founder digest).
 const DEFAULT_SENDER_NAME = "Endstate";
-const LEGACY_SENDER_EMAIL = "licenses@substratesystems.io";
 
 export async function sendTransactionalEmail(
   input: SendTransactionalEmailInput
@@ -64,13 +63,12 @@ export async function sendTransactionalEmail(
     throw new Error("BREVO_API_KEY is not set");
   }
 
-  const senderEmail = input.senderEmail ?? process.env.BREVO_SENDER_EMAIL ?? LEGACY_SENDER_EMAIL;
-  const senderName = input.senderName ?? process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
-  if (senderEmail === LEGACY_SENDER_EMAIL) {
-    console.warn(
-      "[brevo] legacy licenses@ sender configured; cut over only after the new sender is verified in Brevo"
-    );
+  // The default sender is deployment configuration: a Brevo-verified address set per environment.
+  const senderEmail = input.senderEmail ?? process.env.BREVO_SENDER_EMAIL?.trim();
+  if (!senderEmail) {
+    throw new Error("BREVO_SENDER_EMAIL is not set");
   }
+  const senderName = input.senderName ?? process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
   const sender = { email: senderEmail, name: senderName };
 
   let res: Response;
