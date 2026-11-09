@@ -444,6 +444,91 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await assert.rejects(cellctlPool!.query("SELECT 1 FROM exomem_tenants LIMIT 1"), /permission denied/);
   });
 
+  // Migration 0084 (automate-cell-storage-deletion D1): cellctl relays the
+  // deletion grant to the purge executors, so it reads the column -- and a
+  // compromised cellctl must not mint or alter purge authority, so it never
+  // writes it or the stop time. substrate_app's write is the only one.
+  it("lets cellctl read the deletion grant and never write it or the stop time, while substrate_app writes the grant", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("v");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'deleted')",
+      [id, tenantId]
+    );
+    await appPool!.query("UPDATE exomem_cloud_cells SET deletion_grant = $2 WHERE cell_id = $1", [
+      id,
+      "grant-under-test",
+    ]);
+    const { rows } = await cellctlPool!.query(
+      "SELECT deletion_grant FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    assert.equal(rows[0]!.deletion_grant, "grant-under-test");
+    await assert.rejects(
+      cellctlPool!.query("UPDATE exomem_cloud_cells SET deletion_grant = $2 WHERE cell_id = $1", [
+        id,
+        "forged",
+      ]),
+      /permission denied/
+    );
+    await assert.rejects(
+      cellctlPool!.query(
+        "UPDATE exomem_cloud_cells SET deletion_stopped_at = now() WHERE cell_id = $1",
+        [id]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET deletion_stopped_at = now() WHERE cell_id = $1", [
+        id,
+      ]),
+      /permission denied/
+    );
+  });
+
+  // D1's finality: once deleted, a cell's desired_state never changes again,
+  // whatever role asks -- a revive would strand the purge authority the grant
+  // already handed out. The same UPDATE on a live cell stays allowed.
+  it("refuses any change to a deleted cell's desired_state, under every Cloud role", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("u");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    await ownerPool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [
+      id,
+    ]);
+    for (const pool of [appPool, cellctlPool, ownerPool]) {
+      await assert.rejects(
+        pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
+          id,
+        ]),
+        /stays deleted|permission denied/
+      );
+    }
+    // cellctl's observed report on the deleted row still lands (D4's stop time).
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET observed_state = 'deleted' WHERE cell_id = $1",
+      [id]
+    );
+  });
+
+  // The CHECK keeps purge authority off a live cell: a grant a live cell
+  // carried would outlive any later deletion grace.
+  it("refuses a deletion grant on a cell that is not deleted", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("w");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET deletion_grant = 'x' WHERE cell_id = $1", [id]),
+      /check constraint/
+    );
+  });
+
   it("keeps cell roots and retirement metadata writable only by cellctl, and hidden from the gateway", async () => {
     const tenantId = await newTenant();
     const id = cellId("z");

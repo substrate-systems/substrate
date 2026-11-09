@@ -1073,10 +1073,13 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
       const invite = await pool!.query("SELECT id FROM exomem_invites WHERE id = $1", [inviteId]);
       assert.equal(invite.rows.length, 1, "the RESTRICT-held invite is left in place");
-      assert.equal(logged.length, 1, "the held invite is logged once");
-      assert.match(logged[0]!, /left 1 invite\(s\) held by a restricting reference/);
+      // Other warnings may legitimately fire during the finish (the unsigned
+      // deletion grant); the held invite itself is still logged exactly once.
+      const held = logged.filter((line) => line.includes("invite(s) held"));
+      assert.equal(held.length, 1, "the held invite is logged once");
+      assert.match(held[0]!, /left 1 invite\(s\) held by a restricting reference/);
       for (const secret of [tenant.email, tenant.tenantId, tenant.userId, inviteId]) {
-        assert.equal(logged[0]!.includes(secret), false, "the log carries a count only");
+        assert.equal(held[0]!.includes(secret), false, "the log carries a count only");
       }
     } finally {
       warnLog.mock.restore();
