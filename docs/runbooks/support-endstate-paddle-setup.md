@@ -38,8 +38,8 @@ by hand, in the Paddle dashboard.
 4. Set `BREVO_REPLY_TO_EMAIL=founder@substratesystems.io` (or another verified
    founder-operated mailbox), exercise a supporter outbox delivery and a
    retry, then check Brevo's delivery status.
-5. Only after those checks, retire the legacy `licenses@…` sender. The runtime
-   warns while it remains configured.
+5. The legacy `licenses@…` sender is retired. `BREVO_SENDER_EMAIL` has no code
+   default: a send without a sender of its own fails until the variable is set.
 
 ## 1. Create the prices in Paddle
 
