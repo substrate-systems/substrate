@@ -20,6 +20,11 @@ When the control plane sets a cell's `desired_state` to `deleted`, it SHALL sign
 - **WHEN** cellctl's role attempts UPDATE on `deletion_grant` or `deletion_stopped_at`
 - **THEN** PostgreSQL rejects the write, including after the grants script runs again
 
+#### Scenario: A stored grant is replaced or cleared
+
+- **WHEN** an UPDATE changes or clears a cell's stored `deletion_grant`
+- **THEN** PostgreSQL rejects the write
+
 #### Scenario: A grant on a live cell
 
 - **WHEN** a write sets `deletion_grant` on a cell whose `desired_state` is not `deleted`

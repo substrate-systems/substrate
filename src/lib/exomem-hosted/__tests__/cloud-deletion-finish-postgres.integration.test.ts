@@ -1078,8 +1078,10 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       const held = logged.filter((line) => line.includes("invite(s) held"));
       assert.equal(held.length, 1, "the held invite is logged once");
       assert.match(held[0]!, /left 1 invite\(s\) held by a restricting reference/);
-      for (const secret of [tenant.email, tenant.tenantId, tenant.userId, inviteId]) {
-        assert.equal(held[0]!.includes(secret), false, "the log carries a count only");
+      for (const line of logged) {
+        for (const secret of [tenant.email, tenant.tenantId, tenant.userId, inviteId]) {
+          assert.equal(line.includes(secret), false, "every warning is value-free");
+        }
       }
     } finally {
       warnLog.mock.restore();

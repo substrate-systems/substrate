@@ -13,7 +13,11 @@
 --   * the CHECK keeps purge authority off every live cell;
 --   * the finality trigger refuses any change to a deleted cell's desired
 --     state, for every role, so a deletion is never reversed (D1). A DELETE
---     of the row itself stays allowed.
+--     of the row itself stays allowed. The same trigger also refuses to
+--     replace or clear a stored grant: a replaced grant could move
+--     purge_after earlier, and a cleared grant stops the executors. It costs
+--     nothing when it fires wrongly, because a grant is signed once and key
+--     rotation pins both keys rather than re-signing.
 
 ALTER TABLE exomem_cloud_cells ADD COLUMN deletion_grant text;
 ALTER TABLE exomem_cloud_cells ADD COLUMN deletion_stopped_at timestamptz;
@@ -27,6 +31,9 @@ LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD.desired_state = 'deleted' AND NEW.desired_state IS DISTINCT FROM 'deleted' THEN
     RAISE EXCEPTION 'a deleted exomem_cloud_cells row stays deleted';
+  END IF;
+  IF OLD.deletion_grant IS NOT NULL AND NEW.deletion_grant IS DISTINCT FROM OLD.deletion_grant THEN
+    RAISE EXCEPTION 'a stored deletion grant is write-once';
   END IF;
   RETURN NEW;
 END;

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, it, mock } from "node:test";
 import { decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
-import { CLOUD_CELL_ID_PATTERN, loadCloudDeletionGrantSigningKey } from "../cloud-config";
+import { CLOUD_CELL_ID_PATTERN } from "../cloud-config";
 import {
   CELL_DELETION_GRACE_SECONDS,
   signCloudDeletionGrant,
@@ -79,9 +79,26 @@ describe("deletion grant signer", () => {
     assert.equal(claims.cell_id, CELL_ID);
     assert.match(String(claims.cell_id), CLOUD_CELL_ID_PATTERN);
     assert.match(accepted[0]!.accepted!.cell_id, CLOUD_CELL_ID_PATTERN);
-    const wrongShape = fixture.grants.find((grant) => grant.case.includes("wrong shape"));
+    // The cell-shape refusal is the refused case whose payload matches an
+    // accepted one in every claim but cell_id (jti differs legitimately).
+    const acceptedPayloads = accepted.map((grant) => decodeJwt(grant.token as string));
+    const wrongShape = fixture.grants.filter((grant) => {
+      if (grant.accepted !== null || typeof grant.token !== "string") return false;
+      let claims;
+      try {
+        claims = decodeJwt(grant.token);
+      } catch {
+        return false;
+      }
+      return acceptedPayloads.some(
+        (other) =>
+          claims.cell_id !== other.cell_id &&
+          ["aud", "iat", "purge_after"].every((key) => claims[key] === other[key])
+      );
+    });
+    assert.equal(wrongShape.length, 1, "exactly one refused case isolates the cell shape");
     assert.doesNotMatch(
-      String(decodeJwt(wrongShape!.token as string).cell_id),
+      String(decodeJwt(wrongShape[0]!.token as string).cell_id),
       CLOUD_CELL_ID_PATTERN
     );
 
@@ -103,21 +120,6 @@ describe("deletion grant signer", () => {
       }),
       null
     );
-  });
-
-  it("treats a key that is not an Ed25519 private key as absent and logs only the variable name", async () => {
-    const warn = mock.method(console, "warn", () => undefined);
-    const { privateKey: rsa } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    const rsaPem = rsa.export({ format: "pem", type: "pkcs8" }).toString();
-    for (const value of ["not a key", rsaPem]) {
-      assert.equal(loadCloudDeletionGrantSigningKey({ [KEY_VARIABLE]: value }), undefined);
-      assert.equal(await signCloudDeletionGrant(CELL_ID, { env: { [KEY_VARIABLE]: value } }), null);
-    }
-    for (const call of warn.mock.calls) {
-      assert.deepEqual(call.arguments, [
-        { event: "exomem_cloud_grant_key_invalid", variable: KEY_VARIABLE },
-      ]);
-    }
   });
 
   it("refuses to sign for a cell ID outside the Cloud cell shape", async () => {

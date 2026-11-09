@@ -27,6 +27,7 @@ import {
   recordCellDeletionGrant,
 } from "../cloud-deletion-grants";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
+import { setOperationalEventSinkForTests } from "../observability";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   GET as getCellDeletions,
@@ -39,13 +40,13 @@ import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 // automate-cell-storage-deletion D1/D4 against real PostgreSQL: the grant a
-// deletion stores, the stop time cellctl's deleted report lands, the
-// deletion set the key watcher reads, and the backfill. cellctl's writes go
-// through its real role, which is what the stop-time trigger depends on: a
-// BEFORE trigger's NEW write bypasses the column privileges cellctl lacks.
+// deletion stores, the deletion set the key watcher reads, and the backfill.
+// The stop-time and write-once trigger proofs live in
+// cloud-grants-postgres.integration.test.ts, which owns the real cellctl
+// role -- the role's password is server-global, so two suites must not both
+// set it while running in parallel.
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
-const TEST_PASSWORD = "cell-deletion-grants-test";
 const DELETION_KEY_VARIABLE = "EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY";
 const SCHEDULER_TOKEN = `sched-${randomBytes(16).toString("hex")}`;
 const WATCHER_TOKEN = `watch-${randomBytes(16).toString("hex")}`;
@@ -54,7 +55,6 @@ const WATCHER_DIGEST = createHash("sha256").update(WATCHER_TOKEN, "utf8").digest
 
 let adminPool: Pool | undefined;
 let pool: Pool | undefined;
-let cellctlPool: Pool | undefined;
 let schema: string | undefined;
 let signingEnv: Record<string, string>;
 let publicKey: KeyObject;
@@ -83,14 +83,6 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
   } finally {
     client.release();
   }
-}
-
-function roleUrl(base: string, role: string): string {
-  const url = new URL(base);
-  url.username = role;
-  url.password = TEST_PASSWORD;
-  url.searchParams.set("options", `-c search_path=${schema},public`);
-  return url.toString();
 }
 
 async function seedTenant(input: {
@@ -170,26 +162,11 @@ describe("Cell deletion grants PostgreSQL integration", { skip: !databaseUrl }, 
     schema = `cell_deletion_it_${randomUUID().replaceAll("-", "")}`;
     await ensureExomemPostgresTestExtensions(databaseUrl!);
     adminPool = new Pool({ connectionString: databaseUrl });
-    // cellctl's role must exist before migrations run, so the grants script
-    // gives it its real privileges.
-    await adminPool.query(
-      `DO $$
-       BEGIN
-         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
-           CREATE ROLE exomem_cellctl LOGIN PASSWORD '${TEST_PASSWORD}';
-         ELSE
-           ALTER ROLE exomem_cellctl WITH LOGIN PASSWORD '${TEST_PASSWORD}';
-         END IF;
-       END
-       $$;`
-    );
     await adminPool.query(`CREATE SCHEMA "${schema}"`);
-    await adminPool.query(`GRANT USAGE ON SCHEMA "${schema}" TO exomem_cellctl`);
     const scoped = new URL(databaseUrl!);
     scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
     pool = new Pool({ connectionString: scoped.toString() });
-    cellctlPool = new Pool({ connectionString: roleUrl(databaseUrl!, "exomem_cellctl") });
     __setExomemSqlForTests(taggedSql(pool));
     __setExomemTransactionForTests(interactiveTransaction);
   });
@@ -197,7 +174,6 @@ describe("Cell deletion grants PostgreSQL integration", { skip: !databaseUrl }, 
   after(async () => {
     __setExomemSqlForTests(null);
     __setExomemTransactionForTests(null);
-    await cellctlPool?.end();
     await pool?.end();
     if (schema) await adminPool!.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await adminPool?.end();
@@ -264,29 +240,6 @@ describe("Cell deletion grants PostgreSQL integration", { skip: !databaseUrl }, 
     assert.equal(unsignedRow.deletion_grant, null);
   });
 
-  it("records the stop time when cellctl's deleted report lands, and never moves it", async () => {
-    // D4: only this catches a stop time that comes from the app layer's
-    // clock, that cellctl could write, or that a later report rewrites.
-    const { cellId } = await seedTenant({
-      source: "complimentary",
-      sourceState: "complimentary_active",
-      desiredState: "deleted",
-    });
-    assert.equal((await cellRow(cellId)).deletion_stopped_at, null);
-    await cellctlPool!.query(
-      "UPDATE exomem_cloud_cells SET observed_state = 'deleted', observed_generation = generation WHERE cell_id = $1",
-      [cellId]
-    );
-    const first = (await cellRow(cellId)).deletion_stopped_at;
-    assert.ok(first instanceof Date, "the deleted report lands the stop time");
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    await cellctlPool!.query(
-      "UPDATE exomem_cloud_cells SET observed_at = now() WHERE cell_id = $1",
-      [cellId]
-    );
-    assert.deepEqual((await cellRow(cellId)).deletion_stopped_at, first);
-  });
-
   it("serves the deletion set to the key-watcher capability only, in the watcher's exact shape", async () => {
     // The watcher's reader refuses a body with any other key set, a duplicate
     // cell or a wrong type; only this catches a shape the executors cannot
@@ -298,7 +251,7 @@ describe("Cell deletion grants PostgreSQL integration", { skip: !databaseUrl }, 
       sourceOccurredAt: new Date(Date.now() - 40 * 86_400_000),
     });
     await reconcileCloudCellDesiredState(withGrant.tenantId);
-    await cellctlPool!.query(
+    await pool!.query(
       "UPDATE exomem_cloud_cells SET observed_state = 'deleted' WHERE cell_id = $1",
       [withGrant.cellId]
     );
@@ -362,6 +315,35 @@ describe("Cell deletion grants PostgreSQL integration", { skip: !databaseUrl }, 
     );
     assert.equal(listed.has(withoutGrant.cellId), false, "a grant-less deletion is not served");
     assert.equal(listed.has(live.cellId), false, "a live cell is never served");
+  });
+
+  it("answers 500 with a failed event on a stored grant that does not decode, never a partial set", async () => {
+    // A grant-less deleted row must never reach the watcher, so the filter
+    // alone cannot serve this test: only a stored-but-undecodable grant
+    // proves the route refuses the whole set rather than skipping a row.
+    const { cellId } = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      desiredState: "deleted",
+    });
+    await pool!.query("UPDATE exomem_cloud_cells SET deletion_grant = 'not-a-jwt' WHERE cell_id = $1", [
+      cellId,
+    ]);
+    const lines: string[] = [];
+    setOperationalEventSinkForTests((line) => lines.push(line));
+    try {
+      const [request, context] = deletionsRequest(WATCHER_TOKEN);
+      const response = await getCellDeletions(request, context);
+      assert.equal(response.status, 500);
+      const body = await response.json();
+      assert.equal(body.cells, undefined, "a failed read names no cell");
+    } finally {
+      setOperationalEventSinkForTests(null);
+      await pool!.query("DELETE FROM exomem_cloud_cells WHERE cell_id = $1", [cellId]);
+    }
+    const events = lines.map((line) => JSON.parse(line) as { event: string; outcome: string });
+    assert.equal(events.some((event) => event.event === "exomem.cell-deletions.failed"), true);
+    assert.equal(events.some((event) => event.event === "exomem.cell-deletions.denied"), false);
   });
 
   it("answers other methods with the same 404 as the alerts route", async () => {

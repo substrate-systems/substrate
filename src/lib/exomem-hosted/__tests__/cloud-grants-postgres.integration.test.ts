@@ -524,6 +524,69 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     );
   });
 
+  // D4's stop time is the first report that reads the cell deleted on both
+  // sides, recorded by the trigger with the database clock under cellctl's
+  // own role. Only this catches a stop time written from the app layer or
+  // moved by a later report.
+  it("records the stop time when cellctl's deleted report lands, and never moves it", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("t");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'deleted')",
+      [id, tenantId]
+    );
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET observed_state = 'deleted', observed_generation = generation WHERE cell_id = $1",
+      [id]
+    );
+    const { rows } = await ownerPool!.query(
+      "SELECT deletion_stopped_at, clock_timestamp() AS db_now FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    const first = rows[0]!.deletion_stopped_at;
+    assert.ok(first instanceof Date, "the deleted report lands the stop time");
+    assert.ok(first <= rows[0]!.db_now, "the stop time is the database clock's, not a caller's");
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET observed_at = clock_timestamp() WHERE cell_id = $1",
+      [id]
+    );
+    const { rows: again } = await ownerPool!.query(
+      "SELECT deletion_stopped_at FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    assert.deepEqual(again[0]!.deletion_stopped_at, first);
+  });
+
+  // A stored grant is write-once: a replace could move purge_after earlier,
+  // and a clear stops the executors. substrate_app holds the column's only
+  // write, so the trigger is what refuses it.
+  it("refuses to replace or clear a stored deletion grant", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("s");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'deleted')",
+      [id, tenantId]
+    );
+    await appPool!.query("UPDATE exomem_cloud_cells SET deletion_grant = 'first' WHERE cell_id = $1", [
+      id,
+    ]);
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET deletion_grant = 'second' WHERE cell_id = $1", [
+        id,
+      ]),
+      /write-once/
+    );
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET deletion_grant = NULL WHERE cell_id = $1", [id]),
+      /write-once/
+    );
+    const { rows } = await cellctlPool!.query(
+      "SELECT deletion_grant FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    assert.equal(rows[0]!.deletion_grant, "first");
+  });
+
   // The CHECK keeps purge authority off a live cell: a grant a live cell
   // carried would outlive any later deletion grace.
   it("refuses a deletion grant on a cell that is not deleted", async () => {

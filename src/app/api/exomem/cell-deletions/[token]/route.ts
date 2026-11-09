@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
+import {
+  capabilityEndpointNotFoundResponse,
+  safeErrorResponse,
+} from "@/lib/exomem-hosted/next-error-response";
 import { emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
+import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
 import { alertEndpointNotFound, verifyAlertToken } from "@/lib/exomem-hosted/alert-receiver";
 import { readCellDeletionSet } from "@/lib/exomem-hosted/cloud-deletion-grants";
 
@@ -47,11 +51,14 @@ export async function GET(
       { status: 200, headers: { "cache-control": "no-store" } }
     );
   } catch (error) {
+    // A refusal is the shared 404; anything else is a read failure, which the
+    // watcher reports as DELETIONS_UNKNOWN rather than acting on a partial set.
+    const denied = error instanceof ExomemHostedError;
     emitAccessEvent({
-      event: "exomem.cell-deletions.denied",
-      outcome: "denied",
+      event: denied ? "exomem.cell-deletions.denied" : "exomem.cell-deletions.failed",
+      outcome: denied ? "denied" : "failed",
       requestId,
-      errorCode: error instanceof Error && "code" in error ? String(error.code) : "INTERNAL_ERROR",
+      errorCode: denied ? error.code : "INTERNAL_ERROR",
     });
     return safeErrorResponse(error, requestId);
   }
@@ -61,10 +68,7 @@ export async function GET(
  * answer 405 with an `Allow` header for a wrong method and confirm the endpoint
  * exists to an unauthenticated prober. */
 function methodNotFound(): NextResponse {
-  return NextResponse.json(
-    { success: false, error: { code: "ALERT_ENDPOINT_NOT_FOUND", retryable: false } },
-    { status: 404, headers: { "cache-control": "no-store" } }
-  );
+  return capabilityEndpointNotFoundResponse();
 }
 
 export const POST = methodNotFound;
