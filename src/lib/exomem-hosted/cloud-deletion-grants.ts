@@ -133,10 +133,10 @@ export async function readCellDeletionSet(): Promise<CellDeletionSetEntry[]> {
 }
 
 export type CellDeletionGrantBackfill = {
-  /** Deleted cells that already carried a grant; left untouched. */
-  alreadyGranted: number;
-  /** Deleted cells a commit pass signed; a dry run counts the same rows without writing. */
-  granted: number;
+  /** Deleted cells without a grant when the run starts; a dry run counts them without signing. */
+  missing: number;
+  /** Cells this run signed; always 0 in a dry run. */
+  signed: number;
 };
 
 /**
@@ -165,23 +165,10 @@ export async function backfillCellDeletionGrants(options: {
       AND deletion_grant IS NULL
     ORDER BY cell_id
   `;
-  const { rows: grantedRows } = await executeExomemSql`
-    /* exomem-cloud:deletion-grant-backfill-granted */
-    SELECT count(*)::int AS granted
-    FROM exomem_cloud_cells
-    WHERE desired_state = 'deleted'
-      AND deletion_grant IS NOT NULL
-  `;
-  const result: CellDeletionGrantBackfill = {
-    alreadyGranted: Number(grantedRows[0]?.granted ?? 0),
-    granted: 0,
-  };
+  const result: CellDeletionGrantBackfill = { missing: rows.length, signed: 0 };
   for (const row of rows) {
     const cellId = String(row.cell_id);
-    if (!options.commit) {
-      result.granted += 1;
-      continue;
-    }
+    if (!options.commit) continue;
     await withExomemTransaction(async (tx) => {
       const { rows: locked } = await tx`
         /* exomem-cloud:deletion-grant-backfill-lock */
@@ -194,7 +181,7 @@ export async function backfillCellDeletionGrants(options: {
       `;
       if (locked.length === 0) return;
       await recordCellDeletionGrant(tx, cellId, options);
-      result.granted += 1;
+      result.signed += 1;
     });
   }
   return result;

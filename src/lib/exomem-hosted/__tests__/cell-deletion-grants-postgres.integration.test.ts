@@ -389,11 +389,12 @@ describe("Cell deletion grants PostgreSQL integration", { skip: !databaseUrl }, 
     assert.equal(typeof existingGrant, "string");
 
     const dry = await backfillCellDeletionGrants({ commit: false, env: signingEnv });
-    assert.equal(dry.granted >= 1, true);
+    assert.equal(dry.missing >= 1, true);
+    assert.equal(dry.signed, 0, "a dry run signs nothing");
     assert.equal((await cellRow(missing.cellId)).deletion_grant, null, "a dry run writes nothing");
 
     const done = await backfillCellDeletionGrants({ commit: true, env: signingEnv });
-    assert.equal(done.granted >= 1, true);
+    assert.equal(done.signed >= 1, true);
     const row = await cellRow(missing.cellId);
     assert.equal(typeof row.deletion_grant, "string");
     const { payload } = await jwtVerify(String(row.deletion_grant), publicKey, {

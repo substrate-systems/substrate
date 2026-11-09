@@ -499,14 +499,24 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await ownerPool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [
       id,
     ]);
-    for (const pool of [appPool, cellctlPool, ownerPool]) {
+    // substrate_app and the owner hold UPDATE on desired_state, so only the
+    // trigger stands between them and a revive; cellctl holds no write on the
+    // column at all, so its attempt dies earlier, at the privilege check.
+    for (const pool of [appPool, ownerPool]) {
       await assert.rejects(
         pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
           id,
         ]),
-        /stays deleted|permission denied/
+        /stays deleted/
       );
     }
+    await assert.rejects(
+      cellctlPool!.query(
+        "UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1",
+        [id]
+      ),
+      /permission denied/
+    );
     // cellctl's observed report on the deleted row still lands (D4's stop time).
     await cellctlPool!.query(
       "UPDATE exomem_cloud_cells SET observed_state = 'deleted' WHERE cell_id = $1",

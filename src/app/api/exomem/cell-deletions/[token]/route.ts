@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
-import { verifyAlertToken } from "@/lib/exomem-hosted/alert-receiver";
-import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
+import { alertEndpointNotFound, verifyAlertToken } from "@/lib/exomem-hosted/alert-receiver";
 import { readCellDeletionSet } from "@/lib/exomem-hosted/cloud-deletion-grants";
 
 export const runtime = "nodejs";
@@ -27,11 +26,7 @@ export async function GET(
     if (credential !== "key-watcher") {
       // The scheduler capability is a valid credential that must still learn
       // nothing from this endpoint, so it gets the same 404 as a bad token.
-      throw new ExomemHostedError({
-        code: "ALERT_ENDPOINT_NOT_FOUND",
-        status: 404,
-        message: "not found",
-      });
+      throw alertEndpointNotFound();
     }
     const cells = await readCellDeletionSet();
     emitAccessEvent({

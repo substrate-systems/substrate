@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const result = await backfillCellDeletionGrants({ commit });
   console.log(
     `[cell-deletion-grants] mode=${commit ? "commit" : "dry-run"}; ` +
-      `granted=${result.granted} alreadyGranted=${result.alreadyGranted}`
+      `missing=${result.missing} signed=${result.signed}`
   );
 }
 

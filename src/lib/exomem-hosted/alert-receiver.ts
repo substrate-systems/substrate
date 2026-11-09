@@ -69,9 +69,11 @@ export type AlertNotificationOutcome = {
  * The unguessable capability is the security control; this only avoids handing
  * a prober a positive confirmation for free. It is defence in depth, not the
  * boundary — see the method handlers in the route, and note that the JSON error
- * envelope still differs from the framework's own not-found page.
+ * envelope still differs from the framework's own not-found page. The other
+ * capability-authenticated endpoints throw this same error, so no refusal is
+ * distinguishable from another.
  */
-function notFound(): ExomemHostedError {
+export function alertEndpointNotFound(): ExomemHostedError {
   return new ExomemHostedError({
     code: "ALERT_ENDPOINT_NOT_FOUND",
     status: 404,
@@ -125,12 +127,12 @@ export function verifyAlertToken(token: string | undefined): AlertCredential {
     KEY_WATCHER_TOKEN_DIGEST_VARIABLE,
     KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE
   );
-  if (scheduler.length === 0 && keyWatcher.length === 0) throw notFound();
-  if (!token || token.length > ALERT_TOKEN_MAX_LENGTH) throw notFound();
+  if (scheduler.length === 0 && keyWatcher.length === 0) throw alertEndpointNotFound();
+  if (!token || token.length > ALERT_TOKEN_MAX_LENGTH) throw alertEndpointNotFound();
   const actual = createHash("sha256").update(token, "utf8").digest("hex");
   if (scheduler.some((digest) => constantTimeEqualHex(actual, digest))) return "scheduler";
   if (keyWatcher.some((digest) => constantTimeEqualHex(actual, digest))) return "key-watcher";
-  throw notFound();
+  throw alertEndpointNotFound();
 }
 
 /** The stored key for a sender's transition id.

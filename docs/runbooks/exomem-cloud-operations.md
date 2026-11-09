@@ -903,8 +903,15 @@ no grant, so nothing purges them. The backfill signs each missing grant, each
 in its own transaction, and starts a full seven-day grace. Run it only at the
 Exomem rollout's step 10, after the rehearsal, with operator approval.
 
+The script reads `DATABASE_URL` for the production connection and
+`EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY` for the signing key. Load both into
+the shell for that run only, and never write either to a file.
+
 1. Confirm `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY` is live in production.
-2. Run `npx tsx scripts/backfill-cell-deletion-grants.ts` for a dry run. It prints counts only.
-3. Check the `granted` count against the deleted cells you expect.
-4. Run `npx tsx scripts/backfill-cell-deletion-grants.ts --commit` to sign and store the grants.
+2. Run `npx tsx scripts/backfill-cell-deletion-grants.ts` for a dry run. It prints `missing` and `signed` counts only.
+3. Check the `missing` count against the deleted cells you expect.
+4. If the count matches, run `npx tsx scripts/backfill-cell-deletion-grants.ts --commit` to sign and store the grants.
 5. Query the deletion-set endpoint and confirm every deleted cell appears with its `purge_after`.
+
+Expected result: `signed` equals `missing`, and the deletion set lists every
+deleted cell with a `purge_after` seven days after its grant's `iat`.
