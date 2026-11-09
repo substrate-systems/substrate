@@ -211,7 +211,32 @@ const CLOUD_GRANT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_GRANT_SIGNING_KEY";
 export function loadCloudGrantSigningKey(
   env: EnvironmentSource = process.env
 ): KeyObject | undefined {
-  const pem = env[CLOUD_GRANT_SIGNING_KEY_ENV]?.trim();
+  return loadEd25519SigningKey(env, CLOUD_GRANT_SIGNING_KEY_ENV);
+}
+
+/**
+ * The key that signs each cell's deletion grant (automate-cell-storage-deletion
+ * D1): an Ed25519 private key in PEM form, apart from the operation grant key,
+ * so the operator turns purges on independently of exports and imports. Only
+ * the web app reads it; the executors hold only the matching public key.
+ *
+ * Absent, Substrate signs no grant and nothing purges. A value that is not an
+ * Ed25519 private key is treated the same way and logged by name only: a
+ * mistyped key must not stop a cell's deletion.
+ */
+const CLOUD_DELETION_GRANT_SIGNING_KEY_ENV = "EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY";
+
+export function loadCloudDeletionGrantSigningKey(
+  env: EnvironmentSource = process.env
+): KeyObject | undefined {
+  return loadEd25519SigningKey(env, CLOUD_DELETION_GRANT_SIGNING_KEY_ENV);
+}
+
+function loadEd25519SigningKey(
+  env: EnvironmentSource,
+  variable: string
+): KeyObject | undefined {
+  const pem = env[variable]?.trim();
   if (!pem) return undefined;
   try {
     const key = createPrivateKey(pem);
@@ -219,7 +244,7 @@ export function loadCloudGrantSigningKey(
   } catch {
     // Key parser errors may echo supplied material; fall through to the value-free warning.
   }
-  console.warn({ event: "exomem_cloud_grant_key_invalid", variable: CLOUD_GRANT_SIGNING_KEY_ENV });
+  console.warn({ event: "exomem_cloud_grant_key_invalid", variable });
   return undefined;
 }
 

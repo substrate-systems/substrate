@@ -71,6 +71,7 @@ jobs:
           src/lib/exomem-hosted/__tests__/cloud-reviewer-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-lifecycle-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-deletion-finish-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/cell-deletion-grants-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-release-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-cancellation-notice-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/lifecycle-emails-postgres.integration.test.ts

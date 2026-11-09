@@ -12,6 +12,7 @@ import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
+import { recordCellDeletionGrant } from "./cloud-deletion-grants";
 import { executeExomemSql, initializeExomemTheme, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 import { FIRST_PAYMENT_SOURCE_STATES, LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
@@ -832,14 +833,17 @@ async function findExpiredCloudAwaitingCheckoutTenants(
  */
 async function expireCloudCellAtomic(tenantId: string): Promise<boolean> {
   return withExomemTransaction(async (tx) => {
-    const { rowCount } = await tx`
+    const { rows: deleted } = await tx`
       /* exomem-cloud:expire-cell */
       UPDATE exomem_cloud_cells
       SET desired_state = 'deleted'
       WHERE tenant_id = ${tenantId}::uuid
         AND desired_state = 'stopped'
+      RETURNING cell_id
     `;
-    if ((rowCount ?? 0) === 0) return false;
+    if (deleted.length === 0) return false;
+    // The deletion grant signs in the same transaction (automate-cell-storage-deletion D1).
+    for (const row of deleted) await recordCellDeletionGrant(tx, String(row.cell_id));
     await revokeCloudResourceConsent(tx, tenantId);
     return true;
   });

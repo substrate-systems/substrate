@@ -136,6 +136,18 @@ BEGIN
     ) THEN
       GRANT UPDATE (cancellation_notice_sent_at) ON exomem_cloud_cells TO substrate_app;
     END IF;
+    -- Migration 0084: the signed deletion grant, written in the transaction
+    -- that deletes the cell. exomem_cellctl reads it with its table SELECT and
+    -- holds no write, and no role writes deletion_stopped_at -- the 0084
+    -- trigger sets it, as 0056's trigger sets updated_at. Guarded on the
+    -- column's own existence, as 0057's grant is.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'deletion_grant'
+    ) THEN
+      GRANT UPDATE (deletion_grant) ON exomem_cloud_cells TO substrate_app;
+    END IF;
     GRANT INSERT, UPDATE ON exomem_cloud_settings TO substrate_app;
     GRANT UPDATE (paused, error_code, held_cell_id) ON exomem_cloud_rollout TO substrate_app;
     -- exomem_tenants and its mirror columns (reconcileCloudCellDesiredState,
