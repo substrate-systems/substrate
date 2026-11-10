@@ -3,6 +3,8 @@ import { constantTimeSecretEqual, digestSecret, tokenDigest } from "./security";
 
 export type ExomemOperatorContext = {
   principalDigest: Buffer;
+  /** The admin token, or the release automation's deploy token. */
+  principal: "admin" | "deploy";
 };
 
 function bearerToken(request: Request): string | null {
@@ -23,10 +25,15 @@ export function requireExomemOperator(request: Request): ExomemOperatorContext {
   }
   return {
     principalDigest: digestSecret(`exomem-admin\0${configured}`),
+    principal: "admin",
   };
 }
 
-/** The release route alone accepts this image-setting principal. */
+/**
+ * The release routes alone accept this principal. It reads the bounded
+ * rollout view and sets the release image; the route refuses it everything
+ * else (automate-cloud-releases D1).
+ */
 export function requireExomemDeployer(request: Request): ExomemOperatorContext {
   const configured = process.env.EXOMEM_DEPLOY_TOKEN;
   const presented = bearerToken(request);
@@ -36,7 +43,7 @@ export function requireExomemDeployer(request: Request): ExomemOperatorContext {
     presented &&
     constantTimeSecretEqual(configured, presented)
   ) {
-    return { principalDigest: digestSecret(`exomem-deploy\0${configured}`) };
+    return { principalDigest: digestSecret(`exomem-deploy\0${configured}`), principal: "deploy" };
   }
   return requireExomemOperator(request);
 }

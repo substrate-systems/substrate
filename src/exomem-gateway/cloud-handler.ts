@@ -7,6 +7,7 @@ import { cloudBearerChallenge } from "../lib/exomem-hosted/cloud-oauth";
  */
 
 import { randomUUID, type KeyObject } from "node:crypto";
+import { fetch as undiciFetch } from "undici";
 import {
   CloudArtifactBodyError,
   cloudArtifactGrant,
@@ -28,6 +29,14 @@ import {
   type CloudUploadRoute,
 } from "./cloud-origin";
 import { answerCloudTransferCall, parseCloudTransferCall } from "./cloud-transfer-tools";
+import {
+  gatewayCloudUpstream,
+  holdForCell,
+  isCellConnectFailure,
+  isCellHeadersTimeout,
+  resetCloudHoldForTests,
+  type CloudUpstream,
+} from "./cloud-upstream";
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
@@ -120,6 +129,7 @@ export function resetCloudGatewayConcurrencyForTests(): void {
   ipBucketSkips = 0;
   appUseLosses = 0;
   appUseAskedAt.clear();
+  resetCloudHoldForTests();
 }
 
 /** Requests this process served without an IP bucket (D3 step 3). */
@@ -197,6 +207,42 @@ function acquireCloudConcurrency(key: string): (() => void) | null {
 }
 
 /**
+ * The gateway server's own per-process cap (server.ts), which counts every
+ * request it serves. A held request gives it back while it waits (D5).
+ */
+export type GatewayServerSlot = { release(): void; take(): boolean };
+
+/**
+ * One request's in-flight slot. `leave` and `retake` serve the hold: a held
+ * request counts against the hold caps, not the in-flight caps, until its cell
+ * accepts a connection.
+ */
+function takeInflightSlot(key: string, server?: GatewayServerSlot) {
+  let releaseCall = acquireCloudConcurrency(key);
+  if (!releaseCall) return null;
+  const release = () => {
+    releaseCall?.();
+    releaseCall = null;
+  };
+  return {
+    release,
+    leave() {
+      release();
+      server?.release();
+    },
+    retake(): boolean {
+      if (server && !server.take()) return false;
+      releaseCall = acquireCloudConcurrency(key);
+      if (releaseCall) return true;
+      server?.release();
+      return false;
+    },
+  };
+}
+
+type InflightSlot = NonNullable<ReturnType<typeof takeInflightSlot>>;
+
+/**
  * Wraps `response`'s body so `release` fires exactly once the relayed
  * stream actually finishes: normal completion, an upstream read error, or
  * the caller cancelling its own read of the response. A response with no
@@ -258,6 +304,25 @@ function errorResponse(status: number, code: string): Response {
   return Response.json({ error: code }, { status, headers: CACHE_HEADERS });
 }
 
+/** D5: a request the hold could not serve tells the client when to try again. */
+function cellNotReadyRetryLater(upstream: CloudUpstream): Response {
+  return Response.json(
+    { error: "CELL_NOT_READY" },
+    {
+      status: 503,
+      headers: { ...CACHE_HEADERS, "retry-after": String(upstream.retryAfterSeconds) },
+    }
+  );
+}
+
+function defaultCellOrigin(cellId: string): string {
+  return `http://cell.exo-cell-${cellId}.svc.cluster.local:${CELL_PORT}`;
+}
+
+// undici's own fetch, so the dispatcher that carries the D5 timeouts is the
+// same library version that reads it.
+const defaultFetchCell = undiciFetch as unknown as typeof fetch;
+
 function unauthorized(config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath">): Response {
   return Response.json(
     { error: "ACCESS_TOKEN_INVALID" },
@@ -313,6 +378,12 @@ export type CloudGatewayDependencies = {
   fetchCell?: typeof fetch;
   /** Reaches the Substrate web API for the transfer tools; a test injects its own. */
   fetchControlPlane?: typeof fetch;
+  /** The D5 hold and timeouts; the gateway reads them from its environment at start. */
+  upstream?: CloudUpstream;
+  /** The cell's base URL; a test points it at a stand-in cell. */
+  cellOrigin?: (cellId: string) => string;
+  /** Set by server.ts, so a held request also gives back the server's slot. */
+  serverSlot?: GatewayServerSlot;
 };
 
 type PreparedBody = Awaited<ReturnType<typeof readCloudArtifactBody>>;
@@ -328,7 +399,6 @@ export async function handleCloudMcpRequest(
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
   const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
-  const recordAppUse = dependencies.recordAppUse ?? recordCloudAppUse;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
 
   // 1. GET is refused before anything else is even parsed.
@@ -378,8 +448,9 @@ export async function handleCloudMcpRequest(
     return errorResponse(429, "RATE_LIMITED");
   }
 
-  const release = acquireCloudConcurrency(identityKey);
-  if (!release) return errorResponse(429, "RATE_LIMITED");
+  const slot = takeInflightSlot(identityKey, dependencies.serverSlot);
+  if (!slot) return errorResponse(429, "RATE_LIMITED");
+  const release = slot.release;
   let response: Response;
   try {
     // 5b. The transfer tools are the control plane's, so they are answered
@@ -399,14 +470,7 @@ export async function handleCloudMcpRequest(
       }
       prepared = served.prepared;
     }
-    response = await proxyToCell(
-      request,
-      access,
-      config,
-      dependencies.fetchCell ?? fetch,
-      recordAppUse,
-      prepared
-    );
+    response = await proxyToCell(request, access, config, dependencies, slot, prepared);
   } catch (error) {
     release();
     throw error;
@@ -455,10 +519,13 @@ async function proxyToCell(
   request: Request,
   access: ActiveCloudOAuthAccessToken,
   config: ExomemCloudConfig,
-  fetchCell: typeof fetch,
-  recordAppUse: typeof recordCloudAppUse,
+  dependencies: CloudGatewayDependencies,
+  slot: InflightSlot,
   prepared?: PreparedBody
 ): Promise<Response> {
+  const fetchCell = dependencies.fetchCell ?? defaultFetchCell;
+  const recordAppUse = dependencies.recordAppUse ?? recordCloudAppUse;
+  const upstreamSettings = dependencies.upstream ?? gatewayCloudUpstream();
   if (request.method !== "POST" && request.method !== "DELETE") {
     return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "POST" } });
   }
@@ -542,20 +609,17 @@ async function proxyToCell(
     }
   }
 
-  let body: BodyInit | null | undefined =
-    request.method === "DELETE" ? undefined : prepared ? prepared.body : request.body;
-  if (
-    config.artifactSigningKey &&
-    cloudArtifactTransportEnabled(config, access.cellId) &&
-    request.method === "POST"
-  ) {
+  // D5: with the hold on, every body is prepared through the one capped
+  // reader, so a held request can be sent again. A body over the cap streams
+  // as before and is never held.
+  const holdOn = upstreamSettings.holdBudgetMs > 0;
+  const inspectArtifacts = Boolean(
+    config.artifactSigningKey && cloudArtifactTransportEnabled(config, access.cellId)
+  );
+  let read = prepared;
+  if (request.method === "POST" && !read && (inspectArtifacts || holdOn)) {
     try {
-      const read = prepared ?? (await readCloudArtifactBody(request));
-      body = read.body;
-      const grant = read.inspected
-        ? cloudArtifactGrant(read.inspected, access.cellId, config.artifactSigningKey)
-        : null;
-      if (grant) forwardHeaders.set("x-exomem-artifact-grant", grant);
+      read = await readCloudArtifactBody(request);
     } catch (error) {
       if (error instanceof CloudArtifactBodyError) {
         return errorResponse(error.status, "REQUEST_BODY_UNAVAILABLE");
@@ -563,19 +627,49 @@ async function proxyToCell(
       throw error;
     }
   }
+  const body: BodyInit | null | undefined =
+    request.method === "DELETE" ? undefined : read ? read.body : request.body;
+  if (config.artifactSigningKey && inspectArtifacts && request.method === "POST") {
+    const grant = read?.inspected
+      ? cloudArtifactGrant(read.inspected, access.cellId, config.artifactSigningKey)
+      : null;
+    if (grant) forwardHeaders.set("x-exomem-artifact-grant", grant);
+  }
+  const holdable = holdOn && (request.method === "DELETE" || read?.inspected !== undefined);
 
-  const upstreamUrl = `http://cell.exo-cell-${access.cellId}.svc.cluster.local:${CELL_PORT}/mcp`;
+  const origin = new URL((dependencies.cellOrigin ?? defaultCellOrigin)(access.cellId));
+  let deadline: number | undefined;
   let upstream: Response;
-  try {
-    upstream = await fetchCell(upstreamUrl, {
-      method: request.method,
-      headers: forwardHeaders,
-      body,
-      duplex: "half",
-      signal: request.signal,
-    } as RequestInit);
-  } catch {
-    return errorResponse(503, "CELL_NOT_READY");
+  while (true) {
+    try {
+      upstream = await fetchCell(new URL("/mcp", origin).toString(), {
+        method: request.method,
+        headers: forwardHeaders,
+        body,
+        duplex: "half",
+        signal: request.signal,
+        dispatcher: upstreamSettings.dispatcher,
+      } as RequestInit);
+      break;
+    } catch (error) {
+      if (isCellHeadersTimeout(error)) return errorResponse(504, "CELL_TIMEOUT");
+      // Only a connection that never opened is retried: a request the cell
+      // may have read could run twice.
+      if (!holdable || !isCellConnectFailure(error) || request.signal.aborted) {
+        return errorResponse(503, "CELL_NOT_READY");
+      }
+      deadline ??= Date.now() + upstreamSettings.holdBudgetMs;
+      const outcome = await holdForCell({
+        origin,
+        tenantId: access.tenantId,
+        upstream: upstreamSettings,
+        deadline,
+        signal: request.signal,
+        inflight: slot,
+      });
+      if (outcome === "busy") return errorResponse(429, "RATE_LIMITED");
+      if (outcome !== "accepted") return cellNotReadyRetryLater(upstreamSettings);
+    }
   }
 
   if (upstream.status === 401) {
@@ -690,14 +784,8 @@ export async function handleCloudUploadRequest(
   if (!release) return errorResponse(429, "RATE_LIMITED");
   try {
     return releaseConcurrencyWhenBodyEnds(
-      await relayUploadToCell(
-        request,
-        login,
-        ticket,
-        key,
-        config,
-        dependencies.fetchCell ?? fetch,
-        () => currentUploadLogin(route, config, findLogin)
+      await relayUploadToCell(request, login, ticket, key, config, dependencies, () =>
+        currentUploadLogin(route, config, findLogin)
       ),
       release
     );
@@ -713,9 +801,11 @@ async function relayUploadToCell(
   ticket: string,
   key: KeyObject,
   config: ExomemCloudConfig,
-  fetchCell: typeof fetch,
+  dependencies: CloudGatewayDependencies,
   recheck: () => Promise<ActiveCloudOAuthLogin | null>
 ): Promise<Response> {
+  const fetchCell = dependencies.fetchCell ?? defaultFetchCell;
+  const origin = (dependencies.cellOrigin ?? defaultCellOrigin)(login.cellId);
   // 5. Fresh origin bound to this ticket, the derived cell bearer, and the
   // cell's fixed receiver. The caller's bearer and headers never reach it.
   const headers = new Headers({
@@ -730,17 +820,16 @@ async function relayUploadToCell(
 
   let upstream: Response;
   try {
-    upstream = await fetchCell(
-      `http://cell.exo-cell-${login.cellId}.svc.cluster.local:${CELL_PORT}/upload`,
-      {
-        method: "POST",
-        headers,
-        body: request.body,
-        duplex: "half",
-        signal: request.signal,
-      } as RequestInit
-    );
-  } catch {
+    upstream = await fetchCell(`${origin}/upload`, {
+      method: "POST",
+      headers,
+      body: request.body,
+      duplex: "half",
+      signal: request.signal,
+      dispatcher: (dependencies.upstream ?? gatewayCloudUpstream()).dispatcher,
+    } as RequestInit);
+  } catch (error) {
+    if (isCellHeadersTimeout(error)) return errorResponse(504, "CELL_TIMEOUT");
     return errorResponse(503, "CELL_NOT_READY");
   }
   const answer = await readCellUploadAnswer(upstream);
@@ -854,14 +943,7 @@ export async function handleCloudDownloadRequest(
       return unauthorized(config);
     }
     return releaseConcurrencyWhenBodyEnds(
-      await relayDownloadFromCell(
-        request,
-        login,
-        path,
-        key,
-        config,
-        dependencies.fetchCell ?? fetch
-      ),
+      await relayDownloadFromCell(request, login, path, key, config, dependencies),
       release
     );
   } catch (error) {
@@ -876,8 +958,10 @@ async function relayDownloadFromCell(
   path: string,
   key: KeyObject,
   config: ExomemCloudConfig,
-  fetchCell: typeof fetch
+  dependencies: CloudGatewayDependencies
 ): Promise<Response> {
+  const fetchCell = dependencies.fetchCell ?? defaultFetchCell;
+  const origin = (dependencies.cellOrigin ?? defaultCellOrigin)(login.cellId);
   // The caller's token and headers never reach the cell: only the cell bearer,
   // a proof bound to this path, and the caller's Range.
   const headers = new Headers({
@@ -892,11 +976,18 @@ async function relayDownloadFromCell(
   let upstream: Response;
   try {
     upstream = await fetchCell(
-      `http://cell.exo-cell-${login.cellId}.svc.cluster.local:${CELL_PORT}${CLOUD_DOWNLOAD_PATH}?${new URLSearchParams({ path })}`,
+      `${origin}${CLOUD_DOWNLOAD_PATH}?${new URLSearchParams({ path })}`,
       // A redirect is never followed: the cell has no reason to send one.
-      { method: "GET", headers, redirect: "manual", signal: request.signal }
+      {
+        method: "GET",
+        headers,
+        redirect: "manual",
+        signal: request.signal,
+        dispatcher: (dependencies.upstream ?? gatewayCloudUpstream()).dispatcher,
+      } as RequestInit
     );
-  } catch {
+  } catch (error) {
+    if (isCellHeadersTimeout(error)) return errorResponse(504, "CELL_TIMEOUT");
     return errorResponse(503, "CELL_NOT_READY");
   }
   if (upstream.status >= 300 && upstream.status < 400) {

@@ -151,6 +151,37 @@ describe("standalone Exomem gateway adapter", () => {
     }
   });
 
+  it("does not count a held request against the server's in-flight cap (D5)", async () => {
+    let releaseHeld: (() => void) | undefined;
+    const cellReturned = new Promise<void>((resolve) => (releaseHeld = resolve));
+    let calls = 0;
+    const server = createGatewayServer({
+      maxInflight: 1,
+      handleCloudMcp: async (_request, dependencies) => {
+        calls += 1;
+        if (calls > 1) return new Response("other tenant");
+        // The cloud handler's hold: give the slot back while the cell restarts.
+        dependencies?.serverSlot?.release();
+        await cellReturned;
+        return new Response(dependencies?.serverSlot?.take() ? "held" : "no slot");
+      },
+    });
+    const baseUrl = await listen(server);
+    try {
+      const held = fetch(`${baseUrl}/mcp`, { method: "POST" });
+      await waitFor(() => calls === 1, "the held request");
+      const other = await fetch(`${baseUrl}/mcp`, { method: "POST" });
+      assert.equal(other.status, 200);
+      assert.equal(await other.text(), "other tenant");
+      releaseHeld?.();
+      assert.equal(await (await held).text(), "held");
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    }
+  });
+
   it("frees the inflight slot of a download abandoned while the cell is slow", async () => {
     let release: () => void = () => undefined;
     const slow = new Promise<void>((resolve) => {

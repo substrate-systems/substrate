@@ -26,6 +26,14 @@ const KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_KEY_WATCHER_ALERT_TOK
  * scheduler capability may never report. Fixed by the watcher's contract
  * (`infra/scripts/b2_key_watcher.py` in the Exomem repository). */
 export const KEY_WATCHER_JOB = "b2-key-watcher";
+/** The release automation (automate-cloud-releases D1) runs in GitHub Actions with
+ * its own capability, so it can raise and resolve only its own alerts. It runs on
+ * releases, not on a schedule, so no missed-run alert watches it. */
+const CLOUD_DEPLOY_TOKEN_DIGEST_VARIABLE = "EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256";
+const CLOUD_DEPLOY_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256_PREVIOUS";
+/** The only job the cloud-deploy capability may report, fixed by the Exomem
+ * repository's `cloud-deploy` workflow. */
+export const CLOUD_DEPLOY_JOB = "cloud-deploy";
 /** Sent once per completed watcher run, always inactive. After the first
  * delivered marker the redundancy check keeps every later one silent. */
 export const KEY_WATCHER_RUN_ALERT = "KEY_WATCHER_RUN";
@@ -81,7 +89,7 @@ function constantTimeEqualHex(provided: string, expected: string): boolean {
   return candidate.length === reference.length && timingSafeEqual(candidate, reference);
 }
 
-export type AlertCredential = "scheduler" | "key-watcher";
+export type AlertCredential = "scheduler" | "key-watcher" | "cloud-deploy";
 
 function digestRing(activeVariable: string, previousVariable: string): string[] {
   const active = process.env[activeVariable];
@@ -104,8 +112,8 @@ function digestRing(activeVariable: string, previousVariable: string): string[] 
  * digest is published first, the single-version K3s sender URL cuts over, and
  * only then is the previous digest retired. This mirrors the two-version
  * receiver overlap used for `EXOMEM_HOSTED_SCHEDULER_SECRET`. Each capability
- * (scheduler, key watcher) has exactly this two-slot ring and no implicit
- * fallback; the returned credential decides which jobs it may report.
+ * (scheduler, key watcher, cloud deploy) has exactly this two-slot ring and no
+ * implicit fallback; the returned credential decides which jobs it may report.
  */
 export function verifyAlertToken(token: string | undefined): AlertCredential {
   const scheduler = digestRing(ALERT_TOKEN_DIGEST_VARIABLE, ALERT_TOKEN_DIGEST_PREVIOUS_VARIABLE);
@@ -113,11 +121,18 @@ export function verifyAlertToken(token: string | undefined): AlertCredential {
     KEY_WATCHER_TOKEN_DIGEST_VARIABLE,
     KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE
   );
-  if (scheduler.length === 0 && keyWatcher.length === 0) throw alertEndpointNotFound();
+  const cloudDeploy = digestRing(
+    CLOUD_DEPLOY_TOKEN_DIGEST_VARIABLE,
+    CLOUD_DEPLOY_TOKEN_DIGEST_PREVIOUS_VARIABLE
+  );
+  if (scheduler.length === 0 && keyWatcher.length === 0 && cloudDeploy.length === 0) {
+    throw alertEndpointNotFound();
+  }
   if (!token || token.length > ALERT_TOKEN_MAX_LENGTH) throw alertEndpointNotFound();
   const actual = createHash("sha256").update(token, "utf8").digest("hex");
   if (scheduler.some((digest) => constantTimeEqualHex(actual, digest))) return "scheduler";
   if (keyWatcher.some((digest) => constantTimeEqualHex(actual, digest))) return "key-watcher";
+  if (cloudDeploy.some((digest) => constantTimeEqualHex(actual, digest))) return "cloud-deploy";
   throw alertEndpointNotFound();
 }
 
@@ -134,10 +149,19 @@ export function storedTransitionId(job: string, senderTransitionId: string): str
   return createHash("sha256").update(`${job}|${senderTransitionId}`, "utf8").digest("hex");
 }
 
-/** Bind each capability to its own jobs, so neither sender can speak for the other. */
+/** The one job each dedicated capability reports; the scheduler capability reports none of them. */
+const DEDICATED_JOBS: Record<Exclude<AlertCredential, "scheduler">, string> = {
+  "key-watcher": KEY_WATCHER_JOB,
+  "cloud-deploy": CLOUD_DEPLOY_JOB,
+};
+
+/** Bind each capability to its own jobs, so no sender can speak for another. */
 export function assertJobForCredential(credential: AlertCredential, job: string): void {
-  const isKeyWatcherJob = job === KEY_WATCHER_JOB;
-  if ((credential === "key-watcher") !== isKeyWatcherJob) throw payloadInvalid();
+  const allowed =
+    credential === "scheduler"
+      ? !Object.values(DEDICATED_JOBS).includes(job)
+      : job === DEDICATED_JOBS[credential];
+  if (!allowed) throw payloadInvalid();
 }
 
 /** Accept exactly the sender's shape and nothing else.

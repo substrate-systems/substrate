@@ -13,6 +13,7 @@ import {
   type CloudGatewayDependencies,
 } from "../cloud-handler";
 import { createGatewayServer } from "../server";
+import { testUpstream } from "./upstream-fixture";
 
 // add-cloud-media-store: the gateway half of the exact-original download.
 // The cell half is proved in the Exomem repository.
@@ -59,6 +60,7 @@ function downloadRequest(
 
 function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDependencies {
   return {
+    upstream: testUpstream(),
     config: CONFIG,
     findAccessToken: async () => ACCESS,
     findLogin: async () => ACCESS,

@@ -9,6 +9,8 @@ const TOKEN_DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
 const TRANSITION_ID = "c3d4".repeat(16);
 const WATCHER_TOKEN = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b";
 const WATCHER_TOKEN_DIGEST = createHash("sha256").update(WATCHER_TOKEN, "utf8").digest("hex");
+const DEPLOY_TOKEN = "5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d";
+const DEPLOY_TOKEN_DIGEST = createHash("sha256").update(DEPLOY_TOKEN, "utf8").digest("hex");
 
 let sent: Array<{ to: string; subject: string }> = [];
 
@@ -62,7 +64,13 @@ afterEach(() => {
   setOperationalEventSinkForTests(null);
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256;
   delete process.env.EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256;
+  delete process.env.EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256;
 });
+
+/** The release workflow's alert, in the scheduler sender's body shape. */
+function deployBytes(job: string): string {
+  return `{"active":true,"alert":"cloud-release-platform-needed","job":"${job}","schema_version":1,"transition_id":"${TRANSITION_ID}"}`;
+}
 
 function watcherBytes(job: string): string {
   return `{"active":false,"alert":"KEY_WATCHER_RUN","job":"${job}","schema_version":1,"transition_id":"${TRANSITION_ID}"}`;
@@ -133,6 +141,38 @@ describe("POST /api/exomem/alerts/[token]", () => {
       params(WATCHER_TOKEN)
     );
     assert.equal(foreign.status, 400);
+    assert.ok(!recorded.includes("exomem:record-alert-transition"));
+  });
+
+  // automate-cloud-releases D1: the release workflow holds a CI capability.
+  // It may raise and resolve only its own alerts, never the scheduler's or
+  // the key watcher's.
+  it("accepts the cloud-deploy capability only for the cloud-deploy job", async () => {
+    process.env.EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256 = DEPLOY_TOKEN_DIGEST;
+    const { POST } = await import("../route");
+    const own = await POST(
+      senderRequest({ token: DEPLOY_TOKEN, body: deployBytes("cloud-deploy") }),
+      params(DEPLOY_TOKEN)
+    );
+    assert.equal(own.status, 200);
+    for (const job of ["exomem-reconcile", "b2-key-watcher", "cloud-deploy-2"]) {
+      recorded = [];
+      const foreign = await POST(
+        senderRequest({ token: DEPLOY_TOKEN, body: deployBytes(job) }),
+        params(DEPLOY_TOKEN)
+      );
+      assert.equal(foreign.status, 400, job);
+      assert.ok(!recorded.includes("exomem:record-alert-transition"), job);
+    }
+  });
+
+  it("refuses a cloud-deploy alert sent with the scheduler capability", async () => {
+    // cellctl can read the scheduler capability; it must not resolve the
+    // release workflow's alerts.
+    process.env.EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256 = DEPLOY_TOKEN_DIGEST;
+    const { POST } = await import("../route");
+    const response = await POST(senderRequest({ body: deployBytes("cloud-deploy") }), params());
+    assert.equal(response.status, 400);
     assert.ok(!recorded.includes("exomem:record-alert-transition"));
   });
 

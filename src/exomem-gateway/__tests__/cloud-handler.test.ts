@@ -16,6 +16,7 @@ import {
   resetCloudGatewayConcurrencyForTests,
   type CloudGatewayDependencies,
 } from "../cloud-handler";
+import { testUpstream } from "./upstream-fixture";
 
 // Task 3.6: the gateway Cloud handler (design D3), against a small real HTTP
 // stand-in cell process — the real cell image is being built in a parallel
@@ -130,6 +131,7 @@ function fetchCellAt(port: number): typeof fetch {
 
 function baseDeps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDependencies {
   return {
+    upstream: testUpstream(),
     config: TEST_CONFIG,
     findAccessToken: async () => VALID_ACCESS,
     recordAppUse: async () => undefined,

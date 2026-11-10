@@ -31,6 +31,9 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                         | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                                                        |
 | `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256`                             | SHA-256 of the object-store key watcher's own capability. It may report only job `b2-key-watcher`, and the scheduler capability may never report that job. Setting it enables the daily `KEY_WATCHER_STALE` check (`/api/cron/exomem-key-watcher`), which runs daily and fires when the last hourly run is more than two hours old, so a stopped watcher is caught within about a day. |
 | `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256_PREVIOUS`                    | Optional overlap during key-watcher capability rotation. A malformed value is ignored. |
+| `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256`                            | SHA-256 of the release automation's own alert capability. It may report only job `cloud-deploy`, and no other capability may report that job. No missed-run check watches it, because it runs on releases, not on a schedule. |
+| `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256_PREVIOUS`                   | Optional overlap during cloud-deploy capability rotation. A malformed value is ignored. |
+| `EXOMEM_DEPLOY_TOKEN`                                               | Production only. The release automation's token, separate from `EXOMEM_ADMIN_TOKEN`. It reads the rollout view and sets `cellImage` with its `release`, and nothing else. Seed the image history before you set it. See "Cloud releases" below. |
 | `EXOMEM_HOSTED_ALERT_RECIPIENT`                                     | Alert address. Production sets `alerts@substratesystems.io`; unset falls back to `founder@substratesystems.io`, so a missing value never drops an alert.                                                                                                                                                           |
 | `BREVO_API_KEY`                                                     | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                                                     |
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | `BREVO_SENDER_EMAIL` is required: the verified default sender for mail that names none (Endstate claim and webhook mail). Exomem mail passes its own sender. `BREVO_SENDER_NAME` is optional.                                                                                                                                                                                                   |
@@ -51,6 +54,7 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`                           | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the deletion grant Substrate stores when it deletes a cell. Use a key apart from `EXOMEM_CLOUD_GRANT_SIGNING_KEY`, and give the Exomem executors only the matching public key, through their `cellDeletion.grantPublicKeys` value. Unset, a cell deletion still succeeds and stores no grant, and nothing purges the cell's backups or media. A value that is not an Ed25519 private key is logged by name only and treated as unset. |
 | `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`                                 | Gateway only: an Ed25519 private key in PEM form. When it is set, the gateway signs an origin proof on every `/mcp` request to every cell, and each cell needs the matching public key to check it. Artifact transport and uploads still need their own switches. A value that is set and is not an Ed25519 private key is logged by name only (`exomem_cloud_artifact_signing_key_invalid`, on the 1st, 2nd, 4th, 8th... load) and read as unset, so the cells report the requests as unproven. With artifact transport or uploads on, the same value fails the gateway configuration. |
 | `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED`                               | Gateway only. `true` serves `observe_transfer` and `transfer_memory` from the control plane. Needs gateway HTTPS egress (chart flag `cloudGateway.transferTools.enabled`). Anything else is off, the rollback.                        |
+| `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS`, `EXOMEM_CLOUD_HOLD_INTERVAL_MS`, `EXOMEM_CLOUD_HOLD_JITTER_MS`, `EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`, `EXOMEM_CLOUD_HOLD_MAX`, `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS`, `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS`, `EXOMEM_CLOUD_UPSTREAM_IDLE_SECONDS` | Gateway only, all required: the gateway does not start without each one. The platform chart renders them from `cloudGateway.hold.*` and `cloudGateway.upstream.*`. See "The gateway hold" below. |
 | `EXOMEM_CLOUD_UPLOAD_ENABLED`, `EXOMEM_CLOUD_UPLOAD_CELL_IDS`       | Gateway only. `true` plus a JSON array of cell IDs serves Cloud upload handoffs for exactly those cells, signed with `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`. Each selected cell needs the matching public key; see Exomem's `cloud-upload-handoff` runbook. The ingress must route `POST /upload` to the gateway. Anything else is off, the rollback. Artifact transport alone never enables uploads. |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
@@ -876,6 +880,83 @@ Include that brief interruption in the controller rollout and feature-enablement
 The application preserves paid allowance through later subscription events.
 This flow does not buy storage automatically, reduce a volume or remove an add-on.
 Those actions remain outside this capability.
+
+## The gateway hold
+
+When a cell refuses connections, for example during its upgrade, the gateway
+holds a request and retries the same cell. It retries every
+`EXOMEM_CLOUD_HOLD_INTERVAL_MS` plus up to `EXOMEM_CLOUD_HOLD_JITTER_MS`, until
+`EXOMEM_CLOUD_HOLD_BUDGET_SECONDS` runs out. Then it answers `503
+CELL_NOT_READY` with `Retry-After: EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`.
+
+- The gateway holds only a request whose body fits the 1 MiB prepared-body cap.
+  A larger body streams to the cell and is never held.
+- The gateway retries only when no connection opened. It never sends a request
+  again after the cell could read it.
+- A held request counts against `EXOMEM_CLOUD_HOLD_MAX` and
+  `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, not against the in-flight caps. When the
+  cell accepts, the request needs a free in-flight slot, or it gets `429
+  RATE_LIMITED`.
+- `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS` bounds each connection attempt to a cell.
+- A cell that sends no response headers within
+  `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS` gets `504 CELL_TIMEOUT`.
+- A response that sends no bytes for `EXOMEM_CLOUD_UPSTREAM_IDLE_SECONDS` is
+  closed. Keep this value above the longest tool call.
+
+To turn the hold off, set `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS` to `0`. The
+gateway then answers a refused connection with `503 CELL_NOT_READY` at once.
+
+## Cloud releases
+
+`PUT /api/exomem/admin/cloud-release` is the only writer of `cell_image`. Each
+digest that becomes `cell_image` is recorded once in the image history, with
+its release tag. A digest that is new to the history needs its `release`, a
+`vMAJOR.MINOR.PATCH` tag.
+
+The admin token may set any digest, clear a rollout pause and set one cell's
+image. The deploy token, `EXOMEM_DEPLOY_TOKEN`, may only do these two things:
+
+- read `GET /api/exomem/admin/cloud-release/rollout`;
+- send `PUT /api/exomem/admin/cloud-release` with exactly `cellImage` and
+  `release`.
+
+| Answer                         | Meaning                                                                                                   |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `409 CELL_IMAGE_SEEN`          | The deploy token sent a digest that was `cell_image` before. Nothing changed.                             |
+| `409 CELL_RELEASE_OLDER`       | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.          |
+| `403 OPERATOR_SCOPE_DENIED`    | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed.     |
+| `401` on the full `GET`        | The full view names every cell and tenant, so only the admin token reads it.                              |
+
+The rollout view holds no cell ID and no tenant ID, and its size does not grow
+with the fleet. It returns `cell_image` and its `release`, `paused` and
+`error_code`, and `canary_on_target`. The canary is the cell with the lowest
+rollout priority; `canary_on_target` is true when that cell reports its target
+image and is Ready. The `cells` counts give running and read-only cells on and
+behind their target, and cells under a hold.
+
+### Seed the image history
+
+Run the seed when Substrate first ships the image history, and again just
+before you set `EXOMEM_DEPLOY_TOKEN`. The seed only adds rows, so a second run
+changes nothing. It records every published release's cell image with its tag,
+and every image that the Cloud tables name without a tag.
+
+The script reads `DATABASE_URL` and `EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY`. Load
+both into the shell for this run only.
+
+1. Build the release list from the published releases and their Cloud image digests:
+
+   ```bash
+   gh release list -R Artexis10/exomem --limit 1000 --json tagName --jq '.[].tagName' | while read -r tag; do digest=$(docker buildx imagetools inspect "$EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY:${tag#v}-cloud" --format '{{json .Manifest}}' 2>/dev/null | jq -r .digest) && [ -n "$digest" ] && printf '{"release":"%s","image":"%s@%s"}\n' "$tag" "$EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY" "$digest"; done | jq -s . > releases.json
+   ```
+
+2. Run `npx tsx scripts/seed-cloud-image-history.ts --releases releases.json` for a dry run. It prints counts only.
+3. Check that `releases` equals the number of releases that published a Cloud image.
+4. Run `npx tsx scripts/seed-cloud-image-history.ts --releases releases.json --commit`.
+5. Read the rollout view with the admin token, and check that `release` names the live release.
+6. Delete `releases.json`.
+
+Expected result: a second dry run prints `added_from_releases=0 added_from_live=0`.
 
 ## Cell storage deletion
 
