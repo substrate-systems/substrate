@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
+import {
+  capabilityEndpointNotFoundResponse,
+  safeErrorResponse,
+} from "@/lib/exomem-hosted/next-error-response";
 import { emitAccessEvent, newRequestId, readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
   ALERT_MAX_BODY_BYTES,
@@ -173,10 +176,7 @@ function bucket(value: number): string {
  * answer 405 with an `Allow` header for a wrong method and confirm the endpoint
  * exists to an unauthenticated prober. */
 function methodNotFound(): NextResponse {
-  return NextResponse.json(
-    { success: false, error: { code: "ALERT_ENDPOINT_NOT_FOUND", retryable: false } },
-    { status: 404, headers: { "cache-control": "no-store" } }
-  );
+  return capabilityEndpointNotFoundResponse();
 }
 
 export const GET = methodNotFound;

@@ -19,6 +19,7 @@ import { type ExomemThemeChoice } from "@/lib/exomem/theme";
 
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { revokeCloudResourceConsent } from "./cloud-consent";
+import { recordCellDeletionGrant } from "./cloud-deletion-grants";
 import { executeExomemSql, withExomemTransaction } from "./db";
 import { enqueueDeletedEmail } from "./lifecycle-emails";
 import {
@@ -457,8 +458,13 @@ export async function reconcileCloudCellDesiredState(
       WHERE cell_id = ${liveCells[0].cell_id as string}
     `;
 
-    // D2: the transaction that deletes the cell also revokes consent.
-    if (target === "deleted") await revokeCloudResourceConsent(tx, tenantId);
+    // D2: the transaction that deletes the cell also revokes consent, and D1
+    // (automate-cell-storage-deletion) signs its deletion grant in the same
+    // transaction, so the grant can never be lost after the deletion commits.
+    if (target === "deleted") {
+      await revokeCloudResourceConsent(tx, tenantId);
+      await recordCellDeletionGrant(tx, liveCells[0].cell_id as string);
+    }
 
     const mirror = deletionPending ? null : cloudDesiredStateToTenantMirror(target);
     if (mirror) {

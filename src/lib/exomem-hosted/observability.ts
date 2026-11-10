@@ -25,6 +25,9 @@ const EVENT_NAMES = new Set([
   "alerts.notification.failed",
   "alerts.backlog.undelivered",
   "alerts.key_watcher.check",
+  "exomem.cell-deletions.read",
+  "exomem.cell-deletions.denied",
+  "exomem.cell-deletions.failed",
   "oauth.authorize.declined",
   "oauth.authorize.kept",
 ]);

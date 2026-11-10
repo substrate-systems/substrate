@@ -7,6 +7,8 @@ name: Exomem instruction blocks drift
 # `npm run sync:instruction-blocks -- <path-to-exomem-repo>`.
 # Also fails when docs/benchmarks.md on Exomem main differs from the copy the
 # landing's recall figures came from; refresh src/app/exomem/landing/recall-benchmarks.json.
+# Also fails when infra/contracts/cell-deletion-grants-v1.json on Exomem main differs from
+# contracts/cell-deletion-grants-v1.json; refresh the copy with `cp` from an Exomem checkout.
 on:
   schedule:
     - cron: "23 5 * * 1"
@@ -37,3 +39,8 @@ jobs:
       - name: Check the landing's recall figures
         if: ${{ !cancelled() }}
         run: node scripts/check-exomem-benchmarks.mjs "$RUNNER_TEMP/benchmarks.md"
+      - name: Check the deletion grant fixture
+        if: ${{ !cancelled() }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/cell-deletion-grants-v1.json" https://raw.githubusercontent.com/Artexis10/exomem/main/infra/contracts/cell-deletion-grants-v1.json
+          diff -u contracts/cell-deletion-grants-v1.json "$RUNNER_TEMP/cell-deletion-grants-v1.json"

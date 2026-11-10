@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { format } from "node:util";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { terminateExomemBillingForDeletion } from "../billing-deletion";
 import {
@@ -1061,7 +1062,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
 
     const logged: string[] = [];
     const warnLog = mock.method(console, "warn", (...args: unknown[]) => {
-      logged.push(args.map(String).join(" "));
+      logged.push(format(...args));
     });
     try {
       await confirmCloudDeletion(tenant, () => Promise.resolve());
@@ -1073,10 +1074,15 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
       const invite = await pool!.query("SELECT id FROM exomem_invites WHERE id = $1", [inviteId]);
       assert.equal(invite.rows.length, 1, "the RESTRICT-held invite is left in place");
-      assert.equal(logged.length, 1, "the held invite is logged once");
-      assert.match(logged[0]!, /left 1 invite\(s\) held by a restricting reference/);
-      for (const secret of [tenant.email, tenant.tenantId, tenant.userId, inviteId]) {
-        assert.equal(logged[0]!.includes(secret), false, "the log carries a count only");
+      // Other warnings may legitimately fire during the finish (the unsigned
+      // deletion grant); the held invite itself is still logged exactly once.
+      const held = logged.filter((line) => line.includes("invite(s) held"));
+      assert.equal(held.length, 1, "the held invite is logged once");
+      assert.match(held[0]!, /left 1 invite\(s\) held by a restricting reference/);
+      for (const line of logged) {
+        for (const secret of [tenant.email, tenant.tenantId, tenant.userId, inviteId]) {
+          assert.equal(line.includes(secret), false, "every warning is value-free");
+        }
       }
     } finally {
       warnLog.mock.restore();

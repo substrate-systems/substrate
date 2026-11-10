@@ -11,10 +11,10 @@ runbook, `exomem-cloud-reviewer-access.md`.
 ## Substrate configuration
 
 Set secrets in every Vercel environment that can run an Exomem route, then
-redeploy. The one exception is `EXOMEM_CLOUD_GRANT_SIGNING_KEY`: set it in
-Production only, because a Preview build runs unreviewed branch code that could
-read the key and mint grants. Never reuse a cell credential as a control-plane
-secret.
+redeploy. The exceptions are `EXOMEM_CLOUD_GRANT_SIGNING_KEY` and
+`EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`: set them in Production only, because
+a Preview build runs unreviewed branch code that could read the keys and mint
+grants. Never reuse a cell credential as a control-plane secret.
 
 | Variable                                                            | Requirement                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -48,6 +48,7 @@ secret.
 | `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`                             | Start links that `open` mode hands out per hour, to newcomers and promoted people together. Unset or not a positive whole number reads as 5. See "Start admission" below.                                                             |
 | `EXOMEM_CLOUD_EXPORTS_ENABLED`                                      | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                     |
 | `EXOMEM_CLOUD_GRANT_SIGNING_KEY`                                    | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the operation grant of each export and import request. Use a key apart from `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`, and give each cell only the matching public key. Unset, Substrate signs no grant, the request row keeps a NULL grant, and the cells log `grant_missing`. A value that is not an Ed25519 private key is logged by name only and treated as unset. |
+| `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`                           | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the deletion grant Substrate stores when it deletes a cell. Use a key apart from `EXOMEM_CLOUD_GRANT_SIGNING_KEY`, and give the Exomem executors only the matching public key, through their `cellDeletion.grantPublicKeys` value. Unset, a cell deletion still succeeds and stores no grant, and nothing purges the cell's backups or media. A value that is not an Ed25519 private key is logged by name only and treated as unset. |
 | `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`                                 | Gateway only: an Ed25519 private key in PEM form. When it is set, the gateway signs an origin proof on every `/mcp` request to every cell, and each cell needs the matching public key to check it. Artifact transport and uploads still need their own switches. A value that is set and is not an Ed25519 private key is logged by name only (`exomem_cloud_artifact_signing_key_invalid`, on the 1st, 2nd, 4th, 8th... load) and read as unset, so the cells report the requests as unproven. With artifact transport or uploads on, the same value fails the gateway configuration. |
 | `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED`                               | Gateway only. `true` serves `observe_transfer` and `transfer_memory` from the control plane. Needs gateway HTTPS egress (chart flag `cloudGateway.transferTools.enabled`). Anything else is off, the rollback.                        |
 | `EXOMEM_CLOUD_UPLOAD_ENABLED`, `EXOMEM_CLOUD_UPLOAD_CELL_IDS`       | Gateway only. `true` plus a JSON array of cell IDs serves Cloud upload handoffs for exactly those cells, signed with `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`. Each selected cell needs the matching public key; see Exomem's `cloud-upload-handoff` runbook. The ingress must route `POST /upload` to the gateway. Anything else is off, the rollback. Artifact transport alone never enables uploads. |
@@ -875,3 +876,42 @@ Include that brief interruption in the controller rollout and feature-enablement
 The application preserves paid allowance through later subscription events.
 This flow does not buy storage automatically, reduce a volume or remove an add-on.
 Those actions remain outside this capability.
+
+## Cell storage deletion
+
+When Substrate deletes a cell it signs a deletion grant and stores it on the
+cell's row. cellctl relays the grant to the Exomem executors, which purge the
+cell's backups and media after the grant's `purge_after`, seven days after the
+grant's `iat`. The database refuses any change to a deleted cell's desired
+state, so a grant never loses its cell. `deletion_stopped_at` records when
+cellctl's report that the cell is deleted first lands.
+
+### The deletion-set endpoint
+
+`GET /api/exomem/cell-deletions/<key-watcher capability>` returns every cell
+deleted with a grant, each with `iat`, `purge_after` and `stopped_at`. It
+accepts only the key-watcher receiver capability; every other caller gets the
+alerts route's 404. Give the watcher the secret
+`KEY_WATCHER_DELETIONS_URL` as
+`https://<origin>/api/exomem/cell-deletions/<key-watcher capability>`, the same
+capability whose digest sits in `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256`.
+
+### Backfill deletion grants
+
+Cells deleted before `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY` went live carry
+no grant, so nothing purges them. The backfill signs each missing grant, each
+in its own transaction, and starts a full seven-day grace. Run it only at the
+Exomem rollout's step 10, after the rehearsal, with operator approval.
+
+The script reads `DATABASE_URL` for the production connection and
+`EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY` for the signing key. Load both into
+the shell for that run only, and never write either to a file.
+
+1. Confirm `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY` is live in production.
+2. Run `npx tsx scripts/backfill-cell-deletion-grants.ts` for a dry run. It prints `missing` and `signed` counts only.
+3. Check the `missing` count against the deleted cells you expect.
+4. If the count matches, run `npx tsx scripts/backfill-cell-deletion-grants.ts --commit` to sign and store the grants.
+5. Query the deletion-set endpoint and confirm every deleted cell appears with its `purge_after`.
+
+Expected result: `signed` equals `missing`, and the deletion set lists every
+deleted cell with a `purge_after` seven days after its grant's `iat`.
