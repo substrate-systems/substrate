@@ -9,6 +9,7 @@ import { after, before, describe, it, mock } from "node:test";
 // second copy of the Postgres-backed coverage that module needs on its own.
 
 const ADMIN_TOKEN = Buffer.alloc(32, 0x51).toString("base64url");
+const DEPLOY_TOKEN = Buffer.alloc(32, 0x52).toString("base64url");
 
 // Security review finding 10: cell_image/desired_image fixtures are the
 // <configured repository>@sha256:<64 lowercase hex> shape the real
@@ -37,9 +38,20 @@ const view = {
   capacity: [],
 };
 
+const rolloutView = {
+  cell_image: IMAGE_V1,
+  release: "v1.0.0",
+  paused: false,
+  error_code: null,
+  canary_on_target: true,
+  cells: { on_target: 1, behind_target: 0, held: 0 },
+};
+
 let setCloudReleaseImageCalls: string[] = [];
 let clearPausedCloudRolloutCalls = 0;
 let setCloudCellDesiredImageCalls: Array<{ cellId: string; image: string | null }> = [];
+let principals: string[] = [];
+let releaseRefusal: "seen" | "older" | null = null;
 
 const MISSING_CELL_ID = "zzzzzzzzzzzzzzzz";
 
@@ -57,22 +69,41 @@ class MockInvalidCloudCellImageError extends Error {
   }
 }
 
+class MockInvalidCloudReleaseTagError extends Error {}
+
+class MockCloudImageSeenError extends Error {
+  readonly code = "CELL_IMAGE_SEEN";
+}
+
+class MockCloudReleaseOlderError extends Error {
+  readonly code = "CELL_RELEASE_OLDER";
+}
+
 before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
+  process.env.EXOMEM_DEPLOY_TOKEN = DEPLOY_TOKEN;
   mock.module("@/lib/exomem-hosted/cloud-release", {
     namedExports: {
       getCloudOperatorView: async () => view,
+      getCloudRolloutView: async () => rolloutView,
       // Mirrors the real assertValidCloudCellImage just enough for the
       // "invalid image becomes a 400" test below to exercise the route's
       // actual error-mapping branch, not a route-side re-implementation.
       // Mirrors the real applyCloudReleaseChanges: every image is validated
       // before any change is recorded, so a partly invalid request records
       // nothing -- the route's own error mapping is what is under test.
-      applyCloudReleaseChanges: async (changes: {
-        cellImage?: string;
-        clearRolloutPause?: true;
-        cellDesiredImage?: { cellId: string; image: string | null };
-      }) => {
+      applyCloudReleaseChanges: async (
+        changes: {
+          cellImage?: string;
+          release?: string;
+          clearRolloutPause?: true;
+          cellDesiredImage?: { cellId: string; image: string | null };
+        },
+        principal: string
+      ) => {
+        principals.push(principal);
+        if (releaseRefusal === "seen") throw new MockCloudImageSeenError("seen");
+        if (releaseRefusal === "older") throw new MockCloudReleaseOlderError("older");
         const prefix = `${CELL_REPOSITORY}@sha256:`;
         for (const image of [changes.cellImage, changes.cellDesiredImage?.image]) {
           if (image === undefined || image === null) continue;
@@ -88,6 +119,9 @@ before(() => {
         if (changes.cellDesiredImage) setCloudCellDesiredImageCalls.push(changes.cellDesiredImage);
       },
       InvalidCloudCellImageError: MockInvalidCloudCellImageError,
+      InvalidCloudReleaseTagError: MockInvalidCloudReleaseTagError,
+      CloudImageSeenError: MockCloudImageSeenError,
+      CloudReleaseOlderError: MockCloudReleaseOlderError,
       CloudReleaseCellNotFoundError: MockCloudReleaseCellNotFoundError,
     },
   });
@@ -107,11 +141,12 @@ before(() => {
 
 after(() => {
   delete process.env.EXOMEM_ADMIN_TOKEN;
+  delete process.env.EXOMEM_DEPLOY_TOKEN;
   mock.reset();
 });
 
-function getRequest(authorization?: string) {
-  return new Request("https://substratesystems.io/api/exomem/admin/cloud-release", {
+function getRequest(authorization?: string, path = "") {
+  return new Request(`https://substratesystems.io/api/exomem/admin/cloud-release${path}`, {
     headers: authorization ? { authorization } : {},
   }) as unknown as import("next/server").NextRequest;
 }
@@ -239,5 +274,94 @@ describe("Exomem Cloud owner release route", () => {
     const { PUT } = await import("../route");
     const response = await PUT(putRequest(`Bearer ${ADMIN_TOKEN}`, {}));
     assert.equal(response.status, 400);
+  });
+  // automate-cloud-releases D1: the deploy token sets the release image with
+  // its tag and reads the bounded rollout view, and nothing else.
+  describe("deploy token", () => {
+    const deploy = `Bearer ${DEPLOY_TOKEN}`;
+
+    function resetCalls() {
+      setCloudReleaseImageCalls = [];
+      clearPausedCloudRolloutCalls = 0;
+      setCloudCellDesiredImageCalls = [];
+      principals = [];
+      releaseRefusal = null;
+    }
+
+    it("sets the release image with its tag, and answers with the rollout view only", async () => {
+      resetCalls();
+      const { PUT } = await import("../route");
+      const response = await PUT(putRequest(deploy, { cellImage: IMAGE_V2, release: "v2.0.0" }));
+      assert.equal(response.status, 200);
+      assert.deepEqual(setCloudReleaseImageCalls, [IMAGE_V2]);
+      assert.deepEqual(principals, ["deploy"]);
+      assert.deepEqual((await response.json()).view, rolloutView);
+    });
+
+    it("cannot clear a rollout pause", async () => {
+      resetCalls();
+      const { PUT } = await import("../route");
+      for (const body of [
+        { clearRolloutPause: true },
+        { cellImage: IMAGE_V2, release: "v2.0.0", clearRolloutPause: true },
+      ]) {
+        const response = await PUT(putRequest(deploy, body));
+        assert.equal(response.status, 403);
+        assert.equal((await response.json()).error.code, "OPERATOR_SCOPE_DENIED");
+      }
+      assert.equal(clearPausedCloudRolloutCalls, 0);
+      assert.deepEqual(principals, []);
+    });
+
+    it("cannot set one cell's image", async () => {
+      resetCalls();
+      const { PUT } = await import("../route");
+      const response = await PUT(
+        putRequest(deploy, { cellId: "abcdefghijklmnop", cellDesiredImage: IMAGE_CANARY })
+      );
+      assert.equal(response.status, 403);
+      assert.deepEqual(setCloudCellDesiredImageCalls, []);
+      assert.deepEqual(principals, []);
+    });
+
+    it("cannot set the release image without its tag", async () => {
+      resetCalls();
+      const { PUT } = await import("../route");
+      const response = await PUT(putRequest(deploy, { cellImage: IMAGE_V2 }));
+      assert.equal(response.status, 403);
+      assert.deepEqual(setCloudReleaseImageCalls, []);
+    });
+
+    it("cannot read the full release view, which names every cell and tenant", async () => {
+      const { GET } = await import("../route");
+      const response = await GET(getRequest(deploy));
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).view, undefined);
+    });
+
+    it("reads the rollout view, as the admin token does", async () => {
+      const { GET } = await import("../rollout/route");
+      for (const token of [DEPLOY_TOKEN, ADMIN_TOKEN]) {
+        const response = await GET(getRequest(`Bearer ${token}`, "/rollout"));
+        assert.equal(response.status, 200);
+        assert.deepEqual((await response.json()).view, rolloutView);
+      }
+      assert.equal((await GET(getRequest("Bearer not-a-token", "/rollout"))).status, 401);
+    });
+
+    it("answers a refused image with the history's code and 409", async () => {
+      const { PUT } = await import("../route");
+      for (const [refusal, code] of [
+        ["seen", "CELL_IMAGE_SEEN"],
+        ["older", "CELL_RELEASE_OLDER"],
+      ] as const) {
+        resetCalls();
+        releaseRefusal = refusal;
+        const response = await PUT(putRequest(deploy, { cellImage: IMAGE_V2, release: "v2.0.0" }));
+        assert.equal(response.status, 409);
+        assert.equal((await response.json()).error.code, code);
+      }
+      releaseRefusal = null;
+    });
   });
 });

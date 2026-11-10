@@ -228,6 +228,26 @@ BEGIN
       ON exomem_cloud_rollout TO exomem_cellctl;
   END IF;
 
+  -- Migration 0085 (automate-cloud-releases D1): the image history is
+  -- append-only. substrate_app records a digest and never rewrites or deletes
+  -- one, which is what keeps a withdrawn release from being set again;
+  -- exomem_cellctl reads it to map an image to its release; the gateway has
+  -- nothing on it.
+  IF to_regclass('exomem_cloud_image_history') IS NOT NULL THEN
+    REVOKE ALL ON exomem_cloud_image_history FROM PUBLIC;
+    FOREACH cloud_role IN ARRAY ARRAY['substrate_app', 'exomem_cellctl', 'exomem_gateway'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cloud_role) THEN
+        EXECUTE format('REVOKE ALL ON exomem_cloud_image_history FROM %I', cloud_role);
+      END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app') THEN
+      GRANT SELECT, INSERT ON exomem_cloud_image_history TO substrate_app;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
+      GRANT SELECT ON exomem_cloud_image_history TO exomem_cellctl;
+    END IF;
+  END IF;
+
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
      AND to_regclass('exomem_cloud_cells') IS NOT NULL THEN
     GRANT SELECT (cell_id, tenant_id, desired_state) ON exomem_cloud_cells TO exomem_gateway;

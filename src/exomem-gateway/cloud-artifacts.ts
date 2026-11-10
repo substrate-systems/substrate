@@ -2,7 +2,8 @@
 import { createHash, randomUUID, sign, type KeyObject } from "node:crypto";
 import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 
-const MAX_BODY_BYTES = 1024 * 1024;
+/** The one prepared-body cap: artifact inspection, transfer tools and the gateway hold (D5) share it. */
+export const MAX_PREPARED_BODY_BYTES = 1024 * 1024;
 const BODY_READ_MS = 5000;
 /** The tools whose calls carry file handles, and what one grant allows them (also told to clients). */
 export const CLOUD_ARTIFACT_TOOLS = ["capture_source", "preserve_artifacts"] as const;
@@ -29,7 +30,7 @@ export async function readCloudArtifactBody(request: Request): Promise<{
   inspected?: Uint8Array;
 }> {
   const length = request.headers.get("content-length");
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_BODY_BYTES)) {
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_PREPARED_BODY_BYTES)) {
     return { body: request.body };
   }
   if (!request.body) return { body: null, inspected: new Uint8Array() };
@@ -49,8 +50,11 @@ export async function readCloudArtifactBody(request: Request): Promise<{
   }, BODY_READ_MS);
   const abort = () => waiting?.reject(new CloudArtifactBodyError(408));
   request.signal.addEventListener("abort", abort, { once: true });
-  // A fixed buffer bounds allocation even when a sender emits millions of tiny chunks.
-  const buffer = Buffer.allocUnsafe(MAX_BODY_BYTES);
+  // A fixed buffer bounds allocation even when a sender emits millions of tiny chunks. A
+  // declared length sizes it, so a small call does not take the whole cap; a body that
+  // outgrows its declaration streams on, as one over the cap does. allocUnsafeSlow keeps
+  // a small buffer off Node's shared pool slab.
+  const buffer = Buffer.allocUnsafeSlow(length === null ? MAX_PREPARED_BODY_BYTES : Number(length));
   let bytes = 0;
   function replay(
     pending: Promise<ReadableStreamReadResult<Uint8Array>>
@@ -95,7 +99,7 @@ export async function readCloudArtifactBody(request: Request): Promise<{
       if (result === null) return { body: replay(pending) };
       const { done, value } = result;
       if (done) break;
-      if (bytes + value.byteLength > MAX_BODY_BYTES)
+      if (bytes + value.byteLength > buffer.length)
         return { body: replay(Promise.resolve(result)) };
       buffer.set(value, bytes);
       bytes += value.byteLength;

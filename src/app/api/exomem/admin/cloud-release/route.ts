@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   applyCloudReleaseChanges,
+  CloudImageSeenError,
   CloudReleaseCellNotFoundError,
+  CloudReleaseOlderError,
   getCloudOperatorView,
+  getCloudRolloutView,
   InvalidCloudCellImageError,
+  InvalidCloudReleaseTagError,
   type CloudReleaseChanges,
 } from "@/lib/exomem-hosted/cloud-release";
-import { exomemErrors } from "@/lib/exomem-hosted/errors";
+import { ExomemHostedError, exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
   newRequestId,
   operatorErrorResponse,
@@ -22,14 +26,33 @@ export const dynamic = "force-dynamic";
 // touching only the one column that action names — a request may combine
 // them (e.g. set the fleet image and clear a paused rollout together), but
 // each is validated and applied on its own.
+//
+// automate-cloud-releases D1 narrows the deploy token: it may PUT `cellImage`
+// with its `release` and nothing else, and it may not read this full view,
+// which names every cell and tenant. It reads `./rollout` instead.
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+const DEPLOY_FIELDS = ["cellImage", "release"];
+
+function deployScopeDenied(): ExomemHostedError {
+  return new ExomemHostedError({
+    code: "OPERATOR_SCOPE_DENIED",
+    status: 403,
+    message: "the deploy token may only set the release image",
+  });
+}
+
+/** D1: the release automation treats both codes as "the fleet already has this or newer". */
+function releaseRefusal(error: CloudImageSeenError | CloudReleaseOlderError): ExomemHostedError {
+  return new ExomemHostedError({ code: error.code, status: 409, message: error.message });
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request, "read", "deploy");
+    await requireRateLimitedExomemOperator(request, "read", "admin");
     const view = await getCloudOperatorView();
     operatorSuccessEvent(requestId);
     return NextResponse.json({ success: true, view, requestId });
@@ -41,8 +64,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function PUT(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request, "mutation", "deploy");
+    const operator = await requireRateLimitedExomemOperator(request, "mutation", "deploy");
     const body = await readOperatorJsonRecord(request);
+    if (operator.principal === "deploy") {
+      const fields = Object.keys(body);
+      if (
+        fields.length !== DEPLOY_FIELDS.length ||
+        !DEPLOY_FIELDS.every((field) => fields.includes(field))
+      ) {
+        throw deployScopeDenied();
+      }
+    }
 
     const hasCellImage = "cellImage" in body;
     const hasClearRolloutPause = "clearRolloutPause" in body;
@@ -61,6 +93,11 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const image = nonEmptyString(body.cellImage);
       if (!image) throw exomemErrors.invalidRequest();
       changes.cellImage = image;
+    }
+    if ("release" in body) {
+      const release = nonEmptyString(body.release);
+      if (!release || !hasCellImage) throw exomemErrors.invalidRequest();
+      changes.release = release;
     }
     if (hasClearRolloutPause) {
       if (body.clearRolloutPause !== true) throw exomemErrors.invalidRequest();
@@ -81,18 +118,23 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       changes.cellDesiredImage = { cellId, image: cellDesiredImage };
     }
     try {
-      await applyCloudReleaseChanges(changes);
+      await applyCloudReleaseChanges(changes, operator.principal);
     } catch (error) {
       if (
         error instanceof InvalidCloudCellImageError ||
+        error instanceof InvalidCloudReleaseTagError ||
         error instanceof CloudReleaseCellNotFoundError
       ) {
         throw exomemErrors.invalidRequest();
       }
+      if (error instanceof CloudImageSeenError || error instanceof CloudReleaseOlderError) {
+        throw releaseRefusal(error);
+      }
       throw error;
     }
 
-    const view = await getCloudOperatorView();
+    const view =
+      operator.principal === "deploy" ? await getCloudRolloutView() : await getCloudOperatorView();
     operatorSuccessEvent(requestId);
     return NextResponse.json({ success: true, view, requestId });
   } catch (error) {

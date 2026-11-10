@@ -17,6 +17,7 @@ import {
 } from "../cloud-handler";
 import { cloudArtifactTransportEnabled } from "../cloud-artifacts";
 import { cloudUploadEnabled, signCloudUploadRoute } from "../cloud-origin";
+import { testUpstream } from "./upstream-fixture";
 
 // bridge-cloud-agent-uploads: the gateway half of the Cloud upload handoff.
 // The cell half, and the two together, are proved in the Exomem repository
@@ -85,6 +86,7 @@ function uploadRequest(token: string): { request: Request; bodyRead: () => boole
 
 function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDependencies {
   return {
+    upstream: testUpstream(),
     config: CONFIG,
     findLogin: async () => LOGIN,
     takeRateLimit: async () => true,
@@ -104,6 +106,7 @@ async function forwardMcp(config: ExomemCloudConfig, login = LOGIN): Promise<Hea
     }),
     {
       config,
+      upstream: testUpstream(),
       findAccessToken: async () => ({ ...login, scopes: ["exomem.read", "exomem.write"] }),
       recordAppUse: async () => undefined,
       takeRateLimit: async () => true,

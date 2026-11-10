@@ -222,10 +222,26 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       }
       request.once("aborted", cancel);
       response.once("close", cancel);
+      // A held request gives this slot back while it waits for its cell (D5).
+      const serverSlot = {
+        release: () => {
+          if (!counted) return;
+          counted = false;
+          inflight -= 1;
+        },
+        // An admitted request finishes during a drain; only new requests are refused.
+        take: () => {
+          if (counted) return true;
+          if (inflight >= maxInflight) return false;
+          inflight += 1;
+          counted = true;
+          return true;
+        },
+      };
       // The idle bound starts at the headers, so a slow staging or hydration is
       // bounded by the total cap alone.
       await writeResponse(
-        await handle(requestFromNode(request, controller.signal)),
+        await handle(requestFromNode(request, controller.signal), { serverSlot }),
         response,
         () => {
           if (boundedDownload) response.setTimeout(downloadIdleMs, () => response.destroy());

@@ -10,6 +10,7 @@ import { randomCloudCellId, redeemCloudInviteAtomic } from "../cloud-admission";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import { handleCloudHomeLevelsRequest } from "../cloud-home-mcp";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
+import { applyCloudReleaseChanges, getCloudRolloutView } from "../cloud-release";
 import { findCloudOAuthAccessToken, findCloudOAuthLogin, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
@@ -232,6 +233,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         !(C1_TABLES as readonly string[]).includes(name) &&
         !(ACCESS_RECORD_TABLES as readonly string[]).includes(name) &&
         name !== "schema_migrations" &&
+        name !== "exomem_cloud_image_history" &&
         name !== "exomem_cloud_imports" &&
         name !== "exomem_cloud_exports"
     );
@@ -300,6 +302,89 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       code: "42501",
     });
     await assert.rejects(gatewayPool!.query("SELECT 1 FROM exomem_cloud_access_records"), { code: "42501" });
+  });
+
+  // automate-cloud-releases D1: cellctl maps an image to its release through
+  // the history; nothing but the release route's append may change it.
+  it("lets exomem_cellctl read the image history and never write it, and substrate_app only append", async () => {
+    const none = { select: false, insert: false, update: false, delete: false };
+    const history = ["exomem_cloud_image_history"];
+    assert.deepEqual(await tablePrivileges("exomem_cellctl", history), {
+      exomem_cloud_image_history: { ...none, select: true },
+    });
+    assert.deepEqual(await tablePrivileges("substrate_app", history), {
+      exomem_cloud_image_history: { ...none, select: true, insert: true },
+    });
+    assert.deepEqual(await tablePrivileges("exomem_gateway", history), {
+      exomem_cloud_image_history: none,
+    });
+
+    const image = `registry.example.test/exomem-cell@sha256:${"e".repeat(64)}`;
+    await appPool!.query(
+      "INSERT INTO exomem_cloud_image_history (image, release_tag) VALUES ($1, 'v1.0.0')",
+      [image]
+    );
+    const read = await cellctlPool!.query(
+      "SELECT release_tag FROM exomem_cloud_image_history WHERE image = $1",
+      [image]
+    );
+    assert.equal(read.rows[0]?.release_tag, "v1.0.0");
+    await assert.rejects(
+      cellctlPool!.query(
+        "INSERT INTO exomem_cloud_image_history (image) VALUES ('registry.example.test/other')"
+      ),
+      { code: "42501" }
+    );
+    await assert.rejects(
+      cellctlPool!.query("UPDATE exomem_cloud_image_history SET release_tag = 'v9.0.0'"),
+      { code: "42501" }
+    );
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_image_history SET release_tag = 'v9.0.0'"),
+      { code: "42501" }
+    );
+    await assert.rejects(appPool!.query("DELETE FROM exomem_cloud_image_history"), {
+      code: "42501",
+    });
+  });
+
+  it("runs a deploy release change and the rollout view AS substrate_app", async () => {
+    const repository = "registry.example.test/exomem-cell";
+    const previousRepository = process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY;
+    process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY = repository;
+    const image = `${repository}@sha256:${randomBytes(32).toString("hex")}`;
+
+    async function appTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+      const client = await appPool!.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await callback(taggedSql(client));
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    __setExomemSqlForTests(taggedSql(appPool!));
+    __setExomemTransactionForTests(appTransaction);
+    try {
+      await applyCloudReleaseChanges({ cellImage: image, release: "v99.0.0" }, "deploy");
+      const view = await getCloudRolloutView();
+      assert.equal(view.cell_image, image);
+      assert.equal(view.release, "v99.0.0");
+    } finally {
+      __setExomemSqlForTests(null);
+      __setExomemTransactionForTests(null);
+      // Later tests in this schema set cell_image themselves.
+      await ownerPool!.query("DELETE FROM exomem_cloud_settings WHERE key = 'cell_image'");
+      await ownerPool!.query("DELETE FROM exomem_cloud_image_history WHERE image = $1", [image]);
+      if (previousRepository === undefined) delete process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY;
+      else process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY = previousRepository;
+    }
   });
 
   // D7: schema_migrations belongs to the migration runner. No runtime code

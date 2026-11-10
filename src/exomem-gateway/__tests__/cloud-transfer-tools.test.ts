@@ -12,6 +12,7 @@ import {
   resetCloudGatewayConcurrencyForTests,
   type CloudGatewayDependencies,
 } from "../cloud-handler";
+import { testUpstream } from "./upstream-fixture";
 
 // The gateway serves observe_transfer and transfer_memory from the control
 // plane (serve-cloud-transfer-tools). The cell is a stub that fails when
@@ -154,6 +155,7 @@ function unreachableCell() {
 
 function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDependencies {
   return {
+    upstream: testUpstream(),
     config: CONFIG,
     findAccessToken: async () => ACCESS,
     recordAppUse: async () => undefined,
