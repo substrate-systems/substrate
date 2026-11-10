@@ -10,7 +10,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { Agent } from "undici";
 import { ExomemCloudConfigurationError } from "../lib/exomem-hosted/cloud-config";
 
-export const CLOUD_UPSTREAM_ENV = [
+const CLOUD_UPSTREAM_ENV = [
   "EXOMEM_CLOUD_HOLD_BUDGET_SECONDS",
   "EXOMEM_CLOUD_HOLD_INTERVAL_MS",
   "EXOMEM_CLOUD_HOLD_JITTER_MS",

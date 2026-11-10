@@ -68,7 +68,7 @@ function compareReleaseTags(a: string, b: string): number {
   return 0;
 }
 
-export function assertValidCloudReleaseTag(tag: string): void {
+function assertValidCloudReleaseTag(tag: string): void {
   if (!releaseVersion(tag)) throw new InvalidCloudReleaseTagError();
 }
 

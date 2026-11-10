@@ -49,6 +49,7 @@ classes:
     - "scripts/import-legacy-patron.ts"
     - "scripts/reconcile-legacy-generations.ts"
     - "scripts/backfill-cell-deletion-grants.ts"
+    - "scripts/seed-cloud-image-history.ts"
     - "scripts/strict-generation-visibility-cutover.ts"
     - "scripts/generate-jwt-keypair.ts" # `--commit` inserts the public key into signing_keys
     - ".github/workflows/publish-exomem-gateway.yml" # builds and publishes the gateway image
@@ -75,6 +76,8 @@ javascript:
       - "scripts/generate-jwt-keypair.ts"
       # Run by hand from the runbook, at the Exomem rollout's backfill step.
       - "scripts/backfill-cell-deletion-grants.ts"
+      # Run by hand from the runbook, when the image history ships and before the deploy token is set.
+      - "scripts/seed-cloud-image-history.ts"
       # Run by hand to redraw the email images; its header says how.
       - "scripts/render-exomem-email-assets.tsx"
       # Home's suite has its own Playwright config, which the plugin does not look for;
