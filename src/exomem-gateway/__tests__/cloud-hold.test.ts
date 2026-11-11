@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { generateKeyPairSync } from "node:crypto";
 import { createServer as createTcpServer, type Socket } from "node:net";
-import { after, beforeEach, describe, it } from "node:test";
+import { after, beforeEach, describe, it, mock } from "node:test";
 import type { ExomemCloudConfig } from "../../lib/exomem-hosted/cloud-config";
 import type { ActiveCloudOAuthAccessToken } from "../../lib/exomem-hosted/cloud-oauth";
 import { MAX_PREPARED_BODY_BYTES, readCloudArtifactBody } from "../cloud-artifacts";
@@ -315,6 +316,84 @@ describe("Cloud gateway hold and upstream timeouts (D5)", () => {
     const after = await next;
     assert.equal(after.status, 200);
     await after.text();
+  });
+
+  it(
+    "signs fresh origin proofs for a retry that starts after the first ones expired",
+    { timeout: 15_000 },
+    async () => {
+      const cell = await stoppedCell();
+      const settings = upstream({
+        EXOMEM_CLOUD_HOLD_BUDGET_SECONDS: "3600",
+        EXOMEM_CLOUD_HOLD_INTERVAL_MS: "200",
+        EXOMEM_CLOUD_HOLD_JITTER_MS: "50",
+      });
+      // The origin proof's schema requires UUID identities.
+      const signable: ActiveCloudOAuthAccessToken = {
+        ...TENANT_A,
+        tenantId: "00000000-0000-4000-8000-000000000001",
+        grantId: "00000000-0000-4000-8000-000000000002",
+        familyId: "00000000-0000-4000-8000-000000000003",
+        cellId: "aaaaaaaaaaaaaaaa",
+      };
+      const config = { ...CONFIG, artifactSigningKey: generateKeyPairSync("ed25519").privateKey };
+      // The hold waits on real timers; only the clock the proofs read jumps.
+      const realNow = Date.now;
+      let skewMs = 0;
+      mock.method(Date, "now", () => realNow() + skewMs);
+      try {
+        const proofs: string[] = [];
+        const held = handleCloudMcpRequest(mcpRequest(), {
+          ...deps(signable, cell.port, settings),
+          config,
+        });
+        await pause(500);
+        skewMs = 120_000; // past the 60 s lifetime and the cell's 5 s leeway
+        await cell.start((request, response) => {
+          proofs.push(String(request.headers["x-exomem-cloud-origin"]));
+          answerOk(request, response);
+        });
+        const response = await held;
+        assert.equal(response.status, 200);
+        await response.text();
+
+        assert.equal(proofs.length, 1);
+        const claims = JSON.parse(Buffer.from(proofs[0].split(".")[1], "base64url").toString());
+        assert.ok(
+          claims.exp * 1000 > Date.now(),
+          "the cell received an origin proof that had already expired"
+        );
+      } finally {
+        mock.restoreAll();
+      }
+    }
+  );
+
+  it("gives the server slot back during a hold and takes it again when the cell accepts", async () => {
+    const cell = await stoppedCell();
+    const settings = upstream({
+      EXOMEM_CLOUD_HOLD_BUDGET_SECONDS: "10",
+      EXOMEM_CLOUD_HOLD_INTERVAL_MS: "200",
+      EXOMEM_CLOUD_HOLD_JITTER_MS: "50",
+    });
+    const events: string[] = [];
+    const serverSlot = {
+      release: () => void events.push("release"),
+      take: () => (events.push("take"), true),
+    };
+
+    const held = handleCloudMcpRequest(mcpRequest(), {
+      ...deps(TENANT_A, cell.port, settings),
+      serverSlot,
+    });
+    await pause(500);
+    assert.deepEqual(events, ["release"], "a held request kept the server's in-flight slot");
+
+    await cell.start(answerOk);
+    const response = await held;
+    assert.equal(response.status, 200);
+    await response.text();
+    assert.deepEqual(events, ["release", "take"]);
   });
 
   it("stops retrying at once when the client leaves", async () => {
