@@ -587,28 +587,6 @@ async function proxyToCell(
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
   forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
-  // contain-cloud-controller-compromise D1: with the signing key set, every cell learns which
-  // login sent this request. Only a cell selected for uploads also gets the route capsule that
-  // its upload handoff carries (bridge-cloud-agent-uploads).
-  if (config.artifactSigningKey) {
-    try {
-      const key = config.artifactSigningKey;
-      forwardHeaders.set(
-        CLOUD_ORIGIN_HEADER,
-        await signCloudOriginProof(access, key, { purpose: "mcp" })
-      );
-      if (cloudUploadEnabled(config, access.cellId)) {
-        forwardHeaders.set(CLOUD_UPLOAD_ROUTE_HEADER, await signCloudUploadRoute(access, key));
-      }
-    } catch {
-      // Without the proof the cell counts the request as bearer-only, and an upload cell
-      // reports uploads unavailable; the MCP request itself proceeds.
-      forwardHeaders.delete(CLOUD_ORIGIN_HEADER);
-      forwardHeaders.delete(CLOUD_UPLOAD_ROUTE_HEADER);
-      console.warn({ event: "exomem_cloud_gateway_upload_origin_unsigned" });
-    }
-  }
-
   // D5: with the hold on, every body is prepared through the one capped
   // reader, so a held request can be sent again. A body over the cap streams
   // as before and is never held.
@@ -629,18 +607,43 @@ async function proxyToCell(
   }
   const body: BodyInit | null | undefined =
     request.method === "DELETE" ? undefined : read ? read.body : request.body;
-  if (config.artifactSigningKey && inspectArtifacts && request.method === "POST") {
-    const grant = read?.inspected
-      ? cloudArtifactGrant(read.inspected, access.cellId, config.artifactSigningKey)
-      : null;
-    if (grant) forwardHeaders.set("x-exomem-artifact-grant", grant);
-  }
+  // contain-cloud-controller-compromise D1: with the signing key set, every cell learns which
+  // login sent this request. Only a cell selected for uploads also gets the route capsule that
+  // its upload handoff carries (bridge-cloud-agent-uploads). The proofs and the artifact grant
+  // live 60 s, so they are signed before each connect attempt: a hold can outlast them, and a
+  // retry with expired proofs reads as bearer-only.
+  const signProofs = async () => {
+    const key = config.artifactSigningKey;
+    if (!key) return;
+    try {
+      forwardHeaders.set(
+        CLOUD_ORIGIN_HEADER,
+        await signCloudOriginProof(access, key, { purpose: "mcp" })
+      );
+      if (cloudUploadEnabled(config, access.cellId)) {
+        forwardHeaders.set(CLOUD_UPLOAD_ROUTE_HEADER, await signCloudUploadRoute(access, key));
+      }
+    } catch {
+      // Without the proof the cell counts the request as bearer-only, and an upload cell
+      // reports uploads unavailable; the MCP request itself proceeds.
+      forwardHeaders.delete(CLOUD_ORIGIN_HEADER);
+      forwardHeaders.delete(CLOUD_UPLOAD_ROUTE_HEADER);
+      console.warn({ event: "exomem_cloud_gateway_upload_origin_unsigned" });
+    }
+    if (inspectArtifacts && request.method === "POST") {
+      const grant = read?.inspected ? cloudArtifactGrant(read.inspected, access.cellId, key) : null;
+      if (grant) forwardHeaders.set("x-exomem-artifact-grant", grant);
+      else forwardHeaders.delete("x-exomem-artifact-grant");
+    }
+  };
+
   const holdable = holdOn && (request.method === "DELETE" || read?.inspected !== undefined);
 
   const origin = new URL((dependencies.cellOrigin ?? defaultCellOrigin)(access.cellId));
   let deadline: number | undefined;
   let upstream: Response;
   while (true) {
+    await signProofs();
     try {
       upstream = await fetchCell(new URL("/mcp", origin).toString(), {
         method: request.method,
