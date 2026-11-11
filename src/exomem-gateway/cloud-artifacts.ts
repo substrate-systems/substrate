@@ -6,10 +6,13 @@ import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 export const MAX_PREPARED_BODY_BYTES = 1024 * 1024;
 const BODY_READ_MS = 5000;
 /** The tools whose calls carry file handles, and what one grant allows them (also told to clients). */
-export const CLOUD_ARTIFACT_TOOLS = ["capture_source", "preserve_artifacts"] as const;
+export const CLOUD_ARTIFACT_TOOLS = ["save_source", "save_evidence"] as const;
+/** The same tools on a cell before Exomem 0.171.0; delete once every cell runs 0.171.0 or later. */
+const PRE_0171_ARTIFACT_TOOLS = ["capture_source", "preserve_artifacts"] as const;
 export const CLOUD_ARTIFACT_MAX_FILES = 8;
 export const CLOUD_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
-const OPERATIONS: ReadonlySet<string> = new Set(CLOUD_ARTIFACT_TOOLS);
+// The grant's `op` is the called name, and each cell accepts only the names its own release serves.
+const OPERATIONS: ReadonlySet<string> = new Set([...CLOUD_ARTIFACT_TOOLS, ...PRE_0171_ARTIFACT_TOOLS]);
 
 /** Whether the gateway signs artifact grants for this cell. */
 export function cloudArtifactTransportEnabled(config: ExomemCloudConfig, cellId: string): boolean {

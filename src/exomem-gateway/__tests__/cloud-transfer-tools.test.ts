@@ -519,7 +519,7 @@ describe("Cloud transfer tools in the gateway", () => {
     assert.equal(browser.home_url, `${PUBLIC_BASE}/exomem/home#your-data`);
     assert.deepEqual(attachments, {
       kind: "attachments",
-      tools: ["capture_source", "preserve_artifacts"],
+      tools: ["save_source", "save_evidence"],
       max_files: 8,
       max_bytes: 100 * 1024 * 1024,
     });
