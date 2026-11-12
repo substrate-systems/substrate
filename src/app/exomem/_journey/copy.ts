@@ -383,6 +383,8 @@ export const unknownAppCopy = {
  */
 export const failureCopy = {
   challenge: "That didn’t work. Try again.",
+  /** The server refused an address the browser accepted; no email was sent. */
+  invalidEmail: "Check the address. It doesn’t look like an email address.",
   generic: "That didn’t work. Try again in a minute.",
   /** Unchanged from the page this journey replaces. */
   linkUnusable: "That link has expired or was already used. Enter your email below for a new one.",

@@ -595,6 +595,25 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 0);
   });
 
+  it("tells a person whose address a browser accepts but the server cannot use, and queues nothing", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/start/route");
+    process.env.EXOMEM_SELF_SERVE_ADMISSION = "open";
+    await configureCapacity(1);
+
+    // A browser's email field accepts a host with no dot; the server does not.
+    const response = await POST(
+      startRequest({ email: "person@localhost", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })
+    );
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { success: false, error: "invalid_email" });
+    assert.equal(response.headers.getSetCookie().length, 0);
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_email_outbox"), 0);
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_access_delivery_outbox"), 0);
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_waitlist_entries"), 0);
+    assert.equal(await count("SELECT count(*) AS n FROM exomem_rate_limit_buckets"), 0);
+  });
+
   it("proceeds under the rate limits when siteverify cannot be reached", async () => {
     const { POST } = await import("../../../app/api/exomem/access/start/route");
     siteverifyReachable = false;

@@ -35,12 +35,12 @@ type StartFlowProps = {
 
 type StartOutcome =
   | { kind: "sent"; retryAfterSeconds: number; retryLimited: boolean }
-  | { kind: "challenge_failed" | "failed" };
+  | { kind: "challenge_failed" | "invalid_email" | "failed" };
 
 /**
  * POST /api/exomem/access/start. Every request that passes the challenge answers the
  * same 202, so the page never learns, and never says, whether the address has an
- * account. Only the challenge itself can fail visibly.
+ * account. Only the challenge and the address's own shape can fail visibly.
  */
 async function requestStart(email: string, turnstileToken: string): Promise<StartOutcome> {
   let response: Response;
@@ -80,10 +80,11 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
       retryLimited: body.retryLimited === true,
     };
   }
-  return {
-    kind:
-      response.status === 400 && body?.error === "challenge_failed" ? "challenge_failed" : "failed",
-  };
+  if (response.status === 400 && body?.error === "challenge_failed") {
+    return { kind: "challenge_failed" };
+  }
+  if (response.status === 400 && body?.error === "invalid_email") return { kind: "invalid_email" };
+  return { kind: "failed" };
 }
 
 function clock(ms: number): string {
@@ -327,7 +328,9 @@ export function StartFlow({
       setStep("unreachable");
     } else {
       setSentVersion(version);
-      setFailure(failureCopy.challenge);
+      setFailure(
+        outcome.kind === "invalid_email" ? failureCopy.invalidEmail : failureCopy.challenge
+      );
     }
   }
 
