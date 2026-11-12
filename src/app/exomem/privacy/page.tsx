@@ -42,6 +42,7 @@ export default function ExomemPrivacyPage() {
         </li>
         <li>
           <strong>Operations and security data:</strong> timestamps, coarse counts and sizes,
+          a per-tenant quiet hour derived from those counts to schedule maintenance,
           client/protocol version, opaque request and resource identifiers, rate-limit records,
           service health, and security events. Operational logging is designed to exclude note
           content, queries, filenames, email addresses, tokens, and private endpoints.
