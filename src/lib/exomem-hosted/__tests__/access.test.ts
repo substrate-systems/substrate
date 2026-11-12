@@ -30,7 +30,8 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
           }
         : null,
     admissionMode: () => "waitlist",
-    startSelfServe: async () => "admitted",
+    startSelfServe: async () => ({ outcome: "admitted", emailId: null }),
+    dispatchQueuedEmails: async () => undefined,
     createMagicAccessToken: async () => ({ tokenId: "access-1", deliveryId: "delivery-1" }),
     encryptDeliverySecret: () => ({
       version: 1,
@@ -115,7 +116,7 @@ describe("Exomem hosted access", () => {
       admissionMode: () => "open",
       startSelfServe: async () => {
         admissions += 1;
-        return "admitted";
+        return { outcome: "admitted", emailId: null };
       },
       createMagicAccessToken: async (input) => {
         createInput = input;
@@ -160,7 +161,7 @@ describe("Exomem hosted access", () => {
         admissionMode: () => "waitlist",
         startSelfServe: async () => {
           admissions += 1;
-          return "admitted";
+          return { outcome: "admitted", emailId: null };
         },
       })
     );
@@ -186,7 +187,7 @@ describe("Exomem hosted access", () => {
         admissionMode: () => "open",
         startSelfServe: async () => {
           admissions += 1;
-          return "admitted";
+          return { outcome: "admitted", emailId: null };
         },
         afterResponse: async (work) => {
           deferred.push(work);
@@ -220,18 +221,52 @@ describe("Exomem hosted access", () => {
           },
           startSelfServe: async () => {
             lookups += 1;
-            return "admitted";
+            return { outcome: "admitted", emailId: null };
           },
           completeStartRequest: async () => {
             padded += 1;
           },
         })
       );
-      assert.deepEqual(result, { accepted: true });
+      // Only the address limit is reported: the page tells that person to wait,
+      // and the IP limit must not say whose address or network it counted.
+      assert.deepEqual(
+        result,
+        refused === "exomem:start:email"
+          ? { accepted: true, addressLimited: true }
+          : { accepted: true }
+      );
       assert.equal(lookups, 0);
       assert.equal(padded, 1);
     });
   }
+
+  // The outbox row is committed by startSelfServe; without this call it would
+  // wait for the minute delivery job, which was the silent gap.
+  it("sends the row the self-serve branch queued, and keeps a failed send out of the answer", async () => {
+    const sent: string[][] = [];
+    const result = await requestStart(
+      {
+        email: SENTINEL,
+        networkKey: "ip-hash-input",
+        browserChallengeDigest: Buffer.alloc(32, 0x63),
+        timeZone: null,
+        emailScheme: null,
+        requestId: "request-1",
+      },
+      dependencies({
+        createMagicAccessToken: async () => null,
+        admissionMode: () => "open",
+        startSelfServe: async () => ({ outcome: "waitlisted", emailId: "email-1" }),
+        dispatchQueuedEmails: async (ids, options) => {
+          sent.push([...ids, String(options.requestId)]);
+          throw new Error("provider unavailable");
+        },
+      })
+    );
+    assert.deepEqual(result, { accepted: true });
+    assert.deepEqual(sent, [["email-1", "request-1"]]);
+  });
 
   it("answers accepted when the self-serve branch fails, so a failure names no branch", async () => {
     let padded = 0;

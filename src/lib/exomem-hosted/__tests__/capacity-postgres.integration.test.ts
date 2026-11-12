@@ -14,7 +14,11 @@ import {
   executeExomemSql,
   type ExomemSql,
 } from "../db";
-import { clearSettledEmailRecipients, drainExomemEmailOutbox } from "../email-outbox";
+import {
+  clearSettledEmailRecipients,
+  dispatchExomemEmail,
+  drainExomemEmailOutbox,
+} from "../email-outbox";
 import { setOperationalEventSinkForTests } from "../observability";
 import {
   EXOMEM_INVITE_CAPABILITIES,
@@ -39,6 +43,13 @@ const TURNSTILE_ALWAYS_PASSES = "1x0000000000000000000000000000000AA";
 const TURNSTILE_ALWAYS_FAILS = "2x0000000000000000000000000000000AA";
 let siteverifyReachable = true;
 let siteverifyCalls = 0;
+// Every email the fake provider accepted, in the order it arrived.
+const providerMail: Array<{
+  to: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+}> = [];
 
 const FIXED_REQUEST_ID = "00000000-0000-4000-8000-0000000000aa";
 const FIXED_CHALLENGE = {
@@ -52,6 +63,11 @@ const ENV = {
   EXOMEM_TURNSTILE_SECRET_KEY: TURNSTILE_ALWAYS_PASSES,
   EXOMEM_SELF_SERVE_ADMISSION: undefined,
   EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR: undefined,
+  // The mail provider is substituted at its HTTP boundary below. Its client
+  // returns a no-op success under NODE_ENV=test, which would hide the request.
+  BREVO_API_KEY: "test-provider-key",
+  BREVO_SENDER_EMAIL: "sender@example.com",
+  NODE_ENV: undefined,
 } as Record<string, string | undefined>;
 const priorEnv: Record<string, string | undefined> = {};
 const realFetch = globalThis.fetch;
@@ -99,6 +115,29 @@ function newAddress(label: string): string {
   return `${label}-${randomUUID()}@example.test`;
 }
 
+async function outboxKinds(recipient: string): Promise<string[]> {
+  const { rows } = await pool!.query<{ kind: string }>(
+    "SELECT kind FROM exomem_email_outbox WHERE recipient = $1 ORDER BY kind",
+    [recipient]
+  );
+  return rows.map((row) => row.kind);
+}
+
+/** An open operator invitation to an address that has no account; returns its token digest. */
+async function inviteAddress(emailNormalized: string): Promise<Buffer> {
+  const tokenDigest = randomBytes(32);
+  await createInviteRecord({
+    tokenDigest,
+    emailNormalized,
+    entitlementSource: "complimentary",
+    capabilities: EXOMEM_INVITE_CAPABILITIES,
+    resourceLimits: EXOMEM_INVITE_LIMITS,
+    operatorPrincipalDigest: randomBytes(32),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  });
+  return tokenDigest;
+}
+
 function startRequest(body: Record<string, unknown>): import("next/server").NextRequest {
   return new Request("https://substratesystems.io/api/exomem/access/start", {
     method: "POST",
@@ -120,7 +159,22 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       else process.env[key] = value;
     }
     // Siteverify is Cloudflare's; it is substituted here, at the boundary.
-    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      if (new URL(String(url)).hostname === "api.brevo.com") {
+        const mail = JSON.parse(String(init?.body)) as {
+          to: Array<{ email: string }>;
+          subject: string;
+          htmlContent: string;
+          textContent: string;
+        };
+        providerMail.push({
+          to: mail.to[0]!.email,
+          subject: mail.subject,
+          htmlContent: mail.htmlContent,
+          textContent: mail.textContent,
+        });
+        return Response.json({ messageId: "message-1" }, { status: 201 });
+      }
       siteverifyCalls += 1;
       if (!siteverifyReachable) throw new TypeError("fetch failed");
       const { secret } = JSON.parse(String(init?.body)) as { secret: string };
@@ -176,6 +230,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
   beforeEach(async () => {
     siteverifyReachable = true;
     siteverifyCalls = 0;
+    providerMail.length = 0;
     process.env.EXOMEM_TURNSTILE_SECRET_KEY = TURNSTILE_ALWAYS_PASSES;
     delete process.env.EXOMEM_SELF_SERVE_ADMISSION;
     delete process.env.EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR;
@@ -209,6 +264,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     const admitted = newAddress("admitted");
     const waitlisted = newAddress("waitlisted");
     const queuedWithFreePlace = newAddress("queued");
+    const invited = newAddress("invited");
     await configureCapacity(1);
 
     const answers: Array<{ status: number; body: string; cookies: string; elapsedMs: number }> = [];
@@ -247,6 +303,9 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       await configureCapacity(5);
       process.env.EXOMEM_SELF_SERVE_ADMISSION = "waitlist";
       await ask(queuedWithFreePlace);
+      // An address with an open invitation and no account.
+      await inviteAddress(invited);
+      await ask(invited);
     } finally {
       mock.timers.reset();
     }
@@ -256,13 +315,13 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       await count("SELECT count(*) AS n FROM exomem_access_tokens WHERE purpose = 'magic_link'"),
       1
     );
-    assert.equal(
-      await count(
-        "SELECT count(*) AS n FROM exomem_email_outbox WHERE kind = 'start' AND recipient = $1",
-        [admitted]
-      ),
-      2
-    );
+    // One outcome email per request, whatever the account state: a person who
+    // asks gets mail, never silence.
+    assert.deepEqual(await outboxKinds(admitted), ["start", "start"]);
+    assert.deepEqual(await outboxKinds(waitlisted), ["waitlist", "waitlist_still_waiting"]);
+    assert.deepEqual(await outboxKinds(queuedWithFreePlace), ["waitlist"]);
+    assert.deepEqual(await outboxKinds(defaultWaitlisted), ["waitlist"]);
+    assert.deepEqual(await outboxKinds(invited), ["invitation_waiting"]);
     for (const address of [waitlisted, queuedWithFreePlace]) {
       assert.equal(
         await count(
@@ -271,19 +330,26 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
         ),
         1
       );
-      assert.equal(
-        await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [
-          address,
-        ]),
-        1
-      );
     }
+    // An invited address gets neither a waitlist place nor a second link.
     assert.equal(
-      await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [
-        defaultWaitlisted,
+      await count("SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1", [
+        invited,
+      ]),
+      0
+    );
+    assert.equal(
+      await count("SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1", [
+        invited,
       ]),
       1
     );
+    // Every row reached the provider in its request's own turn, not at the minute job.
+    assert.equal(
+      await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE state <> 'sent'"),
+      0
+    );
+    assert.equal(providerMail.length, await count("SELECT count(*) AS n FROM exomem_email_outbox"));
 
     for (const answer of answers.slice(1)) {
       assert.equal(answer.status, answers[0]!.status);
@@ -323,19 +389,190 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       assert.equal(response.status, 202);
     }
 
-    // The owner's sign-in link and the newcomer's start link leave by their two outboxes.
-    const sent = new Map<string, string>();
-    const capture = async (input: { to: string; htmlContent: string }) => {
-      sent.set(input.to, input.htmlContent);
-      return { success: true };
-    };
-    await drainMagicLinkDeliveries({}, { sendEmail: capture });
-    await drainExomemEmailOutbox({}, { sendEmail: capture });
+    // The newcomer's start link left in its request's own turn; the owner's
+    // sign-in link leaves by its outbox at the next job run.
+    const sent = new Map(providerMail.map((mail) => [mail.to, mail.htmlContent]));
+    await drainMagicLinkDeliveries(
+      {},
+      {
+        sendEmail: async (input: { to: string; htmlContent: string }) => {
+          sent.set(input.to, input.htmlContent);
+          return { success: true };
+        },
+      }
+    );
 
     // A light-based email switches to dark in its block; a dark-based one would switch to light.
     for (const email of [owner, newcomer]) {
       assert.ok(sent.get(email)?.includes(`@media ${exomemEmailSchemeQuery("dark")}`), email);
     }
+  });
+
+  // The sixth request within the hour used to get the same "sent" page as the
+  // first, and no email: the person waited for mail that was never coming.
+  it("tells an address the limit refused to wait, in the same answer shape, and queues nothing", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/start/route");
+    await configureCapacity(0);
+    const address = newAddress("limited");
+    const answers: Array<Record<string, unknown>> = [];
+    mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    try {
+      for (let request = 0; request < 6; request += 1) {
+        const response = await POST(
+          startRequest({ email: address, turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })
+        );
+        assert.equal(response.status, 202);
+        answers.push(await response.json());
+      }
+    } finally {
+      mock.timers.reset();
+    }
+
+    const refused = answers[5]!;
+    for (const answer of answers.slice(0, 5)) {
+      assert.equal(answer.retryLimited, false);
+      assert.deepEqual(Object.keys(refused).sort(), Object.keys(answer).sort());
+    }
+    assert.equal(refused.retryLimited, true);
+    assert.ok(Number(refused.retryAfterSeconds) > 60, `${refused.retryAfterSeconds}`);
+    // The first five asked: one place on the list, one note that they still wait.
+    assert.deepEqual(await outboxKinds(address), ["waitlist", "waitlist_still_waiting"]);
+  });
+
+  // A fixed 15-minute window: a repeat inside it adds nothing, and the next
+  // window answers again, so a person who keeps asking is never left in silence.
+  it("answers a waiting or invited person once per 15 minutes, and again in the next window", async () => {
+    await configureCapacity(1);
+    const waiting = newAddress("waiting");
+    const invited = newAddress("invited");
+    // The invitation takes the only place, so the waiting address cannot be admitted.
+    await inviteAddress(invited);
+    const startOf = (emailNormalized: string) =>
+      startSelfServeAtomic({ emailNormalized, timeZone: null, mode: "open" });
+
+    // Start on a window edge ahead of the real clock, so the outbox rows' expiry stays after their creation.
+    const windowMs = 15 * 60_000;
+    const edge = Math.ceil((Date.now() + 60 * 60_000) / windowMs) * windowMs;
+    mock.timers.enable({ apis: ["Date"], now: edge });
+    try {
+      await startOf(waiting);
+      for (const minutesLater of [1, 7, 14]) {
+        mock.timers.setTime(edge + minutesLater * 60_000);
+        await startOf(waiting);
+        await startOf(invited);
+      }
+      assert.deepEqual(await outboxKinds(waiting), ["waitlist", "waitlist_still_waiting"]);
+      assert.deepEqual(await outboxKinds(invited), ["invitation_waiting"]);
+
+      mock.timers.setTime(edge + windowMs);
+      await startOf(waiting);
+      await startOf(invited);
+    } finally {
+      mock.timers.reset();
+    }
+
+    assert.deepEqual(await outboxKinds(waiting), [
+      "waitlist",
+      "waitlist_still_waiting",
+      "waitlist_still_waiting",
+    ]);
+    assert.deepEqual(await outboxKinds(invited), ["invitation_waiting", "invitation_waiting"]);
+  });
+
+  // The request's dispatch and the minute job both reach for the row; the job
+  // starting while the dispatch is mid-send must not send it a second time.
+  it("sends a queued row once when the request's dispatch and the delivery job reach it together", async () => {
+    await configureCapacity(2);
+    const person = newAddress("dispatch");
+    const { emailId } = await startSelfServeAtomic({
+      emailNormalized: person,
+      timeZone: null,
+      mode: "open",
+    });
+    assert.ok(emailId);
+    const sentTo: string[] = [];
+    let finishSlowSend!: () => void;
+    const slowSend = async (input: { to: string }) => {
+      sentTo.push(input.to);
+      await new Promise<void>((resolve) => (finishSlowSend = resolve));
+      return { success: true, messageId: "message-1" };
+    };
+    const jobSend = async (input: { to: string }) => {
+      sentTo.push(input.to);
+      return { success: true, messageId: "message-2" };
+    };
+
+    const dispatching = dispatchExomemEmail(emailId, { sendEmail: slowSend });
+    while (sentTo.length === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+    const jobWhileSending = await drainExomemEmailOutbox({}, { sendEmail: jobSend });
+    finishSlowSend();
+    assert.equal(await dispatching, "sent");
+
+    // Once sent, neither path takes the row again.
+    const dispatchedAgain = await dispatchExomemEmail(emailId, { sendEmail: jobSend });
+    const jobAfter = await drainExomemEmailOutbox({}, { sendEmail: jobSend });
+    assert.equal(jobWhileSending.claimed, 0);
+    assert.equal(dispatchedAgain, null);
+    assert.equal(jobAfter.claimed, 0);
+    assert.deepEqual(sentTo, [person]);
+  });
+
+  it("sends an invitation-waiting email while its invitation is open, and cancels one whose invitation was used or revoked first", async () => {
+    await configureCapacity(5);
+    const open = newAddress("open");
+    const used = newAddress("used");
+    const revoked = newAddress("revoked");
+    const queued: Record<string, string> = {};
+    const tokenDigests: Record<string, Buffer> = {};
+    for (const address of [open, used, revoked]) {
+      tokenDigests[address] = await inviteAddress(address);
+      const { outcome, emailId } = await startSelfServeAtomic({
+        emailNormalized: address,
+        timeZone: "Europe/Paris",
+        mode: "open",
+      });
+      assert.equal(outcome, "invitation_waiting");
+      queued[address] = emailId!;
+    }
+    assert.ok(
+      await redeemCloudInviteAtomic({
+        tokenDigest: tokenDigests[used]!,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+    );
+    await pool!.query("UPDATE exomem_invites SET revoked_at = now() WHERE email_normalized = $1", [
+      revoked,
+    ]);
+    const sent: Array<{ to: string; textContent: string }> = [];
+    const sendEmail = async (input: { to: string; textContent: string }) => {
+      sent.push({ to: input.to, textContent: input.textContent });
+      return { success: true, messageId: "message-1" };
+    };
+
+    const delivered = {
+      open: await dispatchExomemEmail(queued[open]!, { sendEmail }),
+      used: await dispatchExomemEmail(queued[used]!, { sendEmail }),
+      revoked: await dispatchExomemEmail(queued[revoked]!, { sendEmail }),
+    };
+
+    assert.deepEqual(delivered, { open: "sent", used: "cancelled", revoked: "cancelled" });
+    assert.deepEqual(
+      sent.map((email) => email.to),
+      [open]
+    );
+    // The email names the day the invitation lapses, in the requester's zone.
+    const invite = await pool!.query<{ expires_at: Date }>(
+      "SELECT expires_at FROM exomem_invites WHERE email_normalized = $1",
+      [open]
+    );
+    const parisDay = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      day: "numeric",
+      month: "long",
+    }).format(invite.rows[0]!.expires_at);
+    assert.ok(sent[0]!.textContent.includes(`open until ${parisDay}.`), sent[0]!.textContent);
   });
 
   it("refuses an invalid Turnstile token with 400 and writes nothing at all", async () => {
@@ -386,8 +623,8 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       )
     );
 
-    assert.equal(outcomes.filter((outcome) => outcome === "admitted").length, 1);
-    assert.equal(outcomes.filter((outcome) => outcome === "waitlisted").length, 7);
+    assert.equal(outcomes.filter(({ outcome }) => outcome === "admitted").length, 1);
+    assert.equal(outcomes.filter(({ outcome }) => outcome === "waitlisted").length, 7);
     assert.equal(await count("SELECT count(*) AS n FROM exomem_invites WHERE self_serve"), 1);
     assert.equal(
       await count("SELECT count(*) AS n FROM exomem_waitlist_entries WHERE admitted_at IS NULL"),
@@ -398,7 +635,8 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     await configureCapacity(2);
     const newcomer = newAddress("newcomer");
     assert.equal(
-      await startSelfServeAtomic({ emailNormalized: newcomer, timeZone: null, mode: "open" }),
+      (await startSelfServeAtomic({ emailNormalized: newcomer, timeZone: null, mode: "open" }))
+        .outcome,
       "waitlisted"
     );
     assert.equal(await count("SELECT count(*) AS n FROM exomem_invites WHERE self_serve"), 1);
@@ -484,15 +722,18 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     setOperationalEventSinkForTests((line) => logs.push(line));
     try {
       assert.equal(
-        await startSelfServeAtomic({
-          emailNormalized: newAddress("first"),
-          timeZone: null,
-          mode: "open",
-        }),
+        (
+          await startSelfServeAtomic({
+            emailNormalized: newAddress("first"),
+            timeZone: null,
+            mode: "open",
+          })
+        ).outcome,
         "admitted"
       );
       assert.equal(
-        await startSelfServeAtomic({ emailNormalized: paced, timeZone: null, mode: "open" }),
+        (await startSelfServeAtomic({ emailNormalized: paced, timeZone: null, mode: "open" }))
+          .outcome,
         "waitlisted"
       );
       assert.deepEqual(await promoteWaitlistedPeople({ mode: "open" }), {
@@ -614,11 +855,13 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     await configureCapacity(2);
     const repeater = newAddress("repeater");
     assert.equal(
-      await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" }),
+      (await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" }))
+        .outcome,
       "admitted"
     );
     assert.equal(
-      await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" }),
+      (await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" }))
+        .outcome,
       "reissued"
     );
     const links = await pool!.query<{ token_digest: Buffer; expires_at: string }>(
@@ -630,19 +873,23 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
 
     // Two links, one address, one place: the second place is still free.
     assert.equal(
-      await startSelfServeAtomic({
-        emailNormalized: newAddress("next"),
-        timeZone: null,
-        mode: "open",
-      }),
+      (
+        await startSelfServeAtomic({
+          emailNormalized: newAddress("next"),
+          timeZone: null,
+          mode: "open",
+        })
+      ).outcome,
       "admitted"
     );
     assert.equal(
-      await startSelfServeAtomic({
-        emailNormalized: newAddress("last"),
-        timeZone: null,
-        mode: "open",
-      }),
+      (
+        await startSelfServeAtomic({
+          emailNormalized: newAddress("last"),
+          timeZone: null,
+          mode: "open",
+        })
+      ).outcome,
       "waitlisted"
     );
 
@@ -671,7 +918,8 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     await startSelfServeAtomic({ emailNormalized: early, timeZone: null, mode: "open" });
     await startSelfServeAtomic({ emailNormalized: later, timeZone: null, mode: "open" });
     assert.equal(
-      await startSelfServeAtomic({ emailNormalized: early, timeZone: null, mode: "open" }),
+      (await startSelfServeAtomic({ emailNormalized: early, timeZone: null, mode: "open" }))
+        .outcome,
       "reissued"
     );
     await configureCapacity(1);

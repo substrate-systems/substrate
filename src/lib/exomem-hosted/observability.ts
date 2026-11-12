@@ -8,6 +8,8 @@ const EVENT_NAMES = new Set([
   "access.magic_link.redeemed",
   "access.magic_link.sent",
   "access.magic_link.delivery_failed",
+  "access.email.sent",
+  "access.email.delivery_failed",
   "access.logout.succeeded",
   "access.request.denied",
   "access.start.accepted",

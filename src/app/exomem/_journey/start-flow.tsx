@@ -6,7 +6,7 @@ import { TextField } from "@/components/exomem/TextField";
 import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
 import { inboxProvider, inboxProviderForDomain, inboxUrl, phoneMailApp } from "@/lib/exomem/inbox";
 import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
-import { breakCopy, failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
+import { breakCopy, failureCopy, limitedCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
 import { openElsewhere, SentCard, StepActions, StepHeading, StepNotice } from "./parts";
 import { ChallengeError, useTurnstile } from "./turnstile";
@@ -405,17 +405,12 @@ export function StartFlow({
         </>
       ) : step === "limited" ? (
         <>
-          <StepHeading
-            title="That’s enough links for now"
-            lede="Use the latest email you received, or check your spam folder. You can request another email when the wait ends."
-          />
+          <StepHeading title={limitedCopy.title} lede={limitedCopy.lede} />
           <div className={styles.group}>
             {challenge}
             <StepNotice alert={!!failure}>
               {failure ??
-                (waitLeft > 0
-                  ? `You can ask for another in ${clock(waitLeft)}. Not there? Look in spam.`
-                  : "You can ask for another now. Not there? Look in spam.")}
+                (waitLeft > 0 ? limitedCopy.wait(clock(waitLeft)) : limitedCopy.nowAllowed)}
             </StepNotice>
           </div>
           <StepActions
@@ -431,7 +426,7 @@ export function StartFlow({
         </>
       ) : step === "sent" ? (
         <>
-          <StepHeading title={sentCopy.title} lede={sentCopy.lede} />
+          <StepHeading title={sentCopy.title} lede={sentCopy.lede(sentEmail)} />
           <div className={styles.group}>
             <SentCard
               email={sentEmail}

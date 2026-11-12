@@ -1,7 +1,8 @@
 /**
  * The Exomem access emails, on the one template (exomem-email.ts): sign-in
- * (01), start (01w), invitation (02), waitlist, place opened, the unpaid-hold
- * reminder (18) and the deletion confirmation. Copy is verbatim from the
+ * (01), start (01w), invitation (02), invitation waiting, waitlist, still on the
+ * waitlist, place opened, the unpaid-hold reminder (18) and the deletion
+ * confirmation. Copy is verbatim from the
  * boards (R12-Lifecycle for 01 and 02, the landing board's inbox for 01w,
  * R28-Emails for 18) and the product owner's approved copy (2026-10-12) for
  * the waitlist and place-opened emails. Every time limit is computed here, at
@@ -163,6 +164,57 @@ export function renderExomemWaitlistEmail(
       "Exomem is open by invitation for now. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
     ],
     smallPrint: "If you didn’t ask for this, ignore this email.",
+  });
+}
+
+/**
+ * A waiting person asked to start again. It says they keep their place and
+ * gives no queue position: the list moves with every start and promotion.
+ */
+export function renderExomemWaitlistStillWaitingEmail(
+  input: { scheme?: ExomemEmailScheme | null; themeChoice?: ExomemThemeChoice | null } = {}
+): RenderedExomemAccessEmail {
+  return renderExomemEmail({
+    base: input.scheme ?? null,
+    themeChoice: input.themeChoice,
+    subject: "You’re still on the Exomem list",
+    preheader: "Your place is kept.",
+    band: "arrive",
+    headline: "You’re still on the list",
+    body: [
+      "You asked to start Exomem again. You’re still on the list and keep your place. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
+    ],
+    smallPrint: "If you didn’t ask for this, ignore this email.",
+  });
+}
+
+/**
+ * A person with no account asked to start while an invitation to their
+ * address is open. It carries no link: the invitation email already sent keeps
+ * the only one. All three invitation subjects name Exomem, so that is what the
+ * reader searches for.
+ */
+export function renderExomemInvitationWaitingEmail(input: {
+  sentAt: Date;
+  expiresAt: Date;
+  timeZone?: string | null;
+  scheme?: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
+}): RenderedExomemAccessEmail {
+  const sent = emailDate(input.sentAt, input.timeZone);
+  const until = emailDate(input.expiresAt, input.timeZone);
+  return renderExomemEmail({
+    base: input.scheme ?? null,
+    themeChoice: input.themeChoice,
+    subject: "Your Exomem invitation is waiting",
+    preheader: `Open the invitation we sent you on ${sent}.`,
+    band: "arrive",
+    headline: "Your invitation is waiting",
+    body: [
+      `We sent you an invitation to Exomem on ${sent}. It’s open until ${until}. Open that email and follow its link to start. Can’t find it? Look in spam, or search your inbox for “Exomem”.`,
+    ],
+    smallPrint:
+      "This email has no link of its own, and the link in your invitation still works. If you didn’t ask for this, ignore this email.",
   });
 }
 

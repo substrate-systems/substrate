@@ -6,7 +6,7 @@ import { requestStart } from "./access";
 import { dispatchMagicLinkDelivery, type MagicLinkDeliveryState } from "./access-delivery";
 import { executeExomemSql } from "./db";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
-import { EXOMEM_RATE_LIMITS, hashRateLimitKey } from "./rate-limit";
+import { EXOMEM_RATE_LIMITS, hashRateLimitKey, normalizedEmailRateLimitKey } from "./rate-limit";
 import {
   cookieValue,
   EXOMEM_ACCESS_RECOVERY_COOKIE,
@@ -140,7 +140,11 @@ export async function recoveryLinkState(
   return state === "expired" || state === "used" ? state : null;
 }
 
-/** Only browser/IP buckets determine a visible wait; email suppression has no observable timing. */
+/**
+ * The wait that the browser and network buckets impose, which every request
+ * from this browser meets whatever address it names. The address bucket is
+ * read separately, and only once the request was refused by it.
+ */
 export async function accessStartRetryAfterSeconds(
   browserKey: string,
   networkKey: string
@@ -164,8 +168,30 @@ export async function accessStartRetryAfterSeconds(
 }
 
 /**
- * Start and recovery share one public answer; only common limits can change its visible wait.
- * `resend` is the recovery route's resend, which passed no bot check of its own.
+ * Seconds until the per-address bucket admits another request for this
+ * address. Read only for a request that this bucket refused, so the wait shows
+ * what the person was told, and never for a request that succeeded.
+ */
+async function addressStartRetryAfterSeconds(email: string): Promise<number> {
+  const rule = EXOMEM_RATE_LIMITS.startEmail;
+  const { rows } = await executeExomemSql`
+    SELECT COALESCE(MAX(GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+      (window_started_at + ${rule.windowSeconds}::int * interval '1 second' - now()))))), 0)::int AS seconds
+    FROM exomem_rate_limit_buckets
+    WHERE scope = ${rule.scope}
+      AND key_digest = ${hashRateLimitKey(rule, normalizedEmailRateLimitKey(email))}
+      AND admitted_count >= ${rule.limit}
+  `;
+  return Number(rows[0].seconds);
+}
+
+/**
+ * Start and recovery share one public answer. Its status, body keys and time
+ * floor are the same for every address; only a limit changes what it says,
+ * and every limit is taken before any branch that reads account state:
+ * the browser and network limits, and the per-address limit (`retryLimited`
+ * with a wait). `resend` is the recovery route's resend, which passed no bot
+ * check of its own.
  */
 export async function uniformAccessStartResponse(
   request: Request,
@@ -190,38 +216,49 @@ export async function uniformAccessStartResponse(
     resend: input.resend,
   });
   const networkKey = clientAddressKey(request) ?? "unavailable";
-  const retryLimited =
-    (await accessStartRetryAfterSeconds(recovery.receipt.browserKey, networkKey)) > 0;
-  if (retryLimited && prior) {
-    // A common cooldown must not invalidate the newest link that is already in the browser's email.
+  // A limited request must not invalidate the newest link that is already in
+  // the browser's email: it keeps the earlier challenge and receipt.
+  const keepPriorLink = (earlier: AccessRecoveryReceipt) => {
     recovery = mintAccessRecoveryReceipt({
-      email: prior.email,
-      timeZone: prior.timeZone,
-      emailScheme: prior.emailScheme ?? null,
-      themeChoice: prior.themeChoice ?? null,
-      challengeDigest: Buffer.from(prior.challengeDigest, "hex"),
-      prior,
+      email: earlier.email,
+      timeZone: earlier.timeZone,
+      emailScheme: earlier.emailScheme ?? null,
+      themeChoice: earlier.themeChoice ?? null,
+      challengeDigest: Buffer.from(earlier.challengeDigest, "hex"),
+      prior: earlier,
       resend: input.resend,
     });
     const existing = magicLinkChallengeFromRequest(request);
     const digest = existing ? tokenDigest(existing) : null;
-    if (existing && digest?.toString("hex") === prior.challengeDigest)
+    if (existing && digest?.toString("hex") === earlier.challengeDigest)
       challenge = { ...challenge, challengeToken: existing, challengeDigest: digest };
-  }
-  const { deliveryId } = await requestStart({
-    email: recovery.receipt.email,
+  };
+  let retryLimited =
+    (await accessStartRetryAfterSeconds(recovery.receipt.browserKey, networkKey)) > 0;
+  if (retryLimited && prior) keepPriorLink(prior);
+  const requestedEmail = recovery.receipt.email;
+  const started = await requestStart({
+    email: requestedEmail,
     timeZone: recovery.receipt.timeZone,
     emailScheme: recovery.receipt.emailScheme ?? null,
     themeChoice: recovery.receipt.themeChoice ?? null,
     browserChallengeDigest: challenge.challengeDigest,
     browserKey: recovery.receipt.browserKey,
     networkKey,
+    requestId: input.requestId,
   });
-  if (deliveryId) scheduleMagicLinkDelivery(deliveryId, input.requestId);
-  const retryAfterSeconds = await accessStartRetryAfterSeconds(
+  if (started.deliveryId) scheduleMagicLinkDelivery(started.deliveryId, input.requestId);
+  const addressLimited = started.addressLimited === true;
+  // Only now is the address limit known; no email carries this request's challenge.
+  if (addressLimited && prior) keepPriorLink(prior);
+  retryLimited = retryLimited || addressLimited;
+  const commonRetryAfterSeconds = await accessStartRetryAfterSeconds(
     recovery.receipt.browserKey,
     networkKey
   );
+  const retryAfterSeconds = addressLimited
+    ? Math.max(commonRetryAfterSeconds, await addressStartRetryAfterSeconds(requestedEmail))
+    : commonRetryAfterSeconds;
   const response = NextResponse.json(
     {
       success: true,

@@ -36,11 +36,15 @@ export const startCopy = {
 export const sentCopy = {
   title: "Check your email",
   /**
-   * The board says "We sent you a link." Every request gets this page, including one
-   * that queues no email (a rate limit or an address that does not normalize) and a repeat waitlist request. So the page claims neither a link nor an
-   * email, and the button names what the person does: ask again (deviation (j)).
+   * The board says "We sent you a link." Every accepted request queues one email that says
+   * what happens next for that address (a sign-in link, a start link, a waitlist place, or a
+   * note about an invitation or a place already held), so the page claims an email but never
+   * what is in it, which would tell whose address it is (deviation (j)). A request over a rate limit
+   * queues none, and the page says so on its own step (`limitedCopy`).
    */
-  lede: "If this address can get an email from us, it’s on its way. Open the email from Exomem to continue, on any device.",
+  lede: (email: string) => `We sent an email to ${email}. It says what happens next.`,
+  /** The sign-in recovery page holds no address, so it names none. */
+  ledeWithoutAddress: "We sent an email. It says what happens next.",
   sentTo: "Sent to",
   spam: "Nothing after a minute? Look in spam.",
   openHere: "Open it in this browser and this tab moves on by itself.",
@@ -49,6 +53,17 @@ export const sentCopy = {
   resend: "Send again",
   resendIn: (clock: string) => `Send again in ${clock}`,
   differentEmail: "Use a different email",
+};
+
+/**
+ * A request over a limit: the address, browser or network was asked for too often.
+ * The step covers all three, so it names the one the person typed: the address.
+ */
+export const limitedCopy = {
+  title: "That’s enough emails for now",
+  lede: "We already emailed this address several times this hour. Use the latest email you received, or check your spam folder.",
+  wait: (clock: string) => `You can ask for another in ${clock}. Not there? Look in spam.`,
+  nowAllowed: "You can ask for another now. Not there? Look in spam.",
 };
 
 export const reviewerCopy = {

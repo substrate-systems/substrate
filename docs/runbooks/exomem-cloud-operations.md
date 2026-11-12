@@ -625,8 +625,12 @@ cell. A paid transaction resumes the owner instead; do not cancel it.
 
 `POST /api/exomem/access/start` (and its earlier path `/access/magic-link`)
 serves new and returning people. Every request that passes Turnstile gets the
-same `202`, and the email carries the outcome. An owner gets a sign-in link.
-Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
+same `202`, and the email carries the outcome. Every request that passes the
+rate limits queues exactly one email. An owner gets a sign-in link. An address
+with an open operator invitation and no account gets an invitation-waiting
+email. It names the dates the invitation was sent and expires, carries no
+link, and the address does not join the waitlist. The link in the invitation
+email stays valid. Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 
 - `waitlist`: a waitlist place. This is the default, including an unset or
   unrecognized value. The retired `closed` value also reads as `waitlist`.
@@ -646,17 +650,33 @@ invitation holds. Every invitation counts, whatever its kind, and one address
 counts once. Start links expire after 48 hours. A person who asks again while
 they hold a live start link gets another link with the same expiry. Using any
 of their links revokes the others. A waiting person who asks again keeps their
-place and gets no second waitlist email.
+place and gets a still-waiting email. It gives no queue position. The system
+queues at most one per entry in each 15-minute window.
+
+An address that asks more than five times an hour is limited, whatever its
+state. The `202` then carries `retryLimited: true` and `retryAfterSeconds` for
+that address. The body keys and the response time stay the same. The page says
+that the address was emailed several times this hour and shows the time to try
+again. The limit comes before every branch, so it does not reveal whether an
+address has an account.
 
 Emails for start links, waitlist places, promotions, the unpaid-hold
 reminder and the account lifecycle (emails 03 to 07) go through
-`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
-sends waitlist emails only when no other email is ready. It retries a failed
-send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
+`exomem_email_outbox`. A request that queues an email due now sends it as soon
+as its transaction commits: start requests, operator invitations and email
+changes. The send runs after the response, under the same lease, re-check and
+retry rules as the job. When it fails or never runs, the row stays queued and
+the access-delivery job sends it at its next run. The job does not claim a row
+while the request's lease holds, so one row is not sent twice. Rows that are
+not due yet, such as a reminder, go through the job only.
+
+The access-delivery job sends at most 20 per run, and sends the waitlist,
+still-waiting and invitation-waiting emails only when no other email is ready.
+It retries a failed send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
 start link, retries until that deadline. An email without one, such as 07,
 stops after 10 attempts. When Brevo refuses the request (`400`, `413` or
-`422`), the row records `EMAIL_REFUSED`. A refused waitlist email fails at
-once, and the person keeps their place. Every other refused email retries,
+`422`), the row records `EMAIL_REFUSED`. A refused waitlist, still-waiting or
+invitation-waiting email fails at once, and the person keeps their place. Every other refused email retries,
 because a refusal can come from our own account, such as an unvalidated
 sender. Email 07 also waits, with no limit,
 until cellctl has deleted every cell of the account. A wait counts no attempt.

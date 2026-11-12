@@ -17,7 +17,11 @@ import {
   type CreateInviteRecordInput,
   type ExomemSql,
 } from "./db";
-import { enqueueExomemEmail, INVITATION_REMINDER_LEAD_DAYS } from "./email-outbox";
+import {
+  dispatchQueuedEmailsSoon,
+  enqueueExomemEmail,
+  INVITATION_REMINDER_LEAD_DAYS,
+} from "./email-outbox";
 import { LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import {
@@ -96,6 +100,8 @@ export type OperatorInviteDependencies = {
   randomBytes: RandomBytesSource;
   createInvite: typeof createInviteRecord;
   previewPrices: typeof previewExomemPrices;
+  /** Sends the invitation email once its transaction has committed. */
+  dispatchQueuedEmails: typeof dispatchQueuedEmailsSoon;
 };
 
 function issueDefaults(): OperatorInviteDependencies {
@@ -104,6 +110,7 @@ function issueDefaults(): OperatorInviteDependencies {
     randomBytes: nodeRandomBytes,
     createInvite: createInviteRecord,
     previewPrices: previewExomemPrices,
+    dispatchQueuedEmails: dispatchQueuedEmailsSoon,
   };
 }
 
@@ -178,6 +185,9 @@ export async function issueOperatorInvite(
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
   const expiresAt = input.expiresAt;
+  // The invitation email is due now; its reminder and its "ended unused" notice
+  // wait for their own dates, so they are left to the delivery job.
+  const dueNow: string[] = [];
   const enqueueEmails: CreateInviteRecordInput["afterCreate"] = async (tx, { inviteId }) => {
     const link = { version: 1 as const, inviteId, token, expiresAt: expiresAt.toISOString() };
     const invitation = {
@@ -189,7 +199,7 @@ export async function issueOperatorInvite(
       expiresAt,
     };
     if (input.kind === "friend" && prices?.friend) {
-      await enqueueExomemEmail(tx, {
+      const sent = await enqueueExomemEmail(tx, {
         ...invitation,
         kind: "friend_invitation",
         payload: {
@@ -200,6 +210,7 @@ export async function issueOperatorInvite(
           friendCurrency: prices.friend.currencyCode,
         },
       });
+      if (sent) dueNow.push(sent);
       const remindAt = new Date(expiresAt.getTime() - INVITATION_REMINDER_LEAD_DAYS * DAY_MS);
       // A reminder due at once would arrive with the invitation itself.
       if (remindAt > now) {
@@ -227,11 +238,12 @@ export async function issueOperatorInvite(
       }
       return;
     }
-    await enqueueExomemEmail(tx, {
+    const sent = await enqueueExomemEmail(tx, {
       ...invitation,
       kind: input.kind === "covered" ? "covered_invitation" : "invitation",
       payload: link,
     });
+    if (sent) dueNow.push(sent);
   };
 
   const { inviteId } = await deps.createInvite({
@@ -250,6 +262,7 @@ export async function issueOperatorInvite(
     note,
     afterCreate: enqueueEmails,
   });
+  await deps.dispatchQueuedEmails(dueNow);
   return { inviteId, delivery: "queued" };
 }
 

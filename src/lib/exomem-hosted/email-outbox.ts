@@ -3,8 +3,10 @@
  *
  * An email is enqueued in the same transaction as the fact it announces, under
  * a unique dedupe key, so "sent once" is a database constraint rather than a
- * hope. The `exomem-access-delivery` cron drains it: each row is claimed
- * under a lease, its kind re-checks that the fact still holds (or the row is
+ * hope. A request sends the rows it queued as soon as its transaction commits
+ * (`dispatchQueuedEmailsSoon`), and the `exomem-access-delivery` cron drains
+ * the rest, and any row that send failed. Both claim a row the same way: under
+ * a lease, its kind re-checks that the fact still holds (or the row is
  * `cancelled`), and it is rendered at send time in the recipient's time zone
  * and email scheme.
  * Delivery is at least once: a worker that dies after the provider accepted
@@ -18,12 +20,15 @@
 import type { ExomemThemeChoice } from "@/lib/exomem/theme";
 
 import { randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { sendTransactionalEmail, type SendTransactionalEmailResult } from "@/lib/brevo";
 import {
   renderExomemHoldReminderEmail,
+  renderExomemInvitationWaitingEmail,
   renderExomemInviteEmail,
   renderExomemPlaceOpenedEmail,
   renderExomemWaitlistEmail,
+  renderExomemWaitlistStillWaitingEmail,
   renderExomemWelcomeEmail,
   type RenderedExomemAccessEmail,
 } from "@/lib/email-templates/exomem-access";
@@ -52,6 +57,7 @@ import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
 import type { ExomemInviteKind } from "./invitation-contract";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "@/lib/exomem/money";
 import {
   exomemHomeUrl,
@@ -175,6 +181,21 @@ export type StartLinkPayload = {
 };
 
 export type WaitlistPayload = { version: 1; entryId: string };
+
+function readWaitlistPayload(value: Record<string, unknown>): WaitlistPayload | null {
+  const fields = readFields(value, ["entryId"] as const);
+  return fields && UUID.test(fields.entryId) ? { version: 1, ...fields } : null;
+}
+
+/** A person's waitlist entry, while they still wait. */
+async function stillOnWaitlist(tx: ExomemSql, payload: WaitlistPayload): Promise<true | null> {
+  const { rows } = await tx`
+    /* exomem:email-waitlist-still-waiting */
+    SELECT 1 FROM exomem_waitlist_entries
+    WHERE id = ${payload.entryId}::uuid AND admitted_at IS NULL
+  `;
+  return rows.length === 1 ? true : null;
+}
 
 export type HoldReminderPayload = {
   version: 1;
@@ -622,20 +643,57 @@ const EXOMEM_EMAILS = {
   }),
   /** A person joined the waitlist. It holds while they still wait. */
   waitlist: defineEmail({
-    readPayload: (value): WaitlistPayload | null => {
-      const fields = readFields(value, ["entryId"] as const);
-      return fields && UUID.test(fields.entryId) ? { version: 1, ...fields } : null;
-    },
-    stillHolds: async (tx, payload): Promise<true | null> => {
-      const { rows } = await tx`
-        /* exomem:email-waitlist-still-waiting */
-        SELECT 1 FROM exomem_waitlist_entries
-        WHERE id = ${payload.entryId}::uuid AND admitted_at IS NULL
-      `;
-      return rows.length === 1 ? true : null;
-    },
+    readPayload: readWaitlistPayload,
+    stillHolds: stillOnWaitlist,
     render: ({ emailScheme, themeChoice }) =>
       renderExomemWaitlistEmail({ scheme: emailScheme, themeChoice }),
+    claimedLast: true,
+    failsWhenRefused: true,
+  }),
+  /**
+   * A person who already waits asked to start again: they keep their place
+   * and are told so. It holds while they still wait. Anybody can ask for any
+   * address, so it waits behind everyone else's mail like the waitlist email.
+   */
+  waitlist_still_waiting: defineEmail({
+    readPayload: readWaitlistPayload,
+    stillHolds: stillOnWaitlist,
+    render: ({ emailScheme, themeChoice }) =>
+      renderExomemWaitlistStillWaitingEmail({ scheme: emailScheme, themeChoice }),
+    claimedLast: true,
+    failsWhenRefused: true,
+  }),
+  /**
+   * A person with no account asked to start while an operator invitation to
+   * their address is still open. It holds while that invitation is unused,
+   * unrevoked and unexpired, and carries no token: the invitation email
+   * already delivered keeps the only link. It names the dates from the
+   * invitation, in the zone and scheme the asking browser reported.
+   */
+  invitation_waiting: defineEmail({
+    readPayload: readInvitationNoticePayload,
+    stillHolds: async (tx, payload): Promise<{ sentAt: Date; expiresAt: Date } | null> => {
+      const { rows } = await tx`
+        /* exomem:email-invitation-waiting */
+        SELECT created_at, expires_at
+        FROM exomem_invites
+        WHERE id = ${payload.inviteId}::uuid
+          AND NOT self_serve
+          AND consumed_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > now()
+      `;
+      const row = rows[0] as { created_at: Date | string; expires_at: Date | string } | undefined;
+      return row ? { sentAt: new Date(row.created_at), expiresAt: new Date(row.expires_at) } : null;
+    },
+    render: ({ context, timeZone, emailScheme, themeChoice }) =>
+      renderExomemInvitationWaitingEmail({
+        sentAt: context.sentAt,
+        expiresAt: context.expiresAt,
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
+      }),
     claimedLast: true,
     failsWhenRefused: true,
   }),
@@ -1107,13 +1165,15 @@ export function sealExomemEmailPayload<K extends ExomemEmailKind>(
 }
 
 /**
- * Writes one email inside the caller's transaction. Returns `false` when an
- * email with this dedupe key already exists, so a repeat changes nothing.
+ * Writes one email inside the caller's transaction. Returns the new row's id,
+ * which a request hands to `dispatchQueuedEmailsSoon` once its transaction
+ * commits, or `null` when an email with this dedupe key already exists, so a
+ * repeat changes nothing.
  */
 export async function enqueueExomemEmail<K extends ExomemEmailKind>(
   tx: ExomemSql,
   input: EnqueueExomemEmailInput<K>
-): Promise<boolean> {
+): Promise<string | null> {
   const envelope = sealExomemEmailPayload(input.kind, input.payload);
   const { rows } = await tx`
     /* exomem:enqueue-email */
@@ -1135,7 +1195,7 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
     ON CONFLICT (dedupe_key) DO NOTHING
     RETURNING id
   `;
-  return rows.length === 1;
+  return rows.length === 1 ? String(rows[0]!.id) : null;
 }
 
 type AnyDefinition = EmailDefinition<unknown, unknown>;
@@ -1192,34 +1252,66 @@ async function settleWithoutSending(
   `;
 }
 
-async function claimNextEmail(
+type OutboxRow = {
+  id: string;
+  kind: string;
+  recipient: string;
+  recipient_time_zone: string | null;
+  recipient_email_scheme: ExomemEmailScheme | null;
+  recipient_theme_choice: ExomemThemeChoice | null;
+  payload_ciphertext: SecretEnvelope | string;
+  expired: boolean;
+};
+
+/**
+ * The row the drain takes next: ready first, anyone's flood of `claimedLast`
+ * kinds last. A row under a live lease is not ready, so a row that a request is
+ * sending is not the drain's until its lease ends.
+ */
+async function selectNextRow(tx: ExomemSql): Promise<OutboxRow | undefined> {
+  const { rows } = await tx`
+    /* exomem:claim-email */
+    SELECT id, kind, recipient::text AS recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice,
+           payload_ciphertext, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+    FROM exomem_email_outbox
+    WHERE (state = 'pending' AND not_before <= now())
+       OR (state = 'leased' AND lease_expires_at <= now())
+    ORDER BY kind = ANY(${CLAIMED_LAST_KINDS}::text[]), not_before, created_at
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1
+  `;
+  return rows[0] as OutboxRow | undefined;
+}
+
+/**
+ * One named row, under the same readiness rule as `selectNextRow`. It is its
+ * own statement so the drain's query, which scans by readiness, keeps its plan.
+ */
+async function selectRowById(tx: ExomemSql, id: string): Promise<OutboxRow | undefined> {
+  const { rows } = await tx`
+    /* exomem:claim-email-by-id */
+    SELECT id, kind, recipient::text AS recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice,
+           payload_ciphertext, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+    FROM exomem_email_outbox
+    WHERE id = ${id}::uuid
+      AND ((state = 'pending' AND not_before <= now())
+        OR (state = 'leased' AND lease_expires_at <= now()))
+    FOR UPDATE SKIP LOCKED
+  `;
+  return rows[0] as OutboxRow | undefined;
+}
+
+/**
+ * Claims one ready row, the next in line or the one named, under a lease. The
+ * kind re-checks its fact here, in the claim's transaction.
+ */
+async function claimEmail(
   leaseOwner: string,
-  decrypt: ExomemEmailDrainDependencies["decrypt"]
+  decrypt: ExomemEmailDrainDependencies["decrypt"],
+  emailId?: string
 ): Promise<ClaimResult | null> {
   return withExomemTransaction(async (tx) => {
-    const { rows } = await tx`
-      /* exomem:claim-email */
-      SELECT id, kind, recipient::text AS recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice,
-             payload_ciphertext, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
-      FROM exomem_email_outbox
-      WHERE (state = 'pending' AND not_before <= now())
-         OR (state = 'leased' AND lease_expires_at <= now())
-      ORDER BY kind = ANY(${CLAIMED_LAST_KINDS}::text[]), not_before, created_at
-      FOR UPDATE SKIP LOCKED
-      LIMIT 1
-    `;
-    const row = rows[0] as
-      | {
-          id: string;
-          kind: string;
-          recipient: string;
-          recipient_time_zone: string | null;
-          recipient_email_scheme: ExomemEmailScheme | null;
-          recipient_theme_choice: ExomemThemeChoice | null;
-          payload_ciphertext: SecretEnvelope | string;
-          expired: boolean;
-        }
-      | undefined;
+    const row = emailId === undefined ? await selectNextRow(tx) : await selectRowById(tx, emailId);
     if (!row) return null;
 
     const definition = (EXOMEM_EMAILS as unknown as Record<string, AnyDefinition | undefined>)[
@@ -1447,6 +1539,68 @@ export type ExomemEmailDrainResult = {
   lost: number;
 };
 
+/** What became of one claimed row. `retry` leaves it pending, with its next attempt time. */
+export type ExomemEmailDelivery =
+  | "sent"
+  | "retry"
+  | "failed"
+  | "cancelled"
+  | "deferred"
+  /** The lease ran out before the send was recorded: the row is the drain's again. */
+  | "lost";
+
+/**
+ * Renders, sends and settles one claim. The drain and `dispatchExomemEmail`
+ * both end here, so a row has one send path, whoever claimed it.
+ */
+async function deliverClaim(
+  claim: ClaimResult,
+  leaseOwner: string,
+  deps: ExomemEmailDrainDependencies,
+  publicBaseUrl: string
+): Promise<ExomemEmailDelivery> {
+  if (claim.outcome !== "leased") return claim.outcome;
+  const email = claim.email;
+  let rendered: RenderedExomemAccessEmail;
+  try {
+    rendered = await email.definition.render({
+      payload: email.payload,
+      context: email.context,
+      timeZone: email.timeZone,
+      emailScheme: email.emailScheme,
+      themeChoice: email.themeChoice,
+      now: deps.now(),
+      publicBaseUrl,
+    });
+  } catch {
+    return releaseEmail(email, leaseOwner, "EMAIL_RENDER_FAILED", true);
+  }
+  let answer: SendTransactionalEmailResult | null = null;
+  try {
+    answer = await deps.sendEmail({
+      to: email.recipient,
+      ...EXOMEM_SENDER,
+      // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
+      senderName: rendered.senderName,
+      subject: rendered.subject,
+      htmlContent: rendered.htmlContent,
+      textContent: rendered.textContent,
+    });
+  } catch {
+    answer = null;
+  }
+  if (answer?.success) return (await markEmailSent(email, leaseOwner)) ? "sent" : "lost";
+  const refused = providerRefusedRequest(answer?.status);
+  const finalRefusal =
+    refused && email.definition.failsWhenRefused === true && !email.definition.afterFailed;
+  return releaseEmail(
+    email,
+    leaseOwner,
+    refused ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
+    finalRefusal
+  );
+}
+
 /** One bounded pass over ready emails, at most 20 per tick. */
 export async function drainExomemEmailOutbox(
   options: { maxMessages?: number; timeBudgetMs?: number } = {},
@@ -1482,59 +1636,84 @@ export async function drainExomemEmailOutbox(
   };
 
   while (result.claimed < maxMessages && Date.now() - started < timeBudgetMs) {
-    const claim = await claimNextEmail(leaseOwner, deps.decrypt);
+    const claim = await claimEmail(leaseOwner, deps.decrypt);
     if (!claim) break;
     result.claimed += 1;
-    if (claim.outcome !== "leased") {
-      result[claim.outcome] += 1;
-      continue;
-    }
-    const email = claim.email;
-    let rendered: RenderedExomemAccessEmail;
-    try {
-      rendered = await email.definition.render({
-        payload: email.payload,
-        context: email.context,
-        timeZone: email.timeZone,
-        emailScheme: email.emailScheme,
-        themeChoice: email.themeChoice,
-        now: deps.now(),
-        publicBaseUrl,
-      });
-    } catch {
-      const state = await releaseEmail(email, leaseOwner, "EMAIL_RENDER_FAILED", true);
-      result[state === "retry" ? "retryScheduled" : state] += 1;
-      continue;
-    }
-    let answer: SendTransactionalEmailResult | null = null;
-    try {
-      answer = await deps.sendEmail({
-        to: email.recipient,
-        ...EXOMEM_SENDER,
-        // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
-        senderName: rendered.senderName,
-        subject: rendered.subject,
-        htmlContent: rendered.htmlContent,
-        textContent: rendered.textContent,
-      });
-    } catch {
-      answer = null;
-    }
-    if (answer?.success) {
-      if (await markEmailSent(email, leaseOwner)) result.sent += 1;
-      else result.lost += 1;
-      continue;
-    }
-    const refused = providerRefusedRequest(answer?.status);
-    const finalRefusal =
-      refused && email.definition.failsWhenRefused === true && !email.definition.afterFailed;
-    const state = await releaseEmail(
-      email,
-      leaseOwner,
-      refused ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
-      finalRefusal
-    );
-    result[state === "retry" ? "retryScheduled" : state] += 1;
+    const delivery = await deliverClaim(claim, leaseOwner, deps, publicBaseUrl);
+    result[delivery === "retry" ? "retryScheduled" : delivery] += 1;
   }
   return result;
+}
+
+/**
+ * Sends one queued row now, under the drain's own claim, lease, re-check,
+ * render, send and retry code. `null` means the row was not ready to take: it
+ * is already sent or settled, not yet due, or leased by another worker. A
+ * failed send leaves the row pending with its retry time for the drain.
+ */
+export async function dispatchExomemEmail(
+  emailId: string,
+  dependencies?: Partial<ExomemEmailDrainDependencies>
+): Promise<ExomemEmailDelivery | null> {
+  const deps = { ...defaults(), ...dependencies };
+  const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
+  const leaseOwner = deps.newLeaseOwner();
+  const claim = await claimEmail(leaseOwner, deps.decrypt, emailId);
+  return claim ? deliverClaim(claim, leaseOwner, deps, publicBaseUrl) : null;
+}
+
+/** Logs, content-free and under the request's id, what became of a row sent right after the request. */
+function reportEmailDispatch(delivery: ExomemEmailDelivery | null, requestId?: string): void {
+  if (delivery === "sent") {
+    emitOperationalEvent(
+      buildOperationalEvent({ event: "access.email.sent", outcome: "succeeded", requestId })
+    );
+  } else if (delivery === "retry" || delivery === "failed") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.email.delivery_failed",
+        outcome: delivery === "retry" ? "pending" : "failed",
+        errorCode: delivery === "retry" ? "EMAIL_DELIVERY_UNAVAILABLE" : "EMAIL_DELIVERY_FAILED",
+        requestId,
+      })
+    );
+  }
+}
+
+/**
+ * Sends the rows a request just queued, once the transaction that wrote them
+ * has committed, so a person who asked for an email has it in seconds. Pass
+ * only rows that are due now. It never throws: the row is durable before this
+ * runs, and the delivery job sends any row this one fails to send, so a failure
+ * here is logged and costs one minute. The work runs after the response when
+ * the caller is a request, and at once otherwise (a script or a test).
+ */
+export async function dispatchQueuedEmailsSoon(
+  emailIds: readonly string[],
+  options: { requestId?: string } = {},
+  dependencies?: Partial<ExomemEmailDrainDependencies>
+): Promise<void> {
+  if (emailIds.length === 0) return;
+  const dispatchOne = async (emailId: string): Promise<void> => {
+    try {
+      reportEmailDispatch(await dispatchExomemEmail(emailId, dependencies), options.requestId);
+    } catch {
+      emitOperationalEvent(
+        buildOperationalEvent({
+          event: "access.email.delivery_failed",
+          outcome: "failed",
+          errorCode: "INTERNAL_ERROR",
+          requestId: options.requestId,
+        })
+      );
+    }
+  };
+  const work = async (): Promise<void> => {
+    await Promise.all(emailIds.map(dispatchOne));
+  };
+  try {
+    after(work);
+  } catch {
+    await work();
+  }
 }

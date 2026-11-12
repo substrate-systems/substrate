@@ -2,9 +2,9 @@
  * Self-serve admission for "Start with your email": a person who owns no
  * Exomem gets a start link while Cloud has a free slot and nobody is waiting,
  * and a waitlist place otherwise. Waiting people are promoted first come,
- * first served when a slot frees. Every decision runs under the Cloud
- * capacity lock and enqueues its email in the same transaction, so the page
- * response never depends on the outcome.
+ * first served when a slot frees. Every decision enqueues its email in the
+ * transaction that records it, so the page response never depends on the
+ * outcome, and every one queues exactly one.
  */
 
 import { type ExomemThemeChoice } from "@/lib/exomem/theme";
@@ -88,6 +88,13 @@ const START_LINK_TTL_MS = 48 * 60 * 60 * 1000;
 // A waitlist confirmation that cannot be delivered within a day is stale: the
 // person has asked again by then.
 const WAITLIST_EMAIL_TTL_MS = 24 * 60 * 60 * 1000;
+// A person who asks again gets one reply per entry or invitation in this window,
+// so a repeated request cannot make us mail the same address over and over.
+const REPEAT_REPLY_WINDOW_MS = 15 * 60 * 1000;
+
+function repeatReplyWindow(): number {
+  return Math.floor(Date.now() / REPEAT_REPLY_WINDOW_MS);
+}
 
 // `created_by_principal_digest` is NOT NULL because operator invites are
 // attributable. Nobody authorised a self-serve invite, so it carries a fixed
@@ -104,7 +111,17 @@ export const EXOMEM_INVITE_LIMITS = {
   workerCount: 0,
 };
 
-export type StartOutcome = "admitted" | "reissued" | "waitlisted";
+export type StartOutcome =
+  | "admitted"
+  | "reissued"
+  | "waitlisted"
+  /** The person already waits and keeps their place. */
+  | "still_waiting"
+  /** An operator invitation to the address is open; no new link is made. */
+  | "invitation_waiting";
+
+/** `emailId` is the outbox row this request queued; `null` when its dedupe key already existed. */
+export type StartResult = { outcome: StartOutcome; emailId: string | null };
 
 type StartLinkMaterial = { token: string; digest: Buffer };
 
@@ -164,8 +181,8 @@ async function enqueueStartLinkEmail(
     link: StartLinkMaterial;
     invite: { inviteId: string; expiresAt: string };
   }
-): Promise<void> {
-  await enqueueExomemEmail(tx, {
+): Promise<string | null> {
+  return enqueueExomemEmail(tx, {
     kind: input.kind,
     dedupeKey: `start:${input.invite.inviteId}`,
     recipient: input.emailNormalized,
@@ -184,7 +201,15 @@ async function enqueueStartLinkEmail(
 
 /**
  * The self-serve branch of a start request, for a person who owns no
- * Exomem, in one transaction under the Cloud capacity lock:
+ * Exomem, in one transaction. Each outcome queues one email:
+ *
+ * 0. An address with an open operator invitation (not self-serve, unused,
+ *    unrevoked, unexpired) is told the invitation is waiting. This comes
+ *    first, before the capacity lock: it reads no capacity and makes no
+ *    token, no start link and no waitlist place, so the invitation link
+ *    already delivered stays the only one.
+ *
+ * The rest runs under the Cloud capacity lock:
  *
  * 1. A person who still holds an unused, unexpired start link gets a fresh
  *    one too, with the same expiry. They were admitted before anybody now
@@ -196,8 +221,9 @@ async function enqueueStartLinkEmail(
  *    waiting, so a newcomer never overtakes the queue, and only while the
  *    self-serve pace has room.
  * 3. Otherwise they are queued. A person already waiting keeps their place,
- *    so asking again never costs them it. A person whose earlier start link
- *    lapsed unused goes to the back, because they already had a turn.
+ *    so asking again never costs them it, and is told so, at most once per
+ *    15 minutes. A person whose earlier start link lapsed unused goes to the
+ *    back, because they already had a turn.
  */
 export async function startSelfServeAtomic(input: {
   emailNormalized: string;
@@ -207,11 +233,40 @@ export async function startSelfServeAtomic(input: {
   themeChoice?: ExomemThemeChoice | null;
   mode: "waitlist" | "open";
   randomBytes?: RandomBytesSource;
-}): Promise<StartOutcome> {
+}): Promise<StartResult> {
   const link = mintStartLink(input.randomBytes);
   const emailScheme = input.emailScheme ?? null;
   const themeChoice = input.themeChoice ?? "auto";
   return withExomemTransaction(async (tx) => {
+    const invitation = await tx`
+      /* exomem:start-open-invitation */
+      SELECT id
+      FROM exomem_invites
+      WHERE email_normalized = ${input.emailNormalized}
+        AND NOT self_serve
+        AND consumed_at IS NULL
+        AND revoked_at IS NULL
+        AND expires_at > now()
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const inviteId = (invitation.rows[0] as { id: string } | undefined)?.id;
+    if (inviteId) {
+      return {
+        outcome: "invitation_waiting",
+        emailId: await enqueueExomemEmail(tx, {
+          kind: "invitation_waiting",
+          dedupeKey: `invitation-waiting:${inviteId}:${repeatReplyWindow()}`,
+          recipient: input.emailNormalized,
+          recipientTimeZone: input.timeZone,
+          recipientEmailScheme: emailScheme,
+          recipientThemeChoice: themeChoice,
+          payload: { version: 1, inviteId },
+          expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
+        }),
+      };
+    }
+
     await lockCloudCapacity(tx);
 
     const outstanding = await tx`
@@ -240,16 +295,18 @@ export async function startSelfServeAtomic(input: {
         // The database's own text: a JavaScript Date would drop microseconds.
         expiresAt: held.expires_at,
       });
-      await enqueueStartLinkEmail(tx, {
-        kind: "start",
-        emailNormalized: input.emailNormalized,
-        timeZone,
-        emailScheme,
-        themeChoice,
-        link,
-        invite,
-      });
-      return "reissued";
+      return {
+        outcome: "reissued",
+        emailId: await enqueueStartLinkEmail(tx, {
+          kind: "start",
+          emailNormalized: input.emailNormalized,
+          timeZone,
+          emailScheme,
+          themeChoice,
+          link,
+          invite,
+        }),
+      };
     }
 
     if (input.mode === "open") {
@@ -270,16 +327,18 @@ export async function startSelfServeAtomic(input: {
           link,
           expiresAt: new Date(Date.now() + START_LINK_TTL_MS).toISOString(),
         });
-        await enqueueStartLinkEmail(tx, {
-          kind: "start",
-          emailNormalized: input.emailNormalized,
-          timeZone: input.timeZone,
-          emailScheme,
-          themeChoice,
-          link,
-          invite,
-        });
-        return "admitted";
+        return {
+          outcome: "admitted",
+          emailId: await enqueueStartLinkEmail(tx, {
+            kind: "start",
+            emailNormalized: input.emailNormalized,
+            timeZone: input.timeZone,
+            emailScheme,
+            themeChoice,
+            link,
+            invite,
+          }),
+        };
       }
     }
 
@@ -294,6 +353,7 @@ export async function startSelfServeAtomic(input: {
       | { id: string; admitted_at: Date | null; time_zone: string | null }
       | undefined;
     let entryId: string;
+    let alreadyWaiting = false;
     // A stored zone came from an earlier request and is kept: this request is
     // unauthenticated and must not change it.
     const timeZone = entry?.time_zone ?? input.timeZone;
@@ -307,6 +367,7 @@ export async function startSelfServeAtomic(input: {
         WHERE id = ${entry.id}::uuid
       `;
       entryId = entry.id;
+      alreadyWaiting = true;
     } else {
       if (entry) {
         // Their promotion's start link was used or lapsed: a new entry, with
@@ -321,19 +382,33 @@ export async function startSelfServeAtomic(input: {
       `;
       entryId = (inserted.rows[0] as { id: string }).id;
     }
-    // One waitlist email per entry: asking again while waiting keeps the
-    // place and sends nothing more ("We write again only when a place opens").
-    await enqueueExomemEmail(tx, {
-      kind: "waitlist",
-      dedupeKey: `waitlist:${entryId}`,
+    const waitlistEmail = {
       recipient: input.emailNormalized,
       recipientTimeZone: timeZone,
       recipientEmailScheme: emailScheme,
       recipientThemeChoice: themeChoice,
-      payload: { version: 1, entryId },
+      payload: { version: 1 as const, entryId },
       expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
-    });
-    return "waitlisted";
+    };
+    // One waitlist email per entry, and one "still on the list" reply per
+    // entry for each window in which they ask again.
+    return alreadyWaiting
+      ? {
+          outcome: "still_waiting",
+          emailId: await enqueueExomemEmail(tx, {
+            ...waitlistEmail,
+            kind: "waitlist_still_waiting",
+            dedupeKey: `waitlist-still-waiting:${entryId}:${repeatReplyWindow()}`,
+          }),
+        }
+      : {
+          outcome: "waitlisted",
+          emailId: await enqueueExomemEmail(tx, {
+            ...waitlistEmail,
+            kind: "waitlist",
+            dedupeKey: `waitlist:${entryId}`,
+          }),
+        };
   });
 }
 

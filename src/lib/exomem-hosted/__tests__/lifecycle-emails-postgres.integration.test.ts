@@ -823,8 +823,10 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     const session = { ...owner, reviewerCredentialId: null };
     const superseded = `superseded-${randomUUID()}@example.test`;
     const proposed = `proposed-${randomUUID()}@example.test`;
-    await requestExomemEmailChange(session, superseded);
-    await requestExomemEmailChange(session, proposed);
+    // This test drains the outbox itself, so it turns off the request-time dispatch.
+    const dispatchQueuedEmails = async () => undefined;
+    await requestExomemEmailChange(session, superseded, { dispatchQueuedEmails });
+    await requestExomemEmailChange(session, proposed, { dispatchQueuedEmails });
     const { sent } = await drain();
     const current = sent.filter((email) => [owner.email, superseded, proposed].includes(email.to));
     assert.deepEqual(current.map((email) => email.to).sort(), [owner.email, proposed].sort());
