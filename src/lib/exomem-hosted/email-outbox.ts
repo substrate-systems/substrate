@@ -57,6 +57,7 @@ import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
 import type { ExomemInviteKind } from "./invitation-contract";
+import { normalizeProviderMessageId, pruneProviderEvents } from "./email-provider-events";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "@/lib/exomem/money";
 import {
@@ -1179,7 +1180,7 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
     /* exomem:enqueue-email */
     INSERT INTO exomem_email_outbox (
       kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
-      payload_ciphertext, not_before, expires_at
+      payload_ciphertext, not_before, due_at, expires_at
     ) VALUES (
       ${input.kind},
       ${input.dedupeKey},
@@ -1189,6 +1190,7 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
       ${input.recipientThemeChoice ?? null},
       ${input.tenantId ?? null}::uuid,
       ${envelope}::jsonb,
+      COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
       COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
       ${input.expiresAt?.toISOString() ?? null}::timestamptz
     )
@@ -1202,6 +1204,7 @@ type AnyDefinition = EmailDefinition<unknown, unknown>;
 
 type LeasedEmail = {
   id: string;
+  kind: string;
   recipient: string;
   timeZone: string | null;
   emailScheme: ExomemEmailScheme | null;
@@ -1213,7 +1216,9 @@ type LeasedEmail = {
 
 type ClaimResult =
   | { outcome: "leased"; email: LeasedEmail }
-  | { outcome: "cancelled" | "failed" | "deferred" };
+  /** `errorCode` is the settle code of a row that was cancelled or failed without a send. */
+  | { outcome: "cancelled" | "failed"; kind: string; errorCode: string }
+  | { outcome: "deferred" };
 
 export type ExomemEmailDrainDependencies = {
   now: () => Date;
@@ -1319,7 +1324,7 @@ async function claimEmail(
     ];
     if (!definition) {
       await settleWithoutSending(tx, row.id, "failed", "EMAIL_KIND_UNREGISTERED");
-      return { outcome: "failed" };
+      return { outcome: "failed", kind: row.kind, errorCode: "EMAIL_KIND_UNREGISTERED" };
     }
     let payload: unknown = null;
     try {
@@ -1336,18 +1341,18 @@ async function claimEmail(
     }
     if (payload === null) {
       await settleWithoutSending(tx, row.id, "failed", "EMAIL_PAYLOAD_INVALID");
-      return { outcome: "failed" };
+      return { outcome: "failed", kind: row.kind, errorCode: "EMAIL_PAYLOAD_INVALID" };
     }
 
     const context = await definition.stillHolds(tx, payload);
     if (context === null) {
       await settleWithoutSending(tx, row.id, "cancelled", "EMAIL_PRECONDITION_GONE");
-      return { outcome: "cancelled" };
+      return { outcome: "cancelled", kind: row.kind, errorCode: "EMAIL_PRECONDITION_GONE" };
     }
     if (row.expired) {
       await settleWithoutSending(tx, row.id, "failed", "EMAIL_EXPIRED");
       await definition.afterFailed?.(tx, payload, "EMAIL_EXPIRED");
-      return { outcome: "failed" };
+      return { outcome: "failed", kind: row.kind, errorCode: "EMAIL_EXPIRED" };
     }
     if (context instanceof NotYet) {
       await tx`
@@ -1389,6 +1394,7 @@ async function claimEmail(
       outcome: "leased",
       email: {
         id: row.id,
+        kind: row.kind,
         recipient: to.email,
         timeZone: to.timeZone,
         emailScheme: to.emailScheme,
@@ -1401,7 +1407,14 @@ async function claimEmail(
   });
 }
 
-async function markEmailSent(email: LeasedEmail, leaseOwner: string): Promise<boolean> {
+/** What a recorded provider acceptance cost: its send attempts, and milliseconds from first due to accepted. */
+type EmailAccepted = { attempts: number; queueMs: number };
+
+async function markEmailSent(
+  email: LeasedEmail,
+  leaseOwner: string,
+  providerMessageId: string | null
+): Promise<EmailAccepted | null> {
   return withExomemTransaction(async (tx) => {
     const { rows } = await tx`
       /* exomem:mark-email-sent */
@@ -1411,14 +1424,16 @@ async function markEmailSent(email: LeasedEmail, leaseOwner: string): Promise<bo
           lease_owner = NULL,
           lease_expires_at = NULL,
           last_error_code = NULL,
+          provider_message_id = ${providerMessageId},
           sent_at = now(),
           updated_at = now()
       WHERE id = ${email.id}::uuid AND state = 'leased' AND lease_owner = ${leaseOwner}::uuid
-      RETURNING id
+      RETURNING attempts,
+                GREATEST(0, floor(extract(epoch FROM (now() - COALESCE(due_at, created_at))) * 1000))::bigint AS queue_ms
     `;
-    if (rows.length !== 1) return false;
+    if (rows.length !== 1) return null;
     await email.definition.afterSent?.(tx, email.payload);
-    return true;
+    return { attempts: Number(rows[0]!.attempts), queueMs: Number(rows[0]!.queue_ms) };
   });
 }
 
@@ -1527,6 +1542,8 @@ function providerRefusedRequest(status: number | undefined): boolean {
 
 export type ExomemEmailDrainResult = {
   recipientsCleared: number;
+  /** Provider events deleted for being more than 30 days old. */
+  providerEventsPruned: number;
   /** Emails 03 queued this tick; `null` when that pass failed. */
   readyEnqueued: number | null;
   claimed: number;
@@ -1549,6 +1566,43 @@ export type ExomemEmailDelivery =
   /** The lease ran out before the send was recorded: the row is the drain's again. */
   | "lost";
 
+/** Logs, content-free, what became of one claimed row; the drain and a request's dispatch both end here. */
+function reportEmailSettled(
+  kind: string,
+  settled: "accepted" | "retry" | "failed" | "cancelled",
+  detail: { errorCode?: string; accepted?: EmailAccepted; requestId?: string }
+): void {
+  const base = { emailKind: kind, requestId: detail.requestId };
+  if (settled === "accepted") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.email.accepted",
+        outcome: "succeeded",
+        ...base,
+        ...detail.accepted,
+      })
+    );
+  } else if (settled === "cancelled") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.email.cancelled",
+        outcome: "denied",
+        errorCode: detail.errorCode,
+        ...base,
+      })
+    );
+  } else {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.email.delivery_failed",
+        outcome: settled === "retry" ? "pending" : "failed",
+        errorCode: detail.errorCode,
+        ...base,
+      })
+    );
+  }
+}
+
 /**
  * Renders, sends and settles one claim. The drain and `dispatchExomemEmail`
  * both end here, so a row has one send path, whoever claimed it.
@@ -1557,10 +1611,21 @@ async function deliverClaim(
   claim: ClaimResult,
   leaseOwner: string,
   deps: ExomemEmailDrainDependencies,
-  publicBaseUrl: string
+  publicBaseUrl: string,
+  requestId?: string
 ): Promise<ExomemEmailDelivery> {
-  if (claim.outcome !== "leased") return claim.outcome;
+  if (claim.outcome === "deferred") return claim.outcome;
+  if (claim.outcome !== "leased") {
+    reportEmailSettled(claim.kind, claim.outcome, { errorCode: claim.errorCode, requestId });
+    return claim.outcome;
+  }
   const email = claim.email;
+  // A release that kept the row for a retry is `retry`; one that ended it is `failed`; a lost lease logs nothing.
+  const released = async (errorCode: string, terminal: boolean): Promise<ExomemEmailDelivery> => {
+    const state = await releaseEmail(email, leaseOwner, errorCode, terminal);
+    if (state !== "lost") reportEmailSettled(email.kind, state, { errorCode, requestId });
+    return state;
+  };
   let rendered: RenderedExomemAccessEmail;
   try {
     rendered = await email.definition.render({
@@ -1573,7 +1638,7 @@ async function deliverClaim(
       publicBaseUrl,
     });
   } catch {
-    return releaseEmail(email, leaseOwner, "EMAIL_RENDER_FAILED", true);
+    return released("EMAIL_RENDER_FAILED", true);
   }
   let answer: SendTransactionalEmailResult | null = null;
   try {
@@ -1589,16 +1654,20 @@ async function deliverClaim(
   } catch {
     answer = null;
   }
-  if (answer?.success) return (await markEmailSent(email, leaseOwner)) ? "sent" : "lost";
+  if (answer?.success) {
+    const accepted = await markEmailSent(
+      email,
+      leaseOwner,
+      normalizeProviderMessageId(answer.messageId)
+    );
+    if (!accepted) return "lost";
+    reportEmailSettled(email.kind, "accepted", { accepted, requestId });
+    return "sent";
+  }
   const refused = providerRefusedRequest(answer?.status);
   const finalRefusal =
     refused && email.definition.failsWhenRefused === true && !email.definition.afterFailed;
-  return releaseEmail(
-    email,
-    leaseOwner,
-    refused ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE",
-    finalRefusal
-  );
+  return released(refused ? "EMAIL_REFUSED" : "EMAIL_DELIVERY_UNAVAILABLE", finalRefusal);
 }
 
 /** One bounded pass over ready emails, at most 20 per tick. */
@@ -1617,6 +1686,7 @@ export async function drainExomemEmailOutbox(
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const result: ExomemEmailDrainResult = {
     recipientsCleared: await clearSettledEmailRecipients(),
+    providerEventsPruned: await pruneProviderEvents(),
     // Before the drain, so a cell that became ready since the last tick is
     // announced in this one. Its failure must not hold back queued mail.
     readyEnqueued: await enqueueReadyEmails().then(
@@ -1653,31 +1723,14 @@ export async function drainExomemEmailOutbox(
  */
 export async function dispatchExomemEmail(
   emailId: string,
-  dependencies?: Partial<ExomemEmailDrainDependencies>
+  dependencies?: Partial<ExomemEmailDrainDependencies>,
+  requestId?: string
 ): Promise<ExomemEmailDelivery | null> {
   const deps = { ...defaults(), ...dependencies };
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const leaseOwner = deps.newLeaseOwner();
   const claim = await claimEmail(leaseOwner, deps.decrypt, emailId);
-  return claim ? deliverClaim(claim, leaseOwner, deps, publicBaseUrl) : null;
-}
-
-/** Logs, content-free and under the request's id, what became of a row sent right after the request. */
-function reportEmailDispatch(delivery: ExomemEmailDelivery | null, requestId?: string): void {
-  if (delivery === "sent") {
-    emitOperationalEvent(
-      buildOperationalEvent({ event: "access.email.sent", outcome: "succeeded", requestId })
-    );
-  } else if (delivery === "retry" || delivery === "failed") {
-    emitOperationalEvent(
-      buildOperationalEvent({
-        event: "access.email.delivery_failed",
-        outcome: delivery === "retry" ? "pending" : "failed",
-        errorCode: delivery === "retry" ? "EMAIL_DELIVERY_UNAVAILABLE" : "EMAIL_DELIVERY_FAILED",
-        requestId,
-      })
-    );
-  }
+  return claim ? deliverClaim(claim, leaseOwner, deps, publicBaseUrl, requestId) : null;
 }
 
 /**
@@ -1696,7 +1749,7 @@ export async function dispatchQueuedEmailsSoon(
   if (emailIds.length === 0) return;
   const dispatchOne = async (emailId: string): Promise<void> => {
     try {
-      reportEmailDispatch(await dispatchExomemEmail(emailId, dependencies), options.requestId);
+      await dispatchExomemEmail(emailId, dependencies, options.requestId);
     } catch {
       emitOperationalEvent(
         buildOperationalEvent({

@@ -3,6 +3,7 @@ import { sendTransactionalEmail } from "../brevo";
 import { EXOMEM_SENDER } from "./mail-sender";
 import {
   proveControlRoundTrip,
+  readEmailDeliveryStall,
   readHealthProof,
   saveHealthProof,
   type HealthComponent,
@@ -16,6 +17,13 @@ export function healthFreshnessSeconds(component: HealthComponent): number {
   );
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error("INVALID_HEALTH_FRESHNESS");
   return component === "email" ? Math.min(value, 3600) : value;
+}
+
+/** How long a queued email may stay ready but unsent before the email proof fails. Five minutes by default. */
+export function healthEmailOverdueSeconds(): number {
+  const value = Number(process.env.EXOMEM_HEALTH_EMAIL_OVERDUE_SECONDS ?? 300);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error("INVALID_HEALTH_EMAIL_OVERDUE");
+  return value;
 }
 
 export async function functionalHealthResponse(component: HealthComponent): Promise<Response> {
@@ -66,10 +74,18 @@ export function runControlHealthCheck(): Promise<boolean> {
   return runFunctionalHealthCheck("control", proveControlRoundTrip);
 }
 
+/**
+ * The email proof holds when the provider accepts a synthetic send with a
+ * message id, and real traffic is not stalled: no queued email is ready but
+ * unsent past `EXOMEM_HEALTH_EMAIL_OVERDUE_SECONDS`, and none failed in the last
+ * hour for a reason other than the provider refusing it. Still not proof of
+ * inbox delivery; the admin delivery report shows that.
+ */
 export function runEmailHealthCheck(): Promise<boolean> {
   return runFunctionalHealthCheck("email", async () => {
     const recipient = process.env.EXOMEM_HEALTH_EMAIL_RECIPIENT?.trim();
     if (!recipient) return false;
+    const overdueSeconds = healthEmailOverdueSeconds();
     const result = await sendTransactionalEmail({
       to: recipient,
       subject: "Exomem transactional email health check",
@@ -77,8 +93,10 @@ export function runEmailHealthCheck(): Promise<boolean> {
       textContent: "This synthetic check measures provider acceptance, not inbox delivery.",
       ...EXOMEM_SENDER,
     });
-    return (
-      result.success && typeof result.messageId === "string" && result.messageId.trim().length > 0
-    );
+    if (!result.success || typeof result.messageId !== "string" || !result.messageId.trim()) {
+      return false;
+    }
+    const stall = await readEmailDeliveryStall(overdueSeconds);
+    return !stall.overdue && !stall.failedRecently;
   });
 }

@@ -33,6 +33,7 @@ describe("start request events", () => {
     "access.start.failed",
     "access.start.floor_overrun",
     "access.start.ran_before_response",
+    "access.start.suppressed",
   ]) {
     it(`accepts ${event}`, () => {
       assert.doesNotThrow(() =>
@@ -53,5 +54,30 @@ describe("start request events", () => {
         requestId: "00000000-0000-4000-8000-000000000000",
       })
     );
+  });
+});
+
+describe("email delivery events", () => {
+  it("carries the kind, attempts and queue time, and no address passed as a label", () => {
+    const event = buildOperationalEvent({
+      event: "access.email.accepted",
+      outcome: "succeeded",
+      emailKind: "waitlist",
+      attempts: 2,
+      queueMs: 1840,
+    });
+    assert.equal(event.emailKind, "waitlist");
+    assert.equal(event.attempts, 2);
+    assert.equal(event.queueMs, 1840);
+
+    const withAddress = buildOperationalEvent({
+      event: "access.start.suppressed",
+      outcome: "denied",
+      limit: "person@example.com",
+      emailKind: "person@example.com",
+      queueMs: -1,
+    });
+    assert.equal(JSON.stringify(withAddress).includes("person@example.com"), false);
+    assert.equal(withAddress.queueMs, undefined);
   });
 });

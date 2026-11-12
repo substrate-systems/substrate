@@ -8,12 +8,14 @@ const EVENT_NAMES = new Set([
   "access.magic_link.redeemed",
   "access.magic_link.sent",
   "access.magic_link.delivery_failed",
-  "access.email.sent",
+  "access.email.accepted",
   "access.email.delivery_failed",
+  "access.email.cancelled",
   "access.logout.succeeded",
   "access.request.denied",
   "access.start.accepted",
   "access.start.admission_paced",
+  "access.start.suppressed",
   "access.start.challenge_failed",
   "access.start.challenge_unavailable",
   "access.start.failed",
@@ -67,6 +69,13 @@ const ERROR_CODES = new Set([
   "ALERT_STORE_UNAVAILABLE",
   "CLAIM_UNAVAILABLE",
   "EMAIL_DELIVERY_FAILED",
+  "EMAIL_REFUSED",
+  "EMAIL_RENDER_FAILED",
+  "EMAIL_PAYLOAD_INVALID",
+  "EMAIL_EXPIRED",
+  "EMAIL_KIND_UNREGISTERED",
+  "EMAIL_PRECONDITION_GONE",
+  "DELIVERY_PAYLOAD_INVALID",
   "NOTIFICATION_STATE_WRITE_FAILED",
   "NOTIFICATION_NOT_SCHEDULED",
   "UNKNOWN",
@@ -106,6 +115,13 @@ export type OperationalEvent = {
   alertName?: string;
   /** Opaque sender-derived transition digest; carries no content. */
   transitionHash?: string;
+  /** An email kind (a fixed name in code) or `magic_link`; never an address. */
+  emailKind?: string;
+  /** Which start-request limit refused: `ip`, `browser` or `address`. */
+  limit?: string;
+  /** Provider send attempts made for the email, and milliseconds from due to provider acceptance. */
+  attempts?: number;
+  queueMs?: number;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -114,6 +130,10 @@ function optionalUuid(value: unknown): string | undefined {
 
 function optionalBoundedLabel(value: unknown): string | undefined {
   return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(value) ? value : undefined;
+}
+
+function optionalCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function optionalOpaqueHash(value: unknown): string | undefined {
@@ -193,6 +213,16 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalOpaqueHash(input.transitionHash)
       ? { transitionHash: optionalOpaqueHash(input.transitionHash) }
+      : {}),
+    ...(optionalBoundedLabel(input.emailKind)
+      ? { emailKind: optionalBoundedLabel(input.emailKind) }
+      : {}),
+    ...(optionalBoundedLabel(input.limit) ? { limit: optionalBoundedLabel(input.limit) } : {}),
+    ...(optionalCount(input.attempts) !== undefined
+      ? { attempts: optionalCount(input.attempts) }
+      : {}),
+    ...(optionalCount(input.queueMs) !== undefined
+      ? { queueMs: optionalCount(input.queueMs) }
       : {}),
   };
 }

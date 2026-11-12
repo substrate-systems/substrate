@@ -108,6 +108,19 @@ async function runAfterResponse(work: () => Promise<void>): Promise<void> {
   }
 }
 
+/** Logs, content-free, that a rate limit refused this start request, so a person who got no email can be explained. */
+function emitStartSuppressed(limit: "ip" | "browser" | "address", requestId?: string): void {
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "access.start.suppressed",
+      outcome: "denied",
+      errorCode: "RATE_LIMITED",
+      limit,
+      requestId,
+    })
+  );
+}
+
 function emitStartFailed(): void {
   emitOperationalEvent(
     buildOperationalEvent({
@@ -231,17 +244,25 @@ export async function requestStart(
   const startedAtMs = performance.now();
   try {
     const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startIp, input.networkKey);
-    if (!networkAllowed) return { accepted: true };
+    if (!networkAllowed) {
+      emitStartSuppressed("ip", input.requestId);
+      return { accepted: true };
+    }
     if (
       input.browserKey &&
       !(await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startBrowser, input.browserKey))
-    )
+    ) {
+      emitStartSuppressed("browser", input.requestId);
       return { accepted: true };
+    }
     const addressAllowed = await deps.takeRateLimit(
       EXOMEM_RATE_LIMITS.startEmail,
       normalizedEmailRateLimitKey(input.email)
     );
-    if (!addressAllowed) return { accepted: true, addressLimited: true };
+    if (!addressAllowed) {
+      emitStartSuppressed("address", input.requestId);
+      return { accepted: true, addressLimited: true };
+    }
 
     let emailNormalized: string;
     try {

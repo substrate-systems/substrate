@@ -2,7 +2,7 @@
 
 ### Requirement: Existing users can request a non-enumerating sign-in link
 
-An identity that already owns an active Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The public response MUST be indistinguishable for known and unknown addresses, and requesting a link MUST NOT create an account or tenant. Every request that passes the bot check and the rate limits SHALL queue exactly one email to the submitted address that states what happens for that address. No accepted request SHALL end without an email.
+An identity that already owns an active Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The public response MUST be indistinguishable for known and unknown addresses, and requesting a link MUST NOT create an account or tenant. Every request with a well-formed address that passes the bot check and the rate limits SHALL queue exactly one email to the submitted address that states what happens for that address. No accepted request SHALL end without an email. A request whose address cannot be used SHALL be refused with an `invalid_email` answer after the bot check, and the page SHALL ask the person to check the address instead of claiming that an email was sent.
 
 #### Scenario: Existing Exomem owner requests a link
 
@@ -29,6 +29,13 @@ An identity that already owns an active Exomem tenant SHALL be able to request a
 - **AND** the system queues a still-waiting email, at most one per 15 minutes per entry
 - **AND** the email reveals no queue position
 
+#### Scenario: Address the server cannot use
+
+- **WHEN** an address passes the browser's email check but is not shaped like an email address on the server, such as a host without a dot
+- **THEN** the system answers `400` with `invalid_email` after the bot check and queues nothing
+- **AND** the page asks the person to check the address and does not say that an email was sent
+- **AND** the answer depends on the address's shape only, so it reveals nothing about any account
+
 ## ADDED Requirements
 
 ### Requirement: Start emails dispatch when the request commits
@@ -54,3 +61,31 @@ When a request exceeds the per-address limit, the system SHALL tell the browser 
 - **WHEN** a browser submits an address that has used its hourly request allowance
 - **THEN** the page says that the address was emailed several times this hour and names when to try again
 - **AND** an address with an account and one without get the same answer
+
+### Requirement: Email delivery is observable
+
+The system SHALL let an operator see, for each kind of Exomem email, whether it was sent, failed or cancelled, how long it waited, and what the mail provider reported after it accepted the email. The system SHALL store the provider's message id on the outbox row when the provider accepts a send, and SHALL receive the provider's transactional events through an authenticated webhook that stores only the message id, the event name and its time. The delivery report SHALL name its window and sources and SHALL state that delivery is unknown, not zero, when the provider has reported no event. The email health proof SHALL fail when a queued email is ready but unsent for longer than a configured time, or when an email failed for a reason other than refusal within the last hour.
+
+#### Scenario: Provider event is matched to its email
+
+- **WHEN** the provider accepts an email and later posts a `delivered` event for its message id
+- **THEN** the system stores the event once, however often the provider repeats it
+- **AND** the delivery report shows the time from acceptance to delivery for that email's kind
+- **AND** no address, subject, reason text or IP is stored with the event
+
+#### Scenario: No provider event has been received
+
+- **WHEN** an operator reads the delivery report and the provider has never posted an event
+- **THEN** the report gives queue and acceptance figures from the outbox
+- **AND** its delivery fields are `null` with `deliveryEvidence` set to `none_received`, not zero
+
+#### Scenario: Delivery stalls
+
+- **WHEN** an email has been ready but unsent for longer than the configured time
+- **THEN** the email health proof fails and the existing email health monitor alerts
+- **AND** the failure is the same whether the provider accepts the synthetic send or not
+
+#### Scenario: Webhook request is not from the provider
+
+- **WHEN** the webhook receives a request with a missing or wrong bearer token, or the token is not configured
+- **THEN** the system stores nothing and answers `401` or `503`

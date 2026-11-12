@@ -116,6 +116,45 @@ export async function saveHealthProof(proof: HealthProof): Promise<void> {
   });
 }
 
+/**
+ * Whether real email traffic has stalled, read through the health pool's own
+ * bounded connection so a busy application pool cannot hide it. `overdue`:
+ * some queued email (either outbox) has been ready but unsent for more than
+ * `overdueSeconds`. `failedRecently`: some email failed in the last hour for a
+ * reason that is not the provider refusing the request (a refusal ends one
+ * waitlist email and is not a stall), or a sign-in link failed to send. A
+ * sign-in link that ended because it was used, replaced or expired is not one.
+ */
+export async function readEmailDeliveryStall(
+  overdueSeconds: number
+): Promise<{ overdue: boolean; failedRecently: boolean }> {
+  return withHealthClient(async (client) => {
+    const { rows } = await client.query(
+      `SELECT
+         (EXISTS (SELECT 1 FROM exomem_email_outbox
+                  WHERE state IN ('pending', 'leased')
+                    AND not_before < now() - make_interval(secs => $1))
+          OR EXISTS (SELECT 1 FROM exomem_access_delivery_outbox
+                     WHERE state IN ('pending', 'leased')
+                       AND next_attempt_at < now() - make_interval(secs => $1))) AS overdue,
+         (EXISTS (SELECT 1 FROM exomem_email_outbox
+                  WHERE state = 'failed'
+                    AND updated_at > now() - interval '1 hour'
+                    AND last_error_code IS DISTINCT FROM 'EMAIL_REFUSED')
+          OR EXISTS (SELECT 1 FROM exomem_access_delivery_outbox
+                     WHERE state = 'failed'
+                       AND updated_at > now() - interval '1 hour'
+                       AND last_error_code IN ('EMAIL_DELIVERY_UNAVAILABLE', 'DELIVERY_PAYLOAD_INVALID'))
+         ) AS failed_recently`,
+      [overdueSeconds]
+    );
+    return {
+      overdue: rows[0]?.overdue === true,
+      failedRecently: rows[0]?.failed_recently === true,
+    };
+  });
+}
+
 export async function proveControlRoundTrip(): Promise<boolean> {
   const nonce = randomUUID();
   return withHealthClient(async (client) => {
