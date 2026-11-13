@@ -8,8 +8,8 @@
  */
 import { executeExomemSql } from "./db";
 
-export const EMAIL_DELIVERY_DEFAULT_HOURS = 24;
-export const EMAIL_DELIVERY_MAX_HOURS = 168;
+const EMAIL_DELIVERY_DEFAULT_HOURS = 24;
+const EMAIL_DELIVERY_MAX_HOURS = 168;
 
 /** Parses the `hours` query value: absent means the default; anything else must be a whole number in range. */
 export function parseEmailDeliveryHours(value: string | null): number | null {

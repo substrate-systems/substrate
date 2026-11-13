@@ -11,7 +11,7 @@
 import { executeExomemSql } from "./db";
 
 /** Brevo's documented transactional event names. Opens, clicks and proxy opens are not stored. */
-export const PROVIDER_EVENTS = [
+const PROVIDER_EVENTS = [
   "request",
   "delivered",
   "deferred",
@@ -28,7 +28,7 @@ export type ProviderEvent = (typeof PROVIDER_EVENTS)[number];
 const STORED_EVENTS: ReadonlySet<string> = new Set(PROVIDER_EVENTS);
 const MAX_MESSAGE_ID_LENGTH = 512;
 /** Events older than this are deleted by the access-delivery job. */
-export const PROVIDER_EVENT_RETENTION_DAYS = 30;
+const PROVIDER_EVENT_RETENTION_DAYS = 30;
 // An event time outside this range is a malformed field, not a late event.
 const EARLIEST_EVENT_MS = Date.UTC(2020, 0, 1);
 const MAX_FUTURE_EVENT_MS = 24 * 60 * 60 * 1000;
