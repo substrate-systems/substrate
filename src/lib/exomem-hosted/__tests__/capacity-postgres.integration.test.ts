@@ -20,6 +20,7 @@ import {
   drainExomemEmailOutbox,
 } from "../email-outbox";
 import { setOperationalEventSinkForTests } from "../observability";
+import { tokenDigest } from "../security";
 import {
   EXOMEM_INVITE_CAPABILITIES,
   EXOMEM_INVITE_LIMITS,
@@ -561,15 +562,15 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     assert.deepEqual(sentTo, [person]);
   });
 
-  it("sends an invitation-waiting email while its invitation is open, and cancels one whose invitation was used or revoked first", async () => {
+  it("sends an invitation-waiting email whose link opens the invitation and the earlier link no longer does, and cancels one whose invitation was used or revoked first", async () => {
     await configureCapacity(5);
     const open = newAddress("open");
     const used = newAddress("used");
     const revoked = newAddress("revoked");
     const queued: Record<string, string> = {};
-    const tokenDigests: Record<string, Buffer> = {};
+    const issuedDigests: Record<string, Buffer> = {};
     for (const address of [open, used, revoked]) {
-      tokenDigests[address] = await inviteAddress(address);
+      issuedDigests[address] = await inviteAddress(address);
       const { outcome, emailId } = await startSelfServeAtomic({
         emailNormalized: address,
         timeZone: "Europe/Paris",
@@ -578,14 +579,22 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       assert.equal(outcome, "invitation_waiting");
       queued[address] = emailId!;
     }
-    assert.ok(
-      await redeemCloudInviteAtomic({
-        tokenDigest: tokenDigests[used]!,
+    const currentDigest = async (address: string): Promise<Buffer> =>
+      (
+        await pool!.query<{ token_digest: Buffer }>(
+          "SELECT token_digest FROM exomem_invites WHERE email_normalized = $1",
+          [address]
+        )
+      ).rows[0]!.token_digest;
+    const redeem = (digest: Buffer) =>
+      redeemCloudInviteAtomic({
+        tokenDigest: digest,
         sessionDigest: randomBytes(32),
         csrfDigest: randomBytes(32),
         sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      })
-    );
+      });
+    // The used invitation is redeemed through its new link, after the request that rotated it.
+    assert.ok(await redeem(await currentDigest(used)));
     await pool!.query("UPDATE exomem_invites SET revoked_at = now() WHERE email_normalized = $1", [
       revoked,
     ]);
@@ -606,6 +615,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       sent.map((email) => email.to),
       [open]
     );
+    const text = sent[0]!.textContent;
     // The email names the day the invitation lapses, in the requester's zone.
     const invite = await pool!.query<{ expires_at: Date }>(
       "SELECT expires_at FROM exomem_invites WHERE email_normalized = $1",
@@ -616,7 +626,93 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       day: "numeric",
       month: "long",
     }).format(invite.rows[0]!.expires_at);
-    assert.ok(sent[0]!.textContent.includes(`open until ${parisDay}.`), sent[0]!.textContent);
+    assert.ok(text.includes(`stays open until ${parisDay}.`), text);
+    assert.ok(text.includes("replaces any earlier invitation link"), text);
+    // The link in the email is the invitation's current one; the one issued first is dead.
+    const emailed = /\/exomem\/invite#([A-Za-z0-9_-]+)/.exec(text)?.[1];
+    assert.ok(emailed, text);
+    assert.deepEqual(tokenDigest(emailed), await currentDigest(open));
+    assert.equal(await redeem(issuedDigests[open]!), null);
+    assert.ok(await redeem(tokenDigest(emailed)!));
+  });
+
+  it("rotates an invitation's link once per 15 minutes, sends only the newest link, and keeps the invitation's kind, expiry, entitlement and place", async () => {
+    await configureCapacity(2);
+    const invited = newAddress("rotated");
+    await inviteAddress(invited);
+    const snapshot = async () =>
+      (
+        await pool!.query(
+          `SELECT id, email_normalized::text, kind, entitlement_source, entitlement_capabilities,
+                  entitlement_limits, created_at, expires_at, consumed_at, revoked_at
+           FROM exomem_invites WHERE email_normalized = $1`,
+          [invited]
+        )
+      ).rows;
+    const digestNow = async (): Promise<Buffer> =>
+      (
+        await pool!.query<{ token_digest: Buffer }>(
+          "SELECT token_digest FROM exomem_invites WHERE email_normalized = $1",
+          [invited]
+        )
+      ).rows[0]!.token_digest;
+    const before = {
+      invite: await snapshot(),
+      places: await getCloudCapacityStatus(executeExomemSql),
+    };
+    const issuedDigest = await digestNow();
+    const startOf = () =>
+      startSelfServeAtomic({ emailNormalized: invited, timeZone: null, mode: "open" });
+
+    const windowMs = 15 * 60_000;
+    const edge = Math.ceil((Date.now() + 60 * 60_000) / windowMs) * windowMs;
+    mock.timers.enable({ apis: ["Date"], now: edge });
+    let afterFirstRequest: Buffer;
+    try {
+      const first = await startOf();
+      assert.ok(first.emailId);
+      afterFirstRequest = await digestNow();
+      assert.notDeepEqual(afterFirstRequest, issuedDigest);
+      // A repeat inside the window queues nothing and must not rotate: the first email's link would die.
+      mock.timers.setTime(edge + 7 * 60_000);
+      assert.equal((await startOf()).emailId, null);
+      assert.deepEqual(await digestNow(), afterFirstRequest);
+      // The next window rotates again, so the first window's email is superseded.
+      mock.timers.setTime(edge + windowMs);
+      assert.ok((await startOf()).emailId);
+    } finally {
+      mock.timers.reset();
+    }
+    assert.notDeepEqual(await digestNow(), afterFirstRequest);
+    assert.deepEqual(await outboxKinds(invited), ["invitation_waiting", "invitation_waiting"]);
+
+    const sent: Array<{ to: string; textContent: string }> = [];
+    const settled = await drainExomemEmailOutbox(
+      {},
+      {
+        sendEmail: async (input) => {
+          sent.push({ to: input.to, textContent: input.textContent });
+          return { success: true, messageId: "message-1" };
+        },
+      }
+    );
+
+    assert.equal(settled.claimed, 2);
+    assert.equal(sent.length, 1);
+    const emailed = /\/exomem\/invite#([A-Za-z0-9_-]+)/.exec(sent[0]!.textContent)?.[1];
+    assert.ok(emailed);
+    assert.deepEqual(tokenDigest(emailed), await digestNow());
+    assert.deepEqual(
+      (
+        await pool!.query<{ state: string }>(
+          "SELECT state FROM exomem_email_outbox WHERE recipient = $1 ORDER BY created_at",
+          [invited]
+        )
+      ).rows.map((row) => row.state),
+      ["cancelled", "sent"]
+    );
+    assert.deepEqual(await snapshot(), before.invite);
+    assert.deepEqual(await getCloudCapacityStatus(executeExomemSql), before.places);
   });
 
   it("refuses an invalid Turnstile token with 400 and writes nothing at all", async () => {

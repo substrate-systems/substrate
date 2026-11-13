@@ -13,7 +13,11 @@ import { createHash } from "node:crypto";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { executeExomemSql, takeRateLimit, withExomemTransaction, type ExomemSql } from "./db";
-import { enqueueExomemEmail } from "./email-outbox";
+import {
+  carryRotatedInvitationLink,
+  enqueueExomemEmail,
+  type StartLinkPayload,
+} from "./email-outbox";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit, type ExomemRateLimitRule } from "./rate-limit";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
@@ -132,6 +136,30 @@ function mintStartLink(randomBytes?: RandomBytesSource): StartLinkMaterial {
   return { token, digest };
 }
 
+/**
+ * Gives an open invitation the link in `payload`: the earlier token stops
+ * opening it. Capacity, kind, entitlement and expiry are untouched, so the
+ * place the invitation holds is the same place. The invitation's emails that
+ * still carry the earlier token cancel themselves at send; the friend
+ * reminder is rewritten to carry the new one.
+ */
+async function rotateInvitationLink(
+  tx: ExomemSql,
+  payload: StartLinkPayload,
+  digest: Buffer
+): Promise<void> {
+  await tx`
+    /* exomem:rotate-invitation-link */
+    UPDATE exomem_invites
+    SET token_digest = ${digest}
+    WHERE id = ${payload.inviteId}::uuid
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+  `;
+  await carryRotatedInvitationLink(tx, payload);
+}
+
 async function insertStartLink(
   tx: ExomemSql,
   input: {
@@ -204,10 +232,13 @@ async function enqueueStartLinkEmail(
  * Exomem, in one transaction. Each outcome queues one email:
  *
  * 0. An address with an open operator invitation (not self-serve, unused,
- *    unrevoked, unexpired) is told the invitation is waiting. This comes
- *    first, before the capacity lock: it reads no capacity and makes no
- *    token, no start link and no waitlist place, so the invitation link
- *    already delivered stays the only one.
+ *    unrevoked, unexpired) gets that invitation again under a new link: the
+ *    email carries it, and the link sent earlier stops working. This comes
+ *    first, before the capacity lock: the invitation keeps its expiry, kind,
+ *    entitlement and place in capacity, so it reads no capacity and makes no
+ *    start link and no waitlist place. Anybody can submit any address, so a
+ *    stranger can rotate an invitee's link, but only once per 15-minute
+ *    window, and the invitee always receives the newest link.
  *
  * The rest runs under the Cloud capacity lock:
  *
@@ -240,7 +271,7 @@ export async function startSelfServeAtomic(input: {
   return withExomemTransaction(async (tx) => {
     const invitation = await tx`
       /* exomem:start-open-invitation */
-      SELECT id
+      SELECT id, expires_at
       FROM exomem_invites
       WHERE email_normalized = ${input.emailNormalized}
         AND NOT self_serve
@@ -250,21 +281,28 @@ export async function startSelfServeAtomic(input: {
       ORDER BY created_at DESC
       LIMIT 1
     `;
-    const inviteId = (invitation.rows[0] as { id: string } | undefined)?.id;
-    if (inviteId) {
-      return {
-        outcome: "invitation_waiting",
-        emailId: await enqueueExomemEmail(tx, {
-          kind: "invitation_waiting",
-          dedupeKey: `invitation-waiting:${inviteId}:${repeatReplyWindow()}`,
-          recipient: input.emailNormalized,
-          recipientTimeZone: input.timeZone,
-          recipientEmailScheme: emailScheme,
-          recipientThemeChoice: themeChoice,
-          payload: { version: 1, inviteId },
-          expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
-        }),
+    const open = invitation.rows[0] as { id: string; expires_at: Date | string } | undefined;
+    if (open) {
+      const payload: StartLinkPayload = {
+        version: 1,
+        inviteId: open.id,
+        token: link.token,
+        expiresAt: new Date(open.expires_at).toISOString(),
       };
+      const emailId = await enqueueExomemEmail(tx, {
+        kind: "invitation_waiting",
+        dedupeKey: `invitation-waiting:${open.id}:${repeatReplyWindow()}`,
+        recipient: input.emailNormalized,
+        recipientTimeZone: input.timeZone,
+        recipientEmailScheme: emailScheme,
+        recipientThemeChoice: themeChoice,
+        payload,
+        expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
+      });
+      // A repeat inside the window queued nothing, and the link its email
+      // carries is still the current one: rotating now would kill it.
+      if (emailId) await rotateInvitationLink(tx, payload, link.digest);
+      return { outcome: "invitation_waiting", emailId };
     }
 
     await lockCloudCapacity(tx);

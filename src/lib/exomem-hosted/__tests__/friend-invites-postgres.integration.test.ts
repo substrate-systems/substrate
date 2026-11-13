@@ -18,6 +18,7 @@ import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
 import { reconcileExomemPaddleSubscription } from "../paddle-reconciliation";
 import { dispatchVerifiedExomemPaddleEvent, type CloudPaddleHook } from "../paddle-webhook";
 import { decryptSecret, tokenDigest, type SecretEnvelope } from "../security";
+import { startSelfServeAtomic } from "../self-serve-admission";
 import { mintSessionMaterial } from "../sessions";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -1401,6 +1402,42 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     });
     assert.equal(paddle.calls.length, 0);
     assert.equal(await friendOffer(owner.tenantId), null);
+  });
+
+  // The invitee lost the invitation email and asks to start: the request gives the
+  // invitation a new link. The reminder still queued for it must not die with the old one.
+  it("sends a friend invitation's queued reminder with the new link after the invitee asks to start again", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/inspect/route");
+    const email = newAddress("lost-it");
+    const { token: issuedToken } = await issueFriendInvitation({ email });
+    await startSelfServeAtomic({
+      emailNormalized: email,
+      timeZone: "Europe/Paris",
+      mode: "waitlist",
+    });
+    await pool!.query(
+      `UPDATE exomem_email_outbox SET not_before = now() - interval '1 minute'
+       WHERE recipient = $1 AND kind = 'invitation_reminder'`,
+      [email]
+    );
+
+    const sent = (await drainedEmails()).filter((message) => message.to === email);
+
+    // The invitation email that was still queued is superseded; the waiting email and the reminder go out.
+    const waiting = sent.find((message) => message.subject === "Your Exomem invitation is waiting");
+    const reminder = sent.find((message) => message.subject.includes("invitation ends on"));
+    assert.equal(sent.length, 2);
+    assert.ok(waiting && reminder);
+    const linkIn = (message: { text: string }) =>
+      /\/exomem\/invite#([A-Za-z0-9_-]+)/.exec(message.text)?.[1];
+    const link = linkIn(waiting);
+    assert.ok(link);
+    assert.equal(linkIn(reminder), link);
+    assert.notEqual(link, issuedToken);
+    const inspect = async (token: string) =>
+      (await POST(inspectRequest(token, { ip: "203.0.113.46" }))).status;
+    assert.equal(await inspect(link), 200);
+    assert.equal(await inspect(issuedToken), 404);
   });
 
   it("cancels the invitee reminder and the inviter's ended notice once the invitation is used", async () => {

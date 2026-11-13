@@ -21,6 +21,7 @@ import {
   dispatchQueuedEmailsSoon,
   enqueueExomemEmail,
   INVITATION_REMINDER_LEAD_DAYS,
+  invitationReminderDedupeKey,
 } from "./email-outbox";
 import { LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -216,7 +217,7 @@ export async function issueOperatorInvite(
       if (remindAt > now) {
         await enqueueExomemEmail(tx, {
           kind: "invitation_reminder",
-          dedupeKey: `invite-reminder:${inviteId}`,
+          dedupeKey: invitationReminderDedupeKey(inviteId),
           recipient: emailNormalized,
           recipientTimeZone: null,
           recipientEmailScheme: null,

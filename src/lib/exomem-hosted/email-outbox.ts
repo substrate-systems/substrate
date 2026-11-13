@@ -398,6 +398,32 @@ async function endedPeriodStillHolds(
 /** The invitee reminder (email 11) goes this many days before an invitation ends. */
 export const INVITATION_REMINDER_LEAD_DAYS = 3;
 
+/** One reminder per invitation: its dedupe key is the invitation's id. */
+export function invitationReminderDedupeKey(inviteId: string): string {
+  return `invite-reminder:${inviteId}`;
+}
+
+/**
+ * A new link for an invitation leaves a reminder that is still queued holding
+ * the old token, which the reminder's re-check would cancel at send. It is
+ * rewritten to carry the new link, with its send time and deadline kept. A
+ * reminder already sent is left as it is. One under lease is mid-send with the
+ * old token in memory and cannot be changed: the window is the length of a send.
+ */
+export async function carryRotatedInvitationLink(
+  tx: ExomemSql,
+  link: StartLinkPayload
+): Promise<void> {
+  await tx`
+    /* exomem:carry-rotated-invitation-link */
+    UPDATE exomem_email_outbox
+    SET payload_ciphertext = ${sealExomemEmailPayload("invitation_reminder", link)}::jsonb,
+        updated_at = now()
+    WHERE dedupe_key = ${invitationReminderDedupeKey(link.inviteId)}
+      AND state = 'pending'
+  `;
+}
+
 export type FriendInvitationPayload = StartLinkPayload & {
   usualAmount: string;
   usualCurrency: string;
@@ -666,37 +692,26 @@ const EXOMEM_EMAILS = {
   }),
   /**
    * A person with no account asked to start while an operator invitation to
-   * their address is still open. It holds while that invitation is unused,
-   * unrevoked and unexpired, and carries no token: the invitation email
-   * already delivered keeps the only link. It names the dates from the
-   * invitation, in the zone and scheme the asking browser reported.
+   * their address is still open. The request rotated that invitation's link,
+   * so this email carries the new one and the earlier link is dead. It holds
+   * only while its token is still the invitation's (`startLinkStillUsable`):
+   * a later request that rotates again cancels this row, and only the newest
+   * link is ever sent. A refused send is retried, not failed at once, because
+   * the person's earlier link no longer works.
    */
   invitation_waiting: defineEmail({
-    readPayload: readInvitationNoticePayload,
-    stillHolds: async (tx, payload): Promise<{ sentAt: Date; expiresAt: Date } | null> => {
-      const { rows } = await tx`
-        /* exomem:email-invitation-waiting */
-        SELECT created_at, expires_at
-        FROM exomem_invites
-        WHERE id = ${payload.inviteId}::uuid
-          AND NOT self_serve
-          AND consumed_at IS NULL
-          AND revoked_at IS NULL
-          AND expires_at > now()
-      `;
-      const row = rows[0] as { created_at: Date | string; expires_at: Date | string } | undefined;
-      return row ? { sentAt: new Date(row.created_at), expiresAt: new Date(row.expires_at) } : null;
-    },
-    render: ({ context, timeZone, emailScheme, themeChoice }) =>
+    readPayload: readStartLinkPayload,
+    stillHolds: startLinkStillUsable,
+    render: (input) =>
       renderExomemInvitationWaitingEmail({
-        sentAt: context.sentAt,
-        expiresAt: context.expiresAt,
-        timeZone,
-        scheme: emailScheme,
-        themeChoice,
+        accessUrl: invitationUrl(input),
+        expiresAt: new Date(input.payload.expiresAt),
+        timeZone: input.timeZone,
+        scheme: input.emailScheme,
+        themeChoice: input.themeChoice,
       }),
+    afterSent: markStartLinkDelivered,
     claimedLast: true,
-    failsWhenRefused: true,
   }),
   /**
    * Email 18: two days before an unpaid hold ends. It holds only while the

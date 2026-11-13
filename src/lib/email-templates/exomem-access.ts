@@ -190,31 +190,30 @@ export function renderExomemWaitlistStillWaitingEmail(
 
 /**
  * A person with no account asked to start while an invitation to their
- * address is open. It carries no link: the invitation email already sent keeps
- * the only one. All three invitation subjects name Exomem, so that is what the
+ * address is open. The request gave the invitation a new link, which this
+ * email carries; any link sent earlier no longer works, and the small print
+ * says so. All three invitation subjects name Exomem, so that is what the
  * reader searches for.
  */
 export function renderExomemInvitationWaitingEmail(input: {
-  sentAt: Date;
+  accessUrl: string;
   expiresAt: Date;
   timeZone?: string | null;
   scheme?: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
 }): RenderedExomemAccessEmail {
-  const sent = emailDate(input.sentAt, input.timeZone);
   const until = emailDate(input.expiresAt, input.timeZone);
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
     subject: "Your Exomem invitation is waiting",
-    preheader: `Open the invitation we sent you on ${sent}.`,
+    preheader: `Your invitation stays open until ${until}.`,
     band: "arrive",
     headline: "Your invitation is waiting",
-    body: [
-      `We sent you an invitation to Exomem on ${sent}. It’s open until ${until}. Open that email and follow its link to start. Can’t find it? Look in spam, or search your inbox for “Exomem”.`,
-    ],
+    body: [`Open it to start your Exomem. The invitation stays open until ${until}.`],
+    action: { label: "Open invitation", url: input.accessUrl },
     smallPrint:
-      "This email has no link of its own, and the link in your invitation still works. If you didn’t ask for this, ignore this email.",
+      "This link replaces any earlier invitation link we sent you. If you didn’t ask for this, ignore this email.",
   });
 }
 

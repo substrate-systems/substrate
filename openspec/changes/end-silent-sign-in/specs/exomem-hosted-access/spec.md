@@ -18,8 +18,11 @@ An identity that already owns an active Exomem tenant SHALL be able to request a
 #### Scenario: Invited address without an account requests a link
 
 - **WHEN** an address with a live, unused, non-self-serve invitation and no tenant submits the request
-- **THEN** the system queues an invitation-waiting email that names when the invitation was sent and when it expires
-- **AND** the email carries no new token, and the invitation link already delivered stays valid
+- **THEN** the system queues an invitation-waiting email that carries a fresh link to that invitation and names when the invitation expires
+- **AND** the fresh link replaces every earlier link for the invitation, and the email says so
+- **AND** the invitation's expiry, kind, entitlement and place in capacity do not change
+- **AND** the system replaces the link at most once per fixed 15-minute window: a repeat inside the window queues nothing new and leaves the link of that window's email working
+- **AND** only the newest link is ever emailed: an invitation email that was queued with an earlier link is cancelled
 - **AND** the address does not join the waitlist
 
 #### Scenario: Waiting person asks again
