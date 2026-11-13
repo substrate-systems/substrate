@@ -724,7 +724,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
   async function pauseInvitationSend(invited: string): Promise<{
     id: string;
     emailed: () => string;
-    finish: (answer: { success: boolean; status?: number }) => void;
+    finish: (answer: { success: boolean; status?: number; messageId?: string }) => void;
     sending: Promise<unknown>;
   }> {
     const { inviteId } = await issueOperatorInvite(
@@ -741,7 +741,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       [`invite:${inviteId}`]
     );
     let text = "";
-    let finish!: (answer: { success: boolean; status?: number }) => void;
+    let finish!: (answer: { success: boolean; status?: number; messageId?: string }) => void;
     const sending = dispatchExomemEmail(rows[0]!.id, {
       sendEmail: async (input) => {
         text = input.textContent;
@@ -750,6 +750,24 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     });
     while (!text) await new Promise((resolve) => setTimeout(resolve, 5));
     return { id: rows[0]!.id, emailed: () => text, finish, sending };
+  }
+
+  /** Polls PostgreSQL's own view of waiting sessions, up to two seconds; false when it never arrived. */
+  async function waitUntil(reached: () => Promise<boolean>): Promise<boolean> {
+    for (let poll = 0; poll < 400; poll += 1) {
+      if (await reached()) return true;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return false;
+  }
+
+  /** A statement of a request is waiting on a row lock, and its `/* exomem:<name> *\/` comment names it. */
+  async function waitingOnLock(statement: string): Promise<boolean> {
+    const { rows } = await pool!.query(
+      "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE $1",
+      [`%${statement}%`]
+    );
+    return rows.length > 0;
   }
 
   it("leaves an invitation's link alone while an email carrying it is being sent, so that link opens the invitation", async () => {
@@ -808,14 +826,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
 
     const asking = startSelfServeAtomic({ emailNormalized: invited, timeZone: null, mode: "open" });
     // The request is blocked on the claim's row lock, not past it.
-    let blocked = false;
-    for (let poll = 0; poll < 400 && !blocked; poll += 1) {
-      const { rows } = await pool!.query(
-        "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%exomem:invitation-email-in-flight%'"
-      );
-      blocked = rows.length > 0;
-      if (!blocked) await new Promise((resolve) => setTimeout(resolve, 5));
-    }
+    const blocked = await waitUntil(() => waitingOnLock("exomem:invitation-email-in-flight"));
     await claim.query(
       `UPDATE exomem_email_outbox
        SET state = 'leased', lease_owner = gen_random_uuid(), lease_expires_at = now() + interval '60 seconds'
@@ -834,6 +845,77 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       )
     ).rows[0]!.token_digest;
     assert.deepEqual(digestAfter, digestBefore);
+  });
+
+  // Settlement locks the outbox row and then the invitation. A request that locked the
+  // invitation first would wait for the row while settlement waited for the invitation.
+  it("lets a send settle while a start request for its invitation runs: no deadlock, the provider id recorded, no second send", async () => {
+    await configureCapacity(2);
+    const invited = newAddress("settling");
+    // A trigger stands in for a slow settlement: it holds the sent row's lock until the gate opens.
+    await pool!.query(`
+      CREATE FUNCTION settlement_gate() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN PERFORM pg_advisory_xact_lock(hashtext('settlement-gate')); RETURN NULL; END $$`);
+    await pool!.query(`
+      CREATE TRIGGER settlement_gate AFTER UPDATE ON exomem_email_outbox
+      FOR EACH ROW WHEN (NEW.state = 'sent' AND NEW.recipient = '${invited}')
+      EXECUTE FUNCTION settlement_gate()`);
+    const gate = await pool!.connect();
+    try {
+      await gate.query("SELECT pg_advisory_lock(hashtext('settlement-gate'))");
+      const inFlight = await pauseInvitationSend(invited);
+      inFlight.finish({ success: true, messageId: "provider-id-1" });
+      const settling = await waitUntil(async () => {
+        const { rows } = await pool!.query(
+          "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+        );
+        return rows.length > 0;
+      });
+      assert.ok(settling, "the settlement did not reach its gate");
+
+      const asking = startSelfServeAtomic({
+        emailNormalized: invited,
+        timeZone: null,
+        mode: "open",
+      });
+      assert.ok(
+        await waitUntil(() => waitingOnLock("exomem:invitation-email-in-flight")),
+        "the request did not wait for the settling row"
+      );
+      await gate.query("SELECT pg_advisory_unlock(hashtext('settlement-gate'))");
+
+      // Both finish. A deadlock aborts one of them with 40P01.
+      assert.equal(await inFlight.sending, "sent");
+      const asked = await asking;
+      // The invitation email was delivered, so the request replaced the link and queued its email.
+      assert.equal(asked.outcome, "invitation_waiting");
+      assert.ok(asked.emailId);
+      const row = (
+        await pool!.query<{ state: string; provider_message_id: string | null; attempts: number }>(
+          "SELECT state, provider_message_id, attempts FROM exomem_email_outbox WHERE id = $1",
+          [inFlight.id]
+        )
+      ).rows[0]!;
+      assert.deepEqual(row, { state: "sent", provider_message_id: "provider-id-1", attempts: 1 });
+
+      // Nothing is left to send twice: only the request's own email goes out.
+      const sent: string[] = [];
+      await drainExomemEmailOutbox(
+        {},
+        {
+          sendEmail: async (input) => {
+            sent.push(input.subject);
+            return { success: true, messageId: "message-2" };
+          },
+        }
+      );
+      assert.equal(sent.length, 1);
+      assert.match(sent[0]!, /waiting/i);
+    } finally {
+      gate.release();
+      await pool!.query("DROP TRIGGER settlement_gate ON exomem_email_outbox");
+      await pool!.query("DROP FUNCTION settlement_gate()");
+    }
   });
 
   it("cancels an invitation-waiting email queued before it carried a link, as a cancellation and not a failure", async () => {

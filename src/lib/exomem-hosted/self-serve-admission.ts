@@ -230,6 +230,53 @@ async function enqueueStartLinkEmail(
 }
 
 /**
+ * The address's open operator invitation (not self-serve, unused, unrevoked,
+ * unexpired), locked for this transaction; `null` when it has none, and
+ * `being_sent` when an email with its current link is under a running send
+ * lease. That email works and is the answer, so the caller leaves the link.
+ *
+ * The lock order is the invitation's unsent emails first, then the
+ * invitation: the order of a send's settlement (its outbox row, then
+ * `afterSent` or `afterFailed` on the invitation). The reverse order lets the
+ * two wait on each other, and PostgreSQL aborts the settlement of a message
+ * the provider already accepted. So the invitation is read unlocked first,
+ * and locked after the emails, with its liveness read again.
+ */
+async function lockOpenInvitation(
+  tx: ExomemSql,
+  email: string
+): Promise<{ id: string; expires_at: Date | string } | "being_sent" | null> {
+  const candidate = await tx`
+    /* exomem:start-open-invitation */
+    SELECT id
+    FROM exomem_invites
+    WHERE email_normalized = ${email}
+      AND NOT self_serve
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  const inviteId = (candidate.rows[0] as { id: string } | undefined)?.id;
+  if (!inviteId) return null;
+  if (await invitationEmailInFlight(tx, { inviteId, email })) return "being_sent";
+  // Serializes this request with a redemption and with another request's rotation.
+  const locked = await tx`
+    /* exomem:lock-open-invitation */
+    SELECT id, expires_at
+    FROM exomem_invites
+    WHERE id = ${inviteId}::uuid
+      AND NOT self_serve
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+    FOR UPDATE
+  `;
+  return (locked.rows[0] as { id: string; expires_at: Date | string } | undefined) ?? null;
+}
+
+/**
  * The self-serve branch of a start request, for a person who owns no
  * Exomem, in one transaction. Each outcome queues one email:
  *
@@ -271,26 +318,9 @@ export async function startSelfServeAtomic(input: {
   const emailScheme = input.emailScheme ?? null;
   const themeChoice = input.themeChoice ?? "auto";
   return withExomemTransaction(async (tx) => {
-    const invitation = await tx`
-      /* exomem:start-open-invitation */
-      SELECT id, expires_at
-      FROM exomem_invites
-      WHERE email_normalized = ${input.emailNormalized}
-        AND NOT self_serve
-        AND consumed_at IS NULL
-        AND revoked_at IS NULL
-        AND expires_at > now()
-      ORDER BY created_at DESC
-      LIMIT 1
-      -- Serializes this request with a redemption and with another request's rotation.
-      FOR UPDATE
-    `;
-    const open = invitation.rows[0] as { id: string; expires_at: Date | string } | undefined;
+    const open = await lockOpenInvitation(tx, input.emailNormalized);
+    if (open === "being_sent") return { outcome: "invitation_waiting", emailId: null };
     if (open) {
-      // An email with the invitation's current link is being sent: it works, and it is the answer.
-      if (await invitationEmailInFlight(tx, { inviteId: open.id, email: input.emailNormalized })) {
-        return { outcome: "invitation_waiting", emailId: null };
-      }
       const payload: StartLinkPayload = {
         version: 1,
         inviteId: open.id,

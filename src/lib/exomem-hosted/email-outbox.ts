@@ -431,6 +431,9 @@ export function invitationWaitingDedupePrefix(inviteId: string): string {
  * either committed first, so this read sees the lease, or it waits behind this
  * lock and then finds the new token and cancels. A send that outlives its lease
  * is not covered: the provider call times out in 8 seconds and a lease lasts 60.
+ *
+ * Call it before locking the invitation, never after: settlement locks the
+ * outbox row and then the invitation (`afterSent`, `afterFailed`).
  */
 export async function invitationEmailInFlight(
   tx: ExomemSql,
@@ -445,6 +448,8 @@ export async function invitationEmailInFlight(
       AND (dedupe_key = ${invitationEmailDedupeKey(invitation.inviteId)}
         OR dedupe_key = ${invitationReminderDedupeKey(invitation.inviteId)}
         OR starts_with(dedupe_key, ${invitationWaitingDedupePrefix(invitation.inviteId)}))
+    -- Two requests lock the same rows in the same order, so they wait and never deadlock.
+    ORDER BY id
     FOR UPDATE
   `;
   return rows.some((row) => row.in_flight === true);
@@ -456,7 +461,9 @@ export async function invitationEmailInFlight(
  * rewritten to carry the new link, with its send time and deadline kept. A
  * reminder already sent is left as it is. A reminder under a running lease
  * never gets here (`invitationEmailInFlight`); one whose lease lapsed is
- * claimed again, so it carries the new link too.
+ * claimed again, so it carries the new link too. The rows are the ones that
+ * guard locked in this transaction, so updating them after the invitation
+ * waits on nothing.
  */
 export async function carryRotatedInvitationLink(
   tx: ExomemSql,
