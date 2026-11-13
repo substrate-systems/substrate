@@ -94,9 +94,75 @@ The system SHALL let an operator see, for each kind of Exomem email, whether it 
 
 - **WHEN** an email has been ready but unsent for longer than the configured time
 - **THEN** the email health proof fails and the existing email health monitor alerts
-- **AND** the failure is the same whether the provider accepts the synthetic send or not
+- **AND** the failure is the same whether the provider accepts the canary email or not
 
 #### Scenario: Webhook request is not from the provider
 
 - **WHEN** the webhook receives a request with a missing or wrong bearer token, or the token is not configured
 - **THEN** the system stores nothing and answers `401` or `503`
+
+### Requirement: Sign-in delivery is proven continuously
+
+The system SHALL prove, without a person, that a start request ends in a delivered email, and SHALL keep proving it. The email health proof SHALL start a sign-in for a configured canary address through the same server function that the start route calls, from the scheduler-authenticated health route only, and SHALL send the email it queues before the run ends. It MAY skip only the browser bot check. Each run SHALL judge the canary's newest email that is old enough for the delivery bound to have run out, which is normally the previous run's: the provider MUST have accepted it within a configured time after its due time (60 seconds by default), and MUST have reported it delivered within a configured time after accepting it (10 minutes by default). A run SHALL NOT fail for an email whose delivery bound has not run out. The proof SHALL take its result from the start request of its own run, never from the age of an earlier email: the start MUST queue a waitlist email that the provider accepts with a message id, or, when the current 15-minute window already queued its reply, that reply MUST be one that the provider accepted with a message id; a reply that is still pending or failed fails the run. The proof SHALL fail, with a distinct code each, when the canary address is unset or invalid, owns an account, holds an invitation, when the start fails or a rate limit refuses it, or when the provider does not accept the new canary. Every database transaction and statement that the proof makes SHALL end a lock wait and a statement at a limit of its own, without changing any other caller, and the proof SHALL stop its own work at a deadline inside the scheduler's timeout, end its wait for a database connection, so that a connection granted later is returned unused, wait for its open transaction to end, and still save a failed result. Each run SHALL record the measured queue and delivery times in a content-free operational event. The canary MUST NOT take a Cloud place, whoever starts it and in any admission mode, MUST NOT be promoted from the waitlist, MUST NOT count as a person waiting, and MUST NOT appear in the delivery report's per-kind numbers; the report SHALL show it in a section of its own, and SHALL say that no canary is sent when none is configured.
+
+#### Scenario: Canary accepted and delivered
+
+- **WHEN** the email health proof runs and the canary email being judged was accepted within its bound and reported delivered within its bound
+- **THEN** the run starts a new canary through the start request, sends it before the run ends and the provider accepts it with a message id
+- **AND** the proof passes
+- **AND** the run records the queue time of the new canary and the delivery time of the one judged, and no address
+
+#### Scenario: Canary not delivered within the bound
+
+- **WHEN** the canary email being judged is older than the delivery bound and the provider reported no delivery within that bound
+- **THEN** the proof fails, and the run still sends a new canary so that the proof can recover
+- **AND** a stopped provider webhook fails the proof in the same way
+
+#### Scenario: Canary accepted late
+
+- **WHEN** the provider accepted the canary email being judged later than the queue bound after its due time
+- **THEN** the proof fails
+
+#### Scenario: First run and early run
+
+- **WHEN** no canary email is older than the delivery bound, or the run repeats minutes after the last
+- **THEN** the proof does not fail for the missing delivery, and passes if the new canary is accepted, or the start finds the window's email already accepted
+
+#### Scenario: Canary start does not prove delivery
+
+- **WHEN** the canary address owns an account, holds an invitation, or its start fails, within the window of an earlier passing run
+- **THEN** the proof fails with the code for that cause, and does not pass on the earlier run's email
+
+#### Scenario: Repeated start finds an email the provider has not accepted
+
+- **WHEN** the provider rejects the canary's email, and the proof runs three times inside one 15-minute window
+- **THEN** every run fails, including the runs whose start queues nothing new
+- **AND** the proof passes once the provider has accepted the window's email
+
+#### Scenario: Canary finds no free database connection
+
+- **WHEN** every connection of the transaction pool is taken until the proof's deadline passes, and one is released afterwards
+- **THEN** the proof fails with a timeout code, and the released connection runs no canary SQL
+
+#### Scenario: Canary start stalls
+
+- **WHEN** a database lock that the canary needs, such as the Cloud capacity lock or a lock on the tenants table, stays held
+- **THEN** the canary's wait gives up at its lock limit, the proof fails with a timeout code, and no canary transaction is left open
+- **AND** it saves its failed result inside the scheduler's timeout
+
+#### Scenario: Canary never takes a place or distorts the report
+
+- **WHEN** admission is `open` and Cloud has a free place, and the canary address starts, from the health proof or from the public start page
+- **THEN** the canary takes a waitlist place only, and no start link, invitation, Cloud place or admission pace
+- **AND** waitlist promotion skips the canary's entry, and it does not count as a person waiting, so a newcomer is still admitted at once
+- **AND** the delivery report's per-kind counts and latencies leave out the canary's emails and report them in a canary section with the last runs, their queue and delivery times and their outcome
+
+### Requirement: A failed bot check says that no email was sent
+
+When the bot check fails, or its widget cannot produce a token, the start page SHALL say that the browser could not be confirmed as a person, that no email was sent, and what to do.
+
+#### Scenario: Bot check fails
+
+- **WHEN** the bot check fails on a start request
+- **THEN** the page says that it could not confirm that the browser is a person and did not send an email
+- **AND** it suggests trying again, or another browser if it keeps failing

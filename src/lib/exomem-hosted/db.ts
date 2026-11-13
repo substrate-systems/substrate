@@ -1,4 +1,5 @@
 import type { ExomemThemeChoice } from "@/lib/exomem/theme";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool, type PoolClient } from "pg";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { sql as pgSql } from "../db/pg-sql";
@@ -46,6 +47,8 @@ let transactionClient:
   | null = null;
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
+  // Under a wait budget even a single statement runs in a transaction that carries its limits.
+  if (waitBudgetScope.getStore()) return withExomemTransaction((tx) => tx(strings, ...values));
   if (injectedSqlClient) return injectedSqlClient(strings, ...values);
   return pgSql(strings, ...values);
 }
@@ -108,6 +111,49 @@ export function executeExomemSql(
   return sql(strings, ...values);
 }
 
+type WaitBudget = {
+  lockTimeoutMs: number;
+  statementTimeoutMs: number;
+  signal: AbortSignal;
+  active: Set<Promise<unknown>>;
+  timedOut: boolean;
+};
+
+const waitBudgetScope = new AsyncLocalStorage<WaitBudget>();
+
+/** PostgreSQL's states for a wait that hit `lock_timeout` or `statement_timeout`. */
+const WAIT_TIMEOUT_STATES = new Set(["55P03", "57014"]);
+
+/**
+ * Bounds the database work of one caller that has a deadline of its own, such
+ * as a scheduled proof, without changing any other caller. Everything that
+ * `run` starts and that goes through this module (a transaction or a single
+ * statement) sets `lock_timeout` and `statement_timeout` in its transaction, so
+ * a held lock ends the wait on its own. Once `signal` aborts, it opens no new
+ * transaction. `idle` settles when every transaction opened under the budget
+ * has ended; `timedOut` is true when a wait hit its limit.
+ */
+export function createExomemWaitBudget(limits: {
+  lockTimeoutMs: number;
+  statementTimeoutMs: number;
+  signal: AbortSignal;
+}): {
+  run: <T>(work: () => Promise<T>) => Promise<T>;
+  idle: () => Promise<void>;
+  readonly timedOut: boolean;
+} {
+  const budget: WaitBudget = { ...limits, active: new Set(), timedOut: false };
+  return {
+    run: (work) => waitBudgetScope.run(budget, work),
+    idle: async () => {
+      await Promise.allSettled([...budget.active]);
+    },
+    get timedOut() {
+      return budget.timedOut;
+    },
+  };
+}
+
 /**
  * Execute dependent reads and writes on one PostgreSQL connection. The normal
  * read/write path is the shared `pg`-backed adapter's pooled one-off queries;
@@ -117,6 +163,62 @@ export function executeExomemSql(
 export async function withExomemTransaction<T>(
   callback: (tx: ExomemSql) => Promise<T>
 ): Promise<T> {
+  const budget = waitBudgetScope.getStore();
+  if (!budget) return openExomemTransaction(callback);
+  budget.signal.throwIfAborted();
+  const bounded = openExomemTransaction(async (tx) => {
+    await tx`SELECT set_config('lock_timeout', ${String(budget.lockTimeoutMs)}, true),
+                    set_config('statement_timeout', ${String(budget.statementTimeoutMs)}, true)`;
+    return callback(tx);
+  }, budget.signal).catch((error: unknown) => {
+    if (WAIT_TIMEOUT_STATES.has(String((error as { code?: unknown } | null)?.code))) {
+      budget.timedOut = true;
+    }
+    throw error;
+  });
+  budget.active.add(bounded);
+  try {
+    return await bounded;
+  } finally {
+    budget.active.delete(bounded);
+  }
+}
+
+/**
+ * Takes a connection from the pool unless `signal` aborts first. The pool has
+ * no way to cancel a queued checkout, so a checkout that the abort leaves
+ * behind hands its connection straight back, before any SQL runs on it.
+ */
+async function checkOutUnlessAborted(pool: Pool, signal: AbortSignal): Promise<PoolClient> {
+  signal.throwIfAborted();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  const checkedOut = pool.connect().then((client) => {
+    if (!signal.aborted) return client;
+    client.release();
+    throw signal.reason;
+  });
+  try {
+    return await Promise.race([checkedOut, aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/** Closes the pool of `withExomemTransaction`, for a test that used it for real. */
+export async function __closeExomemTransactionPoolForTests(): Promise<void> {
+  const pool = transactionPool;
+  transactionPool = null;
+  await pool?.end();
+}
+
+async function openExomemTransaction<T>(
+  callback: (tx: ExomemSql) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
   if (transactionRunner) return transactionRunner(callback);
   if (injectedSqlClient) {
     throw new Error("interactive Exomem transaction runner is not configured");
@@ -125,7 +227,9 @@ export async function withExomemTransaction<T>(
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
   transactionPool ??= new Pool({ connectionString: databaseUrl });
-  const client = await transactionPool.connect();
+  const client = signal
+    ? await checkOutUnlessAborted(transactionPool, signal)
+    : await transactionPool.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
     const result = await callback(taggedPgSql(client));

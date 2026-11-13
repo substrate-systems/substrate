@@ -20,6 +20,7 @@ import {
   invitationWaitingDedupePrefix,
   type StartLinkPayload,
 } from "./email-outbox";
+import { healthCanaryAddress } from "./health-canary";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit, type ExomemRateLimitRule } from "./rate-limit";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
@@ -96,7 +97,7 @@ const START_LINK_TTL_MS = 48 * 60 * 60 * 1000;
 const WAITLIST_EMAIL_TTL_MS = 24 * 60 * 60 * 1000;
 // A person who asks again gets one reply per entry or invitation in this window,
 // so a repeated request cannot make us mail the same address over and over.
-const REPEAT_REPLY_WINDOW_MS = 15 * 60 * 1000;
+export const REPEAT_REPLY_WINDOW_MS = 15 * 60 * 1000;
 
 function repeatReplyWindow(): number {
   return Math.floor(Date.now() / REPEAT_REPLY_WINDOW_MS);
@@ -325,6 +326,9 @@ export async function startSelfServeAtomic(input: {
   const link = mintStartLink(input.randomBytes);
   const emailScheme = input.emailScheme ?? null;
   const themeChoice = input.themeChoice ?? "auto";
+  // The health canary never holds a Cloud place, whatever the mode and however it asks: it is
+  // configuration for a proof, and an address nobody owns must not be handed a slot or a link.
+  const isCanary = input.emailNormalized === healthCanaryAddress();
   return withExomemTransaction(async (tx) => {
     const open = await lockOpenInvitation(tx, input.emailNormalized);
     if (open === "being_sent") return { outcome: "invitation_waiting", emailId: null };
@@ -366,9 +370,11 @@ export async function startSelfServeAtomic(input: {
         AND expires_at > now()
       HAVING count(*) > 0
     `;
-    const held = outstanding.rows[0] as
-      | { expires_at: string; recipient_time_zone: string | null }
-      | undefined;
+    const held = isCanary
+      ? undefined
+      : (outstanding.rows[0] as
+          | { expires_at: string; recipient_time_zone: string | null }
+          | undefined);
     if (held) {
       // A stored zone came from an earlier request and is kept: this request
       // is unauthenticated and must not change it.
@@ -393,12 +399,14 @@ export async function startSelfServeAtomic(input: {
       };
     }
 
-    if (input.mode === "open") {
+    if (input.mode === "open" && !isCanary) {
       const fits = await cloudAdmissionAllows(tx, { email: input.emailNormalized });
+      // The health canary waits for good and takes no place (see health-canary.ts), so it is no queue to overtake.
       const waiting = await tx`
         /* exomem:start-anybody-waiting */
         SELECT EXISTS (
-          SELECT 1 FROM exomem_waitlist_entries WHERE admitted_at IS NULL
+          SELECT 1 FROM exomem_waitlist_entries
+          WHERE admitted_at IS NULL AND email_normalized IS DISTINCT FROM ${healthCanaryAddress()}::citext
         ) AS waiting
       `;
       if (
@@ -525,6 +533,8 @@ export async function promoteWaitlistedPeople(
     return { status: "not_open", promoted: null, settled: null };
   }
   const maxPromotions = Math.max(1, Math.min(options.maxPromotions ?? 20, 100));
+  // The health canary waits for good: promoting it would hand a Cloud slot to an address nobody owns.
+  const canary = healthCanaryAddress();
   const owners = await executeExomemSql`
     /* exomem:promote-settle-owners */
     DELETE FROM exomem_waitlist_entries AS entry
@@ -547,7 +557,7 @@ export async function promoteWaitlistedPeople(
         /* exomem:promote-oldest-waiting */
         SELECT id, email_normalized::text AS email_normalized, time_zone, email_scheme, theme_choice
         FROM exomem_waitlist_entries
-        WHERE admitted_at IS NULL
+        WHERE admitted_at IS NULL AND email_normalized IS DISTINCT FROM ${canary}::citext
         ORDER BY created_at, id
         LIMIT 1
         FOR UPDATE SKIP LOCKED
