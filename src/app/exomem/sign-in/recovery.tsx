@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { postPublicJson } from "@/lib/exomem-hosted/hosted-browser";
-import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
+import { OWNER_SIGN_IN_TTL_MS, START_LIMITS, type StartLimit } from "@/lib/exomem/access-limits";
 import { JourneyPage } from "../_journey/JourneyPage";
-import { failureCopy, sentCopy } from "../_journey/copy";
+import { failureCopy, limitedCopy, resendWait, sentCopy, waitInWords } from "../_journey/copy";
 import { StepActions, StepHeading, StepNotice } from "../_journey/parts";
 
 /** The proven browser can resend without learning an address from the receipt. */
 export function AccessRecovery({ state }: { state: "expired" | "used" }) {
   const [sent, setSent] = useState(false);
+  // The limit that refused the resend, so no email went out; null when one was sent.
+  const [limitedBy, setLimitedBy] = useState<StartLimit | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState(false);
   const [retryAt, setRetryAt] = useState(0);
@@ -35,6 +37,7 @@ export function AccessRecovery({ state }: { state: "expired" | "used" }) {
       const at = Date.now();
       setNow(at);
       setRetryAt(at + result.retryAfterSeconds * 1000);
+      setLimitedBy(START_LIMITS.find((limit) => limit === result.limitedBy) ?? null);
       setSent(true);
     } catch {
       setFailure(true);
@@ -47,14 +50,18 @@ export function AccessRecovery({ state }: { state: "expired" | "used" }) {
       <StepHeading
         title={
           sent
-            ? sentCopy.title
+            ? limitedBy
+              ? limitedCopy.title[limitedBy]
+              : sentCopy.title
             : state === "expired"
               ? "This link has expired"
               : "This link was already used"
         }
         lede={
           sent
-            ? sentCopy.lede
+            ? limitedBy
+              ? `${limitedCopy.lede[limitedBy]} ${wait > 0 ? limitedCopy.wait(waitInWords(wait)) : limitedCopy.nowAllowed}`
+              : sentCopy.ledeWithoutAddress
             : state === "expired"
               ? `Sign-in links work once, for ${OWNER_SIGN_IN_TTL_MS / 60_000} minutes.`
               : "Each link works once. If you opened it on another device, you’re signed in there. To sign in here, ask for a new one."
@@ -68,7 +75,7 @@ export function AccessRecovery({ state }: { state: "expired" | "used" }) {
           label: busy
             ? "Sending…"
             : wait
-              ? `Email me a new link in ${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}`
+              ? `Email me a new link ${resendWait(wait)}`
               : "Email me a new link",
           working: busy,
           disabled: wait > 0,

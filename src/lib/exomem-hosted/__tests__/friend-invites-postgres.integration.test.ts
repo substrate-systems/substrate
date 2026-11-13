@@ -306,16 +306,20 @@ async function issueFriendInvitation(input: {
   inviterEmail?: string;
   expiresAt?: Date;
 }): Promise<{ inviteId: string; token: string }> {
-  const { inviteId } = await issueOperatorInvite({
-    email: input.email,
-    kind: "friend",
-    inviterName: "Alex Example",
-    inviterEmail: input.inviterEmail ?? null,
-    inviteeName: "Sam Example",
-    note: "This is what I have been building.",
-    expiresAt: input.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    operatorPrincipalDigest: randomBytes(32),
-  });
+  const { inviteId } = await issueOperatorInvite(
+    {
+      email: input.email,
+      kind: "friend",
+      inviterName: "Alex Example",
+      inviterEmail: input.inviterEmail ?? null,
+      inviteeName: "Sam Example",
+      note: "This is what I have been building.",
+      expiresAt: input.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      operatorPrincipalDigest: randomBytes(32),
+    },
+    // These tests drain the outbox themselves, so they turn off the request-time dispatch.
+    { dispatchQueuedEmails: async () => undefined }
+  );
   return { inviteId, token: await tokenFromInvitationEmail(inviteId) };
 }
 

@@ -4,6 +4,7 @@
 // computes them at render from data, and nothing here holds a value.
 
 import { assistantConnectionStep } from "@/components/exomem/subscribe-line";
+import type { StartLimit } from "@/lib/exomem/access-limits";
 
 /** The board's retry label, on "That didn’t finish" and wherever a step can be tried again. */
 export const TRY_AGAIN = "Try again";
@@ -36,20 +37,62 @@ export const startCopy = {
 export const sentCopy = {
   title: "Check your email",
   /**
-   * The board says "We sent you a link." Every request gets this page, including one
-   * that queues no email (a rate limit or an address that does not normalize) and a repeat waitlist request. So the page claims neither a link nor an
-   * email, and the button names what the person does: ask again (deviation (j)).
+   * The board says "We sent you a link." Every accepted request queues one email that says
+   * what happens next for that address (a sign-in link, a start link, a waitlist place, or a
+   * note about an invitation or a place already held), so the page claims an email but never
+   * what is in it, which would tell whose address it is (deviation (j)). A request over a rate limit
+   * queues none, and the page says so on its own step (`limitedCopy`).
    */
-  lede: "If this address can get an email from us, it’s on its way. Open the email from Exomem to continue, on any device.",
+  lede: (email: string) => `We sent an email to ${email}. It says what happens next.`,
+  /** The sign-in recovery page holds no address, so it names none. */
+  ledeWithoutAddress: "We sent an email. It says what happens next.",
   sentTo: "Sent to",
   spam: "Nothing after a minute? Look in spam.",
   openHere: "Open it in this browser and this tab moves on by itself.",
   /** Only the requesting browser can resume an app's consent, so the app journey says so. */
   openHereForApp: (app: string) => `Open it in this browser to finish connecting ${app}.`,
   resend: "Send again",
-  resendIn: (clock: string) => `Send again in ${clock}`,
+  resendIn: (wait: string) => `Send again ${wait}`,
   differentEmail: "Use a different email",
 };
+
+/**
+ * A request that a limit refused sent nothing, and each line says so. No line says the
+ * address was emailed: every limit counts requests, and a waiting or invited person gets at
+ * most one email per window however often they ask.
+ */
+export const limitedCopy = {
+  title: {
+    address: "That’s enough requests for now",
+    browser: "Give it a minute",
+    ip: "Too many requests",
+  } satisfies Record<StartLimit, string>,
+  lede: {
+    address:
+      "This address was asked for several times this hour, so we didn’t send another. Use the latest email from us, or check spam.",
+    browser: "You asked a moment ago, so we didn’t send this one.",
+    ip: "Too many requests from your network, so we didn’t send an email.",
+  } satisfies Record<StartLimit, string>,
+  /** `when` is a duration in words (`waitInWords`), never a clock reading that could be mistaken for a time of day. */
+  wait: (when: string) => `You can ask again ${when}.`,
+  nowAllowed: "You can ask again now.",
+};
+
+/** A wait as "in about 1 minute" or "in 59 minutes": a duration, so it cannot be read as a clock time. */
+export function waitInWords(seconds: number): string {
+  const minutes = Math.ceil(Math.max(0, seconds) / 60);
+  return minutes <= 1 ? "in about 1 minute" : `in ${minutes} minutes`;
+}
+
+/**
+ * A resend button's wait: a ticking "in 0:42" for a minute or less, where a countdown reads as
+ * one, and a duration in words beyond that, where "in 59:35" would read as a time of day.
+ */
+export function resendWait(seconds: number): string {
+  const left = Math.max(0, Math.ceil(seconds));
+  if (left > 60) return waitInWords(left);
+  return `in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+}
 
 export const reviewerCopy = {
   title: "Sign in as a reviewer",
@@ -368,6 +411,8 @@ export const unknownAppCopy = {
  */
 export const failureCopy = {
   challenge: "That didn’t work. Try again.",
+  /** The server refused an address the browser accepted; no email was sent. */
+  invalidEmail: "Check the address. It doesn’t look like an email address.",
   generic: "That didn’t work. Try again in a minute.",
   /** Unchanged from the page this journey replaces. */
   linkUnusable: "That link has expired or was already used. Enter your email below for a new one.",

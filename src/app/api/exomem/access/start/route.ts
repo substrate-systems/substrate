@@ -1,6 +1,7 @@
 import { exomemThemeChoice } from "@/lib/exomem/theme";
 import { NextRequest, NextResponse } from "next/server";
 import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
+import { normalizeAccessEmail } from "@/lib/exomem-hosted/access";
 import { uniformAccessStartResponse } from "@/lib/exomem-hosted/access-recovery";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
@@ -30,6 +31,9 @@ const NO_STORE = { "cache-control": "no-store" } as const;
  *
  * - A missing, invalid or reused Turnstile token: 400 `challenge_failed`.
  *   That answer depends on the token only, never on the email.
+ * - An address that is not shaped like an email address: 400 `invalid_email`,
+ *   after the challenge. Its shape says nothing about any account, and the
+ *   page must not claim an email was sent when none could be.
  * - Every other case: the same 202, the same body and the same challenge
  *   cookie, padded to one time floor. The email carries the outcome.
  */
@@ -74,6 +78,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         outcome: "failed",
         requestId,
       });
+    }
+    try {
+      normalizeAccessEmail(fields.email);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "invalid_email" },
+        { status: 400, headers: NO_STORE }
+      );
     }
 
     const response = await uniformAccessStartResponse(request, {

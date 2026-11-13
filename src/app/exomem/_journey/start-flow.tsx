@@ -4,9 +4,19 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { TextField } from "@/components/exomem/TextField";
 import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
+import { START_LIMITS, type StartLimit } from "@/lib/exomem/access-limits";
 import { inboxProvider, inboxProviderForDomain, inboxUrl, phoneMailApp } from "@/lib/exomem/inbox";
 import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
-import { breakCopy, failureCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
+import {
+  breakCopy,
+  failureCopy,
+  limitedCopy,
+  reviewerCopy,
+  sentCopy,
+  startCopy,
+  resendWait,
+  waitInWords,
+} from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
 import { openElsewhere, SentCard, StepActions, StepHeading, StepNotice } from "./parts";
 import { ChallengeError, useTurnstile } from "./turnstile";
@@ -34,13 +44,13 @@ type StartFlowProps = {
 };
 
 type StartOutcome =
-  | { kind: "sent"; retryAfterSeconds: number; retryLimited: boolean }
-  | { kind: "challenge_failed" | "failed" };
+  | { kind: "sent"; retryAfterSeconds: number; limitedBy: StartLimit | null }
+  | { kind: "challenge_failed" | "invalid_email" | "failed" };
 
 /**
  * POST /api/exomem/access/start. Every request that passes the challenge answers the
  * same 202, so the page never learns, and never says, whether the address has an
- * account. Only the challenge itself can fail visibly.
+ * account. Only the challenge and the address's own shape can fail visibly.
  */
 async function requestStart(email: string, turnstileToken: string): Promise<StartOutcome> {
   let response: Response;
@@ -66,7 +76,7 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
   const body = (await response.json().catch(() => null)) as {
     error?: unknown;
     retryAfterSeconds?: unknown;
-    retryLimited?: unknown;
+    limitedBy?: unknown;
   } | null;
   if (
     response.status === 202 &&
@@ -77,18 +87,15 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
     return {
       kind: "sent",
       retryAfterSeconds: body.retryAfterSeconds,
-      retryLimited: body.retryLimited === true,
+      // The limit that refused the request, or null when an email was queued for it.
+      limitedBy: START_LIMITS.find((limit) => limit === body.limitedBy) ?? null,
     };
   }
-  return {
-    kind:
-      response.status === 400 && body?.error === "challenge_failed" ? "challenge_failed" : "failed",
-  };
-}
-
-function clock(ms: number): string {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  if (response.status === 400 && body?.error === "challenge_failed") {
+    return { kind: "challenge_failed" };
+  }
+  if (response.status === 400 && body?.error === "invalid_email") return { kind: "invalid_email" };
+  return { kind: "failed" };
 }
 
 function emailDomain(address: string): string {
@@ -125,6 +132,8 @@ export function StartFlow({
   const [failure, setFailure] = useState<string | null>(null);
   const [shownNotice, setShownNotice] = useState(notice ?? null);
   const [retryAt, setRetryAt] = useState(0);
+  // The limit that refused the last request; read only on the limited step.
+  const [limitedBy, setLimitedBy] = useState<StartLimit>("address");
   const [now, setNow] = useState(0);
   const {
     mount: challengeHost,
@@ -142,7 +151,7 @@ export function StartFlow({
   const resendLabel = sending
     ? "Sending…"
     : waitLeft > 0
-      ? sentCopy.resendIn(clock(waitLeft))
+      ? sentCopy.resendIn(resendWait(waitLeft / 1000))
       : sentCopy.resend;
   const formNonce = context.kind === "app" ? context.nonce : undefined;
   const sentDomain = emailDomain(sentEmail);
@@ -316,7 +325,8 @@ export function StartFlow({
       setNow(at);
       setShownNotice(null);
       setFocusStep(true);
-      setStep(outcome.retryLimited ? "limited" : "sent");
+      if (outcome.limitedBy) setLimitedBy(outcome.limitedBy);
+      setStep(outcome.limitedBy ? "limited" : "sent");
       return;
     }
     // Both steps hold the widget, so retry failures can keep the control focused.
@@ -327,7 +337,12 @@ export function StartFlow({
       setStep("unreachable");
     } else {
       setSentVersion(version);
-      setFailure(failureCopy.challenge);
+      setFailure(
+        outcome.kind === "invalid_email" ? failureCopy.invalidEmail : failureCopy.challenge
+      );
+      // The address is what to fix, so the cursor goes back to it (the form step only; a resend has no field).
+      if (outcome.kind === "invalid_email")
+        form.current?.querySelector<HTMLInputElement>('input[name="email"]')?.focus();
     }
   }
 
@@ -405,17 +420,14 @@ export function StartFlow({
         </>
       ) : step === "limited" ? (
         <>
-          <StepHeading
-            title="That’s enough links for now"
-            lede="Use the latest email you received, or check your spam folder. You can request another email when the wait ends."
-          />
+          <StepHeading title={limitedCopy.title[limitedBy]} lede={limitedCopy.lede[limitedBy]} />
           <div className={styles.group}>
             {challenge}
             <StepNotice alert={!!failure}>
               {failure ??
                 (waitLeft > 0
-                  ? `You can ask for another in ${clock(waitLeft)}. Not there? Look in spam.`
-                  : "You can ask for another now. Not there? Look in spam.")}
+                  ? limitedCopy.wait(waitInWords(Math.ceil(waitLeft / 1000)))
+                  : limitedCopy.nowAllowed)}
             </StepNotice>
           </div>
           <StepActions
@@ -431,7 +443,7 @@ export function StartFlow({
         </>
       ) : step === "sent" ? (
         <>
-          <StepHeading title={sentCopy.title} lede={sentCopy.lede} />
+          <StepHeading title={sentCopy.title} lede={sentCopy.lede(sentEmail)} />
           <div className={styles.group}>
             <SentCard
               email={sentEmail}

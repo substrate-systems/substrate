@@ -234,6 +234,7 @@ describe(
         assert.equal(sends, 0);
         const body = await response.json();
         assert.deepEqual(Object.keys(body).sort(), [
+          "limitedBy",
           "requestId",
           "retryAfterSeconds",
           "retryLimited",
@@ -405,7 +406,9 @@ describe(
         )
       );
       assert.equal(tooSoon.status, 202);
-      assert.equal((await tooSoon.json()).retryLimited, true);
+      const tooSoonBody = await tooSoon.json();
+      assert.equal(tooSoonBody.retryLimited, true);
+      assert.equal(tooSoonBody.limitedBy, "browser");
       assert.equal(tooSoon.cookies.get("exomem_magic_challenge")!.value, auth);
       const held = recovery.readAccessRecoveryReceipt(
         request(
@@ -425,9 +428,10 @@ describe(
     it("a used link is named only by its matching browser receipt", async () => {
       const userId = randomUUID(),
         tenantId = randomUUID();
-      await pool.query("INSERT INTO exomem_users (id,email) VALUES ($1,'used-owner@example.test')", [
-        userId,
-      ]);
+      await pool.query(
+        "INSERT INTO exomem_users (id,email) VALUES ($1,'used-owner@example.test')",
+        [userId]
+      );
       await pool.query(
         "INSERT INTO exomem_tenants (id,owner_user_id,status,desired_state) VALUES ($1,$2,'active','running')",
         [tenantId, userId]
@@ -472,52 +476,67 @@ describe(
       assert.equal((await crossBrowser.json()).error.code, "EMAIL_CONFIRMATION_REQUIRED");
     });
 
-    it("email suppression stays invisible while the common browser bucket supplies retry timing", async () => {
+    // A person the address limit refused used to see the same "sent" page as
+    // everyone else and wait for mail that never came.
+    it("tells an address the limit refused when to retry, in the shared answer shape, and keeps its emailed link usable", async () => {
       const email = "suppressed@example.test";
       const rule = EXOMEM_RATE_LIMITS.startEmail;
       await pool.query(
         "INSERT INTO exomem_rate_limit_buckets (scope,key_digest,window_started_at,admitted_count,updated_at) VALUES ($1,$2,now(),$3,now())",
         [rule.scope, hashRateLimitKey(rule, email), rule.limit]
       );
+      const emailedChallenge = randomBytes(32).toString("base64url");
       const receipt = recovery.mintAccessRecoveryReceipt({
         email,
         timeZone: null,
         emailScheme: null,
-        challengeDigest: randomBytes(32),
+        challengeDigest: tokenDigest(emailedChallenge)!,
         prior: null,
       });
       const started = performance.now();
-      const suppressed = await resend(
+      const limited = await resend(
         request(
           "/api/exomem/access/magic-link/recover",
           {},
-          `${EXOMEM_ACCESS_RECOVERY_COOKIE}=${receipt.token}`
+          `exomem_magic_challenge=${emailedChallenge}; ${EXOMEM_ACCESS_RECOVERY_COOKIE}=${receipt.token}`
         )
       );
       assert.ok(performance.now() - started >= 600);
-      assert.equal(suppressed.status, 202);
-      const hidden = await suppressed.json();
-      assert.equal(hidden.status, "if_eligible_email_sent");
-      assert.equal(hidden.retryAfterSeconds, 60);
-      assert.equal(
-        await recovery.accessStartRetryAfterSeconds(receipt.receipt.browserKey, "203.0.113.45"),
-        60
-      );
+      assert.equal(limited.status, 202);
+      const limitedBody = await limited.json();
       const anonymous = await resend(request("/api/exomem/access/magic-link/recover", {}));
-      const publicBody = await anonymous.json();
+      const anonymousBody = await anonymous.json();
       assert.equal(anonymous.status, 202);
-      assert.deepEqual(
-        { ...hidden, requestId: undefined },
-        { ...publicBody, requestId: undefined }
+      assert.deepEqual(Object.keys(limitedBody).sort(), Object.keys(anonymousBody).sort());
+      assert.equal(limitedBody.status, "if_eligible_email_sent");
+      assert.equal(anonymousBody.retryLimited, false);
+      assert.equal(anonymousBody.limitedBy, null);
+      assert.equal(limitedBody.retryLimited, true);
+      assert.equal(limitedBody.limitedBy, "address");
+      // The wait is the address bucket's remaining window, not the browser's 60 seconds.
+      assert.ok(
+        limitedBody.retryAfterSeconds > 60 && limitedBody.retryAfterSeconds <= rule.windowSeconds,
+        `retryAfterSeconds ${limitedBody.retryAfterSeconds}`
       );
+      assert.equal(JSON.stringify(limitedBody).includes(email), false);
       for (const name of ["exomem_magic_challenge", EXOMEM_ACCESS_RECOVERY_COOKIE]) {
-        const a = suppressed.cookies.get(name)!,
+        const a = limited.cookies.get(name)!,
           b = anonymous.cookies.get(name)!;
         assert.equal(a.httpOnly, b.httpOnly);
         assert.equal(a.sameSite, b.sameSite);
         assert.equal(a.maxAge, b.maxAge);
         assert.equal(a.path, b.path);
       }
+      // No email carries this request's challenge, so the one already sent must still open here.
+      assert.equal(limited.cookies.get("exomem_magic_challenge")!.value, emailedChallenge);
+      const held = recovery.readAccessRecoveryReceipt(
+        request(
+          "/api/exomem/access/magic-link/recover",
+          {},
+          `${EXOMEM_ACCESS_RECOVERY_COOKIE}=${limited.cookies.get(EXOMEM_ACCESS_RECOVERY_COOKIE)!.value}`
+        )
+      );
+      assert.equal(held?.challengeDigest, tokenDigest(emailedChallenge)!.toString("hex"));
       const outbox = await pool.query(
         "SELECT count(*)::int AS count FROM exomem_access_delivery_outbox JOIN exomem_access_tokens ON token_id=exomem_access_tokens.id JOIN exomem_users ON exomem_users.id=user_id WHERE exomem_users.email=$1",
         [email]

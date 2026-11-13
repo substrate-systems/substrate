@@ -1,6 +1,6 @@
 import { normalizeAccessEmail } from "./access";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
-import { enqueueExomemEmail } from "./email-outbox";
+import { dispatchQueuedEmailsSoon, enqueueExomemEmail } from "./email-outbox";
 import { exomemErrors } from "./errors";
 import { recordPaddleReceiptContactIntent } from "./paddle-receipt-contact";
 import { EXTERNAL_TOKEN_BYTES, generateExternalToken, tokenDigest } from "./security";
@@ -49,16 +49,25 @@ function capabilityDigest(token: string): Buffer | null {
     : null;
 }
 
+type EmailChangeRequested = {
+  state: "pending";
+  delivery: "queued";
+  requestId: string;
+  expiresAt: string;
+};
+
 export async function requestExomemEmailChange(
   session: Pick<ExomemSessionRow, "tenantId" | "userId" | "reviewerCredentialId">,
-  proposedEmail: string
-): Promise<{ state: "pending"; delivery: "queued"; requestId: string; expiresAt: string }> {
+  proposedEmail: string,
+  dependencies: { dispatchQueuedEmails?: typeof dispatchQueuedEmailsSoon } = {}
+): Promise<EmailChangeRequested> {
   if (session.reviewerCredentialId) throw exomemErrors.entitlementDenied();
   const proposed = normalizeAccessEmail(proposedEmail);
   const confirmationToken = generateExternalToken();
   const cancellationToken = generateExternalToken();
   const expiresAt = new Date(Date.now() + EMAIL_CHANGE_TTL_MS);
-  return withExomemTransaction(async (tx) => {
+  const queued: string[] = [];
+  const requested = await withExomemTransaction<EmailChangeRequested>(async (tx) => {
     const owner = await lockChangeOwner(tx, session.tenantId);
     if (!owner || owner.owner_user_id !== session.userId) throw exomemErrors.sessionInvalid();
     if (owner.email.toLowerCase() === proposed) throw exomemErrors.invalidRequest();
@@ -76,7 +85,7 @@ export async function requestExomemEmailChange(
     `;
     const requestId = rows[0]!.id as string;
     for (const kind of ["email_change_confirmation", "email_change_cancellation"] as const) {
-      await enqueueExomemEmail(tx, {
+      const emailId = await enqueueExomemEmail(tx, {
         kind,
         dedupeKey: `${kind}:${requestId}`,
         tenantId: session.tenantId,
@@ -92,9 +101,12 @@ export async function requestExomemEmailChange(
           token: kind === "email_change_confirmation" ? confirmationToken : cancellationToken,
         },
       });
+      if (emailId) queued.push(emailId);
     }
     return { state: "pending", delivery: "queued", requestId, expiresAt: expiresAt.toISOString() };
   });
+  await (dependencies.dispatchQueuedEmails ?? dispatchQueuedEmailsSoon)(queued);
+  return requested;
 }
 
 /** A token identifies only one request and action; it never creates a browser session. */

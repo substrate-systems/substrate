@@ -2,7 +2,7 @@ import { type ExomemThemeChoice } from "@/lib/exomem/theme";
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { after } from "next/server";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
-import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
+import { OWNER_SIGN_IN_TTL_MS, type StartLimit } from "@/lib/exomem/access-limits";
 import {
   createMagicAccessToken,
   redeemMagicAccessTokenAtomic,
@@ -10,6 +10,7 @@ import {
   type RedeemMagicAccessTokenInput,
   type RedeemedMagicAccess,
 } from "./db";
+import { dispatchQueuedEmailsSoon } from "./email-outbox";
 import { exomemErrors } from "./errors";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, normalizedEmailRateLimitKey, takeExomemRateLimit } from "./rate-limit";
@@ -17,7 +18,7 @@ import {
   selfServeAdmissionMode,
   startSelfServeAtomic,
   type SelfServeAdmissionMode,
-  type StartOutcome,
+  type StartResult,
 } from "./self-serve-admission";
 import { mintSessionMaterial, type SessionMaterial } from "./sessions";
 import {
@@ -47,7 +48,12 @@ export type AccessDependencies = {
     emailScheme: ExomemEmailScheme | null;
     themeChoice?: ExomemThemeChoice | null;
     mode: "waitlist" | "open";
-  }) => Promise<StartOutcome>;
+  }) => Promise<StartResult>;
+  /** Sends the outbox rows the request queued, once their transaction has committed. */
+  dispatchQueuedEmails: (
+    emailIds: readonly string[],
+    options: { requestId?: string }
+  ) => Promise<void>;
   createMagicAccessToken: (
     input: CreateMagicAccessTokenInput
   ) => Promise<{ tokenId: string; deliveryId: string; emailNormalized?: string } | null>;
@@ -102,6 +108,19 @@ async function runAfterResponse(work: () => Promise<void>): Promise<void> {
   }
 }
 
+/** Logs, content-free, that a rate limit refused this start request, so a person who got no email can be explained. */
+function emitStartSuppressed(limit: StartLimit, requestId?: string): void {
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "access.start.suppressed",
+      outcome: "denied",
+      errorCode: "RATE_LIMITED",
+      limit,
+      requestId,
+    })
+  );
+}
+
 function emitStartFailed(): void {
   emitOperationalEvent(
     buildOperationalEvent({
@@ -118,6 +137,7 @@ function defaults(): AccessDependencies {
     randomBytes: nodeRandomBytes,
     admissionMode: () => selfServeAdmissionMode(),
     startSelfServe: (input) => startSelfServeAtomic(input),
+    dispatchQueuedEmails: (emailIds, options) => dispatchQueuedEmailsSoon(emailIds, options),
     createMagicAccessToken,
     encryptDeliverySecret: (value) => encryptSecret(value),
     redeemMagicAccessTokenAtomic,
@@ -185,14 +205,18 @@ async function queueOwnerSignInLink(
  * email carries the outcome:
  *
  * - an owner of an Exomem gets a sign-in link (email 01);
- * - anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`: a start link or a
- *   waitlist place (see
- *   `startSelfServeAtomic`).
+ * - anybody else gets what `startSelfServeAtomic` decides: a start link, a
+ *   waitlist place or a note that they still wait, or a note that an
+ *   invitation to the address is waiting.
  *
- * The two rate limits run before any branch, so a limited request does the
- * same work whoever it names. No branch sends mail itself: each writes an
- * outbox row in the transaction that records its outcome. The response is
- * held to `START_RESPONSE_FLOOR_MS`. The self-serve branch runs after the
+ * The three rate limits run before any branch, so a limited request does the
+ * same work whoever it names. A request that the address limit refused is
+ * reported as `limitedBy`, which names the limit that refused it, so the page
+ * says that this request sent nothing and why. No branch sends mail
+ * itself: each writes an outbox row in the transaction that records its
+ * outcome, and the self-serve branch sends that row as soon as the
+ * transaction commits (the delivery job is the fallback). The response is held
+ * to `START_RESPONSE_FLOOR_MS`. The self-serve branch runs after the
  * response: its outcome never changes the answer, and its wait on the Cloud
  * capacity lock, which the owner branch never takes, would otherwise show in
  * the response time.
@@ -211,24 +235,34 @@ export async function requestStart(
     emailScheme: ExomemEmailScheme | null;
     themeChoice?: ExomemThemeChoice | null;
     browserKey?: string;
+    /** Names the request in the dispatch's content-free log events. */
+    requestId?: string;
   },
   dependencies?: Partial<AccessDependencies>
-): Promise<{ accepted: true; deliveryId?: string }> {
+): Promise<{ accepted: true; deliveryId?: string; limitedBy?: StartLimit }> {
   const deps = withDefaults(dependencies);
   const startedAtMs = performance.now();
   try {
     const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startIp, input.networkKey);
-    if (!networkAllowed) return { accepted: true };
+    if (!networkAllowed) {
+      emitStartSuppressed("ip", input.requestId);
+      return { accepted: true, limitedBy: "ip" };
+    }
     if (
       input.browserKey &&
       !(await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startBrowser, input.browserKey))
-    )
-      return { accepted: true };
+    ) {
+      emitStartSuppressed("browser", input.requestId);
+      return { accepted: true, limitedBy: "browser" };
+    }
     const addressAllowed = await deps.takeRateLimit(
       EXOMEM_RATE_LIMITS.startEmail,
       normalizedEmailRateLimitKey(input.email)
     );
-    if (!addressAllowed) return { accepted: true };
+    if (!addressAllowed) {
+      emitStartSuppressed("address", input.requestId);
+      return { accepted: true, limitedBy: "address" };
+    }
 
     let emailNormalized: string;
     try {
@@ -252,13 +286,15 @@ export async function requestStart(
       const mode = deps.admissionMode();
       await deps.afterResponse(async () => {
         try {
-          await deps.startSelfServe({
+          const { emailId } = await deps.startSelfServe({
             emailNormalized,
             timeZone: input.timeZone,
             emailScheme: input.emailScheme,
             themeChoice: input.themeChoice,
             mode,
           });
+          // The row is committed: send it now rather than at the next job run.
+          if (emailId) await deps.dispatchQueuedEmails([emailId], { requestId: input.requestId });
         } catch {
           emitStartFailed();
         }

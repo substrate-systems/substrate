@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool } from "pg";
+import { applyMigrations } from "../../../../scripts/migrate";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let accepted: { success: boolean; messageId?: string } = {
@@ -35,6 +36,7 @@ describe("functional health PostgreSQL boundary", { skip: !databaseUrl }, () => 
   let emailJob: typeof import("../../../app/api/cron/exomem-health-email/route");
 
   before(async () => {
+    await ensureExomemPostgresTestExtensions(databaseUrl!);
     admin = new Pool({ connectionString: databaseUrl });
     schema = `health_${randomUUID().replaceAll("-", "")}`;
     await admin.query(`CREATE SCHEMA "${schema}"`);
@@ -44,7 +46,8 @@ describe("functional health PostgreSQL boundary", { skip: !databaseUrl }, () => 
     process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "synthetic-scheduler";
     process.env.EXOMEM_HEALTH_EMAIL_RECIPIENT = "probe@example.invalid";
     scoped = new Pool({ connectionString: url.toString() });
-    await scoped.query(await readFile("migrations/0070_exomem_functional_health.sql", "utf8"));
+    // The email proof also reads the outboxes, so the schema is the whole one.
+    await applyMigrations({ databaseUrl: url.toString() });
     health = await import("../functional-health");
     store = await import("../functional-health-store");
     control = await import("../../../app/healthz/route");

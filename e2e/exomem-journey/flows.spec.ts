@@ -64,7 +64,8 @@ test("a new person goes from their email to checkout", async ({ page }) => {
   const email = uniqueEmail("new");
 
   await startWithEmail(page, email);
-  await expect(page.getByText(email)).toBeVisible();
+  // The lede also names the address inside a sentence; the card shows it alone.
+  await expect(page.getByText(email, { exact: true })).toBeVisible();
   // No provider serves example.test, so a phone offers its own mail app.
   if (test.info().project.use.isMobile)
     await expect(page.getByRole("link", { name: "Open your email app ↗" })).toHaveAttribute(

@@ -669,10 +669,14 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     assert.deepEqual(early.sent, []);
     assert.equal(early.deferred, 1);
     const { rows: waiting } = await pool.query(
-      "SELECT state, attempts, expires_at FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
+      `SELECT state, attempts, expires_at, due_at = not_before AS due_when_ready
+       FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1`,
       [tenant.tenantId]
     );
-    assert.deepEqual(waiting, [{ state: "pending", attempts: 0, expires_at: null }]);
+    // due_at moves with the wait, so the wait for cellctl is not counted as queue time.
+    assert.deepEqual(waiting, [
+      { state: "pending", attempts: 0, expires_at: null, due_when_ready: true },
+    ]);
 
     await markCellsDeleted(tenant.tenantId);
     await dueNow(tenant.tenantId);
@@ -823,8 +827,10 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     const session = { ...owner, reviewerCredentialId: null };
     const superseded = `superseded-${randomUUID()}@example.test`;
     const proposed = `proposed-${randomUUID()}@example.test`;
-    await requestExomemEmailChange(session, superseded);
-    await requestExomemEmailChange(session, proposed);
+    // This test drains the outbox itself, so it turns off the request-time dispatch.
+    const dispatchQueuedEmails = async () => undefined;
+    await requestExomemEmailChange(session, superseded, { dispatchQueuedEmails });
+    await requestExomemEmailChange(session, proposed, { dispatchQueuedEmails });
     const { sent } = await drain();
     const current = sent.filter((email) => [owner.email, superseded, proposed].includes(email.to));
     assert.deepEqual(current.map((email) => email.to).sort(), [owner.email, proposed].sort());

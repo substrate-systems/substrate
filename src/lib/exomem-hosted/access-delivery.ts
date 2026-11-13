@@ -18,6 +18,8 @@ import {
   exomemPublicFragmentUrl,
   parseExomemPublicBaseUrl,
 } from "./public-origin";
+import { normalizeProviderMessageId } from "./email-provider-events";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMIT_RETENTION_SECONDS } from "./rate-limit";
 import { decryptSecret, tokenDigest, type SecretEnvelope, type SensitiveSecret } from "./security";
 
@@ -34,7 +36,11 @@ export type MagicLinkDeliveryDependencies = {
     leaseSeconds?: number;
     deliveryId?: string;
   }) => Promise<ClaimedMagicLinkDelivery | null>;
-  markSent: (input: { deliveryId: string; leaseOwner: string }) => Promise<boolean>;
+  markSent: (input: {
+    deliveryId: string;
+    leaseOwner: string;
+    providerMessageId?: string | null;
+  }) => Promise<boolean>;
   release: (input: {
     deliveryId: string;
     leaseOwner: string;
@@ -118,21 +124,69 @@ function parseDeliveryPayload(
 /** What became of one claimed sign-in link. "lost": this worker no longer holds the row. */
 export type MagicLinkDeliveryState = "sent" | "retry" | "failed" | "lost";
 
+/**
+ * Logs, content-free, what became of one claimed link, whoever claimed it: the
+ * request's dispatch, under its id, or the drain. "lost" logs nothing: the
+ * lease ran out, so the row is the drain's again, though a slow provider may
+ * still have taken this send.
+ */
+function reportMagicLinkSettled(
+  state: MagicLinkDeliveryState,
+  detail: { attempts: number; queueMs: number; errorCode: string; requestId?: string }
+): void {
+  const base = { emailKind: "magic_link", requestId: detail.requestId };
+  if (state === "sent") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.magic_link.sent",
+        outcome: "succeeded",
+        attempts: detail.attempts,
+        queueMs: detail.queueMs,
+        ...base,
+      })
+    );
+  } else if (state === "retry" || state === "failed") {
+    emitOperationalEvent(
+      buildOperationalEvent({
+        event: "access.magic_link.delivery_failed",
+        outcome: state === "retry" ? "pending" : "failed",
+        errorCode: detail.errorCode,
+        ...base,
+      })
+    );
+  }
+}
+
 async function deliverClaimedMagicLink(
   record: ClaimedMagicLinkDelivery,
   leaseOwner: string,
   publicBaseUrl: ReturnType<typeof parseExomemPublicBaseUrl>,
-  deps: MagicLinkDeliveryDependencies
+  deps: MagicLinkDeliveryDependencies,
+  requestId?: string
 ): Promise<MagicLinkDeliveryState> {
-  const payload = parseDeliveryPayload(record, deps.decrypt, deps.now());
-  if (!payload) {
-    const state = await deps.release({
-      deliveryId: record.deliveryId,
-      leaseOwner,
-      errorCode: "DELIVERY_PAYLOAD_INVALID",
-      terminal: true,
+  const settled = async (
+    state: MagicLinkDeliveryState,
+    errorCode: string
+  ): Promise<MagicLinkDeliveryState> => {
+    reportMagicLinkSettled(state, {
+      attempts: record.attempts,
+      queueMs: Math.max(0, deps.now().getTime() - Date.parse(record.createdAt)),
+      errorCode,
+      requestId,
     });
     return state;
+  };
+  const payload = parseDeliveryPayload(record, deps.decrypt, deps.now());
+  if (!payload) {
+    return settled(
+      await deps.release({
+        deliveryId: record.deliveryId,
+        leaseOwner,
+        errorCode: "DELIVERY_PAYLOAD_INVALID",
+        terminal: true,
+      }),
+      "DELIVERY_PAYLOAD_INVALID"
+    );
   }
 
   const rendered = renderExomemMagicLinkEmail({
@@ -144,30 +198,35 @@ async function deliverClaimedMagicLink(
     scheme: payload.emailScheme ?? record.recipientEmailScheme,
     themeChoice: payload.themeChoice,
   });
-  let delivered = false;
+  let answer: Awaited<ReturnType<SendEmail>> | null = null;
   try {
-    delivered = (
-      await deps.sendEmail({
-        to: record.emailNormalized,
-        ...EXOMEM_SENDER,
-        subject: rendered.subject,
-        htmlContent: rendered.htmlContent,
-        textContent: rendered.textContent,
-      })
-    ).success;
+    answer = await deps.sendEmail({
+      to: record.emailNormalized,
+      ...EXOMEM_SENDER,
+      subject: rendered.subject,
+      htmlContent: rendered.htmlContent,
+      textContent: rendered.textContent,
+    });
   } catch {
-    delivered = false;
+    answer = null;
   }
-  if (delivered) {
-    return (await deps.markSent({ deliveryId: record.deliveryId, leaseOwner })) ? "sent" : "lost";
+  if (answer?.success) {
+    const recorded = await deps.markSent({
+      deliveryId: record.deliveryId,
+      leaseOwner,
+      providerMessageId: normalizeProviderMessageId(answer.messageId),
+    });
+    return settled(recorded ? "sent" : "lost", "EMAIL_DELIVERY_UNAVAILABLE");
   }
-  const state = await deps.release({
-    deliveryId: record.deliveryId,
-    leaseOwner,
-    errorCode: "EMAIL_DELIVERY_UNAVAILABLE",
-    terminal: false,
-  });
-  return state;
+  return settled(
+    await deps.release({
+      deliveryId: record.deliveryId,
+      leaseOwner,
+      errorCode: "EMAIL_DELIVERY_UNAVAILABLE",
+      terminal: false,
+    }),
+    "EMAIL_DELIVERY_UNAVAILABLE"
+  );
 }
 
 /**
@@ -176,13 +235,16 @@ async function deliverClaimedMagicLink(
  */
 export async function dispatchMagicLinkDelivery(
   deliveryId: string,
-  dependencies?: Partial<MagicLinkDeliveryDependencies>
+  dependencies?: Partial<MagicLinkDeliveryDependencies>,
+  requestId?: string
 ): Promise<MagicLinkDeliveryState | null> {
   const deps = { ...defaults(), ...dependencies };
   const leaseOwner = deps.newLeaseOwner();
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const record = await deps.claim({ deliveryId, leaseOwner, leaseSeconds: 60 });
-  return record ? deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps) : null;
+  return record
+    ? deliverClaimedMagicLink(record, leaseOwner, publicBaseUrl, deps, requestId)
+    : null;
 }
 
 export async function drainMagicLinkDeliveries(

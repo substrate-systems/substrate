@@ -20,6 +20,7 @@ function record(browserTimeZone?: string) {
     recipientTimeZone: null,
     recipientEmailScheme: null,
     expiresAt: EXPIRES,
+    createdAt: "2026-07-12T12:00:00.000Z",
     tokenDigest: tokenDigest(TOKEN)!,
     secretCiphertext: encryptSecret(
       JSON.stringify({
@@ -133,9 +134,11 @@ describe("durable Exomem magic-link delivery", () => {
     assert.equal(email?.to, EMAIL);
     assert.match(String(email?.textContent), /\/exomem\/sign-in#[A-Za-z0-9_-]+/);
     assert.doesNotMatch(String(email?.textContent), /[?&]token=/);
+    // The provider's id for the accepted send is recorded with the row.
     assert.deepEqual(marked, {
       deliveryId: "delivery-1",
       leaseOwner: "11111111-1111-4111-8111-111111111111",
+      providerMessageId: "message-1",
     });
   });
 

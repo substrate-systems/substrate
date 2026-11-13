@@ -377,6 +377,8 @@ export type ClaimedMagicLinkDelivery = {
   /** The owner's email scheme, as their browser last reported it. */
   recipientEmailScheme: ExomemEmailScheme | null;
   expiresAt: string;
+  /** When the delivery row was queued, which its queue-to-accepted time counts from. */
+  createdAt: string;
   tokenDigest: Buffer;
   secretCiphertext: SecretEnvelope;
   attempts: number;
@@ -484,6 +486,7 @@ export async function claimMagicLinkDelivery(input: {
                 outbox.token_id,
                 outbox.secret_ciphertext,
                 outbox.expires_at,
+                outbox.created_at,
                 outbox.attempts
     )
     SELECT claimed.id AS delivery_id,
@@ -492,6 +495,7 @@ export async function claimMagicLinkDelivery(input: {
            tenant.time_zone,
            tenant.email_scheme,
            claimed.expires_at,
+           claimed.created_at,
            token.token_digest,
            claimed.secret_ciphertext,
            claimed.attempts
@@ -508,6 +512,7 @@ export async function claimMagicLinkDelivery(input: {
         time_zone: string | null;
         email_scheme: ExomemEmailScheme | null;
         expires_at: string | Date;
+        created_at: string | Date;
         token_digest: Buffer;
         secret_ciphertext: SecretEnvelope | string;
         attempts: number;
@@ -522,6 +527,8 @@ export async function claimMagicLinkDelivery(input: {
     recipientEmailScheme: row.email_scheme ?? null,
     expiresAt:
       row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at),
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     tokenDigest: Buffer.from(row.token_digest),
     secretCiphertext:
       typeof row.secret_ciphertext === "string"
@@ -534,6 +541,8 @@ export async function claimMagicLinkDelivery(input: {
 export async function markMagicLinkDeliverySent(input: {
   deliveryId: string;
   leaseOwner: string;
+  /** The provider's id for the accepted send, normalised; `null` when it gave none. */
+  providerMessageId?: string | null;
 }): Promise<boolean> {
   const { rows } = await sql`
     /* exomem:mark-magic-link-delivery-sent */
@@ -544,6 +553,7 @@ export async function markMagicLinkDeliverySent(input: {
           lease_owner = NULL,
           lease_expires_at = NULL,
           last_error_code = NULL,
+          provider_message_id = ${input.providerMessageId ?? null},
           sent_at = now(),
           updated_at = now()
       WHERE outbox.id = ${input.deliveryId}

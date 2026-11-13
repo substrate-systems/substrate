@@ -38,6 +38,7 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `BREVO_API_KEY`                                                     | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                                                     |
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | `BREVO_SENDER_EMAIL` is required: the verified default sender for mail that names none (Endstate claim and webhook mail). Exomem mail passes its own sender. `BREVO_SENDER_NAME` is optional.                                                                                                                                                                                                   |
 | `BREVO_API_BASE_URL`                                                | Unset in production, which sends to `https://api.brevo.com/v3`. Tests point it at a stand-in. The API key goes to this host.                                                                                                          |
+| `BREVO_WEBHOOK_TOKEN`                                               | Web app only. The bearer token that `POST /api/webhooks/brevo` requires from Brevo. Unset, the route answers `503` and stores nothing. See "Email delivery" below.                                                                    |
 | `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`     | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely.                          |
 | `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT` | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                                               |
 | `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                                                       |
@@ -624,9 +625,19 @@ cell. A paid transaction resumes the owner instead; do not cancel it.
 ### Start admission
 
 `POST /api/exomem/access/start` (and its earlier path `/access/magic-link`)
-serves new and returning people. Every request that passes Turnstile gets the
-same `202`, and the email carries the outcome. An owner gets a sign-in link.
-Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
+serves new and returning people. Every request with a well-formed address that
+passes Turnstile gets the same `202`, and the email carries the outcome. An
+address that a browser accepts but the server cannot use, such as
+`person@localhost`, gets `400 invalid_email` after Turnstile, and the form asks
+the person to check it. That answer depends on the address's shape only, so it
+reveals nothing about any account. Every request that passes the rate limits
+ends with one outcome email: it queues one, unless a waiting or invited address
+repeats a request in the same fixed 15-minute window, when the email queued
+earlier in that window stands. An owner gets a sign-in link. An address
+with an open operator invitation and no account gets an invitation-waiting
+email. It names the dates the invitation was sent and expires, carries no
+link, and the address does not join the waitlist. The link in the invitation
+email stays valid. Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 
 - `waitlist`: a waitlist place. This is the default, including an unset or
   unrecognized value. The retired `closed` value also reads as `waitlist`.
@@ -646,21 +657,43 @@ invitation holds. Every invitation counts, whatever its kind, and one address
 counts once. Start links expire after 48 hours. A person who asks again while
 they hold a live start link gets another link with the same expiry. Using any
 of their links revokes the others. A waiting person who asks again keeps their
-place and gets no second waitlist email.
+place and gets a still-waiting email. It gives no queue position. The system
+queues at most one per entry in each fixed 15-minute window.
+
+Three limits can refuse a start request, whatever the address's state: the
+network (20 an hour), the browser (1 a minute) and the address (5 an hour).
+The `202` then carries `limitedBy` set to `ip`, `browser` or `address`, and
+`retryAfterSeconds`. The body always carries `limitedBy`, `null` when no limit
+refused the request, so the body keys and the response time stay the same.
+`retryLimited` repeats `limitedBy !== null` for a page loaded before `limitedBy`
+existed. Each limit says that this request sent no email. No limit says
+that the address was emailed. The page gives the wait in words,
+such as "in 59 minutes". The limits come before every branch, so they do not
+reveal whether an address has an account. Each refused request logs
+`access.start.suppressed` with `limit` set to the limit, and never the address.
 
 Emails for start links, waitlist places, promotions, the unpaid-hold
 reminder and the account lifecycle (emails 03 to 07) go through
-`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
-sends waitlist emails only when no other email is ready. It retries a failed
-send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
+`exomem_email_outbox`. A request that queues an email due now sends it as soon
+as its transaction commits: start requests, operator invitations and email
+changes. The send runs after the response, under the same lease, re-check and
+retry rules as the job. When it fails or never runs, the row stays queued and
+the access-delivery job sends it at its next run. The job does not claim a row
+while the request's lease holds, so one row is not sent twice. Rows that are
+not due yet, such as a reminder, go through the job only.
+
+The access-delivery job sends at most 20 per run, and sends the waitlist,
+still-waiting and invitation-waiting emails only when no other email is ready.
+It retries a failed send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
 start link, retries until that deadline. An email without one, such as 07,
 stops after 10 attempts. When Brevo refuses the request (`400`, `413` or
-`422`), the row records `EMAIL_REFUSED`. A refused waitlist email fails at
-once, and the person keeps their place. Every other refused email retries,
+`422`), the row records `EMAIL_REFUSED`. A refused waitlist, still-waiting or
+invitation-waiting email fails at once, and the person keeps their place. Every other refused email retries,
 because a refusal can come from our own account, such as an unvalidated
 sender. Email 07 also waits, with no limit,
 until cellctl has deleted every cell of the account. A wait counts no attempt.
-To see what is stuck, run:
+For what became of each email after the provider accepted it, see "Email
+delivery" below. To see what is stuck, run:
 
 ```sql
 SELECT kind, state, last_error_code, count(*)
@@ -670,7 +703,8 @@ GROUP BY kind, state, last_error_code;
 ```
 
 Retention runs on its own. The access-delivery job clears the address of an
-outbox row 30 days after the row settles. The reconcile job deletes a
+outbox row 30 days after the row settles. It also deletes provider delivery
+events 30 days after receipt, at most 1,000 per run. The reconcile job deletes a
 person's waitlist entry and unused start links 180 days after the later of
 their last request and their last start link's expiry, unless the address
 owns an Exomem. It keeps used start links and operator invitations. Account
@@ -779,6 +813,94 @@ the discount, a delayed Paddle event that still carries the discount can record
 the offer again. Without step 3, a resubscribe after the subscription ends
 charges the friend price again.
 
+## Email delivery
+
+Each Exomem email leaves a trail that an operator can read: whether the
+provider accepted it, how long it waited in the queue, and what Brevo reported
+afterwards. Three records make it up.
+
+- The outbox row of each email stores Brevo's message id on acceptance, without
+  the angle brackets Brevo wraps around it. Both outboxes do this:
+  `exomem_email_outbox` and the magic-link `exomem_access_delivery_outbox`.
+- `exomem_email_provider_events` stores one row per Brevo event for a message:
+  the id, the event name and its time. It stores no address, subject, reason
+  text or IP. A repeated event changes nothing. The access-delivery job deletes
+  rows 30 days after receipt.
+- Content-free operational events: `access.email.accepted` (with `emailKind`,
+  `attempts` and `queueMs`), and `access.email.delivery_failed` and
+  `access.email.cancelled` (with `emailKind` and `errorCode`). A magic link
+  logs `access.magic_link.sent` and `access.magic_link.delivery_failed` the
+  same way.
+
+### Measured delivery times
+
+Measured read-only on production on 2026-11-12. From a row's creation to
+Brevo's acceptance, over 30 days: waitlist emails took a median of 185 seconds
+and a 95th percentile of 268 seconds (11 emails). One covered invitation took
+153 seconds. The rows waited for the minute job. From Brevo's `request` to
+`delivered`, over 7 days: 0.4 to 7 seconds, with no bounces.
+
+Immediate dispatch of request-time emails targets seconds. Treat that as a
+target until the delivery report below shows it. The report is the instrument.
+
+### Register the Brevo webhook
+
+Do this once per Brevo account, after the release that contains the receiver.
+Until it runs, the report shows delivery as unknown.
+
+1. Make a random token of at least 32 bytes, for example with `openssl rand -base64 32`.
+2. Set `BREVO_WEBHOOK_TOKEN` to that token in the web app's production environment, and redeploy.
+3. Send `POST https://substratesystems.io/api/webhooks/brevo` with no token. Expect `401`. A `503` means the token is not deployed.
+4. Register the webhook with the command below. It needs `BREVO_API_KEY` and `BREVO_WEBHOOK_TOKEN` in your shell.
+5. Expect `201` and a body with the new webhook's `id`. Keep that `id`.
+6. Send one start request from a test address you own. Wait one minute.
+7. Read the delivery report. Expect `deliveryEvidence` to change from `none_received` to `received_partial_window`.
+
+```bash
+jq -n --arg token "$BREVO_WEBHOOK_TOKEN" '{type:"transactional",events:["request","delivered","deferred","softBounce","hardBounce","blocked","spam","invalid","unsubscribed"],url:"https://substratesystems.io/api/webhooks/brevo",auth:{type:"bearer",token:$token},description:"Exomem email delivery"}' | curl --fail-with-body -sS -X POST https://api.brevo.com/v3/webhooks -H "api-key: $BREVO_API_KEY" -H "content-type: application/json" -d @-
+```
+
+The receiver stores only these events: `request`, `delivered`, `deferred`,
+`soft_bounce`, `hard_bounce`, `blocked`, `spam`, `invalid_email`, `error` and
+`unsubscribed`. It answers `200` to every other event, such as an open or a
+click, and stores nothing for it. It answers `400` to a body that is not JSON,
+so Brevo discards it. It answers `5xx` only when our own storage fails, and
+Brevo then retries after 10 minutes, 1 hour, 2 hours and 8 hours. To rotate the
+token, set the new `BREVO_WEBHOOK_TOKEN`, redeploy, then update the webhook in
+Brevo. Events that arrive in between get `401` and are lost.
+
+### Read the delivery report
+
+```bash
+curl --fail-with-body -sS "$EXOMEM_PUBLIC_BASE_URL/api/exomem/admin/email-delivery?hours=24" -H "Authorization: Bearer $EXOMEM_ADMIN_TOKEN"
+```
+
+`hours` defaults to 24 and may be 1 to 168. The report names its window
+(`window.from` to `window.to`) and its sources. For each kind of email, with
+the magic link as its own kind, it gives:
+
+- `queued`, `sent`, `failed` and `cancelled`: emails created in the window, by
+  their state now. A magic link that a newer link superseded counts as failed.
+- `pending` and `pendingPastDue`: emails that are unsent now, of any age, and
+  the part of them that is ready and still unsent. `pendingPastDue` above zero
+  for more than a few minutes means the drain is stalled.
+- `queueToAccepted`: p50 and p95 from the email's first due time to Brevo's
+  acceptance, with the number of emails measured. An email queued for later,
+  such as a reminder, counts from its due time, so a due date days away is not
+  a slow send. Rows from before the due time was recorded are not measured.
+- `acceptedWithoutProviderId`: emails that Brevo accepted without a stored id.
+  No Brevo event can be matched to them.
+- `delivery`: counts of emails with a `delivered`, `deferred`, `softBounce`,
+  `hardBounce`, `blocked`, `spam`, `invalid` or `error` event, and p50 and p95
+  from acceptance to `delivered`, with the number measured.
+
+Unknown is not zero. `delivery` is `null` while `deliveryEvidence` is
+`none_received`: Brevo has never reported an event, so delivery is unknown.
+`received_partial_window` means the first event arrived after the window began,
+so delivery earlier in the window is unknown. A latency is `null` when no email
+was measured. Brevo's `delivered` means the receiving server accepted the
+message, not that a person read it.
+
 ## Account deletion
 
 Home sends a fresh one-use email confirmation. Confirmation sets the tenant to
@@ -825,11 +947,24 @@ Do not edit the outbox row.
 
 Public health readers certify the latest completed proof, rather than a responding process. Missing, failed, stale or unreadable proof returns HTTP 503 with `{"ok":false}`. Fresh successful proof returns HTTP 200 with `{"ok":true}`. Readers disable caching and perform no sends or writes.
 
-| Public route              | Checked scope                                               | Schedule                     | Default freshness |
-| ------------------------- | ----------------------------------------------------------- | ---------------------------- | ----------------- |
-| Control `/healthz`        | PostgreSQL temporary-row write/read                         | Each minute                  | 180 seconds       |
-| Control `/healthz/email`  | Transactional provider acceptance with a message identifier | Each 30 minutes              | 3,600 seconds     |
-| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                | Platform CronJob each minute | 180 seconds       |
+| Public route              | Checked scope                                                                          | Schedule                     | Default freshness |
+| ------------------------- | -------------------------------------------------------------------------------------- | ---------------------------- | ----------------- |
+| Control `/healthz`        | PostgreSQL temporary-row write/read                                                    | Each minute                  | 180 seconds       |
+| Control `/healthz/email`  | Provider acceptance with a message identifier, and no stalled or failed queued email   | Each 30 minutes              | 3,600 seconds     |
+| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                                           | Platform CronJob each minute | 180 seconds       |
+
+The email proof also reads real traffic in both outboxes. It fails when an
+email is ready but unsent more than `EXOMEM_HEALTH_EMAIL_OVERDUE_SECONDS`
+(default 300) after its due time, or when an email failed in the last hour for
+a reason other than the provider refusing it. A cancelled email never fails the
+proof, and neither does a refusal, which is a bad request and not an outage.
+A sign-in link that was replaced by a newer one, or that could no longer be
+used, does not fail the proof either; any other sign-in link failure does.
+The proof runs every 30 minutes, so a stall raises the alert between 5 and 35
+minutes after it starts. An email in retry backoff counts only when its next
+attempt is overdue, or when it fails for good. The value must be a positive
+whole number of seconds. The delivery report, in "Email delivery" above, shows
+the detail.
 
 These checks do not certify inbox delivery, OAuth issuance, semantic recall or every customer cell. Functional failure does not gate admission or restart pods. Direct gateway `/healthz` and `/readyz` retain their pod probe semantics.
 

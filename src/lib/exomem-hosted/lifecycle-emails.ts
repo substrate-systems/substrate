@@ -165,7 +165,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
           }
         | undefined;
       if (!owner) return false;
-      return enqueueExomemEmail(tx, {
+      const emailId = await enqueueExomemEmail(tx, {
         kind: "ready",
         dedupeKey: `ready:${cellId}`,
         recipient: owner.email,
@@ -175,6 +175,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
         tenantId: owner.tenant_id,
         payload: { version: 1, cellId },
       });
+      return emailId !== null;
     });
     if (added) enqueued += 1;
   }
