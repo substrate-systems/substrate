@@ -666,8 +666,8 @@ The `202` then carries `limitedBy` set to `ip`, `browser` or `address`, and
 `retryAfterSeconds`. The body always carries `limitedBy`, `null` when no limit
 refused the request, so the body keys and the response time stay the same.
 `retryLimited` repeats `limitedBy !== null` for a page loaded before `limitedBy`
-existed. Each limit says that this request sent no email. Only the address
-limit says the address was emailed before. The page gives the wait in words,
+existed. Each limit says that this request sent no email. No limit says
+that the address was emailed. The page gives the wait in words,
 such as "in 59 minutes". The limits come before every branch, so they do not
 reveal whether an address has an account. Each refused request logs
 `access.start.suppressed` with `limit` set to the limit, and never the address.

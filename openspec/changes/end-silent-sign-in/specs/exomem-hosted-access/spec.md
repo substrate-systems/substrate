@@ -60,7 +60,7 @@ When a rate limit refuses a start request, the system SHALL tell the browser whi
 #### Scenario: Address asked too often
 
 - **WHEN** a browser submits an address that has used its hourly request allowance
-- **THEN** the page says that the address was emailed several times this hour, that no further email was sent, and when to try again
+- **THEN** the page says that the address was asked for several times this hour, that no further email was sent, and when to try again
 - **AND** an address with an account and one without get the same answer
 
 #### Scenario: Another address asked within a minute

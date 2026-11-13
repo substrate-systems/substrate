@@ -13,7 +13,7 @@ Emails other than the owner sign-in link also wait for the minute-by-minute deli
   - a person with a live start link gets it again (unchanged);
   - a new address gets a waitlist place or a start link (unchanged).
 - The request dispatches the email it queued right after its transaction commits. The delivery job stays as the fallback.
-- A refused request becomes visible. The answer names the limit (network, browser or address); none depends on the account, so it reveals nothing about accounts. The page says that this request sent no email, why, and when to try again in words. Only the address limit says the address was emailed before.
+- A refused request becomes visible. The answer names the limit (network, browser or address); none depends on the account, so it reveals nothing about accounts. The page says that this request sent no email, why, and when to try again in words. No limit says that the address was emailed.
 - The page states "We sent an email to <address>. It says what happens next." The status, body shape and response-time floor stay identical for every account state.
 - An address that a browser accepts but the server cannot use gets `400 invalid_email` after the bot check, and the form asks the person to check it. It no longer says that an email was sent.
 - Each email becomes observable. The outbox stores the provider's message id; a Brevo webhook stores delivery and bounce events; an operator report shows counts and latency per email kind, with delivery shown as unknown until the provider reports; and the email health proof fails when a queued email stalls.
