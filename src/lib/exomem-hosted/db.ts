@@ -170,7 +170,7 @@ export async function withExomemTransaction<T>(
     await tx`SELECT set_config('lock_timeout', ${String(budget.lockTimeoutMs)}, true),
                     set_config('statement_timeout', ${String(budget.statementTimeoutMs)}, true)`;
     return callback(tx);
-  }).catch((error: unknown) => {
+  }, budget.signal).catch((error: unknown) => {
     if (WAIT_TIMEOUT_STATES.has(String((error as { code?: unknown } | null)?.code))) {
       budget.timedOut = true;
     }
@@ -184,7 +184,41 @@ export async function withExomemTransaction<T>(
   }
 }
 
-async function openExomemTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+/**
+ * Takes a connection from the pool unless `signal` aborts first. The pool has
+ * no way to cancel a queued checkout, so a checkout that the abort leaves
+ * behind hands its connection straight back, before any SQL runs on it.
+ */
+async function checkOutUnlessAborted(pool: Pool, signal: AbortSignal): Promise<PoolClient> {
+  signal.throwIfAborted();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  const checkedOut = pool.connect().then((client) => {
+    if (!signal.aborted) return client;
+    client.release();
+    throw signal.reason;
+  });
+  try {
+    return await Promise.race([checkedOut, aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/** Closes the pool of `withExomemTransaction`, for a test that used it for real. */
+export async function __closeExomemTransactionPoolForTests(): Promise<void> {
+  const pool = transactionPool;
+  transactionPool = null;
+  await pool?.end();
+}
+
+async function openExomemTransaction<T>(
+  callback: (tx: ExomemSql) => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
   if (transactionRunner) return transactionRunner(callback);
   if (injectedSqlClient) {
     throw new Error("interactive Exomem transaction runner is not configured");
@@ -193,7 +227,9 @@ async function openExomemTransaction<T>(callback: (tx: ExomemSql) => Promise<T>)
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
   transactionPool ??= new Pool({ connectionString: databaseUrl });
-  const client = await transactionPool.connect();
+  const client = signal
+    ? await checkOutUnlessAborted(transactionPool, signal)
+    : await transactionPool.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
     const result = await callback(taggedPgSql(client));

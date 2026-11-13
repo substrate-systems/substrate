@@ -8,6 +8,8 @@ import {
   createInviteRecord,
   createMagicAccessToken,
   markMagicLinkDeliverySent,
+  withExomemTransaction,
+  __closeExomemTransactionPoolForTests,
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
   type ExomemSql,
@@ -798,6 +800,47 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
         __setExomemTransactionForTests(interactiveTransaction);
       }
       assert.equal((await readHealthProof("email"))?.success, false);
+    });
+
+    it("writes nothing after its deadline when every connection of the transaction pool is taken", async () => {
+      // The real pool, not the test runner: only it can leave a checkout queued behind the deadline.
+      __setExomemSqlForTests(null);
+      __setExomemTransactionForTests(null);
+      const POOL_SIZE = 10; // the default of `pg.Pool`, which this module does not override
+      let free!: () => void;
+      const hold = new Promise<void>((resolve) => (free = resolve));
+      let taken = 0;
+      const holders = Array.from({ length: POOL_SIZE }, () =>
+        withExomemTransaction(async () => {
+          taken += 1;
+          await hold;
+        })
+      );
+      try {
+        while (taken < POOL_SIZE) await new Promise((resolve) => setTimeout(resolve, 20));
+        const startedAt = Date.now();
+        assert.equal(
+          await failedCode(() => runEmailHealthCheck({ deadlineMs: 500 })),
+          "CANARY_TIMED_OUT"
+        );
+        // The abort ends the queued checkout, so the run does not wait out its settle grace.
+        assert.ok(Date.now() - startedAt < 3_000);
+        free();
+        await Promise.all(holders);
+        // A connection is free now; the abandoned canary must not use it.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const buckets = await pool!.query(
+          "SELECT count(*)::int AS n FROM exomem_rate_limit_buckets"
+        );
+        assert.equal(buckets.rows[0].n, 0);
+        assert.deepEqual(await canaryEmails(), []);
+      } finally {
+        free();
+        await Promise.allSettled(holders);
+        await __closeExomemTransactionPoolForTests();
+        __setExomemSqlForTests(taggedSql(pool!));
+        __setExomemTransactionForTests(interactiveTransaction);
+      }
     });
 
     it("stops at its deadline, and saves the failed proof, when the provider never answers", async () => {

@@ -1011,11 +1011,13 @@ Every database transaction and statement that the run makes, including the
 owner lookup that the start request makes first, ends a wait for a lock after
 2 seconds and a statement after 3 seconds. Real start requests set no limits.
 The run stops its own work at 10 seconds and opens no new transaction after
-that. It waits up to 4 seconds for the transaction in flight to end, then saves
-a failed proof, so it ends inside the scheduler's 20 seconds with no canary
-transaction left open. A held lock, such as the Cloud capacity lock or a lock on
-the tenants table, therefore fails the proof with `CANARY_TIMED_OUT` instead of
-hanging the run.
+that. A wait for a free database connection ends at the deadline too, and a
+connection that arrives later goes back to the pool unused. The run waits up to
+4 seconds for the transaction in flight to end, then saves a failed proof, so it
+ends inside the scheduler's 20 seconds with no canary transaction left open. A
+held lock, such as the Cloud capacity lock or a lock on the tenants table, or a
+pool with no free connection, therefore fails the proof with `CANARY_TIMED_OUT`
+instead of hanging the run.
 
 Each run logs one `access.start.canary_checked` event. `queueMs` is this run's
 canary, from due time to acceptance. `deliveryMs` is the previous canary, from
