@@ -189,8 +189,8 @@ async function addressStartRetryAfterSeconds(email: string): Promise<number> {
  * Start and recovery share one public answer. Its status, body keys and time
  * floor are the same for every address; only a limit changes what it says,
  * and every limit is taken before any branch that reads account state:
- * the browser and network limits, and the per-address limit (`retryLimited`
- * with a wait). `resend` is the recovery route's resend, which passed no bot
+ * the network, browser and per-address limits. A refused request says which
+ * limit refused it (`limitedBy`) and the wait, and sent nothing. `resend` is the recovery route's resend, which passed no bot
  * check of its own.
  */
 export async function uniformAccessStartResponse(
@@ -233,9 +233,6 @@ export async function uniformAccessStartResponse(
     if (existing && digest?.toString("hex") === earlier.challengeDigest)
       challenge = { ...challenge, challengeToken: existing, challengeDigest: digest };
   };
-  let retryLimited =
-    (await accessStartRetryAfterSeconds(recovery.receipt.browserKey, networkKey)) > 0;
-  if (retryLimited && prior) keepPriorLink(prior);
   const requestedEmail = recovery.receipt.email;
   const started = await requestStart({
     email: requestedEmail,
@@ -248,23 +245,26 @@ export async function uniformAccessStartResponse(
     requestId: input.requestId,
   });
   if (started.deliveryId) scheduleMagicLinkDelivery(started.deliveryId, input.requestId);
-  const addressLimited = started.addressLimited === true;
-  // Only now is the address limit known; no email carries this request's challenge.
-  if (addressLimited && prior) keepPriorLink(prior);
-  retryLimited = retryLimited || addressLimited;
+  const limitedBy = started.limitedBy ?? null;
+  // Only now is the refusing limit known; no email carries this request's challenge.
+  if (limitedBy && prior) keepPriorLink(prior);
   const commonRetryAfterSeconds = await accessStartRetryAfterSeconds(
     recovery.receipt.browserKey,
     networkKey
   );
-  const retryAfterSeconds = addressLimited
-    ? Math.max(commonRetryAfterSeconds, await addressStartRetryAfterSeconds(requestedEmail))
-    : commonRetryAfterSeconds;
+  // The browser and network waits come from the common buckets; the address bucket adds its own.
+  const retryAfterSeconds =
+    limitedBy === "address"
+      ? Math.max(commonRetryAfterSeconds, await addressStartRetryAfterSeconds(requestedEmail))
+      : commonRetryAfterSeconds;
   const response = NextResponse.json(
     {
       success: true,
       status: "if_eligible_email_sent",
       retryAfterSeconds,
-      retryLimited,
+      // Which limit refused this request, or null when it was not refused. `retryLimited` repeats it for a page loaded before this key existed.
+      limitedBy,
+      retryLimited: limitedBy !== null,
       requestId: input.requestId,
     },
     { status: 202, headers: { "cache-control": "no-store" } }

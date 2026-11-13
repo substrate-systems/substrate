@@ -200,7 +200,12 @@ describe("Exomem hosted access", () => {
     assert.equal(admissions, 1);
   });
 
-  for (const refused of ["exomem:start:ip", "exomem:start:email"]) {
+  const limitNamedFor = {
+    "exomem:start:ip": "ip",
+    "exomem:start:browser": "browser",
+    "exomem:start:email": "address",
+  } as const;
+  for (const refused of Object.keys(limitNamedFor) as Array<keyof typeof limitNamedFor>) {
     it(`stops before any branch when ${refused} refuses, and still pads the answer`, async () => {
       let lookups = 0;
       let padded = 0;
@@ -208,6 +213,7 @@ describe("Exomem hosted access", () => {
         {
           email: SENTINEL,
           networkKey: "blocked-network",
+          browserKey: "returning-browser",
           browserChallengeDigest: Buffer.alloc(32, 0x63),
           timeZone: null,
           emailScheme: null,
@@ -228,14 +234,9 @@ describe("Exomem hosted access", () => {
           },
         })
       );
-      // Only the address limit is reported: the page tells that person to wait,
-      // and the IP limit must not say whose address or network it counted.
-      assert.deepEqual(
-        result,
-        refused === "exomem:start:email"
-          ? { accepted: true, addressLimited: true }
-          : { accepted: true }
-      );
+      // The refusing limit is named, so the page says that nothing was sent; it names no
+      // address or network.
+      assert.deepEqual(result, { accepted: true, limitedBy: limitNamedFor[refused] });
       assert.equal(lookups, 0);
       assert.equal(padded, 1);
     });

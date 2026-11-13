@@ -4,6 +4,7 @@
 // computes them at render from data, and nothing here holds a value.
 
 import { assistantConnectionStep } from "@/components/exomem/subscribe-line";
+import type { StartLimit } from "@/lib/exomem/access-limits";
 
 /** The board's retry label, on "That didn’t finish" and wherever a step can be tried again. */
 export const TRY_AGAIN = "Try again";
@@ -56,15 +57,32 @@ export const sentCopy = {
 };
 
 /**
- * A request over a limit: the address, browser or network was asked for too often.
- * The step covers all three, so it names the one the person typed: the address.
+ * A request that a limit refused sent nothing, and each line says so. The address limit
+ * can say the address was emailed before; the browser and network limits cannot, because
+ * they do not depend on the address and nothing was sent for it.
  */
 export const limitedCopy = {
-  title: "That’s enough emails for now",
-  lede: "We already emailed this address several times this hour. Use the latest email you received, or check your spam folder.",
-  wait: (clock: string) => `You can ask for another in ${clock}. Not there? Look in spam.`,
-  nowAllowed: "You can ask for another now. Not there? Look in spam.",
+  title: {
+    address: "That’s enough emails for now",
+    browser: "Give it a minute",
+    ip: "Too many requests",
+  } satisfies Record<StartLimit, string>,
+  lede: {
+    address:
+      "We’ve already emailed this address several times this hour, so we didn’t send another. Use the latest email, or check spam.",
+    browser: "You asked a moment ago, so we didn’t send this one.",
+    ip: "Too many requests from your network, so we didn’t send an email.",
+  } satisfies Record<StartLimit, string>,
+  /** `when` is a duration in words (`waitInWords`), never a clock reading that could be mistaken for a time of day. */
+  wait: (when: string) => `You can ask again ${when}.`,
+  nowAllowed: "You can ask again now.",
 };
+
+/** A wait as "in about 1 minute" or "in 59 minutes": a duration, so it cannot be read as a clock time. */
+export function waitInWords(seconds: number): string {
+  const minutes = Math.ceil(Math.max(0, seconds) / 60);
+  return minutes <= 1 ? "in about 1 minute" : `in ${minutes} minutes`;
+}
 
 export const reviewerCopy = {
   title: "Sign in as a reviewer",

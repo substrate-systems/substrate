@@ -669,10 +669,14 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     assert.deepEqual(early.sent, []);
     assert.equal(early.deferred, 1);
     const { rows: waiting } = await pool.query(
-      "SELECT state, attempts, expires_at FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
+      `SELECT state, attempts, expires_at, due_at = not_before AS due_when_ready
+       FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1`,
       [tenant.tenantId]
     );
-    assert.deepEqual(waiting, [{ state: "pending", attempts: 0, expires_at: null }]);
+    // due_at moves with the wait, so the wait for cellctl is not counted as queue time.
+    assert.deepEqual(waiting, [
+      { state: "pending", attempts: 0, expires_at: null, due_when_ready: true },
+    ]);
 
     await markCellsDeleted(tenant.tenantId);
     await dueNow(tenant.tenantId);

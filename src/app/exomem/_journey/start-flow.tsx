@@ -4,9 +4,18 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button, ButtonLink } from "@/components/exomem/Button";
 import { TextField } from "@/components/exomem/TextField";
 import { EXOMEM_SIGN_IN_EVENT_KEY } from "@/lib/exomem-hosted/hosted-browser";
+import { START_LIMITS, type StartLimit } from "@/lib/exomem/access-limits";
 import { inboxProvider, inboxProviderForDomain, inboxUrl, phoneMailApp } from "@/lib/exomem/inbox";
 import { currentExomemTheme, currentExomemThemeChoice } from "@/lib/exomem/theme";
-import { breakCopy, failureCopy, limitedCopy, reviewerCopy, sentCopy, startCopy } from "./copy";
+import {
+  breakCopy,
+  failureCopy,
+  limitedCopy,
+  reviewerCopy,
+  sentCopy,
+  startCopy,
+  waitInWords,
+} from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
 import { openElsewhere, SentCard, StepActions, StepHeading, StepNotice } from "./parts";
 import { ChallengeError, useTurnstile } from "./turnstile";
@@ -34,7 +43,7 @@ type StartFlowProps = {
 };
 
 type StartOutcome =
-  | { kind: "sent"; retryAfterSeconds: number; retryLimited: boolean }
+  | { kind: "sent"; retryAfterSeconds: number; limitedBy: StartLimit | null }
   | { kind: "challenge_failed" | "invalid_email" | "failed" };
 
 /**
@@ -66,7 +75,7 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
   const body = (await response.json().catch(() => null)) as {
     error?: unknown;
     retryAfterSeconds?: unknown;
-    retryLimited?: unknown;
+    limitedBy?: unknown;
   } | null;
   if (
     response.status === 202 &&
@@ -77,7 +86,8 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
     return {
       kind: "sent",
       retryAfterSeconds: body.retryAfterSeconds,
-      retryLimited: body.retryLimited === true,
+      // The limit that refused the request, or null when an email was queued for it.
+      limitedBy: START_LIMITS.find((limit) => limit === body.limitedBy) ?? null,
     };
   }
   if (response.status === 400 && body?.error === "challenge_failed") {
@@ -126,6 +136,8 @@ export function StartFlow({
   const [failure, setFailure] = useState<string | null>(null);
   const [shownNotice, setShownNotice] = useState(notice ?? null);
   const [retryAt, setRetryAt] = useState(0);
+  // The limit that refused the last request; read only on the limited step.
+  const [limitedBy, setLimitedBy] = useState<StartLimit>("address");
   const [now, setNow] = useState(0);
   const {
     mount: challengeHost,
@@ -143,7 +155,10 @@ export function StartFlow({
   const resendLabel = sending
     ? "Sending…"
     : waitLeft > 0
-      ? sentCopy.resendIn(clock(waitLeft))
+      ? // A long wait reads as a duration in words; a short one as a countdown.
+        waitLeft > 60_000
+        ? `Send again ${waitInWords(Math.ceil(waitLeft / 1000))}`
+        : sentCopy.resendIn(clock(waitLeft))
       : sentCopy.resend;
   const formNonce = context.kind === "app" ? context.nonce : undefined;
   const sentDomain = emailDomain(sentEmail);
@@ -317,7 +332,8 @@ export function StartFlow({
       setNow(at);
       setShownNotice(null);
       setFocusStep(true);
-      setStep(outcome.retryLimited ? "limited" : "sent");
+      if (outcome.limitedBy) setLimitedBy(outcome.limitedBy);
+      setStep(outcome.limitedBy ? "limited" : "sent");
       return;
     }
     // Both steps hold the widget, so retry failures can keep the control focused.
@@ -331,6 +347,9 @@ export function StartFlow({
       setFailure(
         outcome.kind === "invalid_email" ? failureCopy.invalidEmail : failureCopy.challenge
       );
+      // The address is what to fix, so the cursor goes back to it (the form step only; a resend has no field).
+      if (outcome.kind === "invalid_email")
+        form.current?.querySelector<HTMLInputElement>('input[name="email"]')?.focus();
     }
   }
 
@@ -408,12 +427,14 @@ export function StartFlow({
         </>
       ) : step === "limited" ? (
         <>
-          <StepHeading title={limitedCopy.title} lede={limitedCopy.lede} />
+          <StepHeading title={limitedCopy.title[limitedBy]} lede={limitedCopy.lede[limitedBy]} />
           <div className={styles.group}>
             {challenge}
             <StepNotice alert={!!failure}>
               {failure ??
-                (waitLeft > 0 ? limitedCopy.wait(clock(waitLeft)) : limitedCopy.nowAllowed)}
+                (waitLeft > 0
+                  ? limitedCopy.wait(waitInWords(Math.ceil(waitLeft / 1000)))
+                  : limitedCopy.nowAllowed)}
             </StepNotice>
           </div>
           <StepActions

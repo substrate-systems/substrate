@@ -631,7 +631,9 @@ address that a browser accepts but the server cannot use, such as
 `person@localhost`, gets `400 invalid_email` after Turnstile, and the form asks
 the person to check it. That answer depends on the address's shape only, so it
 reveals nothing about any account. Every request that passes the rate limits
-queues exactly one email. An owner gets a sign-in link. An address
+ends with one outcome email: it queues one, unless a waiting or invited address
+repeats a request in the same fixed 15-minute window, when the email queued
+earlier in that window stands. An owner gets a sign-in link. An address
 with an open operator invitation and no account gets an invitation-waiting
 email. It names the dates the invitation was sent and expires, carries no
 link, and the address does not join the waitlist. The link in the invitation
@@ -656,15 +658,19 @@ counts once. Start links expire after 48 hours. A person who asks again while
 they hold a live start link gets another link with the same expiry. Using any
 of their links revokes the others. A waiting person who asks again keeps their
 place and gets a still-waiting email. It gives no queue position. The system
-queues at most one per entry in each 15-minute window.
+queues at most one per entry in each fixed 15-minute window.
 
-An address that asks more than five times an hour is limited, whatever its
-state. The `202` then carries `retryLimited: true` and `retryAfterSeconds` for
-that address. The body keys and the response time stay the same. The page says
-that the address was emailed several times this hour and shows the time to try
-again. The limit comes before every branch, so it does not reveal whether an
-address has an account. Each limited request logs `access.start.suppressed`
-with `limit` set to `ip`, `browser` or `address`, and never the address.
+Three limits can refuse a start request, whatever the address's state: the
+network (20 an hour), the browser (1 a minute) and the address (5 an hour).
+The `202` then carries `limitedBy` set to `ip`, `browser` or `address`, and
+`retryAfterSeconds`. The body always carries `limitedBy`, `null` when no limit
+refused the request, so the body keys and the response time stay the same.
+`retryLimited` repeats `limitedBy !== null` for a page loaded before `limitedBy`
+existed. Each limit says that this request sent no email. Only the address
+limit says the address was emailed before. The page gives the wait in words,
+such as "in 59 minutes". The limits come before every branch, so they do not
+reveal whether an address has an account. Each refused request logs
+`access.start.suppressed` with `limit` set to the limit, and never the address.
 
 Emails for start links, waitlist places, promotions, the unpaid-hold
 reminder and the account lifecycle (emails 03 to 07) go through

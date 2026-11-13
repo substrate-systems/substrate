@@ -1,7 +1,7 @@
 ## 1. Outcome email for every accepted request
 
 - [x] 1.1 Route an address with a live, unused, non-self-serve invitation and no tenant to an `invitation_waiting` email, before the waitlist branch
-- [x] 1.2 Queue a `waitlist_still_waiting` email when a waiting person asks again, deduped per entry per 15-minute bucket
+- [x] 1.2 Queue a `waitlist_still_waiting` email when a waiting person asks again, deduped per entry per fixed 15-minute window
 - [x] 1.3 Add both kinds to the outbox, their templates and the kind check constraint
 
 ## 2. Immediate dispatch
@@ -11,8 +11,8 @@
 
 ## 3. Visible per-address limit and page copy
 
-- [x] 3.1 Report the per-address limit as `retryLimited` with its retry time, same status, body shape and time floor
-- [x] 3.2 Sent state: "We sent an email to <address>. It says what happens next."; limited state names the try-again time
+- [x] 3.1 Report the limit that refused a request as `limitedBy` (ip, browser or address) with its retry time, same status, body keys and time floor
+- [x] 3.2 Sent state: "We sent an email to <address>. It says what happens next."; each limited state says that this request sent nothing and gives the wait in words
 
 ## 4. Docs and delivery
 

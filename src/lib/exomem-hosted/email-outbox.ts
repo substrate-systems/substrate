@@ -1355,11 +1355,14 @@ async function claimEmail(
       return { outcome: "failed", kind: row.kind, errorCode: "EMAIL_EXPIRED" };
     }
     if (context instanceof NotYet) {
+      // A deferral is a planned wait, so due_at moves with not_before and it is not queue time.
+      // A provider-outage retry is queue time: its update leaves due_at alone.
       await tx`
         /* exomem:defer-email */
         UPDATE exomem_email_outbox
         SET state = 'pending',
             not_before = ${context.until.toISOString()}::timestamptz,
+            due_at = ${context.until.toISOString()}::timestamptz,
             lease_owner = NULL,
             lease_expires_at = NULL,
             updated_at = now()
@@ -1542,8 +1545,8 @@ function providerRefusedRequest(status: number | undefined): boolean {
 
 export type ExomemEmailDrainResult = {
   recipientsCleared: number;
-  /** Provider events deleted for being more than 30 days old. */
-  providerEventsPruned: number;
+  /** Provider events deleted for being more than 30 days old; `null` when that pass failed. */
+  providerEventsPruned: number | null;
   /** Emails 03 queued this tick; `null` when that pass failed. */
   readyEnqueued: number | null;
   claimed: number;
@@ -1686,7 +1689,11 @@ export async function drainExomemEmailOutbox(
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const result: ExomemEmailDrainResult = {
     recipientsCleared: await clearSettledEmailRecipients(),
-    providerEventsPruned: await pruneProviderEvents(),
+    // Housekeeping: its failure must not hold back queued mail either.
+    providerEventsPruned: await pruneProviderEvents().catch(() => {
+      console.error("exomem: provider event prune failed");
+      return null;
+    }),
     // Before the drain, so a cell that became ready since the last tick is
     // announced in this one. Its failure must not hold back queued mail.
     readyEnqueued: await enqueueReadyEmails().then(

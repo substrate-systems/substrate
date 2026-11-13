@@ -2,7 +2,7 @@ import { type ExomemThemeChoice } from "@/lib/exomem/theme";
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { after } from "next/server";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
-import { OWNER_SIGN_IN_TTL_MS } from "@/lib/exomem/access-limits";
+import { OWNER_SIGN_IN_TTL_MS, type StartLimit } from "@/lib/exomem/access-limits";
 import {
   createMagicAccessToken,
   redeemMagicAccessTokenAtomic,
@@ -109,7 +109,7 @@ async function runAfterResponse(work: () => Promise<void>): Promise<void> {
 }
 
 /** Logs, content-free, that a rate limit refused this start request, so a person who got no email can be explained. */
-function emitStartSuppressed(limit: "ip" | "browser" | "address", requestId?: string): void {
+function emitStartSuppressed(limit: StartLimit, requestId?: string): void {
   emitOperationalEvent(
     buildOperationalEvent({
       event: "access.start.suppressed",
@@ -211,8 +211,8 @@ async function queueOwnerSignInLink(
  *
  * The three rate limits run before any branch, so a limited request does the
  * same work whoever it names. A request that the address limit refused is
- * reported as `addressLimited`, so the page can say so; the other two limits
- * are visible to the caller already (access-recovery.ts). No branch sends mail
+ * reported as `limitedBy`, which names the limit that refused it, so the page
+ * says that this request sent nothing and why. No branch sends mail
  * itself: each writes an outbox row in the transaction that records its
  * outcome, and the self-serve branch sends that row as soon as the
  * transaction commits (the delivery job is the fallback). The response is held
@@ -239,21 +239,21 @@ export async function requestStart(
     requestId?: string;
   },
   dependencies?: Partial<AccessDependencies>
-): Promise<{ accepted: true; deliveryId?: string; addressLimited?: true }> {
+): Promise<{ accepted: true; deliveryId?: string; limitedBy?: StartLimit }> {
   const deps = withDefaults(dependencies);
   const startedAtMs = performance.now();
   try {
     const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startIp, input.networkKey);
     if (!networkAllowed) {
       emitStartSuppressed("ip", input.requestId);
-      return { accepted: true };
+      return { accepted: true, limitedBy: "ip" };
     }
     if (
       input.browserKey &&
       !(await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startBrowser, input.browserKey))
     ) {
       emitStartSuppressed("browser", input.requestId);
-      return { accepted: true };
+      return { accepted: true, limitedBy: "browser" };
     }
     const addressAllowed = await deps.takeRateLimit(
       EXOMEM_RATE_LIMITS.startEmail,
@@ -261,7 +261,7 @@ export async function requestStart(
     );
     if (!addressAllowed) {
       emitStartSuppressed("address", input.requestId);
-      return { accepted: true, addressLimited: true };
+      return { accepted: true, limitedBy: "address" };
     }
 
     let emailNormalized: string;

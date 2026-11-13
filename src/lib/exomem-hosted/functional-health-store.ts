@@ -122,8 +122,9 @@ export async function saveHealthProof(proof: HealthProof): Promise<void> {
  * some queued email (either outbox) has been ready but unsent for more than
  * `overdueSeconds`. `failedRecently`: some email failed in the last hour for a
  * reason that is not the provider refusing the request (a refusal ends one
- * waitlist email and is not a stall), or a sign-in link failed to send. A
- * sign-in link that ended because it was used, replaced or expired is not one.
+ * waitlist email and is not a stall), or a sign-in link failed to send. The
+ * two codes that end a sign-in link for being used, replaced or expired are
+ * not one; any other code, including a new one, counts.
  */
 export async function readEmailDeliveryStall(
   overdueSeconds: number
@@ -144,7 +145,8 @@ export async function readEmailDeliveryStall(
           OR EXISTS (SELECT 1 FROM exomem_access_delivery_outbox
                      WHERE state = 'failed'
                        AND updated_at > now() - interval '1 hour'
-                       AND last_error_code IN ('EMAIL_DELIVERY_UNAVAILABLE', 'DELIVERY_PAYLOAD_INVALID'))
+                       AND (last_error_code IS NULL
+                            OR last_error_code NOT IN ('SUPERSEDED_MAGIC_LINK', 'ACCESS_TOKEN_UNAVAILABLE')))
          ) AS failed_recently`,
       [overdueSeconds]
     );

@@ -31,17 +31,16 @@ CREATE INDEX exomem_email_outbox_failed_idx
 CREATE INDEX exomem_access_delivery_outbox_failed_idx
   ON exomem_access_delivery_outbox (updated_at) WHERE state = 'failed';
 
--- One row per provider event for a message. The event names are the provider's
--- documented transactional set (Brevo), a closed protocol rather than data; the
--- provider's opens and clicks are not stored. A redelivered event changes
--- nothing: the unique key makes the insert idempotent, and its index leads with
--- the message id the report joins on.
+-- One row per provider event for a message. The receiver stores only the
+-- provider's documented transactional event names and ignores the rest (opens,
+-- clicks, unknown names); that list lives in code (email-provider-events.ts),
+-- so a name added there needs no migration. A redelivered event changes
+-- nothing: the unique key makes the insert idempotent, and its index leads
+-- with the message id the report joins on.
 CREATE TABLE exomem_email_provider_events (
   provider_message_id text NOT NULL
     CHECK (char_length(provider_message_id) BETWEEN 1 AND 512),
-  event text NOT NULL
-    CHECK (event IN ('request', 'delivered', 'deferred', 'soft_bounce', 'hard_bounce',
-      'blocked', 'spam', 'invalid_email', 'error', 'unsubscribed')),
+  event text NOT NULL,
   occurred_at timestamptz NOT NULL,
   received_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider_message_id, event, occurred_at)

@@ -234,6 +234,7 @@ describe(
         assert.equal(sends, 0);
         const body = await response.json();
         assert.deepEqual(Object.keys(body).sort(), [
+          "limitedBy",
           "requestId",
           "retryAfterSeconds",
           "retryLimited",
@@ -405,7 +406,9 @@ describe(
         )
       );
       assert.equal(tooSoon.status, 202);
-      assert.equal((await tooSoon.json()).retryLimited, true);
+      const tooSoonBody = await tooSoon.json();
+      assert.equal(tooSoonBody.retryLimited, true);
+      assert.equal(tooSoonBody.limitedBy, "browser");
       assert.equal(tooSoon.cookies.get("exomem_magic_challenge")!.value, auth);
       const held = recovery.readAccessRecoveryReceipt(
         request(
@@ -507,7 +510,9 @@ describe(
       assert.deepEqual(Object.keys(limitedBody).sort(), Object.keys(anonymousBody).sort());
       assert.equal(limitedBody.status, "if_eligible_email_sent");
       assert.equal(anonymousBody.retryLimited, false);
+      assert.equal(anonymousBody.limitedBy, null);
       assert.equal(limitedBody.retryLimited, true);
+      assert.equal(limitedBody.limitedBy, "address");
       // The wait is the address bucket's remaining window, not the browser's 60 seconds.
       assert.ok(
         limitedBody.retryAfterSeconds > 60 && limitedBody.retryAfterSeconds <= rule.windowSeconds,

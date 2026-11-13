@@ -138,7 +138,10 @@ async function inviteAddress(emailNormalized: string): Promise<Buffer> {
   return tokenDigest;
 }
 
-function startRequest(body: Record<string, unknown>): import("next/server").NextRequest {
+function startRequest(
+  body: Record<string, unknown>,
+  cookie?: string
+): import("next/server").NextRequest {
   return new Request("https://substratesystems.io/api/exomem/access/start", {
     method: "POST",
     headers: {
@@ -146,6 +149,7 @@ function startRequest(body: Record<string, unknown>): import("next/server").Next
       host: "substratesystems.io",
       origin: "https://substratesystems.io",
       "x-forwarded-for": "203.0.113.20",
+      ...(cookie ? { cookie } : {}),
     },
     body: JSON.stringify(body),
   }) as unknown as import("next/server").NextRequest;
@@ -361,6 +365,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       success: true,
       status: "if_eligible_email_sent",
       retryAfterSeconds: 60,
+      limitedBy: null,
       retryLimited: false,
       requestId: FIXED_REQUEST_ID,
     });
@@ -431,12 +436,51 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     const refused = answers[5]!;
     for (const answer of answers.slice(0, 5)) {
       assert.equal(answer.retryLimited, false);
+      assert.equal(answer.limitedBy, null);
       assert.deepEqual(Object.keys(refused).sort(), Object.keys(answer).sort());
     }
     assert.equal(refused.retryLimited, true);
+    assert.equal(refused.limitedBy, "address");
     assert.ok(Number(refused.retryAfterSeconds) > 60, `${refused.retryAfterSeconds}`);
     // The first five asked: one place on the list, one note that they still wait.
     assert.deepEqual(await outboxKinds(address), ["waitlist", "waitlist_still_waiting"]);
+  });
+
+  // Fixing a typo with "Use a different email" inside a minute asks again from the same
+  // browser. Its limit refuses the second address, which was never emailed: the page must
+  // not say that it was.
+  it("names the browser limit, and queues nothing, for a second address asked within a minute", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/start/route");
+    await configureCapacity(0);
+    const first = newAddress("typo");
+    const second = newAddress("fixed");
+    const firstAnswer = await POST(
+      startRequest({ email: first, turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })
+    );
+    assert.equal((await firstAnswer.json()).limitedBy, null);
+    const cookie = firstAnswer.cookies
+      .getAll()
+      .map(({ name, value }) => `${name}=${value}`)
+      .join("; ");
+
+    const secondAnswer = await POST(
+      startRequest({ email: second, turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" }, cookie)
+    );
+    assert.equal(secondAnswer.status, 202);
+    const body = await secondAnswer.json();
+    assert.equal(body.limitedBy, "browser");
+    assert.equal(body.retryLimited, true);
+    assert.ok(
+      body.retryAfterSeconds > 0 && body.retryAfterSeconds <= 60,
+      `${body.retryAfterSeconds}`
+    );
+    assert.deepEqual(await outboxKinds(second), []);
+    assert.equal(
+      await count("SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1", [
+        second,
+      ]),
+      0
+    );
   });
 
   // A fixed 15-minute window: a repeat inside it adds nothing, and the next

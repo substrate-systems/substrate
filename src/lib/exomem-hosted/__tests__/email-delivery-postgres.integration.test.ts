@@ -33,6 +33,7 @@ const WEBHOOK_TOKEN = "synthetic-webhook-token";
 let pool: Pool | undefined;
 let runEmailHealthCheck: typeof import("../functional-health").runEmailHealthCheck;
 let dispatchExomemEmail: typeof import("../email-outbox").dispatchExomemEmail;
+let drainExomemEmailOutbox: typeof import("../email-outbox").drainExomemEmailOutbox;
 let startSelfServeAtomic: typeof import("../self-serve-admission").startSelfServeAtomic;
 let schema: string | undefined;
 const priorEnv: Record<string, string | undefined> = {};
@@ -146,7 +147,7 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
     __setExomemTransactionForTests(interactiveTransaction);
     // These modules import the mail provider, so they load after it is mocked.
     ({ runEmailHealthCheck } = await import("../functional-health"));
-    ({ dispatchExomemEmail } = await import("../email-outbox"));
+    ({ dispatchExomemEmail, drainExomemEmailOutbox } = await import("../email-outbox"));
     ({ startSelfServeAtomic } = await import("../self-serve-admission"));
   });
 
@@ -486,6 +487,59 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
         [refused]
       );
       assert.equal(await sentByProvider(), true);
+    });
+
+    it("fails for a sign-in link that failed for any reason except being used, replaced or expired", async () => {
+      const owner = `owner-${randomUUID()}@example.com`;
+      const user = await pool!.query<{ id: string }>(
+        "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+        [owner]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
+        [user.rows[0]!.id]
+      );
+      const link = await createMagicAccessToken({
+        emailNormalized: owner,
+        tokenDigest: randomBytes(32),
+        browserChallengeDigest: randomBytes(32),
+        expiresAt: new Date(Date.now() + 15 * 60_000),
+        deliverySecretCiphertext: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "i",
+          ciphertext: "c",
+          tag: "t",
+        },
+      });
+      assert.ok(link);
+      const failWith = (code: string) =>
+        pool!.query(
+          `UPDATE exomem_access_delivery_outbox
+           SET state = 'failed', secret_ciphertext = NULL, last_error_code = $1, updated_at = now()
+           WHERE id = $2`,
+          [code, link.deliveryId]
+        );
+      // Superseded by a newer link, or no longer usable: ordinary, not an outage.
+      for (const ordinary of ["SUPERSEDED_MAGIC_LINK", "ACCESS_TOKEN_UNAVAILABLE"]) {
+        await failWith(ordinary);
+        assert.equal(await sentByProvider(), true, ordinary);
+      }
+      // A failure code nobody listed still trips the proof.
+      await failWith("SOME_FUTURE_FAILURE");
+      assert.equal(await sentByProvider(), false);
+    });
+  });
+
+  describe("email drain", () => {
+    it("keeps draining when the provider-event prune fails", async () => {
+      await pool!.query("ALTER TABLE exomem_email_provider_events RENAME TO prune_broken");
+      try {
+        const result = await drainExomemEmailOutbox();
+        assert.equal(result.providerEventsPruned, null);
+      } finally {
+        await pool!.query("ALTER TABLE prune_broken RENAME TO exomem_email_provider_events");
+      }
     });
   });
 });

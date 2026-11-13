@@ -2,7 +2,7 @@
 
 ### Requirement: Existing users can request a non-enumerating sign-in link
 
-An identity that already owns an active Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The public response MUST be indistinguishable for known and unknown addresses, and requesting a link MUST NOT create an account or tenant. Every request with a well-formed address that passes the bot check and the rate limits SHALL queue exactly one email to the submitted address that states what happens for that address. No accepted request SHALL end without an email. A request whose address cannot be used SHALL be refused with an `invalid_email` answer after the bot check, and the page SHALL ask the person to check the address instead of claiming that an email was sent.
+An identity that already owns an active Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The public response MUST be indistinguishable for known and unknown addresses, and requesting a link MUST NOT create an account or tenant. Every request with a well-formed address that passes the bot check and the rate limits SHALL end with an outcome email to the submitted address that states what happens for that address. The request queues that email, except that a waiting or invited address that repeats a request inside the same fixed 15-minute window queues nothing new: the same outcome email queued earlier in that window stands, so the page's claim that an email was sent stays true. No accepted request SHALL end without an email. A request whose address cannot be used SHALL be refused with an `invalid_email` answer after the bot check, and the page SHALL ask the person to check the address instead of claiming that an email was sent.
 
 #### Scenario: Existing Exomem owner requests a link
 
@@ -26,7 +26,8 @@ An identity that already owns an active Exomem tenant SHALL be able to request a
 
 - **WHEN** a person who already waits submits the request again
 - **THEN** their entry keeps its place and no second entry exists
-- **AND** the system queues a still-waiting email, at most one per 15 minutes per entry
+- **AND** the system queues a still-waiting email, at most one per fixed 15-minute window per entry
+- **AND** a repeat inside the same window queues nothing new, because the still-waiting email of that window already went out
 - **AND** the email reveals no queue position
 
 #### Scenario: Address the server cannot use
@@ -52,15 +53,21 @@ The system SHALL dispatch each email that a start request queues as soon as the 
 - **WHEN** the provider is unavailable during the immediate dispatch
 - **THEN** the row stays queued with its retry time, and the delivery job sends it later
 
-### Requirement: The per-address request limit is visible
+### Requirement: A refused start request says that nothing was sent
 
-When a request exceeds the per-address limit, the system SHALL tell the browser that the request was limited and when to try again. The limit SHALL be taken before any branch that depends on account state, so the answer is the same for every address. The response status, body shape and time floor SHALL stay those of every other accepted request.
+When a rate limit refuses a start request, the system SHALL tell the browser which limit refused it (network, browser or address) and when to try again, and the page SHALL say that this request sent no email. The page MUST NOT say that an address was emailed unless the refusing limit is the per-address limit, which counts emails already sent to that address. The limits SHALL be taken before any branch that depends on account state, so the answer is the same for every address. The wait SHALL be shown as a duration in words, never as a clock reading. The response status, body keys and time floor SHALL stay those of every other accepted request.
 
 #### Scenario: Address asked too often
 
 - **WHEN** a browser submits an address that has used its hourly request allowance
-- **THEN** the page says that the address was emailed several times this hour and names when to try again
+- **THEN** the page says that the address was emailed several times this hour, that no further email was sent, and when to try again
 - **AND** an address with an account and one without get the same answer
+
+#### Scenario: Another address asked within a minute
+
+- **WHEN** a browser submits a second address within one minute of its first request
+- **THEN** the system queues nothing for the second address and names the browser limit
+- **AND** the page says that the request was too soon and that no email was sent, without saying that the address was emailed
 
 ### Requirement: Email delivery is observable
 
