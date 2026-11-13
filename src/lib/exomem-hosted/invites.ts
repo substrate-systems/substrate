@@ -21,6 +21,8 @@ import {
   dispatchQueuedEmailsSoon,
   enqueueExomemEmail,
   INVITATION_REMINDER_LEAD_DAYS,
+  invitationEmailDedupeKey,
+  invitationReminderDedupeKey,
 } from "./email-outbox";
 import { LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -191,7 +193,7 @@ export async function issueOperatorInvite(
   const enqueueEmails: CreateInviteRecordInput["afterCreate"] = async (tx, { inviteId }) => {
     const link = { version: 1 as const, inviteId, token, expiresAt: expiresAt.toISOString() };
     const invitation = {
-      dedupeKey: `invite:${inviteId}`,
+      dedupeKey: invitationEmailDedupeKey(inviteId),
       recipient: emailNormalized,
       recipientTimeZone: null,
       // The invitee's own account values, if any, are read at send (email-outbox.ts).
@@ -216,7 +218,7 @@ export async function issueOperatorInvite(
       if (remindAt > now) {
         await enqueueExomemEmail(tx, {
           kind: "invitation_reminder",
-          dedupeKey: `invite-reminder:${inviteId}`,
+          dedupeKey: invitationReminderDedupeKey(inviteId),
           recipient: emailNormalized,
           recipientTimeZone: null,
           recipientEmailScheme: null,

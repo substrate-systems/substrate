@@ -635,9 +635,17 @@ ends with one outcome email: it queues one, unless a waiting or invited address
 repeats a request in the same fixed 15-minute window, when the email queued
 earlier in that window stands. An owner gets a sign-in link. An address
 with an open operator invitation and no account gets an invitation-waiting
-email. It names the dates the invitation was sent and expires, carries no
-link, and the address does not join the waitlist. The link in the invitation
-email stays valid. Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
+email. It carries a fresh link to that invitation and the date it expires, and
+the address does not join the waitlist. The fresh link replaces every earlier
+link for the invitation, so a person who lost the invitation email can start.
+The invitation keeps its expiry, kind and place in capacity. The system
+replaces the link at most once in each fixed 15-minute window, so a repeat
+request, or a stranger who submits the address, cannot invalidate the link in
+that window's email. While an email that carries the invitation's current link
+is being sent, a request replaces nothing and queues nothing. An invitation
+email that was queued with an earlier link is cancelled, not sent. If an
+invitee reports that their link no longer opens the invitation, tell them to ask
+to start again with that address and use the newest email. Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 
 - `waitlist`: a waitlist place. This is the default, including an unset or
   unrecognized value. The retired `closed` value also reads as `waitlist`.
@@ -687,8 +695,8 @@ still-waiting and invitation-waiting emails only when no other email is ready.
 It retries a failed send after 1, 2, 4 and up to 60 minutes. An email with a deadline, such as a
 start link, retries until that deadline. An email without one, such as 07,
 stops after 10 attempts. When Brevo refuses the request (`400`, `413` or
-`422`), the row records `EMAIL_REFUSED`. A refused waitlist, still-waiting or
-invitation-waiting email fails at once, and the person keeps their place. Every other refused email retries,
+`422`), the row records `EMAIL_REFUSED`. A refused waitlist or still-waiting
+email fails at once, and the person keeps their place. Every other refused email retries,
 because a refusal can come from our own account, such as an unvalidated
 sender. Email 07 also waits, with no limit,
 until cellctl has deleted every cell of the account. A wait counts no attempt.

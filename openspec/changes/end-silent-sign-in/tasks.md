@@ -3,6 +3,11 @@
 - [x] 1.1 Route an address with a live, unused, non-self-serve invitation and no tenant to an `invitation_waiting` email, before the waitlist branch
 - [x] 1.2 Queue a `waitlist_still_waiting` email when a waiting person asks again, deduped per entry per fixed 15-minute window
 - [x] 1.3 Add both kinds to the outbox, their templates and the kind check constraint
+- [x] 1.4 Give an invited address a fresh invitation link: replace the invitation's token in the transaction that queues the email, only when a new email is queued, keeping its expiry, kind and entitlement
+- [x] 1.5 Make the invitation-waiting email carry that link and say that it replaces earlier invitation links; cancel an email whose link was replaced again before it was sent
+- [x] 1.6 Carry the fresh link in a friend invitation's reminder that is still queued
+- [x] 1.7 Replace nothing and queue nothing while an email with the invitation's current link is under a running send lease; take a per-invitation advisory lock so requests read each other's queued emails, then lock the invitation's unsent emails, then the invitation, the order of a send's settlement, so a claim and a replacement cannot interleave and a settlement cannot deadlock with a request
+- [x] 1.8 Cancel, not fail, an invitation-waiting email queued before it carried a link
 
 ## 2. Immediate dispatch
 
@@ -17,7 +22,7 @@
 ## 4. Docs and delivery
 
 - [x] 4.1 Update the runbook's "Start admission" section
-- [ ] 4.2 Production check: the invited address gets the invitation-waiting email, an owner gets a sign-in link, both measured request-to-delivered
+- [ ] 4.2 Production check: the invited address gets the invitation-waiting email with a link that opens the invitation, an owner gets a sign-in link, both measured request-to-delivered
 
 ## 5. Email delivery is observable
 

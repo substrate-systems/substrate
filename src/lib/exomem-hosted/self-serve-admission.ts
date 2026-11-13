@@ -13,7 +13,13 @@ import { createHash } from "node:crypto";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { executeExomemSql, takeRateLimit, withExomemTransaction, type ExomemSql } from "./db";
-import { enqueueExomemEmail } from "./email-outbox";
+import {
+  carryRotatedInvitationLink,
+  enqueueExomemEmail,
+  invitationEmailInFlight,
+  invitationWaitingDedupePrefix,
+  type StartLinkPayload,
+} from "./email-outbox";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit, type ExomemRateLimitRule } from "./rate-limit";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
@@ -117,7 +123,7 @@ export type StartOutcome =
   | "waitlisted"
   /** The person already waits and keeps their place. */
   | "still_waiting"
-  /** An operator invitation to the address is open; no new link is made. */
+  /** An operator invitation to the address is open; its link is replaced and emailed, or is already in flight. */
   | "invitation_waiting";
 
 /** `emailId` is the outbox row this request queued; `null` when its dedupe key already existed. */
@@ -130,6 +136,30 @@ function mintStartLink(randomBytes?: RandomBytesSource): StartLinkMaterial {
   const digest = tokenDigest(token);
   if (!digest) throw new Error("start link token has no digest");
   return { token, digest };
+}
+
+/**
+ * Gives an open invitation the link in `payload`: the earlier token stops
+ * opening it. Capacity, kind, entitlement and expiry are untouched, so the
+ * place the invitation holds is the same place. The invitation's emails that
+ * still carry the earlier token cancel themselves at send; the friend
+ * reminder is rewritten to carry the new one.
+ */
+async function rotateInvitationLink(
+  tx: ExomemSql,
+  payload: StartLinkPayload,
+  digest: Buffer
+): Promise<void> {
+  await tx`
+    /* exomem:rotate-invitation-link */
+    UPDATE exomem_invites
+    SET token_digest = ${digest}
+    WHERE id = ${payload.inviteId}::uuid
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+  `;
+  await carryRotatedInvitationLink(tx, payload);
 }
 
 async function insertStartLink(
@@ -200,14 +230,72 @@ async function enqueueStartLinkEmail(
 }
 
 /**
+ * The address's open operator invitation (not self-serve, unused, unrevoked,
+ * unexpired), locked for this transaction; `null` when it has none, and
+ * `being_sent` when an email with its current link is under a running send
+ * lease. That email works and is the answer, so the caller leaves the link.
+ *
+ * The locks, in order: a per-invitation advisory lock, the invitation's unsent
+ * emails, then the invitation. The emails come before the invitation, as in a
+ * send's settlement (its outbox row, then `afterSent` or `afterFailed` on the
+ * invitation); the reverse order lets the two wait on each other, and
+ * PostgreSQL aborts the settlement of a message the provider already accepted.
+ * So the invitation is read unlocked first, and locked after the emails, with
+ * its liveness read again.
+ */
+async function lockOpenInvitation(
+  tx: ExomemSql,
+  email: string
+): Promise<{ id: string; expires_at: Date | string } | "being_sent" | null> {
+  const candidate = await tx`
+    /* exomem:start-open-invitation */
+    SELECT id
+    FROM exomem_invites
+    WHERE email_normalized = ${email}
+      AND NOT self_serve
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  const inviteId = (candidate.rows[0] as { id: string } | undefined)?.id;
+  if (!inviteId) return null;
+  // Requests for one invitation take turns, so the check below reads the email an earlier request
+  // queued: a row lock cannot cover a row that is not committed yet. Settlement never takes this
+  // lock, so it cannot wait on it.
+  await tx`
+    /* exomem:serialize-start-requests */
+    SELECT pg_advisory_xact_lock(hashtextextended('exomem-start-invitation:' || ${inviteId}::text, 0))
+  `;
+  if (await invitationEmailInFlight(tx, { inviteId, email })) return "being_sent";
+  // Serializes this request with a redemption and with another request's rotation.
+  const locked = await tx`
+    /* exomem:lock-open-invitation */
+    SELECT id, expires_at
+    FROM exomem_invites
+    WHERE id = ${inviteId}::uuid
+      AND NOT self_serve
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+      AND expires_at > now()
+    FOR UPDATE
+  `;
+  return (locked.rows[0] as { id: string; expires_at: Date | string } | undefined) ?? null;
+}
+
+/**
  * The self-serve branch of a start request, for a person who owns no
  * Exomem, in one transaction. Each outcome queues one email:
  *
  * 0. An address with an open operator invitation (not self-serve, unused,
- *    unrevoked, unexpired) is told the invitation is waiting. This comes
- *    first, before the capacity lock: it reads no capacity and makes no
- *    token, no start link and no waitlist place, so the invitation link
- *    already delivered stays the only one.
+ *    unrevoked, unexpired) gets that invitation again under a new link: the
+ *    email carries it, and the link sent earlier stops working. This comes
+ *    first, before the capacity lock: the invitation keeps its expiry, kind,
+ *    entitlement and place in capacity, so it reads no capacity and makes no
+ *    start link and no waitlist place. Anybody can submit any address, so a
+ *    stranger can rotate an invitee's link, but only once per 15-minute
+ *    window, and the invitee always receives the newest link.
  *
  * The rest runs under the Cloud capacity lock:
  *
@@ -238,33 +326,29 @@ export async function startSelfServeAtomic(input: {
   const emailScheme = input.emailScheme ?? null;
   const themeChoice = input.themeChoice ?? "auto";
   return withExomemTransaction(async (tx) => {
-    const invitation = await tx`
-      /* exomem:start-open-invitation */
-      SELECT id
-      FROM exomem_invites
-      WHERE email_normalized = ${input.emailNormalized}
-        AND NOT self_serve
-        AND consumed_at IS NULL
-        AND revoked_at IS NULL
-        AND expires_at > now()
-      ORDER BY created_at DESC
-      LIMIT 1
-    `;
-    const inviteId = (invitation.rows[0] as { id: string } | undefined)?.id;
-    if (inviteId) {
-      return {
-        outcome: "invitation_waiting",
-        emailId: await enqueueExomemEmail(tx, {
-          kind: "invitation_waiting",
-          dedupeKey: `invitation-waiting:${inviteId}:${repeatReplyWindow()}`,
-          recipient: input.emailNormalized,
-          recipientTimeZone: input.timeZone,
-          recipientEmailScheme: emailScheme,
-          recipientThemeChoice: themeChoice,
-          payload: { version: 1, inviteId },
-          expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
-        }),
+    const open = await lockOpenInvitation(tx, input.emailNormalized);
+    if (open === "being_sent") return { outcome: "invitation_waiting", emailId: null };
+    if (open) {
+      const payload: StartLinkPayload = {
+        version: 1,
+        inviteId: open.id,
+        token: link.token,
+        expiresAt: new Date(open.expires_at).toISOString(),
       };
+      const emailId = await enqueueExomemEmail(tx, {
+        kind: "invitation_waiting",
+        dedupeKey: `${invitationWaitingDedupePrefix(open.id)}${repeatReplyWindow()}`,
+        recipient: input.emailNormalized,
+        recipientTimeZone: input.timeZone,
+        recipientEmailScheme: emailScheme,
+        recipientThemeChoice: themeChoice,
+        payload,
+        expiresAt: new Date(Date.now() + WAITLIST_EMAIL_TTL_MS),
+      });
+      // A repeat inside the window queued nothing, and the link its email
+      // carries is still the current one: rotating now would kill it.
+      if (emailId) await rotateInvitationLink(tx, payload, link.digest);
+      return { outcome: "invitation_waiting", emailId };
     }
 
     await lockCloudCapacity(tx);
