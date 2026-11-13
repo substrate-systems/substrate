@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { normalizeAccessEmail, requestStart } from "./access";
+import { createExomemWaitBudget } from "./db";
 import { dispatchExomemEmail } from "./email-outbox";
 import { healthEmailOverdueSeconds, runFunctionalHealthCheck } from "./functional-health";
 import {
@@ -37,13 +38,12 @@ const JUDGED_FAILURE_CODE: Record<CanaryFailure, CanaryErrorCode> = {
   not_delivered: "CANARY_NOT_DELIVERED",
 };
 
-// The scheduler allows a run 20 s in all. The proof stops its own work at 12 s, so that it can
-// still save its failed result. Lock waits and statements of the canary's transaction end sooner.
-const PROOF_DEADLINE_MS = 12_000;
-const CANARY_WAIT_LIMITS = { lockTimeoutMs: 3_000, statementTimeoutMs: 5_000 };
-
-/** The two PostgreSQL states of a wait that hit `lock_timeout` or `statement_timeout`. */
-const DATABASE_WAIT_TIMEOUT_STATES = new Set(["55P03", "57014"]);
+// The scheduler allows a run 20 s in all. The proof stops its own work at 10 s. A transaction in
+// flight then ends on its own limits (a lock wait at 2 s, a statement at 3 s), and the proof waits
+// for that at most 4 s, so it saves its failed result by 14 s even when a transaction never ends.
+const PROOF_DEADLINE_MS = 10_000;
+const SETTLE_GRACE_MS = 4_000;
+const CANARY_WAIT_LIMITS = { lockTimeoutMs: 2_000, statementTimeoutMs: 3_000 };
 
 type CanaryRun = {
   failure: CanaryErrorCode | null;
@@ -70,68 +70,54 @@ function usableCanaryAddress(): string | null {
  * `requestStart` answers "accepted" whatever happened, so the public reply
  * never tells which branch ran, and it is left so. The proof needs the
  * branch, so it reads the outcome of the self-serve step that the request runs
- * inline, and any error that this step or the send raised.
+ * inline.
  */
 async function startCanary(
   address: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  budget: { readonly timedOut: boolean }
 ): Promise<{ failure: CanaryErrorCode } | { failure: null; kind: string; emailId: string | null }> {
   let start: StartResult | undefined;
-  let error: unknown;
-  const step = async <T>(work: () => Promise<T>): Promise<T> => {
-    try {
-      signal.throwIfAborted();
-      return await work();
-    } catch (raised) {
-      error ??= raised;
-      throw raised;
-    }
-  };
-  // The canary skips only the browser bot check, and only inside this scheduler-authenticated cron: no public route reaches it.
-  const started = await requestStart(
-    {
-      email: address,
-      networkKey: CANARY_NETWORK_KEY,
-      browserChallengeDigest: randomBytes(32),
-      timeZone: null,
-      emailScheme: null,
-      requestId: randomUUID(),
-    },
-    {
-      // The cron route has no later moment to run work in, and the proof reads the outcome at once.
-      afterResponse: (work) => work(),
-      startSelfServe: (input) =>
-        step(async () => {
-          start = await startSelfServeAtomic({ ...input, waitLimits: CANARY_WAIT_LIMITS });
-          return start;
-        }),
-      dispatchQueuedEmails: async (emailIds, { requestId }) => {
-        // What the provider answered is read from the outbox row, which the proof needs for its times anyway.
-        for (const emailId of emailIds) {
-          await step(() => dispatchExomemEmail(emailId, undefined, requestId));
-        }
+  let started: Awaited<ReturnType<typeof requestStart>>;
+  try {
+    // The canary skips only the browser bot check, and only inside this scheduler-authenticated cron: no public route reaches it.
+    started = await requestStart(
+      {
+        email: address,
+        networkKey: CANARY_NETWORK_KEY,
+        browserChallengeDigest: randomBytes(32),
+        timeZone: null,
+        emailScheme: null,
+        requestId: randomUUID(),
       },
-    }
-  );
+      {
+        // The cron route has no later moment to run work in, and the proof reads the outcome at once.
+        afterResponse: (work) => work(),
+        startSelfServe: async (input) => (start = await startSelfServeAtomic(input)),
+        dispatchQueuedEmails: async (emailIds, { requestId }) => {
+          // What the provider answered is read from the outbox row, which the proof needs for its times anyway.
+          for (const emailId of emailIds) await dispatchExomemEmail(emailId, undefined, requestId);
+        },
+      }
+    );
+  } catch {
+    // Its rate-limit step runs before the start and is not swallowed: a throw there is a failed start too.
+    return {
+      failure: signal.aborted || budget.timedOut ? "CANARY_TIMED_OUT" : "CANARY_START_FAILED",
+    };
+  }
   // A sign-in link was queued: the address owns an account, so the proof would mail a real person.
   if (started.deliveryId) return { failure: "CANARY_ADDRESS_HAS_ACCOUNT" };
   if (started.limitedBy) return { failure: "CANARY_NOT_QUEUED" };
-  if (error !== undefined || !start) {
-    // `requestStart` has no other exit before the self-serve step: no link, no limit and no start
-    // means that its owner lookup threw, and that is a failed start like any other.
-    const state = (error as { code?: unknown } | null)?.code;
-    return {
-      failure:
-        signal.aborted || DATABASE_WAIT_TIMEOUT_STATES.has(String(state))
-          ? "CANARY_TIMED_OUT"
-          : "CANARY_START_FAILED",
-    };
-  }
+  if (signal.aborted || budget.timedOut) return { failure: "CANARY_TIMED_OUT" };
+  // `requestStart` has no other exit before the self-serve step: no link, no limit and no start
+  // means that its owner lookup or the start itself threw, and that is a failed start.
+  if (!start) return { failure: "CANARY_START_FAILED" };
   switch (start.outcome) {
     case "waitlisted":
     case "still_waiting": {
       const kind = start.outcome === "waitlisted" ? "waitlist" : "waitlist_still_waiting";
-      // A null id is the explicit repeat: this window's reply already went out.
+      // A null id is the repeat: this window's reply was queued before, and proveSignIn reads it.
       return { failure: null, kind, emailId: start.emailId };
     }
     case "invitation_waiting":
@@ -142,7 +128,10 @@ async function startCanary(
   }
 }
 
-async function proveSignIn(signal: AbortSignal): Promise<CanaryRun> {
+async function proveSignIn(
+  signal: AbortSignal,
+  budget: { readonly timedOut: boolean }
+): Promise<CanaryRun> {
   // Read first: a bad bound is a configuration failure that stops the proof before it sends.
   const overdueSeconds = healthEmailOverdueSeconds();
   const bounds = {
@@ -155,16 +144,19 @@ async function proveSignIn(signal: AbortSignal): Promise<CanaryRun> {
   const judgement = judged ? judgeCanaryEmail(judged, bounds, new Date()) : null;
   const run: CanaryRun = { failure: null, deliverySeconds: judgement?.deliverySeconds ?? null };
 
-  const started = await startCanary(address, signal);
+  const started = await startCanary(address, signal, budget);
   run.failure = started.failure;
   if (started.failure === null) {
     run.kind = started.kind;
-    if (started.emailId) {
-      const queued = await readCanaryEmail(started.emailId);
-      run.queueSeconds = queued ? judgeCanaryEmail(queued, bounds, new Date()).queueSeconds : null;
-      if (queued?.state !== "sent" || !queued.providerMessageId)
-        run.failure = "CANARY_NOT_ACCEPTED";
+    // A repeat names no row. This window has one canary reply, and it is the newest canary email.
+    // It counts only once the provider has accepted it: a queued row proves nothing.
+    const email = started.emailId
+      ? await readCanaryEmail(started.emailId)
+      : await readLatestCanaryEmail(address, 0);
+    if (started.emailId && email) {
+      run.queueSeconds = judgeCanaryEmail(email, bounds, new Date()).queueSeconds;
     }
+    if (email?.state !== "sent" || !email.providerMessageId) run.failure = "CANARY_NOT_ACCEPTED";
   }
   if (!run.failure && judgement?.failure) run.failure = JUDGED_FAILURE_CODE[judgement.failure];
   if (!run.failure) {
@@ -186,28 +178,30 @@ async function proveSignIn(signal: AbortSignal): Promise<CanaryRun> {
  *    minutes) to report, and makes a scheduler retry of a failed run reach the
  *    same verdict, instead of judging the email its first attempt just sent;
  * 2. sends a new canary through the start request itself. This run's own
- *    start decides the result: it must queue a waitlist email that the provider
- *    accepts with a message id, or repeat the email that this 15-minute window
- *    already sent. An address that owns an account or holds an invitation, a
+ *    start decides the result: the waitlist email that it queued, or that this
+ *    15-minute window queued before, must be accepted by the provider with a
+ *    message id. An address that owns an account or holds an invitation, a
  *    start that fails and a wait that hits its limit each fail with a code;
  * 3. fails when real traffic stalled: a queued email ready but unsent past
  *    `EXOMEM_HEALTH_EMAIL_OVERDUE_SECONDS`, or one that failed in the last hour
  *    for a reason other than the provider refusing it.
  *
- * The whole run stops at `PROOF_DEADLINE_MS` and saves a failed proof, so it
- * ends inside the scheduler's timeout. The first runs have no old enough email
- * and pass on their own acceptance. Each run records the measured times in one
- * content-free event.
+ * Every database wait of the run has a limit, and the whole run stops at
+ * `PROOF_DEADLINE_MS`. It waits for the transaction in flight to end, up to
+ * `SETTLE_GRACE_MS`, then saves a failed proof inside the scheduler's timeout.
+ * The first runs have no old enough email and pass on their own acceptance.
+ * Each run records the measured times in one content-free event.
  */
 export function runEmailHealthCheck(options: { deadlineMs?: number } = {}): Promise<boolean> {
   return runFunctionalHealthCheck("email", async () => {
     const deadline = new AbortController();
+    const budget = createExomemWaitBudget({ ...CANARY_WAIT_LIMITS, signal: deadline.signal });
     const timer = setTimeout(() => deadline.abort(), options.deadlineMs ?? PROOF_DEADLINE_MS);
     let run: CanaryRun;
     try {
-      // The abort stops the start's next step; the race returns the failure now, whatever step is waiting.
+      // The abort opens no new transaction; the race returns the failure now, whatever step is waiting.
       run = await Promise.race([
-        proveSignIn(deadline.signal),
+        budget.run(() => proveSignIn(deadline.signal, budget)),
         new Promise<CanaryRun>((resolve) =>
           deadline.signal.addEventListener(
             "abort",
@@ -217,9 +211,18 @@ export function runEmailHealthCheck(options: { deadlineMs?: number } = {}): Prom
         ),
       ]);
     } catch {
-      run = { failure: "INTERNAL_ERROR" };
+      run = { failure: budget.timedOut ? "CANARY_TIMED_OUT" : "INTERNAL_ERROR" };
     } finally {
       clearTimeout(timer);
+    }
+    // The proof settles after the transaction in flight has ended; the grace only keeps a transaction that never ends from holding the run.
+    if (deadline.signal.aborted) {
+      let grace: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        budget.idle(),
+        new Promise<void>((resolve) => (grace = setTimeout(resolve, SETTLE_GRACE_MS))),
+      ]);
+      clearTimeout(grace);
     }
     emitOperationalEvent(
       buildOperationalEvent({

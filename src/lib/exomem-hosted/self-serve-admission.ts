@@ -322,8 +322,6 @@ export async function startSelfServeAtomic(input: {
   themeChoice?: ExomemThemeChoice | null;
   mode: "waitlist" | "open";
   randomBytes?: RandomBytesSource;
-  /** Bounds this transaction's waits, for a caller with a deadline of its own: it fails in time, not behind a held lock. */
-  waitLimits?: { lockTimeoutMs: number; statementTimeoutMs: number };
 }): Promise<StartResult> {
   const link = mintStartLink(input.randomBytes);
   const emailScheme = input.emailScheme ?? null;
@@ -332,10 +330,6 @@ export async function startSelfServeAtomic(input: {
   // configuration for a proof, and an address nobody owns must not be handed a slot or a link.
   const isCanary = input.emailNormalized === healthCanaryAddress();
   return withExomemTransaction(async (tx) => {
-    if (input.waitLimits) {
-      await tx`SELECT set_config('lock_timeout', ${String(input.waitLimits.lockTimeoutMs)}, true),
-                      set_config('statement_timeout', ${String(input.waitLimits.statementTimeoutMs)}, true)`;
-    }
     const open = await lockOpenInvitation(tx, input.emailNormalized);
     if (open === "being_sent") return { outcome: "invitation_waiting", emailId: null };
     if (open) {

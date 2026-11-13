@@ -159,6 +159,8 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
     priorEnv.DATABASE_URL = process.env.DATABASE_URL;
     // The health proof reads through its own pool, which takes DATABASE_URL.
     process.env.DATABASE_URL = scoped.toString();
+    // The name lets a test list this file's own backends in pg_stat_activity.
+    scoped.searchParams.set("application_name", `${schema}`);
     pool = new Pool({ connectionString: scoped.toString(), max: 10 });
     __setExomemSqlForTests(taggedSql(pool));
     __setExomemTransactionForTests(interactiveTransaction);
@@ -716,6 +718,29 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
       }
     });
 
+    it("fails every run of a window while the provider has not accepted its canary email, and passes once it has", async () => {
+      providerAnswer.success = false;
+      for (const run of [1, 2, 3]) {
+        assert.equal(await failedCode(runEmailHealthCheck), "CANARY_NOT_ACCEPTED", `run ${run}`);
+      }
+      // The first run queued the waitlist email and the second the window's reply: neither was accepted.
+      const queued = await canaryEmails();
+      assert.deepEqual(
+        queued.map((email) => [email.kind, email.state, email.provider_message_id]),
+        [
+          ["waitlist", "pending", null],
+          ["waitlist_still_waiting", "pending", null],
+        ]
+      );
+      // The provider recovers and the drain sends both; the next run of the window sees its reply accepted.
+      providerAnswer.success = true;
+      await pool!.query("UPDATE exomem_email_outbox SET not_before = now() WHERE recipient = $1", [
+        CANARY,
+      ]);
+      for (const email of queued) assert.equal(await dispatchExomemEmail(email.id), "sent");
+      assert.equal(await runEmailHealthCheck(), true);
+    });
+
     it("fails with a timeout code, and saves the failed proof, while the Cloud capacity lock is held", async () => {
       const holder = await pool!.connect();
       try {
@@ -728,6 +753,49 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
       } finally {
         await holder.query("ROLLBACK");
         holder.release();
+      }
+      assert.equal((await readHealthProof("email"))?.success, false);
+    });
+
+    it("leaves no canary transaction open when the owner lookup waits behind a table lock past the deadline", async () => {
+      const holder = await pool!.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query("LOCK TABLE exomem_tenants IN ACCESS EXCLUSIVE MODE");
+        const startedAt = Date.now();
+        // The deadline is shorter than the lock wait, so the abort comes while the lookup still waits.
+        assert.equal(
+          await failedCode(() => runEmailHealthCheck({ deadlineMs: 500 })),
+          "CANARY_TIMED_OUT"
+        );
+        // The wait ends on its own limit, well inside the scheduler's 20 s.
+        assert.ok(Date.now() - startedAt < 8_000);
+        const { rows } = await pool!.query(
+          `SELECT state, wait_event_type, left(query, 40) AS query FROM pg_stat_activity
+           WHERE application_name = $1 AND pid <> pg_backend_pid() AND pid <> $2
+             AND state <> 'idle'`,
+          [schema, (await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid]
+        );
+        assert.deepEqual(rows, []);
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      assert.equal((await readHealthProof("email"))?.success, false);
+    });
+
+    it("saves the failed proof soon after its deadline when a canary transaction never ends", async () => {
+      // A pool with no free connection leaves a transaction waiting for one, with no limit to end it.
+      __setExomemTransactionForTests(() => new Promise(() => {}));
+      try {
+        const startedAt = Date.now();
+        assert.equal(
+          await failedCode(() => runEmailHealthCheck({ deadlineMs: 500 })),
+          "CANARY_TIMED_OUT"
+        );
+        assert.ok(Date.now() - startedAt < 8_000);
+      } finally {
+        __setExomemTransactionForTests(interactiveTransaction);
       }
       assert.equal((await readHealthProof("email"))?.success, false);
     });

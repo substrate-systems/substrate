@@ -998,19 +998,24 @@ the proof sends it before the run ends. Each run:
    judging the email that the first attempt just sent.
 2. Sends a new canary, and takes the result from this run's own start. The
    start must queue a waitlist email that Brevo accepts with a message id in
-   the same run, or repeat the email that the same fixed 15-minute window
-   already sent, which is a pass. Nothing is inferred from an earlier email's
-   age.
+   the same run. If the same fixed 15-minute window already queued its reply,
+   the start queues nothing new, and the run reads that email: it passes only
+   when Brevo accepted it with a message id. Nothing is inferred from an
+   earlier email's age.
 3. Reads real traffic, as the next paragraph says.
 
 A run with no canary email that old, such as the first, passes on its own
 acceptance.
 
-The run stops its own work at 12 seconds and still saves a failed proof, so it
-ends inside the scheduler's 20 seconds. In the canary's start, a wait for a
-database lock ends after 3 seconds and a statement after 5 seconds. A held
-Cloud capacity lock therefore fails the proof with `CANARY_TIMED_OUT` instead
-of hanging the run.
+Every database transaction and statement that the run makes, including the
+owner lookup that the start request makes first, ends a wait for a lock after
+2 seconds and a statement after 3 seconds. Real start requests set no limits.
+The run stops its own work at 10 seconds and opens no new transaction after
+that. It waits up to 4 seconds for the transaction in flight to end, then saves
+a failed proof, so it ends inside the scheduler's 20 seconds with no canary
+transaction left open. A held lock, such as the Cloud capacity lock or a lock on
+the tenants table, therefore fails the proof with `CANARY_TIMED_OUT` instead of
+hanging the run.
 
 Each run logs one `access.start.canary_checked` event. `queueMs` is this run's
 canary, from due time to acceptance. `deliveryMs` is the previous canary, from
@@ -1024,11 +1029,11 @@ acceptance to `delivered`; it is absent while that is unknown. On failure,
   invitation. Revoke it or change the address.
 - `CANARY_NOT_QUEUED`: a rate limit refused the start, so it queued nothing.
 - `CANARY_START_FAILED`: the start threw. Read the `access.start.failed` event.
-- `CANARY_TIMED_OUT`: the run hit its 12-second deadline, or a lock or
+- `CANARY_TIMED_OUT`: the run hit its 10-second deadline, or a lock or
   statement wait hit its limit.
 - `CANARY_NOT_ACCEPTED`, `CANARY_ACCEPTED_LATE` and `CANARY_NOT_DELIVERED`:
-  Brevo did not accept this run's canary, or the judged canary broke its
-  bound.
+  Brevo did not accept this run's canary, or the email of this window that a
+  repeated start found, or the judged canary broke its bound.
 - `EMAIL_DELIVERY_UNAVAILABLE`: real traffic stalled.
 - `INTERNAL_ERROR`: another failure.
 

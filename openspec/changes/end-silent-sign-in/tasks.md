@@ -40,7 +40,7 @@
 
 ## 7. Sign-in delivery is proven continuously
 
-- [x] 7.1 Replace the email proof's direct send with a canary start request: `requestStart` for `EXOMEM_HEALTH_START_CANARY_EMAIL`, under the network key `health-canary`, with the email sent inside the cron run; the proof takes its result from that start (queued and accepted, explicitly repeated, or a coded failure) and stops at a deadline inside the scheduler's timeout
+- [x] 7.1 Replace the email proof's direct send with a canary start request: `requestStart` for `EXOMEM_HEALTH_START_CANARY_EMAIL`, under the network key `health-canary`, with the email sent inside the cron run; the proof takes its result from that start (queued and accepted, a repeat whose window email the provider accepted, or a coded failure), bounds every lock and statement wait of its own database work, and stops at a deadline inside the scheduler's timeout with no transaction left open
 - [x] 7.2 Judge the previous canary each run: accepted within `EXOMEM_HEALTH_CANARY_QUEUE_SECONDS` (60) and delivered within `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS` (600); record the measured times in `access.start.canary_checked`
 - [x] 7.3 Keep the canary on the waitlist in the shared start path, in any mode and for any caller, and leave it out of waitlist promotion and out of the check for people waiting
 - [x] 7.4 Leave the canary out of the delivery report's per-kind numbers and report it in a `canary` section

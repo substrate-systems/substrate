@@ -103,7 +103,7 @@ The system SHALL let an operator see, for each kind of Exomem email, whether it 
 
 ### Requirement: Sign-in delivery is proven continuously
 
-The system SHALL prove, without a person, that a start request ends in a delivered email, and SHALL keep proving it. The email health proof SHALL start a sign-in for a configured canary address through the same server function that the start route calls, from the scheduler-authenticated health route only, and SHALL send the email it queues before the run ends. It MAY skip only the browser bot check. Each run SHALL judge the canary's newest email that is old enough for the delivery bound to have run out, which is normally the previous run's: the provider MUST have accepted it within a configured time after its due time (60 seconds by default), and MUST have reported it delivered within a configured time after accepting it (10 minutes by default). A run SHALL NOT fail for an email whose delivery bound has not run out. The proof SHALL take its result from the start request of its own run, never from the age of an earlier email: the start MUST queue a waitlist email that the provider accepts with a message id, or explicitly repeat the waitlist email that the current 15-minute window already sent. The proof SHALL fail, with a distinct code each, when the canary address is unset or invalid, owns an account, holds an invitation, when the start fails or a rate limit refuses it, or when the provider does not accept the new canary. The proof SHALL stop its own work at a deadline inside the scheduler's timeout and still save a failed result, and the canary's start SHALL bound its lock and statement waits. Each run SHALL record the measured queue and delivery times in a content-free operational event. The canary MUST NOT take a Cloud place, whoever starts it and in any admission mode, MUST NOT be promoted from the waitlist, MUST NOT count as a person waiting, and MUST NOT appear in the delivery report's per-kind numbers; the report SHALL show it in a section of its own, and SHALL say that no canary is sent when none is configured.
+The system SHALL prove, without a person, that a start request ends in a delivered email, and SHALL keep proving it. The email health proof SHALL start a sign-in for a configured canary address through the same server function that the start route calls, from the scheduler-authenticated health route only, and SHALL send the email it queues before the run ends. It MAY skip only the browser bot check. Each run SHALL judge the canary's newest email that is old enough for the delivery bound to have run out, which is normally the previous run's: the provider MUST have accepted it within a configured time after its due time (60 seconds by default), and MUST have reported it delivered within a configured time after accepting it (10 minutes by default). A run SHALL NOT fail for an email whose delivery bound has not run out. The proof SHALL take its result from the start request of its own run, never from the age of an earlier email: the start MUST queue a waitlist email that the provider accepts with a message id, or, when the current 15-minute window already queued its reply, that reply MUST be one that the provider accepted with a message id; a reply that is still pending or failed fails the run. The proof SHALL fail, with a distinct code each, when the canary address is unset or invalid, owns an account, holds an invitation, when the start fails or a rate limit refuses it, or when the provider does not accept the new canary. Every database transaction and statement that the proof makes SHALL end a lock wait and a statement at a limit of its own, without changing any other caller, and the proof SHALL stop its own work at a deadline inside the scheduler's timeout, wait for its open transaction to end, and still save a failed result. Each run SHALL record the measured queue and delivery times in a content-free operational event. The canary MUST NOT take a Cloud place, whoever starts it and in any admission mode, MUST NOT be promoted from the waitlist, MUST NOT count as a person waiting, and MUST NOT appear in the delivery report's per-kind numbers; the report SHALL show it in a section of its own, and SHALL say that no canary is sent when none is configured.
 
 #### Scenario: Canary accepted and delivered
 
@@ -126,17 +126,24 @@ The system SHALL prove, without a person, that a start request ends in a deliver
 #### Scenario: First run and early run
 
 - **WHEN** no canary email is older than the delivery bound, or the run repeats minutes after the last
-- **THEN** the proof does not fail for the missing delivery, and passes if the new canary is accepted or the start explicitly repeats the window's email
+- **THEN** the proof does not fail for the missing delivery, and passes if the new canary is accepted, or the start finds the window's email already accepted
 
 #### Scenario: Canary start does not prove delivery
 
 - **WHEN** the canary address owns an account, holds an invitation, or its start fails, within the window of an earlier passing run
 - **THEN** the proof fails with the code for that cause, and does not pass on the earlier run's email
 
+#### Scenario: Repeated start finds an email the provider has not accepted
+
+- **WHEN** the provider rejects the canary's email, and the proof runs three times inside one 15-minute window
+- **THEN** every run fails, including the runs whose start queues nothing new
+- **AND** the proof passes once the provider has accepted the window's email
+
 #### Scenario: Canary start stalls
 
-- **WHEN** a database lock that the canary's start needs, such as the Cloud capacity lock, stays held
-- **THEN** the start gives up at its lock limit, and the proof fails with a timeout code and saves its failed result inside the scheduler's timeout
+- **WHEN** a database lock that the canary needs, such as the Cloud capacity lock or a lock on the tenants table, stays held
+- **THEN** the canary's wait gives up at its lock limit, the proof fails with a timeout code, and no canary transaction is left open
+- **AND** it saves its failed result inside the scheduler's timeout
 
 #### Scenario: Canary never takes a place or distorts the report
 
