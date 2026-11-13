@@ -231,7 +231,14 @@ async function startLinkStillUsable(
   return rows.length === 1 ? true : null;
 }
 
-async function markStartLinkDelivered(tx: ExomemSql, payload: StartLinkPayload): Promise<void> {
+/** Narrows the payloads that hold a token from the ones that hold an invitation's id only. */
+function carriesLink(
+  payload: StartLinkPayload | InvitationNoticePayload
+): payload is StartLinkPayload {
+  return "token" in payload;
+}
+
+async function markStartLinkDelivered(tx: ExomemSql, payload: { inviteId: string }): Promise<void> {
   await tx`
     /* exomem:email-start-link-delivered */
     UPDATE exomem_invites
@@ -398,17 +405,58 @@ async function endedPeriodStillHolds(
 /** The invitee reminder (email 11) goes this many days before an invitation ends. */
 export const INVITATION_REMINDER_LEAD_DAYS = 3;
 
-/** One reminder per invitation: its dedupe key is the invitation's id. */
+/** The dedupe keys of the emails that carry an invitation's link; each is keyed by the invitation's id. */
+export function invitationEmailDedupeKey(inviteId: string): string {
+  return `invite:${inviteId}`;
+}
+
 export function invitationReminderDedupeKey(inviteId: string): string {
   return `invite-reminder:${inviteId}`;
+}
+
+/** Every invitation-waiting email of one invitation starts with this; a window number follows. */
+export function invitationWaitingDedupePrefix(inviteId: string): string {
+  return `invitation-waiting:${inviteId}:`;
+}
+
+/**
+ * Whether an email that carries the invitation's current link is being sent
+ * now: a row under a running lease. A new link would make that email's link
+ * dead after the provider accepted it, so the caller replaces nothing while
+ * one is in flight; the email in flight is the person's answer.
+ *
+ * It also locks every unsent row of the invitation until the caller's
+ * transaction ends. A claim holds its row's lock from the row's read to the
+ * commit of its lease, and its token check runs inside that span. The claim
+ * either committed first, so this read sees the lease, or it waits behind this
+ * lock and then finds the new token and cancels. A send that outlives its lease
+ * is not covered: the provider call times out in 8 seconds and a lease lasts 60.
+ */
+export async function invitationEmailInFlight(
+  tx: ExomemSql,
+  invitation: { inviteId: string; email: string }
+): Promise<boolean> {
+  const { rows } = await tx`
+    /* exomem:invitation-email-in-flight */
+    SELECT (state = 'leased' AND lease_expires_at > now()) AS in_flight
+    FROM exomem_email_outbox
+    WHERE recipient = ${invitation.email}
+      AND state IN ('pending', 'leased')
+      AND (dedupe_key = ${invitationEmailDedupeKey(invitation.inviteId)}
+        OR dedupe_key = ${invitationReminderDedupeKey(invitation.inviteId)}
+        OR starts_with(dedupe_key, ${invitationWaitingDedupePrefix(invitation.inviteId)}))
+    FOR UPDATE
+  `;
+  return rows.some((row) => row.in_flight === true);
 }
 
 /**
  * A new link for an invitation leaves a reminder that is still queued holding
  * the old token, which the reminder's re-check would cancel at send. It is
  * rewritten to carry the new link, with its send time and deadline kept. A
- * reminder already sent is left as it is. One under lease is mid-send with the
- * old token in memory and cannot be changed: the window is the length of a send.
+ * reminder already sent is left as it is. A reminder under a running lease
+ * never gets here (`invitationEmailInFlight`); one whose lease lapsed is
+ * claimed again, so it carries the new link too.
  */
 export async function carryRotatedInvitationLink(
   tx: ExomemSql,
@@ -420,7 +468,7 @@ export async function carryRotatedInvitationLink(
     SET payload_ciphertext = ${sealExomemEmailPayload("invitation_reminder", link)}::jsonb,
         updated_at = now()
     WHERE dedupe_key = ${invitationReminderDedupeKey(link.inviteId)}
-      AND state = 'pending'
+      AND state IN ('pending', 'leased')
   `;
 }
 
@@ -697,18 +745,21 @@ const EXOMEM_EMAILS = {
    * only while its token is still the invitation's (`startLinkStillUsable`):
    * a later request that rotates again cancels this row, and only the newest
    * link is ever sent. A refused send is retried, not failed at once, because
-   * the person's earlier link no longer works.
+   * the person's earlier link no longer works. A row queued before the email
+   * carried a link holds only `{version, inviteId}`: it is cancelled, as a
+   * rejected payload would count as a failed email in the health proof.
    */
   invitation_waiting: defineEmail({
-    readPayload: readStartLinkPayload,
-    stillHolds: startLinkStillUsable,
-    render: (input) =>
+    readPayload: (value) => readStartLinkPayload(value) ?? readInvitationNoticePayload(value),
+    stillHolds: async (tx, payload) =>
+      carriesLink(payload) && (await startLinkStillUsable(tx, payload)) ? payload : null,
+    render: ({ context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemInvitationWaitingEmail({
-        accessUrl: invitationUrl(input),
-        expiresAt: new Date(input.payload.expiresAt),
-        timeZone: input.timeZone,
-        scheme: input.emailScheme,
-        themeChoice: input.themeChoice,
+        accessUrl: invitationUrl({ publicBaseUrl, payload: context }),
+        expiresAt: new Date(context.expiresAt),
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
       }),
     afterSent: markStartLinkDelivered,
     claimedLast: true,

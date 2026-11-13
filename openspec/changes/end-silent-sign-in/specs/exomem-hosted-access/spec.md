@@ -23,6 +23,7 @@ An identity that already owns an active Exomem tenant SHALL be able to request a
 - **AND** the invitation's expiry, kind, entitlement and place in capacity do not change
 - **AND** the system replaces the link at most once per fixed 15-minute window: a repeat inside the window queues nothing new and leaves the link of that window's email working
 - **AND** only the newest link is ever emailed: an invitation email that was queued with an earlier link is cancelled
+- **AND** while an email that carries the invitation's current link is being sent, the system queues nothing and leaves the link unchanged, so the email in flight is never left with a dead link
 - **AND** the address does not join the waitlist
 
 #### Scenario: Waiting person asks again

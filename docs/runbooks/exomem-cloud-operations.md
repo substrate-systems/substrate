@@ -641,10 +641,11 @@ link for the invitation, so a person who lost the invitation email can start.
 The invitation keeps its expiry, kind and place in capacity. The system
 replaces the link at most once in each fixed 15-minute window, so a repeat
 request, or a stranger who submits the address, cannot invalidate the link in
-that window's email. An invitation email that was queued with an earlier link
-is cancelled, not sent. If an invitee reports that their link no longer opens
-the invitation, tell them to ask to start again with that address and use the
-newest email. Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
+that window's email. While an email that carries the invitation's current link
+is being sent, a request replaces nothing and queues nothing. An invitation
+email that was queued with an earlier link is cancelled, not sent. If an
+invitee reports that their link no longer opens the invitation, tell them to ask
+to start again with that address and use the newest email. Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 
 - `waitlist`: a waitlist place. This is the default, including an unset or
   unrecognized value. The retired `closed` value also reads as `waitlist`.

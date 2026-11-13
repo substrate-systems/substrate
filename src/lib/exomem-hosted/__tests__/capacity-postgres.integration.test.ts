@@ -18,8 +18,10 @@ import {
   clearSettledEmailRecipients,
   dispatchExomemEmail,
   drainExomemEmailOutbox,
+  enqueueExomemEmail,
 } from "../email-outbox";
 import { setOperationalEventSinkForTests } from "../observability";
+import { issueOperatorInvite } from "../invites";
 import { tokenDigest } from "../security";
 import {
   EXOMEM_INVITE_CAPABILITIES,
@@ -336,7 +338,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
         1
       );
     }
-    // An invited address gets neither a waitlist place nor a second link.
+    // An invited address gets neither a waitlist place nor a separate start link: its one invitation is re-linked.
     assert.equal(
       await count("SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1", [
         invited,
@@ -713,6 +715,163 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
     assert.deepEqual(await snapshot(), before.invite);
     assert.deepEqual(await getCloudCapacityStatus(executeExomemSql), before.places);
+  });
+
+  /**
+   * The invitation email is leased and paused at the provider: its token passed the
+   * claim's check, and it is the link the person is about to receive.
+   */
+  async function pauseInvitationSend(invited: string): Promise<{
+    id: string;
+    emailed: () => string;
+    finish: (answer: { success: boolean; status?: number }) => void;
+    sending: Promise<unknown>;
+  }> {
+    const { inviteId } = await issueOperatorInvite(
+      {
+        email: invited,
+        kind: "standard",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        operatorPrincipalDigest: randomBytes(32),
+      },
+      { dispatchQueuedEmails: async () => undefined }
+    );
+    const { rows } = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_email_outbox WHERE dedupe_key = $1",
+      [`invite:${inviteId}`]
+    );
+    let text = "";
+    let finish!: (answer: { success: boolean; status?: number }) => void;
+    const sending = dispatchExomemEmail(rows[0]!.id, {
+      sendEmail: async (input) => {
+        text = input.textContent;
+        return new Promise((resolve) => (finish = resolve));
+      },
+    });
+    while (!text) await new Promise((resolve) => setTimeout(resolve, 5));
+    return { id: rows[0]!.id, emailed: () => text, finish, sending };
+  }
+
+  it("leaves an invitation's link alone while an email carrying it is being sent, so that link opens the invitation", async () => {
+    await configureCapacity(2);
+    const invited = newAddress("in-flight");
+    const inFlight = await pauseInvitationSend(invited);
+
+    const asked = await startSelfServeAtomic({
+      emailNormalized: invited,
+      timeZone: null,
+      mode: "open",
+    });
+    inFlight.finish({ success: true });
+
+    // The email being sent is the answer: nothing was queued and the link was not replaced.
+    assert.deepEqual(asked, { outcome: "invitation_waiting", emailId: null });
+    assert.equal(await inFlight.sending, "sent");
+    assert.deepEqual(await outboxKinds(invited), ["invitation"]);
+    const emailed = /\/exomem\/invite#([A-Za-z0-9_-]+)/.exec(inFlight.emailed())?.[1];
+    assert.ok(emailed);
+    assert.ok(
+      await redeemCloudInviteAtomic({
+        tokenDigest: tokenDigest(emailed)!,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+    );
+  });
+
+  // The claim reads the row under its lock and commits the lease; a request that
+  // reads "not leased yet" between those two steps would replace the link under it.
+  it("waits for a claim that is under way, then leaves the link it leased alone", async () => {
+    await configureCapacity(2);
+    const invited = newAddress("claiming");
+    const { inviteId } = await issueOperatorInvite(
+      {
+        email: invited,
+        kind: "standard",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        operatorPrincipalDigest: randomBytes(32),
+      },
+      { dispatchQueuedEmails: async () => undefined }
+    );
+    const digestBefore = (
+      await pool!.query<{ token_digest: Buffer }>(
+        "SELECT token_digest FROM exomem_invites WHERE id = $1",
+        [inviteId]
+      )
+    ).rows[0]!.token_digest;
+    const claim = await pool!.connect();
+    await claim.query("BEGIN");
+    await claim.query("SELECT id FROM exomem_email_outbox WHERE dedupe_key = $1 FOR UPDATE", [
+      `invite:${inviteId}`,
+    ]);
+
+    const asking = startSelfServeAtomic({ emailNormalized: invited, timeZone: null, mode: "open" });
+    // The request is blocked on the claim's row lock, not past it.
+    let blocked = false;
+    for (let poll = 0; poll < 400 && !blocked; poll += 1) {
+      const { rows } = await pool!.query(
+        "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%exomem:invitation-email-in-flight%'"
+      );
+      blocked = rows.length > 0;
+      if (!blocked) await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await claim.query(
+      `UPDATE exomem_email_outbox
+       SET state = 'leased', lease_owner = gen_random_uuid(), lease_expires_at = now() + interval '60 seconds'
+       WHERE dedupe_key = $1`,
+      [`invite:${inviteId}`]
+    );
+    await claim.query("COMMIT");
+    claim.release();
+
+    assert.ok(blocked, "the request did not wait for the claim");
+    assert.deepEqual(await asking, { outcome: "invitation_waiting", emailId: null });
+    const digestAfter = (
+      await pool!.query<{ token_digest: Buffer }>(
+        "SELECT token_digest FROM exomem_invites WHERE id = $1",
+        [inviteId]
+      )
+    ).rows[0]!.token_digest;
+    assert.deepEqual(digestAfter, digestBefore);
+  });
+
+  it("cancels an invitation-waiting email queued before it carried a link, as a cancellation and not a failure", async () => {
+    await configureCapacity(2);
+    const invited = newAddress("legacy");
+    const digest = await inviteAddress(invited);
+    const { rows } = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_invites WHERE token_digest = $1",
+      [digest]
+    );
+    // The payload the earlier version queued: the invitation's id and nothing else.
+    const emailId = await enqueueExomemEmail(executeExomemSql, {
+      kind: "invitation_waiting",
+      dedupeKey: `invitation-waiting:${rows[0]!.id}:legacy`,
+      recipient: invited,
+      recipientTimeZone: null,
+      recipientEmailScheme: null,
+      payload: { version: 1, inviteId: rows[0]!.id },
+    });
+    let providerCalls = 0;
+
+    const delivery = await dispatchExomemEmail(emailId!, {
+      sendEmail: async () => {
+        providerCalls += 1;
+        return { success: true, messageId: "message-1" };
+      },
+    });
+
+    assert.equal(delivery, "cancelled");
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(
+      (
+        await pool!.query("SELECT state, last_error_code FROM exomem_email_outbox WHERE id = $1", [
+          emailId,
+        ])
+      ).rows,
+      [{ state: "cancelled", last_error_code: "EMAIL_PRECONDITION_GONE" }]
+    );
   });
 
   it("refuses an invalid Turnstile token with 400 and writes nothing at all", async () => {

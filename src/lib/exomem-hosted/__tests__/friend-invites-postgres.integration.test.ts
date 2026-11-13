@@ -9,7 +9,7 @@ import { resumeReturnedOwnerCheckout, startOwnerCheckout } from "../billing-acco
 import { redeemCloudInvite, redeemCloudInviteAtomic } from "../cloud-admission";
 import { reconcileCloudCellDesiredState, runBoundedCloudReconcile } from "../cloud-lifecycle";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { drainExomemEmailOutbox } from "../email-outbox";
+import { dispatchExomemEmail, drainExomemEmailOutbox } from "../email-outbox";
 import { ExomemHostedError } from "../errors";
 import { decideInvitation, issueOperatorInvite, type InvitationInspection } from "../invites";
 import { __clearExomemPriceCacheForTests } from "../paddle-billing";
@@ -1438,6 +1438,49 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       (await POST(inspectRequest(token, { ip: "203.0.113.46" }))).status;
     assert.equal(await inspect(link), 200);
     assert.equal(await inspect(issuedToken), 404);
+  });
+
+  // A reminder under lease holds the link the invitee is about to get. If its send fails it is
+  // retried with the same payload, so a request that replaced the link meanwhile would cancel it.
+  it("keeps a friend reminder's link working when its send fails while the invitee asks to start", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/inspect/route");
+    const email = newAddress("retry");
+    const { token } = await issueFriendInvitation({ email });
+    const { rows } = await pool!.query<{ id: string }>(
+      `UPDATE exomem_email_outbox SET not_before = now() - interval '1 minute'
+       WHERE recipient = $1 AND kind = 'invitation_reminder' RETURNING id`,
+      [email]
+    );
+    let finish!: (answer: { success: boolean; status?: number }) => void;
+    let leased = false;
+    const sending = dispatchExomemEmail(rows[0]!.id, {
+      publicBaseUrl: PUBLIC_BASE_URL,
+      sendEmail: async () => {
+        leased = true;
+        return new Promise((resolve) => (finish = resolve));
+      },
+    });
+    while (!leased) await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const asked = await startSelfServeAtomic({
+      emailNormalized: email,
+      timeZone: null,
+      mode: "waitlist",
+    });
+    finish({ success: false, status: 503 });
+    await sending;
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET not_before = now() - interval '1 second' WHERE id = $1",
+      [rows[0]!.id]
+    );
+    // The invitation email itself was never sent here, so the drain sends it too.
+    const reminder = (await drainedEmails()).find(
+      (message) => message.to === email && message.subject.includes("invitation ends on")
+    );
+
+    assert.equal(asked.emailId, null);
+    assert.ok(reminder?.text.includes(`/exomem/invite#${token}`));
+    assert.equal((await POST(inspectRequest(token, { ip: "203.0.113.47" }))).status, 200);
   });
 
   it("cancels the invitee reminder and the inviter's ended notice once the invitation is used", async () => {

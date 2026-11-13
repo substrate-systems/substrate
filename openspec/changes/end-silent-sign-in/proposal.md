@@ -8,7 +8,7 @@ Emails other than the owner sign-in link also wait for the minute-by-minute deli
 
 - Every accepted start request ends with an email that states the outcome for that address. It queues one, except that a repeat inside the same fixed 15-minute window finds the email already queued:
   - an owner gets a sign-in link (unchanged);
-  - an address with a live, unused invitation gets its invitation again under a fresh link, with the date the invitation expires. The new link replaces every earlier link for that invitation, so a person who lost the invitation email can still start. The invitation's expiry, kind and place in capacity do not change, and a stranger can replace the link at most once per fixed 15-minute window;
+  - an address with a live, unused invitation gets its invitation again under a fresh link, with the date the invitation expires. The new link replaces every earlier link for that invitation, so a person who lost the invitation email can still start. The invitation's expiry, kind and place in capacity do not change, and a stranger can replace the link at most once per fixed 15-minute window. While an email that carries the invitation's current link is being sent, the request replaces nothing and queues nothing, because that email is the answer;
   - a waiting person who asks again gets a short "you are still on the waitlist" note, at most one per fixed 15-minute window per waitlist entry, and keeps their place;
   - a person with a live start link gets it again (unchanged);
   - a new address gets a waitlist place or a start link (unchanged).

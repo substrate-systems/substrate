@@ -16,6 +16,8 @@ import { executeExomemSql, takeRateLimit, withExomemTransaction, type ExomemSql 
 import {
   carryRotatedInvitationLink,
   enqueueExomemEmail,
+  invitationEmailInFlight,
+  invitationWaitingDedupePrefix,
   type StartLinkPayload,
 } from "./email-outbox";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
@@ -121,7 +123,7 @@ export type StartOutcome =
   | "waitlisted"
   /** The person already waits and keeps their place. */
   | "still_waiting"
-  /** An operator invitation to the address is open; no new link is made. */
+  /** An operator invitation to the address is open; its link is replaced and emailed, or is already in flight. */
   | "invitation_waiting";
 
 /** `emailId` is the outbox row this request queued; `null` when its dedupe key already existed. */
@@ -280,9 +282,15 @@ export async function startSelfServeAtomic(input: {
         AND expires_at > now()
       ORDER BY created_at DESC
       LIMIT 1
+      -- Serializes this request with a redemption and with another request's rotation.
+      FOR UPDATE
     `;
     const open = invitation.rows[0] as { id: string; expires_at: Date | string } | undefined;
     if (open) {
+      // An email with the invitation's current link is being sent: it works, and it is the answer.
+      if (await invitationEmailInFlight(tx, { inviteId: open.id, email: input.emailNormalized })) {
+        return { outcome: "invitation_waiting", emailId: null };
+      }
       const payload: StartLinkPayload = {
         version: 1,
         inviteId: open.id,
@@ -291,7 +299,7 @@ export async function startSelfServeAtomic(input: {
       };
       const emailId = await enqueueExomemEmail(tx, {
         kind: "invitation_waiting",
-        dedupeKey: `invitation-waiting:${open.id}:${repeatReplyWindow()}`,
+        dedupeKey: `${invitationWaitingDedupePrefix(open.id)}${repeatReplyWindow()}`,
         recipient: input.emailNormalized,
         recipientTimeZone: input.timeZone,
         recipientEmailScheme: emailScheme,

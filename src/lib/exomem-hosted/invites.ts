@@ -21,6 +21,7 @@ import {
   dispatchQueuedEmailsSoon,
   enqueueExomemEmail,
   INVITATION_REMINDER_LEAD_DAYS,
+  invitationEmailDedupeKey,
   invitationReminderDedupeKey,
 } from "./email-outbox";
 import { LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
@@ -192,7 +193,7 @@ export async function issueOperatorInvite(
   const enqueueEmails: CreateInviteRecordInput["afterCreate"] = async (tx, { inviteId }) => {
     const link = { version: 1 as const, inviteId, token, expiresAt: expiresAt.toISOString() };
     const invitation = {
-      dedupeKey: `invite:${inviteId}`,
+      dedupeKey: invitationEmailDedupeKey(inviteId),
       recipient: emailNormalized,
       recipientTimeZone: null,
       // The invitee's own account values, if any, are read at send (email-outbox.ts).
