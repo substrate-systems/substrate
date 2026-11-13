@@ -408,9 +408,12 @@ export const unknownAppCopy = {
 /**
  * Failures the boards do not draw. Each follows the board's own wording ("That
  * didn’t work.", "Try again in a minute.") and is listed for the owner's approval.
+ * The failed bot check has its own wording: it says that no email was sent and why.
  */
 export const failureCopy = {
-  challenge: "That didn’t work. Try again.",
+  /** The bot check failed, or its widget could not run: no email was sent. */
+  challenge:
+    "We couldn’t confirm this browser is a person, so we didn’t send an email. Try again, or use another browser if it keeps failing.",
   /** The server refused an address the browser accepted; no email was sent. */
   invalidEmail: "Check the address. It doesn’t look like an email address.",
   generic: "That didn’t work. Try again in a minute.",
