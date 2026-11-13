@@ -235,12 +235,13 @@ async function enqueueStartLinkEmail(
  * `being_sent` when an email with its current link is under a running send
  * lease. That email works and is the answer, so the caller leaves the link.
  *
- * The lock order is the invitation's unsent emails first, then the
- * invitation: the order of a send's settlement (its outbox row, then
- * `afterSent` or `afterFailed` on the invitation). The reverse order lets the
- * two wait on each other, and PostgreSQL aborts the settlement of a message
- * the provider already accepted. So the invitation is read unlocked first,
- * and locked after the emails, with its liveness read again.
+ * The locks, in order: a per-invitation advisory lock, the invitation's unsent
+ * emails, then the invitation. The emails come before the invitation, as in a
+ * send's settlement (its outbox row, then `afterSent` or `afterFailed` on the
+ * invitation); the reverse order lets the two wait on each other, and
+ * PostgreSQL aborts the settlement of a message the provider already accepted.
+ * So the invitation is read unlocked first, and locked after the emails, with
+ * its liveness read again.
  */
 async function lockOpenInvitation(
   tx: ExomemSql,
@@ -260,6 +261,13 @@ async function lockOpenInvitation(
   `;
   const inviteId = (candidate.rows[0] as { id: string } | undefined)?.id;
   if (!inviteId) return null;
+  // Requests for one invitation take turns, so the check below reads the email an earlier request
+  // queued: a row lock cannot cover a row that is not committed yet. Settlement never takes this
+  // lock, so it cannot wait on it.
+  await tx`
+    /* exomem:serialize-start-requests */
+    SELECT pg_advisory_xact_lock(hashtextextended('exomem-start-invitation:' || ${inviteId}::text, 0))
+  `;
   if (await invitationEmailInFlight(tx, { inviteId, email })) return "being_sent";
   // Serializes this request with a redemption and with another request's rotation.
   const locked = await tx`
