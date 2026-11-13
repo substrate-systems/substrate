@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { z } from "zod";
+import { CANARY_EMAIL_KINDS, type CanaryEmail } from "./health-canary";
 
 // These components are the closed protocol in exomem-functional-health.
 export const HealthComponent = z.enum(["control", "email", "memory"]);
@@ -154,6 +155,36 @@ export async function readEmailDeliveryStall(
       overdue: rows[0]?.overdue === true,
       failedRecently: rows[0]?.failed_recently === true,
     };
+  });
+}
+
+/**
+ * The canary's newest email in the outbox that is at least `minAgeSeconds` old,
+ * with the time of the provider's earliest `delivered` event for it, or `null`
+ * when it has none. Read through the health pool, like the stall check. The
+ * canary's rows are the ones with its address, a few dozen a day, found through
+ * the outbox's recipient index.
+ */
+export async function readLatestCanaryEmail(
+  recipient: string,
+  minAgeSeconds: number
+): Promise<CanaryEmail | null> {
+  return withHealthClient(async (client) => {
+    const { rows } = await client.query(
+      `SELECT o.id, o.kind, o.state, o.created_at AS "createdAt",
+              COALESCE(o.due_at, o.created_at) AS "dueAt", o.sent_at AS "sentAt",
+              o.provider_message_id AS "providerMessageId",
+              (SELECT min(e.occurred_at) FROM exomem_email_provider_events AS e
+                WHERE e.provider_message_id = o.provider_message_id
+                  AND e.event = 'delivered') AS "deliveredAt"
+       FROM exomem_email_outbox AS o
+       WHERE o.recipient = $1 AND o.kind = ANY($2::text[])
+         AND o.created_at <= now() - make_interval(secs => $3)
+       ORDER BY o.created_at DESC, o.id DESC
+       LIMIT 1`,
+      [recipient, [...CANARY_EMAIL_KINDS], minAgeSeconds]
+    );
+    return (rows[0] as CanaryEmail | undefined) ?? null;
   });
 }
 

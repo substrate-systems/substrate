@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { runEmailHealthCheck } from "@/lib/exomem-hosted/functional-health";
+import { runEmailHealthCheck } from "@/lib/exomem-hosted/email-health-proof";
 import { verifyHostedSchedulerAuth } from "@/lib/exomem-hosted/scheduler-auth";
 
 export const runtime = "nodejs";

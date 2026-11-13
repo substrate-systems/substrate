@@ -5,8 +5,20 @@
  * side, down to provider acceptance) and the provider's webhook events (the
  * provider's side, delivery and bounces). It reads, never writes, and holds no
  * address, subject or reason text.
+ *
+ * The sign-in canary's emails (health-canary.ts) are not real traffic: the
+ * per-kind numbers leave them out, and a section of their own reports them.
  */
 import { executeExomemSql } from "./db";
+import {
+  CANARY_EMAIL_KINDS,
+  healthCanaryAddress,
+  healthCanaryDeliverySeconds,
+  healthCanaryQueueSeconds,
+  judgeCanaryEmail,
+  type CanaryEmail,
+  type CanaryFailure,
+} from "./health-canary";
 
 const EMAIL_DELIVERY_DEFAULT_HOURS = 24;
 const EMAIL_DELIVERY_MAX_HOURS = 168;
@@ -55,6 +67,32 @@ export type EmailKindDelivery = {
   };
 };
 
+/** The canary runs the report lists, newest first: six hours at the scheduler's half-hour cadence. */
+const CANARY_RUNS_SHOWN = 12;
+
+type EmailCanaryRun = {
+  kind: string;
+  queuedAt: string;
+  /** `pending`: no bound has been broken yet and the provider may still report. */
+  outcome: "passed" | "pending" | "failed";
+  /** Why the run failed, or `null`. */
+  failure: CanaryFailure | null;
+  /** Seconds from due to provider acceptance; `null` until accepted. */
+  queueSeconds: number | null;
+  /** Seconds from acceptance to the provider's `delivered` event; `null` until one arrived. */
+  deliverySeconds: number | null;
+};
+
+type EmailCanaryReport = {
+  /** `false` when no canary address is configured: nothing is proving sign-in delivery. */
+  configured: boolean;
+  /** Why `configured` is false or the runs are unknown; `null` otherwise. */
+  reason: string | null;
+  /** The bounds each outcome is judged by, in seconds; `null` when they are not readable. */
+  bounds: { queueSeconds: number; deliverySeconds: number } | null;
+  runs: EmailCanaryRun[];
+};
+
 export type EmailDeliveryReport = {
   window: { hours: number; from: string; to: string };
   sources: { queue: string[]; providerEvents: string };
@@ -65,6 +103,8 @@ export type EmailDeliveryReport = {
   deliveryEvidence: "none_received" | "received" | "received_partial_window";
   /** The earliest stored provider event's receipt time, or `null` when none. */
   providerEventsSince: string | null;
+  /** The per-kind numbers below leave out the canary's emails; they are reported here. */
+  canary: EmailCanaryReport;
   kinds: EmailKindDelivery[];
 };
 
@@ -97,6 +137,72 @@ const count = (value: string | number): number => Number(value);
 const millis = (value: string | number | null): number | null =>
   value === null ? null : Math.round(Number(value));
 
+const asDate = (value: unknown): Date => (value instanceof Date ? value : new Date(String(value)));
+
+/**
+ * The canary's latest runs and how the email health proof judges each. Bounded
+ * to `CANARY_RUNS_SHOWN` rows through the outbox's recipient index. Unknown is
+ * stated, never an empty list that reads as "no problem".
+ */
+async function readCanaryReport(address: string | null, now: Date): Promise<EmailCanaryReport> {
+  if (!address) {
+    return {
+      configured: false,
+      reason: "EXOMEM_HEALTH_START_CANARY_EMAIL is not set, so no canary is sent",
+      bounds: null,
+      runs: [],
+    };
+  }
+  let bounds: { queueSeconds: number; deliverySeconds: number };
+  try {
+    bounds = {
+      queueSeconds: healthCanaryQueueSeconds(),
+      deliverySeconds: healthCanaryDeliverySeconds(),
+    };
+  } catch {
+    return {
+      configured: true,
+      reason: "a canary time bound is not a positive whole number of seconds",
+      bounds: null,
+      runs: [],
+    };
+  }
+  const { rows } = await executeExomemSql`
+    /* exomem:email-delivery-canary */
+    SELECT o.id, o.kind, o.state, o.created_at, COALESCE(o.due_at, o.created_at) AS due_at,
+           o.sent_at, o.provider_message_id,
+           (SELECT min(e.occurred_at) FROM exomem_email_provider_events AS e
+             WHERE e.provider_message_id = o.provider_message_id
+               AND e.event = 'delivered') AS delivered_at
+    FROM exomem_email_outbox AS o
+    WHERE o.recipient = ${address}::citext AND o.kind = ANY(${[...CANARY_EMAIL_KINDS]}::text[])
+    ORDER BY o.created_at DESC, o.id DESC
+    LIMIT ${CANARY_RUNS_SHOWN}
+  `;
+  const runs = rows.map((row): EmailCanaryRun => {
+    const email: CanaryEmail = {
+      id: String(row.id),
+      kind: String(row.kind),
+      state: String(row.state),
+      createdAt: asDate(row.created_at),
+      dueAt: asDate(row.due_at),
+      sentAt: row.sent_at ? asDate(row.sent_at) : null,
+      providerMessageId: row.provider_message_id ? String(row.provider_message_id) : null,
+      deliveredAt: row.delivered_at ? asDate(row.delivered_at) : null,
+    };
+    const judgement = judgeCanaryEmail(email, bounds, now);
+    return {
+      kind: email.kind,
+      queuedAt: email.createdAt.toISOString(),
+      outcome: judgement.verdict,
+      failure: judgement.failure,
+      queueSeconds: judgement.queueSeconds,
+      deliverySeconds: judgement.deliverySeconds,
+    };
+  });
+  return { configured: true, reason: null, bounds, runs };
+}
+
 /**
  * One bounded read. The window selects by `created_at` through an index on each
  * outbox; the backlog counts read the partial index of unsettled rows; events
@@ -111,7 +217,8 @@ export async function readEmailDeliveryReport(
   now: Date = new Date()
 ): Promise<EmailDeliveryReport> {
   const from = new Date(now.getTime() - hours * 3_600_000);
-  const [kindResult, evidenceResult] = await Promise.all([
+  const canaryAddress = healthCanaryAddress();
+  const [kindResult, evidenceResult, canary] = await Promise.all([
     executeExomemSql`
       /* exomem:email-delivery-report */
       WITH window_rows AS (
@@ -120,6 +227,7 @@ export async function readEmailDeliveryReport(
                     THEN GREATEST(0, extract(epoch FROM (sent_at - due_at)) * 1000) END AS queue_ms
         FROM exomem_email_outbox
         WHERE created_at >= ${from.toISOString()}::timestamptz
+          AND recipient IS DISTINCT FROM ${canaryAddress}::citext
         UNION ALL
         SELECT id, 'magic_link', state, provider_message_id, sent_at,
                CASE WHEN state = 'sent'
@@ -130,6 +238,7 @@ export async function readEmailDeliveryReport(
         SELECT kind, count(*) AS pending, count(*) FILTER (WHERE not_before <= now()) AS past_due
         FROM exomem_email_outbox
         WHERE state IN ('pending', 'leased')
+          AND recipient IS DISTINCT FROM ${canaryAddress}::citext
         GROUP BY kind
         UNION ALL
         SELECT 'magic_link', count(*), count(*) FILTER (WHERE next_attempt_at <= now())
@@ -212,6 +321,7 @@ export async function readEmailDeliveryReport(
       /* exomem:email-provider-events-since */
       SELECT min(received_at) AS since FROM exomem_email_provider_events
     `,
+    readCanaryReport(canaryAddress, now),
   ]);
 
   const rawSince = evidenceResult.rows[0]?.since;
@@ -267,6 +377,7 @@ export async function readEmailDeliveryReport(
     },
     deliveryEvidence,
     providerEventsSince: providerEventsSince?.toISOString() ?? null,
+    canary,
     kinds,
   };
 }

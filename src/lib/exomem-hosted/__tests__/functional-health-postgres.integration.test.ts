@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
@@ -44,7 +44,10 @@ describe("functional health PostgreSQL boundary", { skip: !databaseUrl }, () => 
     url.searchParams.set("options", `-c search_path=${schema},public`);
     process.env.DATABASE_URL = url.toString();
     process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "synthetic-scheduler";
-    process.env.EXOMEM_HEALTH_EMAIL_RECIPIENT = "probe@example.invalid";
+    // The email proof starts a canary through the real start request, which needs these.
+    process.env.EXOMEM_HEALTH_START_CANARY_EMAIL = "canary@example.invalid";
+    process.env.EXOMEM_CONTROL_PLANE_KEY = randomBytes(32).toString("base64url");
+    process.env.EXOMEM_PUBLIC_BASE_URL = "https://exomem.example.invalid";
     scoped = new Pool({ connectionString: url.toString() });
     // The email proof also reads the outboxes, so the schema is the whole one.
     await applyMigrations({ databaseUrl: url.toString() });
@@ -155,14 +158,18 @@ describe("functional health PostgreSQL boundary", { skip: !databaseUrl }, () => 
   });
 
   it("records email provider acceptance only with its identifier, then exposes a newer failure", async () => {
-    assert.equal((await emailJob.GET(schedulerRequest("synthetic-scheduler"))).status, 200);
+    // A repeat inside the start flow's 15-minute window queues nothing new, so each run starts with an empty outbox.
+    const runWith = async (answer: { success: boolean; messageId?: string }) => {
+      await scoped.query("DELETE FROM exomem_email_outbox");
+      accepted = answer;
+      return (await emailJob.GET(schedulerRequest("synthetic-scheduler"))).status;
+    };
+    assert.equal(await runWith({ success: true, messageId: "synthetic-id" }), 200);
     await expectPublic(email.GET, true);
-    accepted = { success: true };
-    assert.equal((await emailJob.GET(schedulerRequest("synthetic-scheduler"))).status, 503);
+    assert.equal(await runWith({ success: true }), 503);
     await expectPublic(email.GET, false);
-    assert.equal(recipient, "probe@example.invalid");
-    accepted = { success: false, messageId: "failed-id" };
-    assert.equal((await emailJob.GET(schedulerRequest("synthetic-scheduler"))).status, 503);
+    assert.equal(recipient, "canary@example.invalid");
+    assert.equal(await runWith({ success: false, messageId: "failed-id" }), 503);
     await expectPublic(email.GET, false);
     assert.equal(sends, 3);
     const row = (await scoped.query("SELECT * FROM exomem_health_proofs")).rows[0];

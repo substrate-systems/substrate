@@ -17,6 +17,8 @@ Emails other than the owner sign-in link also wait for the minute-by-minute deli
 - The page states "We sent an email to <address>. It says what happens next." The status, body shape and response-time floor stay identical for every account state.
 - An address that a browser accepts but the server cannot use gets `400 invalid_email` after the bot check, and the form asks the person to check it. It no longer says that an email was sent.
 - Each email becomes observable. The outbox stores the provider's message id; a Brevo webhook stores delivery and bounce events; an operator report shows counts and latency per email kind, with delivery shown as unknown until the provider reports; and the email health proof fails when a queued email stalls.
+- A sign-in canary keeps the outcome proven without a person. The email health proof starts a sign-in for a configured address every 30 minutes, sends it inside the run and judges the previous canary: accepted within a minute of its due time and reported delivered within ten minutes. The canary never takes a Cloud place, and the delivery report keeps it out of its per-kind numbers.
+- A failed bot check says that no email was sent.
 - **Supersedes** the `launch-exomem-cloud-web` clause "A person who asks again while waiting ... MUST NOT receive a second waitlist email".
 
 ## Capabilities
@@ -34,4 +36,5 @@ Emails other than the owner sign-in link also wait for the minute-by-minute deli
 - A migration that adds the two kinds to `exomem_email_outbox_kind_check`
 - A migration that adds `provider_message_id` to both outboxes, `due_at` to the email outbox and the table `exomem_email_provider_events`
 - `src/app/api/webhooks/brevo`, `src/app/api/exomem/admin/email-delivery`, `functional-health.ts`
+- `email-health-proof.ts` and `health-canary.ts` (the canary), `self-serve-admission.ts` (promotion skips it)
 - `docs/runbooks/exomem-cloud-operations.md`, "Start admission" and "Email delivery"

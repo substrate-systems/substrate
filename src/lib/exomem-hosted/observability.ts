@@ -15,6 +15,7 @@ const EVENT_NAMES = new Set([
   "access.request.denied",
   "access.start.accepted",
   "access.start.admission_paced",
+  "access.start.canary_checked",
   "access.start.suppressed",
   "access.start.challenge_failed",
   "access.start.challenge_unavailable",
@@ -82,6 +83,11 @@ const ERROR_CODES = new Set([
   "CRON_AUTH_REJECTED",
   "KEY_WATCHER_NOT_CONFIGURED",
   "KEY_WATCHER_CHECK_UNAVAILABLE",
+  "CANARY_NOT_CONFIGURED",
+  "CANARY_NOT_QUEUED",
+  "CANARY_NOT_ACCEPTED",
+  "CANARY_ACCEPTED_LATE",
+  "CANARY_NOT_DELIVERED",
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
@@ -122,6 +128,8 @@ export type OperationalEvent = {
   /** Provider send attempts made for the email, and milliseconds from due to provider acceptance. */
   attempts?: number;
   queueMs?: number;
+  /** Milliseconds from provider acceptance to the provider's `delivered` event. */
+  deliveryMs?: number;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -223,6 +231,9 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalCount(input.queueMs) !== undefined
       ? { queueMs: optionalCount(input.queueMs) }
+      : {}),
+    ...(optionalCount(input.deliveryMs) !== undefined
+      ? { deliveryMs: optionalCount(input.deliveryMs) }
       : {}),
   };
 }

@@ -39,6 +39,9 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | `BREVO_SENDER_EMAIL` is required: the verified default sender for mail that names none (Endstate claim and webhook mail). Exomem mail passes its own sender. `BREVO_SENDER_NAME` is optional.                                                                                                                                                                                                   |
 | `BREVO_API_BASE_URL`                                                | Unset in production, which sends to `https://api.brevo.com/v3`. Tests point it at a stand-in. The API key goes to this host.                                                                                                          |
 | `BREVO_WEBHOOK_TOKEN`                                               | Web app only. The bearer token that `POST /api/webhooks/brevo` requires from Brevo. Unset, the route answers `503` and stores nothing. See "Email delivery" below.                                                                    |
+| `EXOMEM_HEALTH_START_CANARY_EMAIL`                                  | Web app only. The address the email health proof starts a sign-in with every 30 minutes. It must have no Exomem account, be on our own domain, and be accepted and dropped by the mail host. Unset or not an email address, the email proof fails. See "Functional health" below. |
+| `EXOMEM_HEALTH_CANARY_QUEUE_SECONDS`                                | Web app only. How long after its due time Brevo must have accepted the previous canary email. Default 60. A positive whole number of seconds. |
+| `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS`                             | Web app only. How long after accepting the previous canary email Brevo must have reported it `delivered`. Default 600. A positive whole number of seconds. |
 | `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`     | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely.                          |
 | `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT` | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                                               |
 | `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                                                       |
@@ -653,6 +656,10 @@ to start again with that address and use the newest email. Anybody else follows 
   else a waitlist place. Each reconcile tick promotes the oldest waiting
   people into free places.
 
+The sign-in canary's waitlist entry (see "Functional health") is never
+promoted, and it does not count as somebody waiting, so it never delays a
+newcomer's start link in `open` mode.
+
 `open` mode also paces admissions: at most
 `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR` start links an hour (default 5), for
 newcomers and promotions together, whatever the address. Past it, a newcomer
@@ -838,7 +845,8 @@ afterwards. Three records make it up.
   `attempts` and `queueMs`), and `access.email.delivery_failed` and
   `access.email.cancelled` (with `emailKind` and `errorCode`). A magic link
   logs `access.magic_link.sent` and `access.magic_link.delivery_failed` the
-  same way.
+  same way. Each canary run logs `access.start.canary_checked`; see
+  "Functional health".
 
 ### Measured delivery times
 
@@ -902,6 +910,15 @@ the magic link as its own kind, it gives:
   `hardBounce`, `blocked`, `spam`, `invalid` or `error` event, and p50 and p95
   from acceptance to `delivered`, with the number measured.
 
+The per-kind numbers leave out the sign-in canary's emails, which are not real
+traffic. The `canary` section reports them. `canary.configured` is `false`, with
+a `reason`, when `EXOMEM_HEALTH_START_CANARY_EMAIL` is unset. Otherwise
+`canary.runs` lists the last 12 canary emails, newest first, with `queuedAt`,
+`queueSeconds` (due to acceptance), `deliverySeconds` (acceptance to
+`delivered`) and an `outcome`. A `pending` outcome means that no bound has
+broken yet. A `failed` outcome carries `failure`: `not_accepted`,
+`accepted_late` or `not_delivered`. `canary.bounds` gives the bounds in use.
+
 Unknown is not zero. `delivery` is `null` while `deliveryEvidence` is
 `none_received`: Brevo has never reported an event, so delivery is unknown.
 `received_partial_window` means the first event arrived after the window began,
@@ -958,8 +975,59 @@ Public health readers certify the latest completed proof, rather than a respondi
 | Public route              | Checked scope                                                                          | Schedule                     | Default freshness |
 | ------------------------- | -------------------------------------------------------------------------------------- | ---------------------------- | ----------------- |
 | Control `/healthz`        | PostgreSQL temporary-row write/read                                                    | Each minute                  | 180 seconds       |
-| Control `/healthz/email`  | Provider acceptance with a message identifier, and no stalled or failed queued email   | Each 30 minutes              | 3,600 seconds     |
+| Control `/healthz/email`  | A canary start accepted and delivered, and no stalled or failed queued email           | Each 30 minutes              | 3,600 seconds     |
 | Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                                           | Platform CronJob each minute | 180 seconds       |
+
+The email proof starts a sign-in the way a person does, and checks that the
+email arrives. Every 30 minutes it requests a start for
+`EXOMEM_HEALTH_START_CANARY_EMAIL` through the same server function the start
+route calls. It skips only the browser bot check, which no script can pass, and
+only inside this scheduler-authenticated route: no public route reaches that
+path. The canary uses its own network key, `health-canary`, so it never shares a
+rate-limit bucket with a real client. The request queues one waitlist email, and
+the proof sends it before the run ends. Each run:
+
+1. Judges the newest canary email that is at least
+   `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS` old, which is normally the previous
+   run's. Brevo must have accepted it within `EXOMEM_HEALTH_CANARY_QUEUE_SECONDS`
+   (default 60) after its due time, and must have reported it `delivered` within
+   `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS` (default 600) after accepting it. A
+   `delivered` event that never arrives fails the proof, so a stopped Brevo
+   webhook fails it too. Judging only emails whose bound has run out means that
+   a scheduler retry, seconds after a run, reaches the same verdict instead of
+   judging the email that the first attempt just sent.
+2. Sends a new canary, and requires Brevo to accept it with a message id in the
+   same run.
+3. Reads real traffic, as the next paragraph says.
+
+A run with no canary email that old, such as the first, passes on its own acceptance. A run in
+the same fixed 15-minute window as another queues nothing new, because that
+window's email already went out, and does not fail. A run that queues nothing
+15 minutes or more after the last canary fails with `CANARY_NOT_QUEUED`: a rate
+limit refused it, or the address has an account.
+
+Each run logs one `access.start.canary_checked` event. `queueMs` is this run's
+canary, from due time to acceptance. `deliveryMs` is the previous canary, from
+acceptance to `delivered`; it is absent while that is unknown. On failure,
+`errorCode` is `CANARY_NOT_CONFIGURED`, `CANARY_NOT_QUEUED`,
+`CANARY_NOT_ACCEPTED`, `CANARY_ACCEPTED_LATE`, `CANARY_NOT_DELIVERED`,
+`EMAIL_DELIVERY_UNAVAILABLE` (real traffic stalled) or `INTERNAL_ERROR`. The
+event holds no address.
+
+The canary address must have no Exomem account, because an address that has one
+gets a real sign-in link every 30 minutes. It must also be an address that the
+mail host accepts and drops: an unlisted address on our own domain, such as a
+catch-all rule that discards. An address that bounces never reports `delivered`
+and fails the proof. The canary takes a waitlist place for that one address and
+never a Cloud place: it is left out of waitlist promotion and out of the check
+for people waiting. Its emails are not in the delivery report's per-kind
+numbers; the report's `canary` section lists them.
+
+Brevo's free plan allows 300 emails a day across all mail. The canary sends 48 a
+day, one every 30 minutes, which leaves 252 for real mail. Do not slow the
+schedule: email freshness cannot exceed one hour, and a run every hour leaves
+no room for a late one. `EXOMEM_HEALTH_EMAIL_RECIPIENT` is retired. Nothing
+reads it, so remove it from the production environment.
 
 The email proof also reads real traffic in both outboxes. It fails when an
 email is ready but unsent more than `EXOMEM_HEALTH_EMAIL_OVERDUE_SECONDS`
@@ -974,13 +1042,13 @@ attempt is overdue, or when it fails for good. The value must be a positive
 whole number of seconds. The delivery report, in "Email delivery" above, shows
 the detail.
 
-These checks do not certify inbox delivery, OAuth issuance, semantic recall or every customer cell. Functional failure does not gate admission or restart pods. Direct gateway `/healthz` and `/readyz` retain their pod probe semantics.
+These checks do not certify inbox placement at other mail providers, OAuth issuance, semantic recall or every customer cell. Functional failure does not gate admission or restart pods. Direct gateway `/healthz` and `/readyz` retain their pod probe semantics.
 
 The public gateway ingress must allow GET only and rewrite `/healthz` to `/healthz/canary`. Pod probes bypass that rewrite. Until the rewrite and first proof exist, public memory status stays unavailable.
 
 Freshness uses `EXOMEM_HEALTH_CONTROL_FRESHNESS_SECONDS`, `EXOMEM_HEALTH_EMAIL_FRESHNESS_SECONDS` and `EXOMEM_HEALTH_MEMORY_FRESHNESS_SECONDS`. Each value must be a positive integer. Email freshness cannot exceed one hour.
 
-The protected control and email routes are `/api/cron/exomem-health-control` and `/api/cron/exomem-health-email`. Both use the existing dedicated scheduler bearer. Email requires `EXOMEM_HEALTH_EMAIL_RECIPIENT`, set to a synthetic inbox.
+The protected control and email routes are `/api/cron/exomem-health-control` and `/api/cron/exomem-health-email`. Both use the existing dedicated scheduler bearer. Email requires `EXOMEM_HEALTH_START_CANARY_EMAIL`, an address with no account that the mail host accepts and drops.
 
 The gateway image includes `gateway/memory-health-runner.cjs`. Its one-shot CronJob requires these values:
 

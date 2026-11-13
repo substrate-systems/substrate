@@ -37,3 +37,13 @@
 ## 6. Malformed address
 
 - [x] 6.1 The start route answers `400 invalid_email` after the bot check for an address the server cannot use; the form shows a "Check the address" error
+
+## 7. Sign-in delivery is proven continuously
+
+- [x] 7.1 Replace the email proof's direct send with a canary start request: `requestStart` for `EXOMEM_HEALTH_START_CANARY_EMAIL`, under the network key `health-canary`, with the email sent inside the cron run and the waitlist branch forced
+- [x] 7.2 Judge the previous canary each run: accepted within `EXOMEM_HEALTH_CANARY_QUEUE_SECONDS` (60) and delivered within `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS` (600); record the measured times in `access.start.canary_checked`
+- [x] 7.3 Leave the canary out of waitlist promotion and out of the check for people waiting
+- [x] 7.4 Leave the canary out of the delivery report's per-kind numbers and report it in a `canary` section
+- [x] 7.5 Say in the bot-check failure copy that no email was sent
+- [x] 7.6 Runbook: the canary address, the two bounds, the Brevo free-plan budget (48 of 300 emails a day) and the retired `EXOMEM_HEALTH_EMAIL_RECIPIENT`
+- [ ] 7.7 Production: set `EXOMEM_HEALTH_START_CANARY_EMAIL` to an unlisted address on our domain that the mail host accepts and drops, remove `EXOMEM_HEALTH_EMAIL_RECIPIENT`, run `/api/cron/exomem-health-email` once, then read `canary.runs` in the delivery report after the next run and record the measured times
