@@ -996,31 +996,51 @@ the proof sends it before the run ends. Each run:
    webhook fails it too. Judging only emails whose bound has run out means that
    a scheduler retry, seconds after a run, reaches the same verdict instead of
    judging the email that the first attempt just sent.
-2. Sends a new canary, and requires Brevo to accept it with a message id in the
-   same run.
+2. Sends a new canary, and takes the result from this run's own start. The
+   start must queue a waitlist email that Brevo accepts with a message id in
+   the same run, or repeat the email that the same fixed 15-minute window
+   already sent, which is a pass. Nothing is inferred from an earlier email's
+   age.
 3. Reads real traffic, as the next paragraph says.
 
-A run with no canary email that old, such as the first, passes on its own acceptance. A run in
-the same fixed 15-minute window as another queues nothing new, because that
-window's email already went out, and does not fail. A run that queues nothing
-15 minutes or more after the last canary fails with `CANARY_NOT_QUEUED`: a rate
-limit refused it, or the address has an account.
+A run with no canary email that old, such as the first, passes on its own
+acceptance.
+
+The run stops its own work at 12 seconds and still saves a failed proof, so it
+ends inside the scheduler's 20 seconds. In the canary's start, a wait for a
+database lock ends after 3 seconds and a statement after 5 seconds. A held
+Cloud capacity lock therefore fails the proof with `CANARY_TIMED_OUT` instead
+of hanging the run.
 
 Each run logs one `access.start.canary_checked` event. `queueMs` is this run's
 canary, from due time to acceptance. `deliveryMs` is the previous canary, from
 acceptance to `delivered`; it is absent while that is unknown. On failure,
-`errorCode` is `CANARY_NOT_CONFIGURED`, `CANARY_NOT_QUEUED`,
-`CANARY_NOT_ACCEPTED`, `CANARY_ACCEPTED_LATE`, `CANARY_NOT_DELIVERED`,
-`EMAIL_DELIVERY_UNAVAILABLE` (real traffic stalled) or `INTERNAL_ERROR`. The
-event holds no address.
+`errorCode` is one of the following. The event holds no address.
+
+- `CANARY_NOT_CONFIGURED`: the address is unset or not an email address.
+- `CANARY_ADDRESS_HAS_ACCOUNT`: the address owns an account, and the start
+  queued a real sign-in link. Change the address.
+- `CANARY_ADDRESS_HAS_INVITATION`: the address holds an open operator
+  invitation. Revoke it or change the address.
+- `CANARY_NOT_QUEUED`: a rate limit refused the start, so it queued nothing.
+- `CANARY_START_FAILED`: the start threw. Read the `access.start.failed` event.
+- `CANARY_TIMED_OUT`: the run hit its 12-second deadline, or a lock or
+  statement wait hit its limit.
+- `CANARY_NOT_ACCEPTED`, `CANARY_ACCEPTED_LATE` and `CANARY_NOT_DELIVERED`:
+  Brevo did not accept this run's canary, or the judged canary broke its
+  bound.
+- `EMAIL_DELIVERY_UNAVAILABLE`: real traffic stalled.
+- `INTERNAL_ERROR`: another failure.
 
 The canary address must have no Exomem account, because an address that has one
 gets a real sign-in link every 30 minutes. It must also be an address that the
 mail host accepts and drops: an unlisted address on our own domain, such as a
 catch-all rule that discards. An address that bounces never reports `delivered`
 and fails the proof. The canary takes a waitlist place for that one address and
-never a Cloud place: it is left out of waitlist promotion and out of the check
-for people waiting. Its emails are not in the delivery report's per-kind
+never a Cloud place: the shared start path always queues the address on the
+waitlist, whoever asks and in any admission mode, and never issues it a start
+link. It is also left out of waitlist promotion and out of the check for people
+waiting. Its emails are not in the delivery report's per-kind
 numbers; the report's `canary` section lists them.
 
 Brevo's free plan allows 300 emails a day across all mail. The canary sends 48 a

@@ -158,12 +158,19 @@ export async function readEmailDeliveryStall(
   });
 }
 
+const CANARY_EMAIL_COLUMNS = `o.id, o.kind, o.state, o.created_at AS "createdAt",
+              COALESCE(o.due_at, o.created_at) AS "dueAt", o.sent_at AS "sentAt",
+              o.provider_message_id AS "providerMessageId",
+              (SELECT min(e.occurred_at) FROM exomem_email_provider_events AS e
+                WHERE e.provider_message_id = o.provider_message_id
+                  AND e.event = 'delivered') AS "deliveredAt"`;
+
 /**
- * The canary's newest email in the outbox that is at least `minAgeSeconds` old,
- * with the time of the provider's earliest `delivered` event for it, or `null`
- * when it has none. Read through the health pool, like the stall check. The
- * canary's rows are the ones with its address, a few dozen a day, found through
- * the outbox's recipient index.
+ * The canary's newest email that is at least `minAgeSeconds` old, with the time
+ * of the provider's earliest `delivered` event for it, or `null` when it has
+ * none. Read through the health pool, like the stall check. The canary's rows
+ * are the ones with its address, a few dozen a day, found through the outbox's
+ * recipient index.
  */
 export async function readLatestCanaryEmail(
   recipient: string,
@@ -171,18 +178,24 @@ export async function readLatestCanaryEmail(
 ): Promise<CanaryEmail | null> {
   return withHealthClient(async (client) => {
     const { rows } = await client.query(
-      `SELECT o.id, o.kind, o.state, o.created_at AS "createdAt",
-              COALESCE(o.due_at, o.created_at) AS "dueAt", o.sent_at AS "sentAt",
-              o.provider_message_id AS "providerMessageId",
-              (SELECT min(e.occurred_at) FROM exomem_email_provider_events AS e
-                WHERE e.provider_message_id = o.provider_message_id
-                  AND e.event = 'delivered') AS "deliveredAt"
+      `SELECT ${CANARY_EMAIL_COLUMNS}
        FROM exomem_email_outbox AS o
        WHERE o.recipient = $1 AND o.kind = ANY($2::text[])
          AND o.created_at <= now() - make_interval(secs => $3)
        ORDER BY o.created_at DESC, o.id DESC
        LIMIT 1`,
       [recipient, [...CANARY_EMAIL_KINDS], minAgeSeconds]
+    );
+    return (rows[0] as CanaryEmail | undefined) ?? null;
+  });
+}
+
+/** One canary email by its outbox id, as `readLatestCanaryEmail` reads it. */
+export async function readCanaryEmail(emailId: string): Promise<CanaryEmail | null> {
+  return withHealthClient(async (client) => {
+    const { rows } = await client.query(
+      `SELECT ${CANARY_EMAIL_COLUMNS} FROM exomem_email_outbox AS o WHERE o.id = $1`,
+      [emailId]
     );
     return (rows[0] as CanaryEmail | undefined) ?? null;
   });

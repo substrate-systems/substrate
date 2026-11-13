@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import {
   claimMagicLinkDelivery,
+  createInviteRecord,
   createMagicAccessToken,
   markMagicLinkDeliverySent,
   __setExomemSqlForTests,
@@ -13,8 +14,9 @@ import {
 } from "../db";
 import { readEmailDeliveryReport } from "../email-delivery-report";
 import { pruneProviderEvents } from "../email-provider-events";
-import { closeHealthProofPool } from "../functional-health-store";
+import { closeHealthProofPool, readHealthProof } from "../functional-health-store";
 import { setOperationalEventSinkForTests } from "../observability";
+import { EXOMEM_RATE_LIMITS } from "../rate-limit";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // Email delivery you can see, against real PostgreSQL: the provider's webhook
@@ -26,10 +28,13 @@ const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const DEFAULT_PROVIDER_ANSWER = { success: true, messageId: "<health@smtp-relay.example.com>" };
 const providerAnswer: { success: boolean; messageId?: string } = { ...DEFAULT_PROVIDER_ANSWER };
 const sentTo: string[] = [];
+/** While set, the provider does not answer until it resolves: an outage that never refuses. */
+let providerGate: Promise<void> | null = null;
 mock.module("@/lib/brevo", {
   namedExports: {
     sendTransactionalEmail: async (input: { to: string }) => {
       sentTo.push(input.to);
+      if (providerGate) await providerGate;
       return providerAnswer;
     },
   },
@@ -38,6 +43,7 @@ const CANARY = "canary@example.com";
 const WEBHOOK_TOKEN = "synthetic-webhook-token";
 let pool: Pool | undefined;
 let runEmailHealthCheck: typeof import("../email-health-proof").runEmailHealthCheck;
+let requestStart: typeof import("../access").requestStart;
 let promoteWaitlistedPeople: typeof import("../self-serve-admission").promoteWaitlistedPeople;
 let dispatchExomemEmail: typeof import("../email-outbox").dispatchExomemEmail;
 let drainExomemEmailOutbox: typeof import("../email-outbox").drainExomemEmailOutbox;
@@ -158,6 +164,7 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
     __setExomemTransactionForTests(interactiveTransaction);
     // These modules import the mail provider, so they load after it is mocked.
     ({ runEmailHealthCheck } = await import("../email-health-proof"));
+    ({ requestStart } = await import("../access"));
     ({ dispatchExomemEmail, drainExomemEmailOutbox } = await import("../email-outbox"));
     ({ startSelfServeAtomic, promoteWaitlistedPeople } = await import("../self-serve-admission"));
   });
@@ -185,6 +192,7 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
     delete process.env.EXOMEM_SELF_SERVE_ADMISSION;
     Object.assign(providerAnswer, DEFAULT_PROVIDER_ANSWER);
     sentTo.length = 0;
+    providerGate = null;
     // The canary's requests count against the same limits as any start request.
     await pool!.query("DELETE FROM exomem_rate_limit_buckets");
     await pool!.query("DELETE FROM exomem_email_provider_events");
@@ -654,11 +662,7 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
       assert.equal(await runEmailHealthCheck(), true);
     });
 
-    it("fails when a start request queues no email, such as for an address that has an account", async () => {
-      assert.equal(await runEmailHealthCheck(), true);
-      const [first] = await canaryEmails();
-      const sentAt = await ageEmail(first!.id, { acceptedMinutesAgo: 30 });
-      await deliveredAfter("health@smtp-relay.example.com", sentAt, 4);
+    async function makeCanaryAnOwner() {
       const user = await pool!.query<{ id: string }>(
         "INSERT INTO exomem_users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
         [CANARY]
@@ -667,13 +671,79 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
         "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
         [user.rows[0]!.id]
       );
+    }
+    async function failedCode(run: () => Promise<boolean>): Promise<unknown> {
       const captured = captureEvents();
       try {
-        assert.equal(await runEmailHealthCheck(), false);
+        assert.equal(await run(), false);
       } finally {
         captured.stop();
       }
-      assert.equal(canaryEvents(captured.events)[0]?.errorCode, "CANARY_NOT_QUEUED");
+      return canaryEvents(captured.events)[0]?.errorCode;
+    }
+
+    it("fails, naming the account, when the canary address becomes an owner within the window of a passing run", async () => {
+      assert.equal(await runEmailHealthCheck(), true);
+      await makeCanaryAnOwner();
+      // A real sign-in link goes to this address now; a recent canary row must not hide that.
+      assert.equal(await failedCode(runEmailHealthCheck), "CANARY_ADDRESS_HAS_ACCOUNT");
+    });
+
+    it("fails, naming the invitation, when the canary address holds an operator invitation", async () => {
+      await seedFreeCloudCapacity();
+      await createInviteRecord({
+        tokenDigest: randomBytes(32),
+        emailNormalized: CANARY,
+        entitlementSource: "complimentary",
+        capabilities: ["capture"],
+        resourceLimits: { storageBytes: 1, uploadBytes: 1, workerCount: 0 },
+        operatorPrincipalDigest: randomBytes(32),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+      assert.equal(await failedCode(runEmailHealthCheck), "CANARY_ADDRESS_HAS_INVITATION");
+    });
+
+    it("fails when the start itself throws, though a canary email went out minutes ago", async () => {
+      assert.equal(await runEmailHealthCheck(), true);
+      __setExomemTransactionForTests(async () => {
+        throw new Error("connection lost");
+      });
+      try {
+        // Within the same window the start queues nothing, so only its own result can tell a repeat from a failure.
+        assert.equal(await failedCode(runEmailHealthCheck), "CANARY_START_FAILED");
+      } finally {
+        __setExomemTransactionForTests(interactiveTransaction);
+      }
+    });
+
+    it("fails with a timeout code, and saves the failed proof, while the Cloud capacity lock is held", async () => {
+      const holder = await pool!.connect();
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT pg_advisory_xact_lock(hashtext('exomem-cloud-capacity'))");
+        const startedAt = Date.now();
+        assert.equal(await failedCode(runEmailHealthCheck), "CANARY_TIMED_OUT");
+        // The scheduler gives a run 20 s; the lock wait is bounded well inside that.
+        assert.ok(Date.now() - startedAt < 10_000);
+      } finally {
+        await holder.query("ROLLBACK");
+        holder.release();
+      }
+      assert.equal((await readHealthProof("email"))?.success, false);
+    });
+
+    it("stops at its deadline, and saves the failed proof, when the provider never answers", async () => {
+      let release!: () => void;
+      providerGate = new Promise<void>((resolve) => (release = resolve));
+      try {
+        assert.equal(
+          await failedCode(() => runEmailHealthCheck({ deadlineMs: 1_000 })),
+          "CANARY_TIMED_OUT"
+        );
+        assert.equal((await readHealthProof("email"))?.success, false);
+      } finally {
+        release();
+      }
     });
 
     it("fails, and sends nothing, when no usable canary address is configured", async () => {
@@ -702,6 +772,29 @@ describe("Exomem email delivery evidence PostgreSQL integration", { skip: !datab
         [CANARY]
       );
       assert.equal(entry.rows[0]!.admitted_at, null);
+    });
+
+    it("gives the canary address no invitation and takes no admission pace when a person asks for it, in open mode with free capacity", async () => {
+      process.env.EXOMEM_SELF_SERVE_ADMISSION = "open";
+      await seedFreeCloudCapacity();
+      // An ordinary public start: nothing of the cron's own path is involved.
+      await requestStart({
+        email: CANARY,
+        networkKey: "203.0.113.9",
+        browserChallengeDigest: randomBytes(32),
+        timeZone: null,
+        emailScheme: null,
+      });
+      assert.equal(await placesHeldBy(CANARY), 0);
+      const pace = await pool!.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM exomem_rate_limit_buckets WHERE scope = $1",
+        [EXOMEM_RATE_LIMITS.selfServeAdmission.scope]
+      );
+      assert.equal(pace.rows[0]!.n, 0);
+      assert.deepEqual(
+        (await canaryEmails()).map((email) => email.kind),
+        ["waitlist"]
+      );
     });
 
     it("lets a newcomer in at once in open mode while only the canary waits", async () => {

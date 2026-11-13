@@ -322,11 +322,20 @@ export async function startSelfServeAtomic(input: {
   themeChoice?: ExomemThemeChoice | null;
   mode: "waitlist" | "open";
   randomBytes?: RandomBytesSource;
+  /** Bounds this transaction's waits, for a caller with a deadline of its own: it fails in time, not behind a held lock. */
+  waitLimits?: { lockTimeoutMs: number; statementTimeoutMs: number };
 }): Promise<StartResult> {
   const link = mintStartLink(input.randomBytes);
   const emailScheme = input.emailScheme ?? null;
   const themeChoice = input.themeChoice ?? "auto";
+  // The health canary never holds a Cloud place, whatever the mode and however it asks: it is
+  // configuration for a proof, and an address nobody owns must not be handed a slot or a link.
+  const isCanary = input.emailNormalized === healthCanaryAddress();
   return withExomemTransaction(async (tx) => {
+    if (input.waitLimits) {
+      await tx`SELECT set_config('lock_timeout', ${String(input.waitLimits.lockTimeoutMs)}, true),
+                      set_config('statement_timeout', ${String(input.waitLimits.statementTimeoutMs)}, true)`;
+    }
     const open = await lockOpenInvitation(tx, input.emailNormalized);
     if (open === "being_sent") return { outcome: "invitation_waiting", emailId: null };
     if (open) {
@@ -367,9 +376,11 @@ export async function startSelfServeAtomic(input: {
         AND expires_at > now()
       HAVING count(*) > 0
     `;
-    const held = outstanding.rows[0] as
-      | { expires_at: string; recipient_time_zone: string | null }
-      | undefined;
+    const held = isCanary
+      ? undefined
+      : (outstanding.rows[0] as
+          | { expires_at: string; recipient_time_zone: string | null }
+          | undefined);
     if (held) {
       // A stored zone came from an earlier request and is kept: this request
       // is unauthenticated and must not change it.
@@ -394,7 +405,7 @@ export async function startSelfServeAtomic(input: {
       };
     }
 
-    if (input.mode === "open") {
+    if (input.mode === "open" && !isCanary) {
       const fits = await cloudAdmissionAllows(tx, { email: input.emailNormalized });
       // The health canary waits for good and takes no place (see health-canary.ts), so it is no queue to overtake.
       const waiting = await tx`
