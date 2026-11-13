@@ -52,24 +52,24 @@ export const sentCopy = {
   /** Only the requesting browser can resume an app's consent, so the app journey says so. */
   openHereForApp: (app: string) => `Open it in this browser to finish connecting ${app}.`,
   resend: "Send again",
-  resendIn: (clock: string) => `Send again in ${clock}`,
+  resendIn: (wait: string) => `Send again ${wait}`,
   differentEmail: "Use a different email",
 };
 
 /**
- * A request that a limit refused sent nothing, and each line says so. The address limit
- * can say the address was emailed before; the browser and network limits cannot, because
- * they do not depend on the address and nothing was sent for it.
+ * A request that a limit refused sent nothing, and each line says so. No line says the
+ * address was emailed: every limit counts requests, and a waiting or invited person gets at
+ * most one email per window however often they ask.
  */
 export const limitedCopy = {
   title: {
-    address: "That’s enough emails for now",
+    address: "That’s enough requests for now",
     browser: "Give it a minute",
     ip: "Too many requests",
   } satisfies Record<StartLimit, string>,
   lede: {
     address:
-      "We’ve already emailed this address several times this hour, so we didn’t send another. Use the latest email, or check spam.",
+      "This address was asked for several times this hour, so we didn’t send another. Use the latest email from us, or check spam.",
     browser: "You asked a moment ago, so we didn’t send this one.",
     ip: "Too many requests from your network, so we didn’t send an email.",
   } satisfies Record<StartLimit, string>,
@@ -82,6 +82,16 @@ export const limitedCopy = {
 export function waitInWords(seconds: number): string {
   const minutes = Math.ceil(Math.max(0, seconds) / 60);
   return minutes <= 1 ? "in about 1 minute" : `in ${minutes} minutes`;
+}
+
+/**
+ * A resend button's wait: a ticking "in 0:42" for a minute or less, where a countdown reads as
+ * one, and a duration in words beyond that, where "in 59:35" would read as a time of day.
+ */
+export function resendWait(seconds: number): string {
+  const left = Math.max(0, Math.ceil(seconds));
+  if (left > 60) return waitInWords(left);
+  return `in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 }
 
 export const reviewerCopy = {

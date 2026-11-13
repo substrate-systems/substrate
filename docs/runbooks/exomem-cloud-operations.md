@@ -958,6 +958,8 @@ email is ready but unsent more than `EXOMEM_HEALTH_EMAIL_OVERDUE_SECONDS`
 (default 300) after its due time, or when an email failed in the last hour for
 a reason other than the provider refusing it. A cancelled email never fails the
 proof, and neither does a refusal, which is a bad request and not an outage.
+A sign-in link that was replaced by a newer one, or that could no longer be
+used, does not fail the proof either; any other sign-in link failure does.
 The proof runs every 30 minutes, so a stall raises the alert between 5 and 35
 minutes after it starts. An email in retry backoff counts only when its next
 attempt is overdue, or when it fails for good. The value must be a positive

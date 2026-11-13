@@ -55,7 +55,7 @@ The system SHALL dispatch each email that a start request queues as soon as the 
 
 ### Requirement: A refused start request says that nothing was sent
 
-When a rate limit refuses a start request, the system SHALL tell the browser which limit refused it (network, browser or address) and when to try again, and the page SHALL say that this request sent no email. The page MUST NOT say that an address was emailed unless the refusing limit is the per-address limit, which counts emails already sent to that address. The limits SHALL be taken before any branch that depends on account state, so the answer is the same for every address. The wait SHALL be shown as a duration in words, never as a clock reading. The response status, body keys and time floor SHALL stay those of every other accepted request.
+When a rate limit refuses a start request, the system SHALL tell the browser which limit refused it (network, browser or address) and when to try again, and the page SHALL say that this request sent no email. The page MUST NOT say that the address was emailed, because every limit counts requests, not emails. The limits SHALL be taken before any branch that depends on account state, so the answer is the same for every address. A wait longer than one minute SHALL be shown as a duration in words, never as a clock reading; a resend button MAY count down a wait of one minute or less as minutes and seconds. The response status, body keys and time floor SHALL stay those of every other accepted request.
 
 #### Scenario: Address asked too often
 

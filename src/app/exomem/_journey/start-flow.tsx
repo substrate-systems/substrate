@@ -14,6 +14,7 @@ import {
   reviewerCopy,
   sentCopy,
   startCopy,
+  resendWait,
   waitInWords,
 } from "./copy";
 import { JourneyPage, type AppTile } from "./JourneyPage";
@@ -97,11 +98,6 @@ async function requestStart(email: string, turnstileToken: string): Promise<Star
   return { kind: "failed" };
 }
 
-function clock(ms: number): string {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
 function emailDomain(address: string): string {
   return address.slice(address.lastIndexOf("@") + 1).toLowerCase();
 }
@@ -155,10 +151,7 @@ export function StartFlow({
   const resendLabel = sending
     ? "Sending…"
     : waitLeft > 0
-      ? // A long wait reads as a duration in words; a short one as a countdown.
-        waitLeft > 60_000
-        ? `Send again ${waitInWords(Math.ceil(waitLeft / 1000))}`
-        : sentCopy.resendIn(clock(waitLeft))
+      ? sentCopy.resendIn(resendWait(waitLeft / 1000))
       : sentCopy.resend;
   const formNonce = context.kind === "app" ? context.nonce : undefined;
   const sentDomain = emailDomain(sentEmail);

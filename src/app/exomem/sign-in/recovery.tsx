@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { postPublicJson } from "@/lib/exomem-hosted/hosted-browser";
 import { OWNER_SIGN_IN_TTL_MS, START_LIMITS, type StartLimit } from "@/lib/exomem/access-limits";
 import { JourneyPage } from "../_journey/JourneyPage";
-import { failureCopy, limitedCopy, sentCopy, waitInWords } from "../_journey/copy";
+import { failureCopy, limitedCopy, resendWait, sentCopy, waitInWords } from "../_journey/copy";
 import { StepActions, StepHeading, StepNotice } from "../_journey/parts";
 
 /** The proven browser can resend without learning an address from the receipt. */
@@ -75,8 +75,7 @@ export function AccessRecovery({ state }: { state: "expired" | "used" }) {
           label: busy
             ? "Sending…"
             : wait
-              ? // A long wait reads as a duration in words; a short one as a countdown.
-                `Email me a new link ${wait > 60 ? waitInWords(wait) : `in ${Math.floor(wait / 60)}:${String(wait % 60).padStart(2, "0")}`}`
+              ? `Email me a new link ${resendWait(wait)}`
               : "Email me a new link",
           working: busy,
           disabled: wait > 0,
