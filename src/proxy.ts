@@ -36,3 +36,29 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   }
   return response;
 }
+
+// Without a matcher the proxy runs as a billed function on every request, assets and
+// bots included. Next.js reads this at build time, so it must stay an inline literal. It
+// only narrows which requests start the proxy; the checks above still decide. `missing`
+// keeps client navigations and prefetches, which those checks skip, from starting it.
+export const config = {
+  matcher: [
+    "/tidewave/:path*",
+    {
+      source: "/exomem",
+      missing: [
+        { type: "header", key: "rsc" },
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
+    {
+      source: "/exomem/((?!.*\\.).*)",
+      missing: [
+        { type: "header", key: "rsc" },
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
+  ],
+};
