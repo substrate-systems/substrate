@@ -13,6 +13,7 @@ before(() => {
     "../../../../components/exomem/Button.module.css",
     "../../../../components/exomem/TextField.module.css",
     "../../../../components/exomem/Notice.module.css",
+    "../../../../components/exomem/SourceOffer.module.css",
     "../../../../components/exomem/Transitions.module.css",
     "../../../../components/exomem/SegmentedSwitch.module.css",
   ])

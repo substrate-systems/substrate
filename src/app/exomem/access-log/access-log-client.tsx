@@ -10,6 +10,7 @@ import type { readAccessLog } from "@/lib/exomem-hosted/cloud-access-log";
 import { Section } from "../home/home-chrome";
 import home from "../home/home.module.css";
 import styles from "./access-log.module.css";
+import { SourceOffer } from "@/components/exomem/SourceOffer";
 
 type View = Awaited<ReturnType<typeof readAccessLog>>;
 const api = "/api/exomem/cloud/access-log";
@@ -311,6 +312,7 @@ export default function AccessLogClient() {
           </>
         )}
       </div>
+      <SourceOffer align="center" />
     </>
   );
 }

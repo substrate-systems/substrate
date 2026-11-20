@@ -69,6 +69,7 @@ import {
 } from "./home-view";
 import styles from "./home.module.css";
 import { activityEventKey, createActivityObserver, type ActivityEvent } from "./home-activity";
+import { SourceOffer } from "@/components/exomem/SourceOffer";
 
 /** Home reads activity, and the status poll, this often while the tab is visible. */
 const REFRESH_MS = 30_000;
@@ -883,6 +884,7 @@ export default function HomeClient({
           </div>
         </div>
         <div className={styles.footer}>Everything else happens in your assistant.</div>
+        <SourceOffer />
       </div>
       {dialogs}
       {storageOpen && account?.kind === "owner" && (
