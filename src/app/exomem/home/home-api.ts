@@ -113,6 +113,8 @@ export type StatusRead = {
   /** NOT_RELEASED while the export flag is off: the poll leaves the export out. */
   exportSummary: HomeExport | typeof NOT_RELEASED | null;
   connectorUrl: string | null;
+  /** The release this account's cell runs; null when none is recorded; absent when not read. */
+  runningRelease?: string | null;
 };
 
 function parseStorage(value: unknown): HomeStorage | null {
@@ -157,6 +159,12 @@ export async function readStatus(): Promise<StatusRead> {
     storage: parseStorage(response.storage),
     exportSummary: "export" in response ? parseExport(response.export) : NOT_RELEASED,
     connectorUrl: parseCloudConnectorUrl(response),
+    runningRelease:
+      typeof response.runningRelease === "string"
+        ? response.runningRelease
+        : response.runningRelease === null
+          ? null
+          : undefined,
   };
 }
 

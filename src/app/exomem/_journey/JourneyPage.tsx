@@ -10,6 +10,7 @@ import { FadeIn } from "@/components/exomem/Transitions";
 import phone from "@/components/exomem/phone.module.css";
 import { wordmarkCopy } from "./copy";
 import styles from "./journey.module.css";
+import { SourceOffer } from "@/components/exomem/SourceOffer";
 
 /** Exomem's public landing, where a signed-out wordmark goes. */
 const LANDING = "/exomem";
@@ -203,6 +204,7 @@ export function JourneyPage({
           <span className={styles.footerText}>{footer}</span>
         </div>
       ) : null}
+      <SourceOffer pinned />
       <div ref={status} className={styles.status} role="status" aria-live="polite" aria-atomic />
     </main>
   );

@@ -57,6 +57,8 @@ type CloudCellStatusRow = {
   // cellctl's hold on the volume; `export` since migration 0066.
   hold_kind?: string | null;
   source_state: string | null;
+  /** The release tag of the image this cell is observed running; null when the history maps none. */
+  running_release?: string | null;
 };
 
 /**
@@ -167,6 +169,8 @@ async function readNewestCloudCell(
            cell.hold_kind, cell.used_bytes, cell.filesystem_bytes, cell.usage_observed_at,
            cell.custody_observation, cell.content_keys_retired_at, cell.last_live_key_destroyed_at,
            cell.key_retention_sources, cell.keys_expire_at,
+           (SELECT history.release_tag FROM exomem_cloud_image_history AS history
+             WHERE history.image = cell.observed_image) AS running_release,
            entitlement.source_state
     FROM exomem_cloud_cells AS cell
     LEFT JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
@@ -187,9 +191,11 @@ export async function getOwnerCloudHomeStatus(tenantId: string): Promise<{
   storage: CloudStorageObservation;
   importAvailable: boolean;
   custody: CloudCustodyObservation;
+  runningRelease: string | null;
 }> {
   const row = await readNewestCloudCell(tenantId);
   return {
+    runningRelease: row?.running_release ?? null,
     status: mapCloudCellToLifecycleStatus(row),
     storage: mapCloudCellToStorage(row),
     importAvailable: cloudImportAvailable(row?.desired_state),

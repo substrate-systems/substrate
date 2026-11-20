@@ -12,6 +12,7 @@ import {
 } from "@/lib/exomem-hosted/hosted-browser";
 import home from "../home/home.module.css";
 import styles from "./delete.module.css";
+import { SourceOffer } from "@/components/exomem/SourceOffer";
 
 type State = "checking" | "ready" | "deleting" | "pending" | "error";
 
@@ -112,6 +113,7 @@ export default function DeleteClient() {
           </>
         )}
       </section>
+      <SourceOffer align="center" />
     </>
   );
 }
