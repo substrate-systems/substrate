@@ -29,7 +29,12 @@ before(() => {
       getOwnerCloudHomeStatus: async (tenantId: string) => {
         assert.equal(tenantId, TENANT);
         cloudStatusCalls += 1;
-        return { status: cloudStatus, storage: { state: "unknown" }, importAvailable: true };
+        return {
+          status: cloudStatus,
+          storage: { state: "unknown" },
+          importAvailable: true,
+          runningRelease: "v1.2.3",
+        };
       },
     },
   });
@@ -84,7 +89,9 @@ describe("GET /api/exomem/status", () => {
       status: { state: string; code: string };
       cloudConnectorUrl?: string;
       importAvailable: boolean;
+      runningRelease: string | null;
     };
+    assert.equal(body.runningRelease, "v1.2.3");
     assert.equal(body.status.state, "degraded");
     assert.equal(body.status.code, "CELL_NOT_READY");
     assert.equal(body.cloudConnectorUrl, CLOUD_MCP_URL);

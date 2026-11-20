@@ -204,7 +204,7 @@ export function JourneyPage({
           <span className={styles.footerText}>{footer}</span>
         </div>
       ) : null}
-      <SourceOffer align="center" />
+      <SourceOffer pinned />
       <div ref={status} className={styles.status} role="status" aria-live="polite" aria-atomic />
     </main>
   );

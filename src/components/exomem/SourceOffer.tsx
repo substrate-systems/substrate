@@ -1,44 +1,28 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import {
-  SOURCE_OFFER_LINKS,
-  sourceOfferReleaseText,
-  type SourceOfferRelease,
-} from "@/lib/exomem-hosted/source-offer";
+import { SOURCE_OFFER_LINKS, sourceOfferReleaseText } from "@/lib/exomem-hosted/source-offer";
 import styles from "./SourceOffer.module.css";
 
-async function readRelease(signal: AbortSignal): Promise<SourceOfferRelease> {
-  try {
-    const response = await fetch("/api/exomem/source", { signal });
-    const body: unknown = await response.json();
-    if (response.ok && typeof body === "object" && body !== null && "state" in body) {
-      if (body.state === "known" && "release" in body && typeof body.release === "string")
-        return { state: "known", release: body.release };
-      if (body.state === "unknown") return { state: "unknown" };
-    }
-  } catch {
-    // An aborted or failed read leaves the release unavailable, never guessed.
-  }
-  return { state: "unavailable" };
-}
-
 /**
- * The "Source code (AGPL-3.0)" offer, naming the release this service runs. `center` is for the
- * journey pages, whose content is centred; the others sit in a padded column and start-align.
+ * The "Source code (AGPL-3.0)" offer. Give `release` only where the page has read the cell's own
+ * release. `pinned` takes the line out of the page's flow, for the journey pages, whose content
+ * is centred between two equal spacers; `align="center"` is for pages without a padded column.
  */
-export function SourceOffer({ align = "start" }: { align?: "start" | "center" }) {
-  const [release, setRelease] = useState<SourceOfferRelease>({ state: "loading" });
-  useEffect(() => {
-    const controller = new AbortController();
-    void readRelease(controller.signal).then((next) => {
-      if (!controller.signal.aborted) setRelease(next);
-    });
-    return () => controller.abort();
-  }, []);
+export function SourceOffer({
+  release,
+  align = "start",
+  pinned = false,
+}: {
+  release?: string | null;
+  align?: "start" | "center";
+  pinned?: boolean;
+}) {
   const text = sourceOfferReleaseText(release);
+  const classes = [
+    styles.offer,
+    align === "center" ? styles.center : "",
+    pinned ? styles.pinned : "",
+  ];
   return (
-    <p className={`${styles.offer} ${align === "center" ? styles.center : ""}`}>
+    <p className={classes.filter(Boolean).join(" ")}>
       Source code (AGPL-3.0):{" "}
       {SOURCE_OFFER_LINKS.map((link, index) => (
         <span key={link.href}>

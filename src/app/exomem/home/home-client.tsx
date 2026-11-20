@@ -884,7 +884,7 @@ export default function HomeClient({
           </div>
         </div>
         <div className={styles.footer}>Everything else happens in your assistant.</div>
-        <SourceOffer />
+        <SourceOffer release={status?.runningRelease} />
       </div>
       {dialogs}
       {storageOpen && account?.kind === "owner" && (
