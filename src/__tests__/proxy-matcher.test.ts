@@ -9,10 +9,11 @@ describe("proxy matcher", () => {
   const cases: { path: string; headers?: Record<string, string>; runs: boolean }[] = [
     { path: "/exomem", runs: true },
     { path: "/exomem/home", runs: true },
-    { path: "/exomem/account/settings", runs: true },
+    { path: "/exomem/home/", runs: true },
+    { path: "/exomem/email-change/confirm", runs: true },
     { path: "/tidewave", runs: true },
     { path: "/", runs: false },
-    { path: "/blog/some-post", runs: false },
+    { path: "/exomemx", runs: false },
     { path: "/api/exomem/account", runs: false },
     { path: "/_next/static/chunks/app.js", runs: false },
     { path: "/exomem/email-assets/wordmark.png", runs: false },
