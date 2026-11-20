@@ -72,16 +72,16 @@ export default function ExomemPrivacyPage() {
         Each Exomem Cloud account runs in its own isolated cell. Other accounts cannot reach your
         data. Your knowledge store and its backups are encrypted at rest. Connections from your
         client to the service are encrypted in transit. Inside our private server network, traffic
-        between our gateway and your cell is not yet encrypted; it does not cross the public
-        internet. The internet-facing edge that receives connections cannot read the keys that
+        from our edge to our gateway and from the gateway to your cell is not yet encrypted; it
+        does not cross the public internet. The internet-facing edge that receives connections cannot read the keys that
         protect your stored data.
       </p>
       <p>
         Exomem Cloud is not zero-knowledge or end-to-end encrypted. To search and serve your
         knowledge, your cell processes it in plaintext, and our edge and gateway see requests and
         responses as they pass through. We hold the encryption keys for your cell&apos;s storage and
-        backups, on the server that runs it and in an encrypted offline copy kept for recovery, so
-        we could deliberately read your content. We do not
+        backups, on the server that runs it and in encrypted recovery copies whose key we keep off
+        our servers, so we could deliberately read your content. We do not
         claim otherwise.
       </p>
       <p>
@@ -91,12 +91,12 @@ export default function ExomemPrivacyPage() {
         emergency credential that our procedure issues for at most an hour, or with administrator
         access to the server itself. The cluster does not yet enforce that one-hour limit. Our
         account service, which issues the access tokens your clients use, could also issue one for
-        your account; that route is not recorded in the cluster audit log. Actions taken through the cluster, including issuing and using that credential, are
+        your account; that route is not recorded in the cluster audit log. Actions taken through the cluster, including issuing and using the emergency credential, are
         recorded in an audit log on the server. That log sits on a server we control, so it is a
         record of what happened, not tamper-proof evidence. We use such access only where necessary
         to operate, support, or secure the service, or where the law requires it. Our services are
-        designed to keep your content out of their logs. Automated tests check this for your cell;
-        we check the other services by hand.
+        designed to keep your content out of their logs. Automated tests check your cell&apos;s logs.
+        After each change to the gateway or the cell controller, we also search their logs by hand.
       </p>
 
       <h2>AI clients and service providers</h2>
@@ -111,8 +111,8 @@ export default function ExomemPrivacyPage() {
         sign-in and account service, including the content that Home shows you when you browse or
         ask your memory there; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
-        region, and for exports until they expire; Cloudflare for DNS, Turnstile bot protection, and
-        the connection that carries browser file transfers to our servers;
+        region, and for imports and exports until they expire; Cloudflare for DNS and Turnstile bot
+        protection;
         Brevo for transactional email; and Paddle as merchant of record. Until 10 October 2026, Neon
         also held a frozen copy of the account database from before it moved to our own servers;
         that copy is now deleted. The public site may use privacy-filtered Vercel/PostHog analytics;
@@ -154,7 +154,9 @@ export default function ExomemPrivacyPage() {
         stated schedule. On deletion we revoke sessions and client access, close routing, and
         destroy the tenant&apos;s compute, storage, and keys through the verified deletion workflow
         rather than merely hiding the account. Encrypted copies in our backups and cluster snapshots
-        are not erased at that moment: they expire on a fixed schedule, within about 40 days. Backups
+        are not erased at that moment. Where our backup custodian manages an account&apos;s backups,
+        they expire automatically, normally within about 40 days. Otherwise we delete the backup
+        copies by hand after the deletion completes. Backups
         of the account database, which hold your cell&apos;s keys in encrypted form, expire on their
         own retention schedule. Minimal billing, security, deletion-proof, and legal
         records may be retained for the period required to resolve disputes, prevent abuse,
