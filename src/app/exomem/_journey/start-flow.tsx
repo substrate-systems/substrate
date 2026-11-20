@@ -212,11 +212,18 @@ export function StartFlow({
     if ((step !== "sent" && step !== "limited") || !sentEmail) return;
     const version = requestVersion.current;
     const controller = new AbortController();
-    let timer = 0;
+    // The session cookie belongs to the browser that redeems the link, so this tab can only
+    // move on after a sign-in in this browser. It checks when the step opens, when another
+    // tab announces a sign-in, and when the person returns to it; it never polls, so a
+    // forgotten tab costs nothing.
     let checking = false;
+    let again = false;
     async function check() {
-      window.clearTimeout(timer);
-      if (checking || controller.signal.aborted) return;
+      if (controller.signal.aborted) return;
+      if (checking) {
+        again = true;
+        return;
+      }
       checking = true;
       try {
         const response = await fetch("/api/exomem/access/session", {
@@ -242,17 +249,26 @@ export function StartFlow({
       } finally {
         checking = false;
       }
-      if (!controller.signal.aborted) timer = window.setTimeout(check, 3_000);
+      if (again) {
+        again = false;
+        void check();
+      }
     }
     const wake = (event: StorageEvent) => {
       if (event.key === EXOMEM_SIGN_IN_EVENT_KEY) void check();
     };
+    const resume = () => {
+      if (document.visibilityState === "visible" && !checking) void check();
+    };
     window.addEventListener("storage", wake);
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
     void check();
     return () => {
       controller.abort();
-      window.clearTimeout(timer);
       window.removeEventListener("storage", wake);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [step, sentEmail, formNonce, sentVersion]);
   useEffect(() => {
