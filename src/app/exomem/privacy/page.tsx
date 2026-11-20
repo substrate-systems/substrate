@@ -111,7 +111,8 @@ export default function ExomemPrivacyPage() {
         sign-in and account service, including the content that Home shows you when you browse or
         ask your memory there; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
-        region, and for exports until they expire; Cloudflare for DNS and Turnstile bot protection;
+        region, and for exports until they expire; Cloudflare for DNS, Turnstile bot protection, and
+        the connection that carries browser file transfers to our servers;
         Brevo for transactional email; and Paddle as merchant of record. Until 10 October 2026, Neon
         also held a frozen copy of the account database from before it moved to our own servers;
         that copy is now deleted. The public site may use privacy-filtered Vercel/PostHog analytics;
