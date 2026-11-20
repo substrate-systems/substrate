@@ -17,7 +17,7 @@ export default function ExomemPrivacyPage() {
   // page is static, so it reads the flag at build, and a flag change takes a deploy.
   const exportOffered = cloudExportsEnabled();
   return (
-    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 13 October 2026">
+    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 20 November 2026">
       <p>
         This policy covers the Exomem Cloud service and its public product, account, OAuth, and
         support pages. The data controller is Substrate Systems OÜ (Estonian registry code
@@ -70,9 +70,11 @@ export default function ExomemPrivacyPage() {
       <h2>The security boundary</h2>
       <p>
         Each Exomem Cloud account runs in its own isolated cell. Other accounts cannot reach your
-        data. Your knowledge store and its backups are encrypted at rest, and connections to the
-        service are encrypted in transit. The internet-facing edge that receives connections cannot
-        read the keys that protect your stored data.
+        data. Your knowledge store and its backups are encrypted at rest. Connections from your
+        client to the service are encrypted in transit. Inside our private server network, traffic
+        between our gateway and your cell is not yet encrypted; it does not cross the public
+        internet. The internet-facing edge that receives connections cannot read the keys that
+        protect your stored data.
       </p>
       <p>
         Exomem Cloud is not zero-knowledge or end-to-end encrypted. To search and serve your
@@ -85,12 +87,13 @@ export default function ExomemPrivacyPage() {
         What we have built is that nobody sees your content by accident. The access our operators
         use day to day cannot read your data or its keys, and it cannot open a session inside your
         cell. Reaching your content means deliberately stepping outside that access, with an
-        emergency credential that expires within an hour or with administrator access to the server
-        itself. Actions taken through the cluster, including issuing and using that credential, are
+        emergency credential that our procedure issues for at most an hour, or with administrator
+        access to the server itself. The cluster does not yet enforce that one-hour limit. Actions taken through the cluster, including issuing and using that credential, are
         recorded in an audit log on the server. That log sits on a server we control, so it is a
         record of what happened, not tamper-proof evidence. We use such access only where necessary
         to operate, support, or secure the service, or where the law requires it. Our services are
-        designed to keep your content out of their logs, and we test that they do.
+        designed to keep your content out of their logs. Automated tests check this for your cell;
+        we check the other services by hand.
       </p>
 
       <h2>AI clients and service providers</h2>
@@ -145,7 +148,10 @@ export default function ExomemPrivacyPage() {
         You can start verified account deletion from the product. Access credentials expire on their
         stated schedule. On deletion we revoke sessions and client access, close routing, and
         destroy the tenant&apos;s compute, storage, and keys through the verified deletion workflow
-        rather than merely hiding the account. Minimal billing, security, deletion-proof, and legal
+        rather than merely hiding the account. Encrypted copies in our backups and cluster snapshots
+        are not erased at that moment: they expire on a fixed schedule, within about 40 days. Backups
+        of the account database, which hold your cell&apos;s keys in encrypted form, expire on their
+        own retention schedule. Minimal billing, security, deletion-proof, and legal
         records may be retained for the period required to resolve disputes, prevent abuse,
         demonstrate deletion, or meet accounting and legal duties; they do not contain the deleted
         knowledge store.
