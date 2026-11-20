@@ -80,7 +80,8 @@ export default function ExomemPrivacyPage() {
         Exomem Cloud is not zero-knowledge or end-to-end encrypted. To search and serve your
         knowledge, your cell processes it in plaintext, and our edge and gateway see requests and
         responses as they pass through. We hold the encryption keys for your cell&apos;s storage and
-        backups on the server that runs it, so we could deliberately read your content. We do not
+        backups, on the server that runs it and in an encrypted offline copy kept for recovery, so
+        we could deliberately read your content. We do not
         claim otherwise.
       </p>
       <p>
@@ -88,7 +89,9 @@ export default function ExomemPrivacyPage() {
         use day to day cannot read your data or its keys, and it cannot open a session inside your
         cell. Reaching your content means deliberately stepping outside that access, with an
         emergency credential that our procedure issues for at most an hour, or with administrator
-        access to the server itself. The cluster does not yet enforce that one-hour limit. Actions taken through the cluster, including issuing and using that credential, are
+        access to the server itself. The cluster does not yet enforce that one-hour limit. Our
+        account service, which issues the access tokens your clients use, could also issue one for
+        your account; that route is not recorded in the cluster audit log. Actions taken through the cluster, including issuing and using that credential, are
         recorded in an audit log on the server. That log sits on a server we control, so it is a
         record of what happened, not tamper-proof evidence. We use such access only where necessary
         to operate, support, or secure the service, or where the law requires it. Our services are
@@ -105,7 +108,8 @@ export default function ExomemPrivacyPage() {
       </p>
       <p>
         We use service providers only as needed to operate Exomem: Vercel for the public web,
-        sign-in and account service; Hetzner for the servers in Germany that run your cell, hold its
+        sign-in and account service, including the content that Home shows you when you browse or
+        ask your memory there; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
         region, and for exports until they expire; Cloudflare for DNS and Turnstile bot protection;
         Brevo for transactional email; and Paddle as merchant of record. Until 10 October 2026, Neon
