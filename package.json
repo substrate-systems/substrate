@@ -25,7 +25,7 @@
     "test": "node --import tsx --experimental-test-module-mocks --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "openspec:list": "openspec list",
     "openspec:list:specs": "openspec list --specs",
-    "openspec:validate": "openspec validate --all --strict --no-interactive",
+    "openspec:validate": "node scripts/openspec_strict_gate.mjs -- node node_modules/@fission-ai/openspec/bin/openspec.js",
     "openspec:validate:ci": "pwsh -NoProfile -File scripts/openspec_validate.ps1",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:only": "playwright test",
@@ -84,7 +84,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@fission-ai/openspec": "^1.14.0",
+    "@fission-ai/openspec": "2.1.1",
     "@opentelemetry/sdk-logs": "^0.220.0",
     "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@playwright/test": "^1.62.1",
