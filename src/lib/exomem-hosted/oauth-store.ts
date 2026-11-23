@@ -20,6 +20,7 @@ import {
 import { CONNECTABLE_EFFECTIVE_STATES, FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
 import { loadOAuthSessionPolicy, type OAuthSessionPolicy } from "./oauth-session-policy";
+import { notifyEndedAppSessions } from "./oauth-signout-notice";
 
 export type OAuthTokenContext = {
   grantId: string;
@@ -687,6 +688,11 @@ export type OAuthStatePruneResult = {
   disabledCimd: number;
   /** Clients retired by this sweep, per partition. */
   retired: { autoRegistered: number; generic: number };
+  /**
+   * The app sign-out notice lane's counts; `null` when that lane failed —
+   * reported, never silently zero. (notify-owner-of-app-signout)
+   */
+  signouts: { candidates: number; emailed: number } | null;
 };
 
 // Each run deletes at most this many rows of each credential kind.
@@ -776,8 +782,10 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
 
 /**
  * The scheduled OAuth maintenance sweep: delete expired transactions, codes and
- * tokens, disable CIMD clients whose metadata expired, and give back the slots
- * of clients that can no longer be used. Retirement keeps the row and is
+ * tokens, disable CIMD clients whose metadata expired, give back the slots
+ * of clients that can no longer be used, and tell owners when an app lost its
+ * last live token family without their action (notify-owner-of-app-signout).
+ * Retirement keeps the row and is
  * refused for any client that still holds live authority
  * (`exomem_oauth_clients_holding_live_authority`).
  */
@@ -785,8 +793,19 @@ export async function pruneExpiredOAuthState(
   env: EnvironmentSource = process.env
 ): Promise<OAuthStatePruneResult> {
   const grace = loadOAuthClientRetirementGrace(env);
+  // The notice lane runs before the deletions: prune-expired-token-families
+  // removes an expired family in this same run, and an ending that is gone
+  // before it is noticed can never email. Its failure is logged and reported
+  // as null, never silently counted, and never keeps a client from returning
+  // its slot.
+  let signouts: OAuthStatePruneResult["signouts"] = null;
+  try {
+    signouts = await notifyEndedAppSessions();
+  } catch {
+    console.error("exomem-oauth: app sign-out notice lane failed");
+  }
   await deleteExpiredOAuthCredentials();
-  return withExomemTransaction(async (tx) => {
+  const retired = await withExomemTransaction(async (tx) => {
     // A client without live authority gains some only through a new
     // authorization transaction or a CIMD re-registration, and both take this
     // lock shared. Every later grant, code or token needs a transaction, grant,
@@ -881,6 +900,7 @@ export async function pruneExpiredOAuthState(
       },
     };
   });
+  return { ...retired, signouts };
 }
 
 /** Operator revocation is always fenced to the authoritative owner and tenant. */

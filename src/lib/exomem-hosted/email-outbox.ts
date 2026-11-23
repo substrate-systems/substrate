@@ -33,6 +33,7 @@ import {
   type RenderedExomemAccessEmail,
 } from "@/lib/email-templates/exomem-access";
 import {
+  renderExomemAppSignoutEmail,
   renderExomemConfirmNewEmailEmail,
   renderExomemEmailChangingEmail,
   renderExomemDeletedEmail,
@@ -56,6 +57,9 @@ import { cloudExportsEnabled } from "./cloud-exports";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
+import { displayNameClaimedByApp } from "./client-platforms";
+import { oauthClientDisplayName } from "./oauth-client-identity";
+import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import type { ExomemInviteKind } from "./invitation-contract";
 import { normalizeProviderMessageId, pruneProviderEvents } from "./email-provider-events";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
@@ -79,6 +83,13 @@ const MAX_BACKOFF_MINUTES = 60;
 const SETTLED_RECIPIENT_RETENTION_DAYS = 30;
 // Email 07 looks again this often for cellctl to finish a deletion.
 const DELETED_RECHECK_MINUTES = 5;
+/**
+ * The app sign-out notice's recent-use window (notify-owner-of-app-signout):
+ * only an app the owner used this recently can lose reachability unnoticed.
+ * One constant feeds the sweep's eligibility and the send-time recheck, which
+ * must agree — a quiet grant gets no email and a quieter one cancels it.
+ */
+export const SIGNOUT_RECENT_USE_DAYS = 14;
 
 type EmailRenderInput<P, C> = {
   payload: P;
@@ -1150,6 +1161,102 @@ const EXOMEM_EMAILS = {
         timeZone: context.timeZone ?? timeZone,
         scheme: context.emailScheme ?? emailScheme,
         themeChoice: context.themeChoice ?? themeChoice,
+      }),
+  }),
+  /**
+   * The app sign-out notice (notify-owner-of-app-signout): an app's last live
+   * token family ended without the owner's action. The sweep claims and
+   * enqueues it; at send time it still holds while the grant is unrevoked
+   * (an owner disconnect revokes it), the account lives, no family is live
+   * again (the owner reconnected) and the app's last use is recent.
+   */
+  app_signout: defineEmail({
+    readPayload: (value) => readShape(value, { grantId: "uuid", familyId: "uuid" }),
+    stillHolds: async (
+      tx,
+      payload
+    ): Promise<{
+      owner: ExomemEmailAddressee;
+      displayName: string;
+      displayNameSource: OAuthClientDisplayNameSource;
+      endedAt: Date;
+    } | null> => {
+      // The marker is the durable record of the ending: the sweep may have
+      // deleted the family row itself between enqueue and send, so the check
+      // anchors on it, not the family. What still has to be true — the grant
+      // lives (an owner disconnect revokes it), the account lives, no family
+      // is live again (the app reconnected) and the last use is still recent.
+      const { rows } = await tx`
+        /* exomem:email-app-signout-still-out */
+        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice,
+               client.client_name, client.admission_mode, client.client_platform, client.redirect_uris,
+               notice.ended_at::text AS ended_at
+        FROM exomem_oauth_app_signout_notices AS notice
+        JOIN exomem_oauth_grants AS oauth_grant
+          ON oauth_grant.id = notice.grant_id AND oauth_grant.revoked_at IS NULL
+        JOIN exomem_tenants AS tenant
+          ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
+           AND tenant.status IN ('provisioning', 'active', 'suspended')
+           AND tenant.deleted_at IS NULL
+        JOIN exomem_users AS owner
+          ON owner.id = tenant.owner_user_id AND owner.deleted_at IS NULL
+        JOIN exomem_oauth_clients AS client ON client.id = oauth_grant.client_id
+        JOIN exomem_oauth_grant_usage AS app_use
+          ON app_use.grant_id = oauth_grant.id
+           AND app_use.last_used_at > now() - (${SIGNOUT_RECENT_USE_DAYS} * interval '1 day')
+        WHERE notice.family_id = ${payload.familyId}::uuid
+          AND notice.grant_id = ${payload.grantId}::uuid
+          AND NOT EXISTS (
+            SELECT 1
+            FROM exomem_oauth_token_families AS sibling
+            WHERE sibling.grant_id = notice.grant_id
+              AND sibling.revoked_at IS NULL
+              AND sibling.expires_at > now()
+          )
+      `;
+      const row = rows[0] as
+        | (OwnerRow & {
+            client_name: string | null;
+            admission_mode: string;
+            client_platform: string | null;
+            redirect_uris: string[];
+            ended_at: string;
+          })
+        | undefined;
+      if (!row) return null;
+      // A pre-0034 client row can hold no nameable identity: no name, no
+      // platform, an empty or unparseable redirect list. The email exists to
+      // name the app — one it cannot name is cancelled, not wedged.
+      let named: ReturnType<typeof oauthClientDisplayName>;
+      try {
+        named = oauthClientDisplayName(
+          {
+            clientName: row.client_name,
+            admissionMode: row.admission_mode,
+            platform: row.client_platform,
+          },
+          row.redirect_uris[0] ?? ""
+        );
+      } catch {
+        return null;
+      }
+      return {
+        owner: ownerOf(row),
+        displayName: named.displayName,
+        displayNameSource: named.displayNameSource,
+        endedAt: new Date(row.ended_at),
+      };
+    },
+    addressee: (context) => context.owner,
+    render: ({ context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
+      renderExomemAppSignoutEmail({
+        homeUrl: exomemHomeUrl(publicBaseUrl),
+        appName: context.displayName,
+        appNameClaimed: displayNameClaimedByApp(context.displayNameSource),
+        signedOutAt: context.endedAt,
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
       }),
   }),
   /** Email 13, to the inviter: the friend invitation ended unused. */
