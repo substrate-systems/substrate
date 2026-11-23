@@ -199,12 +199,14 @@ export function JourneyPage({
           </div>
         </div>
       </div>
-      {footer ? (
-        <div className={styles.footer}>
-          <span className={styles.footerText}>{footer}</span>
-        </div>
-      ) : null}
-      <SourceOffer pinned />
+      <div className={styles.foot}>
+        {footer ? (
+          <div className={styles.footer}>
+            <span className={styles.footerText}>{footer}</span>
+          </div>
+        ) : null}
+        <SourceOffer pinned />
+      </div>
       <div ref={status} className={styles.status} role="status" aria-live="polite" aria-atomic />
     </main>
   );

@@ -13,7 +13,6 @@
   overflow: hidden;
   --flow-clearance: 84px;
   --gutter: 40px;
-  --edge-gap: 24px;
   box-sizing: border-box;
   padding: var(--flow-clearance) 0;
 }
@@ -699,17 +698,23 @@
   text-align: left;
 }
 
-/* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
-   the light ground, where 80% would not. */
-.footer {
+/* The page's foot stacks the request's origin above the source offer, so the origin clears
+   the offer however many lines the offer wraps to. Both stay inside the bottom clearance. */
+.foot {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: var(--edge-gap);
+  bottom: 0;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
+   the light ground, where 80% would not. */
+.footer {
+  display: flex;
   justify-content: center;
-  margin-bottom: 0;
   padding: 0 var(--gutter);
   text-align: center;
   font-family: var(--font-mono-exo);

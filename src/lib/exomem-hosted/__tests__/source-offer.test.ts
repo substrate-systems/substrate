@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   FIRST_FSL_RELEASE,
-  sourceOfferLicenceNote,
+  sourceOfferLicenceTerms,
   sourceOfferLinks,
   sourceOfferReleaseText,
 } from "../source-offer";
@@ -49,13 +49,14 @@ describe("sourceOfferLinks", () => {
   });
 });
 
-describe("sourceOfferLicenceNote", () => {
-  it("states the FSL terms whenever the running release may be under FSL, and not for an AGPL release", () => {
-    const note = sourceOfferLicenceNote("v0.202.0");
-    assert.match(note ?? "", /free to self-host/);
-    assert.match(note ?? "", /competing/);
-    assert.match(note ?? "", /Apache-2\.0 two years after/);
-    assert.equal(sourceOfferLicenceNote(undefined), note);
-    assert.equal(sourceOfferLicenceNote("v0.201.0"), null);
+describe("sourceOfferLicenceTerms", () => {
+  it("links the plain FSL terms whenever the running release may be under FSL, and not for an AGPL release", () => {
+    const terms = {
+      label: "FSL-1.1-ALv2 terms",
+      href: "https://github.com/substrate-systems/evermatter/blob/main/docs/licensing/licence-change.md",
+    };
+    assert.deepEqual(sourceOfferLicenceTerms("v0.202.0"), terms);
+    assert.deepEqual(sourceOfferLicenceTerms(undefined), terms);
+    assert.equal(sourceOfferLicenceTerms("v0.201.0"), null);
   });
 });

@@ -11,17 +11,23 @@
   text-align: center;
 }
 
+.word {
+  white-space: nowrap;
+}
+
 .offer a {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
+/* The journey page's foot places the line; the offer keeps only its side and bottom margins. */
 .pinned {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
   padding: 0 16px 6px;
   text-align: center;
+}
+
+/* On the journey field the text clears the field's ink, as the request's origin does. */
+.pinned .text {
+  background: var(--bg-base);
 }

@@ -9,6 +9,8 @@ export const FIRST_FSL_RELEASE = "v0.202.0";
 const FSL = "FSL-1.1-ALv2";
 const AGPL = "AGPL-3.0-or-later";
 const SERVER_REPOSITORY = "https://github.com/substrate-systems/evermatter";
+// The plain statement of the FSL terms, kept with the code from the first FSL release on.
+const LICENCE_STATEMENT = `${SERVER_REPOSITORY}/blob/main/docs/licensing/licence-change.md`;
 const CONTROL_PLANE = {
   label: `Substrate (${AGPL})`,
   href: "https://github.com/substrate-systems/substrate",
@@ -45,12 +47,14 @@ export function sourceOfferLinks(release: string | null | undefined) {
 }
 
 /**
- * The plain terms of the server licence, shown whenever the running code may be under FSL: free
- * to self-host and for any use except a competing product, and Apache-2.0 two years after release.
+ * The link to the plain statement of the FSL terms, shown whenever the running code may be under
+ * FSL. The statement says that self-hosting is free, that competing hosted use is not permitted
+ * and that each release becomes Apache-2.0 two years after it is published; the offer links it
+ * instead of printing it, so the offer stays one line of labels.
  */
-export function sourceOfferLicenceNote(release: string | null | undefined): string | null {
+export function sourceOfferLicenceTerms(release: string | null | undefined) {
   if (serverLicence(release) === "agpl") return null;
-  return `${FSL}: free to self-host and for any use except a competing commercial product or service; each release becomes Apache-2.0 two years after it is published.`;
+  return { label: `${FSL} terms`, href: LICENCE_STATEMENT } as const;
 }
 
 /**
