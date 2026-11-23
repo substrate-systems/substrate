@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { OAUTH_FAMILY_END_REASON } from "../oauth-family-end";
 import {
   attachExistingOwnerAuthorizationAtomic,
   issueOAuthTokensFromCodeAtomic,
@@ -159,8 +160,10 @@ describe("Exomem OAuth token store", () => {
 
   it("rotates atomically and revokes the family when the digest was already consumed", async () => {
     let query = "";
-    setSqlForTests(async (strings) => {
+    const params: unknown[] = [];
+    setSqlForTests(async (strings, ...values) => {
       query = strings.join("?");
+      params.push(...values);
       if (query.includes("SELECT tenant.id")) return { rows: [{ id: "tenant-1" }] };
       return { rows: [] };
     });
@@ -174,8 +177,9 @@ describe("Exomem OAuth token store", () => {
     });
     assert.equal(result, null);
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
-    assert.match(query, /refresh_replayed/i);
     assert.match(query, /UPDATE exomem_oauth_token_families/i);
+    // The replay reason binds as a parameter from the shared vocabulary.
+    assert.ok(params.includes(OAUTH_FAMILY_END_REASON.refreshReplayed));
     assert.match(query, /JOIN exomem_tenants AS tenant/i);
     assert.match(query, /JOIN exomem_entitlements AS entitlement/i);
   });

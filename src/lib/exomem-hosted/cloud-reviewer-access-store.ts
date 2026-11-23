@@ -1,5 +1,6 @@
 import { loadExomemCloudResource } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { OAUTH_FAMILY_END_REASON } from "./oauth-family-end";
 import {
   marketplaceReviewerAccessEnabled,
   validateMarketplaceReviewerExpiry,
@@ -77,7 +78,7 @@ async function revokeProviderLineage(
       WHERE reviewer_credential_id IN (SELECT id FROM revoked) OR grant_id IN (SELECT id FROM grants) RETURNING id
     ), families AS (
       UPDATE exomem_oauth_token_families SET revoked_at = COALESCE(revoked_at, now()),
-        revoked_reason = COALESCE(revoked_reason, 'reviewer_credential_revoked')
+        revoked_reason = COALESCE(revoked_reason, ${OAUTH_FAMILY_END_REASON.reviewerCredentialRevoked})
       WHERE reviewer_credential_id IN (SELECT id FROM revoked) OR grant_id IN (SELECT id FROM grants) RETURNING id
     ), refresh AS (
       UPDATE exomem_oauth_refresh_tokens SET consumed_at = COALESCE(consumed_at, now())

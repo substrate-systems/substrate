@@ -1,32 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderExomemAppSignoutEmail } from "../../email-templates/exomem-lifecycle";
-import { FAMILY_END_SILENT_REASONS } from "../oauth-signout-notice";
 
-// The sign-out notice's copy and the closed set of endings that never email
-// (notify-owner-of-app-signout). The set must match the reasons the codebase
-// writes: grep revoked_reason across src/ for the full picture.
-
-describe("the endings that never email", () => {
-  it("are exactly the owner- and lifecycle-initiated reasons the code writes", () => {
-    assert.deepEqual([...FAMILY_END_SILENT_REASONS].sort(), [
-      "client_revoked",
-      "cloud_cell_deleted",
-      "lifecycle_deleted",
-      "owner_disconnected",
-      "reviewer_credential_revoked",
-    ]);
-    // Every reason the rest of the codebase writes is in the silent set or
-    // notifies: expiry has no reason, and refresh_replayed and
-    // operator_revoked notify.
-    for (const notifying of [null, "refresh_replayed", "operator_revoked"]) {
-      assert.equal(
-        (FAMILY_END_SILENT_REASONS as readonly string[]).includes(String(notifying)),
-        false
-      );
-    }
-  });
-});
+// The sign-out notice's copy (notify-owner-of-app-signout). Which endings
+// email is classified once in oauth-family-end.ts: the exhaustive map makes
+// an unclassified reason a compile error, so no test re-lists literals here.
 
 describe("the app sign-out email", () => {
   const input = {

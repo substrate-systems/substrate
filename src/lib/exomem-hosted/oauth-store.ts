@@ -19,6 +19,10 @@ import {
 } from "./cloud-config";
 import { CONNECTABLE_EFFECTIVE_STATES, FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
+import {
+  OAUTH_FAMILY_END_REASON,
+  type OAuthFamilyEndReason,
+} from "./oauth-family-end";
 import { loadOAuthSessionPolicy, type OAuthSessionPolicy } from "./oauth-session-policy";
 import { notifyEndedAppSessions } from "./oauth-signout-notice";
 
@@ -913,7 +917,7 @@ export async function revokeOAuthTokenFamilyForOwner(input: {
     /* exomem:revoke-oauth-token-family-for-owner */
     UPDATE exomem_oauth_token_families AS family
     SET revoked_at = COALESCE(family.revoked_at, now()),
-        revoked_reason = COALESCE(family.revoked_reason, 'operator_revoked')
+        revoked_reason = COALESCE(family.revoked_reason, ${OAUTH_FAMILY_END_REASON.operatorRevoked})
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
     WHERE family.id = ${input.familyId}::uuid
@@ -930,9 +934,9 @@ export async function revokeOAuthTokenFamilyForOwner(input: {
 export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
   ownerUserId: string;
   tenantId: string;
-  reason?: "operator_revoked" | "lifecycle_deleted";
+  reason?: Extract<OAuthFamilyEndReason, "operator_revoked" | "lifecycle_deleted">;
 }): Promise<number> {
-  const reason = input.reason ?? "operator_revoked";
+  const reason = input.reason ?? OAUTH_FAMILY_END_REASON.operatorRevoked;
   return withExomemTransaction(async (tx) => {
     const { rows } = await tx`
       /* exomem:revoke-oauth-account-for-owner-tenant */
@@ -951,7 +955,8 @@ export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
             -- downgraded: Cloud admission clears lifecycle blocks, so a ban
             -- left recorded as lifecycle_deleted would be re-admitted.
             blocked_reason = CASE
-              WHEN EXCLUDED.blocked_reason = 'operator_revoked' THEN 'operator_revoked'
+              WHEN EXCLUDED.blocked_reason = ${OAUTH_FAMILY_END_REASON.operatorRevoked}
+                THEN ${OAUTH_FAMILY_END_REASON.operatorRevoked}
               ELSE exomem_oauth_account_blocks.blocked_reason
             END
         RETURNING tenant_id
@@ -1004,7 +1009,7 @@ export async function revokeOAuthTokenForClient(input: {
     /* exomem:revoke-oauth-token-for-client */
     UPDATE exomem_oauth_token_families AS family
     SET revoked_at = COALESCE(family.revoked_at, now()),
-        revoked_reason = COALESCE(family.revoked_reason, 'client_revoked')
+        revoked_reason = COALESCE(family.revoked_reason, ${OAUTH_FAMILY_END_REASON.clientRevoked})
     FROM exomem_oauth_clients AS client
     WHERE family.client_id = client.id
       AND client.client_id = ${input.clientId}
@@ -1325,7 +1330,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     replay_revocation AS (
       UPDATE exomem_oauth_token_families AS family
       SET revoked_at = now(),
-          revoked_reason = 'refresh_replayed'
+          revoked_reason = ${OAUTH_FAMILY_END_REASON.refreshReplayed}
       FROM credential
       CROSS JOIN reuse_interval
       WHERE family.id = credential.family_id
