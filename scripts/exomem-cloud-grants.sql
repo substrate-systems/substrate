@@ -405,6 +405,14 @@ BEGIN
       GRANT SELECT (id, user_id, tenant_id, client_id, resource, revoked_at)
         ON exomem_oauth_grants TO exomem_gateway;
     END IF;
+    -- Migration 0088's per-grant context override: the gateway's COALESCE read.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_oauth_grants'
+        AND column_name = 'client_context_override'
+    ) THEN
+      GRANT SELECT (client_context_override) ON exomem_oauth_grants TO exomem_gateway;
+    END IF;
     -- Migration 0036 adds candidate/reviewer lineage to these tables. Keep
     -- partial historical upgrades safe while granting the lookup's exact reads.
     FOREACH oauth_table IN ARRAY ARRAY[

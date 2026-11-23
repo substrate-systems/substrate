@@ -81,9 +81,10 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- Whether p_client_id may take a slot in p_partition: a free slot, or the row
--- already holds one (present and unretired, so reviving it asks for no new
--- slot). Lets the CIMD register path check the generic partition for an
--- unlisted host and the auto_registered partition for an allowlisted one.
+-- already holds one in that same partition (present, unretired and already
+-- counted there, so reviving or refreshing it asks for no new slot). A
+-- re-registration that would move the row across partitions -- an allowlisted
+-- host delisted while the lane is on -- must fit the target partition's bound.
 CREATE FUNCTION exomem_oauth_client_partition_available_for(
   p_client_id text,
   p_partition text
@@ -93,9 +94,15 @@ STABLE
 AS $$
   SELECT EXISTS (
       SELECT 1
-      FROM exomem_oauth_clients
-      WHERE client_id = p_client_id
-        AND retired_at IS NULL
+      FROM exomem_oauth_clients AS client
+      WHERE client.client_id = p_client_id
+        AND client.retired_at IS NULL
+        AND CASE
+              WHEN client.admission_mode = 'generic' THEN 'generic'
+              WHEN client.auto_registered AND client.client_platform IS NULL THEN 'generic'
+              WHEN client.auto_registered THEN 'auto_registered'
+              ELSE 'operator'
+            END = p_partition
     )
     OR COALESCE((
       SELECT slots.used < slots.bound
@@ -107,7 +114,9 @@ $$;
 -- The stored context: coding when every registered redirect is loopback (the
 -- app receives its codes on the owner's own machine), conversation otherwise.
 -- The rule mirrors isLocalOAuthClient; registration sets it in code, and this
--- backfill applies it to the rows that already exist.
+-- backfill applies it to the rows that already exist. The column DEFAULT lets
+-- a pre-context release keep writing clients during the deploy window; every
+-- writer of this release sets it explicitly.
 ALTER TABLE exomem_oauth_clients ADD COLUMN client_context text;
 
 UPDATE exomem_oauth_clients
@@ -121,6 +130,26 @@ SET client_context = CASE
 END;
 
 ALTER TABLE exomem_oauth_clients
+  ALTER COLUMN client_context SET DEFAULT 'conversation',
   ALTER COLUMN client_context SET NOT NULL,
   ADD CONSTRAINT exomem_oauth_clients_client_context_valid
     CHECK (client_context IN ('coding', 'conversation'));
+
+-- The owner's context choice lives on the grant, not the client: the client
+-- row is shared by every tenant's grant to it (one global client document per
+-- host), so a per-client switch would flip every owner's app. Readers take
+-- COALESCE(client_context_override, client_context).
+ALTER TABLE exomem_oauth_grants
+  ADD COLUMN client_context_override text,
+  ADD CONSTRAINT exomem_oauth_grants_client_context_override_valid
+    CHECK (client_context_override IN ('coding', 'conversation'));
+
+-- The partitions function's CASE reads client_platform, which the 0067 partial
+-- index did not carry, so the count fell back to a bitmap heap scan. Rebuild
+-- it covering the column. Every clients statement is done by now, and no
+-- statement here touches the token tables, matching 0067's lock order.
+DROP INDEX exomem_oauth_clients_unretired_partition_idx;
+CREATE INDEX exomem_oauth_clients_unretired_partition_idx
+  ON exomem_oauth_clients (admission_mode, auto_registered)
+  INCLUDE (client_platform)
+  WHERE retired_at IS NULL AND admission_mode <> 'first_party';
