@@ -86,7 +86,7 @@ Exomem is [source-available under FSL-1.1-ALv2 on GitHub](https://github.com/Art
 
 ## FAQ
 
-**Which is the best open-source memory for AI agents?**
+**Which is the best self-hosted memory for AI agents?**
 There isn't one "best" — it depends on what your memory is. For a managed memory API that extracts facts from conversations, mem0. For a stateful-agent framework, Letta. For a temporal knowledge graph, Zep/Graphiti. For GraphRAG over many sources, cognee. For memory that stays as plain Markdown files you own, Exomem or Basic Memory.
 
 **What's the difference between Exomem and mem0?**

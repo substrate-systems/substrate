@@ -87,9 +87,10 @@ export default function ExomemTermsPage() {
       <p>
         These terms do not transfer ownership of your content or limit the rights that the published
         repository licences grant: Exomem&apos;s repository licence for the server, and
-        AGPL-3.0-or-later for the Substrate control plane. Substrate Systems OÜ retains rights in the
-        Cloud service, site, branding, and materials not published under those licences. If you send feedback, you allow us to use it
-        without obligation, but it does not give us rights to your knowledge content.
+        AGPL-3.0-or-later for the Substrate control plane. Substrate Systems OÜ retains rights in
+        the Cloud service, site, branding, and materials not published under those licences. If you
+        send feedback, you allow us to use it without obligation, but it does not give us rights to
+        your knowledge content.
       </p>
 
       <h2>Warranty and liability</h2>
