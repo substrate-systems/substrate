@@ -24,7 +24,7 @@ export const NOTICE_HEADER_MAX_BYTES = 1024;
 const NOTICE_JSON_MAX_BYTES = (NOTICE_HEADER_MAX_BYTES / 4) * 3;
 
 /** The longest a gateway instance serves a notice without asking the database again. */
-export const NOTICE_CACHE_TTL_MS = 30_000;
+const NOTICE_CACHE_TTL_MS = 30_000;
 
 // The one request that finds the copy old waits for this load, so the bound is a request's
 // added latency. The query reads at most 100 rows by index and takes about 1 ms.
@@ -85,7 +85,7 @@ function isoSeconds(at: Date): string {
 }
 
 /** Base64url of UTF-8 JSON, the header's one shape (D3). Carries no tenant data. */
-export function encodeNoticeHeader(
+function encodeNoticeHeader(
   notice: ServiceNotice,
   state: "scheduled" | "active",
   statusUrl: string
@@ -123,7 +123,7 @@ const STATE_RANK: Record<string, number> = {
  * The notice that matters most for one cell at one moment: an active incident,
  * then active maintenance, then the earliest scheduled maintenance (D3).
  */
-export function pickCurrentNotice(
+function pickCurrentNotice(
   notices: ServiceNotice[],
   cellId: string,
   at: Date

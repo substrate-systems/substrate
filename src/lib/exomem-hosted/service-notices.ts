@@ -23,10 +23,10 @@ import {
 import { codePoints, composeNoticeSay } from "./service-notice-header";
 import { statusPageUrlOrDefault } from "./status-page-url";
 
-export const SUMMARY_MAX_CHARS = 280;
+const SUMMARY_MAX_CHARS = 280;
 
 /** Maintenance is announced this long before it starts unless the operator sets another time. */
-export const DEFAULT_ANNOUNCE_LEAD_MS = 48 * 60 * 60 * 1000;
+const DEFAULT_ANNOUNCE_LEAD_MS = 48 * 60 * 60 * 1000;
 
 // The operator reads these messages, so they say what to fix. The envelope's
 // codes belong to this feature and stay out of the shared registry.
