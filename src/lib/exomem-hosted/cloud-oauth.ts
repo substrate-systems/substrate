@@ -1,6 +1,7 @@
 import type { ExomemCloudResource } from "./cloud-config";
 import { ADVERTISED_SCOPES } from "./oauth";
-import type { OAuthClientContext, OAuthClientIdentity } from "./oauth-client-identity";
+import type { OAuthClientContext } from "./oauth-client-context";
+import type { OAuthClientIdentity } from "./oauth-client-identity";
 /**
  * Exomem Cloud OAuth client admission and exact-resource token binding
  * (design D2, `adopt-exomem-cloud-plain-cells`).
@@ -208,7 +209,11 @@ async function findCloudOAuthAuthority(
            client.client_id, token.resource, token.scopes,
            cell.cell_id, cell.desired_state AS cell_desired_state,
            client.client_name, client.admission_mode, client.client_platform,
-           client.cimd_host, client.client_context, client.redirect_uris
+           client.cimd_host,
+           -- The owner's choice sits on this grant; the client row holds the
+           -- registration-derived default it falls back to.
+           COALESCE(oauth_grant.client_context_override, client.client_context) AS client_context,
+           client.redirect_uris
     FROM token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id

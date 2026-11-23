@@ -3,6 +3,7 @@ import { z } from "zod";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { PRIVATE_NO_STORE_HEADERS, readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
+import { OAUTH_CLIENT_CONTEXTS } from "@/lib/exomem-hosted/oauth-client-context";
 import { setOwnerAppContext } from "@/lib/exomem-hosted/owner-apps";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 const ContextRequest = z
   .object({
-    context: z.enum(["coding", "conversation"]),
+    context: z.enum(OAUTH_CLIENT_CONTEXTS),
   })
   .strict();
 

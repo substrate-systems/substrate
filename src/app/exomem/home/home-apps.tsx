@@ -10,6 +10,10 @@ import {
   CLIENT_PLATFORM_LISTING_URLS,
   CLIENT_PLATFORM_NAMES,
 } from "@/lib/exomem-hosted/client-platforms";
+import {
+  OAUTH_CLIENT_CONTEXTS,
+  type OAuthClientContext,
+} from "@/lib/exomem-hosted/oauth-client-context";
 import type { HomeApp, LevelKey } from "./home-api";
 import { count, type Clock } from "./home-format";
 import { appGlyph, appMeta } from "./home-view";
@@ -21,10 +25,15 @@ const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
 const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
 const CONTEXT_FAILED = "That didn’t save. Try again in a minute.";
 
-const APP_CONTEXT_OPTIONS = [
-  { value: "conversation", label: "Chat app" },
-  { value: "coding", label: "Coding agent" },
-] as const;
+const APP_CONTEXT_LABELS: Readonly<Record<OAuthClientContext, string>> = {
+  coding: "Coding agent",
+  conversation: "Chat app",
+};
+
+// Conversation first: a directory app is the common case on this list.
+const APP_CONTEXT_OPTIONS = [...OAUTH_CLIENT_CONTEXTS]
+  .reverse()
+  .map((value) => ({ value, label: APP_CONTEXT_LABELS[value] }));
 
 // Provider downloads are separate from the public directory install path.
 type CloudPlugin = {

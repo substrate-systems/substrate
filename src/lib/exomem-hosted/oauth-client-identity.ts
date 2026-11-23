@@ -7,6 +7,7 @@
 
 import { clientPlatformName, type OAuthClientDisplayNameSource } from "./client-platforms";
 import { isLoopbackRedirectDestination } from "./oauth-client-admission";
+import type { OAuthClientContext } from "./oauth-client-context";
 
 export type OAuthClientIdentity = {
   /** The stored `client_name`, or null when the client has none. */
@@ -20,9 +21,6 @@ export type OAuthClientIdentity = {
   clientContext: OAuthClientContext;
   redirectUris: string[];
 };
-
-/** The engagement contexts a cell resolves levels for; the cell's own closed set. */
-export type OAuthClientContext = "coding" | "conversation";
 
 /** The host an authorization code sent to `redirectUri` reaches. */
 export function redirectHost(redirectUri: string): string {

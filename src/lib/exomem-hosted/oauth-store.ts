@@ -147,7 +147,12 @@ export async function registerAdmittedCimdClient(
              ${host}, ${platform}, ${configSha256}, gen_random_uuid(),
              ${fetched.clientName ?? null}, ${clientContext}
       FROM available
+      -- An unlisted host is written only while the lane admits generic
+      -- clients, checked in the same statement as the write: the lane check
+      -- above spares the fetch, this one cannot be crossed by a lane flip in
+      -- between. An allowlisted host needs no lane.
       WHERE available.allowed
+        AND (${platform}::text IS NOT NULL OR exomem_oauth_generic_client_admitted('generic'))
       ON CONFLICT (client_id) DO UPDATE
       SET metadata_provenance = EXCLUDED.metadata_provenance,
           redirect_uris = EXCLUDED.redirect_uris,

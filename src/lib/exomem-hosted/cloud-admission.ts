@@ -591,10 +591,11 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
           AND client.enabled = true
           AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
-        -- The admission read itself moved into exomem_oauth_client_admitted;
-        -- this join stays for its FOR KEY SHARE lock take, which keeps a host
-        -- withdrawal from committing while an invite admission that read the
-        -- host as admitted is still open.
+        -- The admission read itself moved into exomem_oauth_client_admitted,
+        -- which reads its own snapshot and cannot see a host withdrawal that
+        -- commits while this statement waits. The FOR KEY SHARE read can: it
+        -- re-reads the row it locked, so a deletion that lands during the wait
+        -- empties it, and the CIMD arm then needs the lane to still admit.
         LEFT JOIN LATERAL (
           SELECT admitted.host
           FROM exomem_oauth_admitted_cimd_hosts AS admitted
@@ -609,6 +610,11 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
             client.admission_mode, client.enabled, client.metadata_document_digest,
             client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
             client.cimd_host, client.client_platform, true, now()
+          )
+          AND (
+            client.admission_mode <> 'cimd'
+            OR exomem_oauth_generic_client_admitted('generic')
+            OR admitted_host.host IS NOT NULL
           )
         FOR UPDATE OF transaction
       `;

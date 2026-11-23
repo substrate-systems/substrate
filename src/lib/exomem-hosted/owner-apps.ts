@@ -12,11 +12,11 @@ import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import { loadExomemCloudResource } from "./cloud-config";
 import { revokeOwnerOAuthGrant } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import type { OAuthClientContext } from "./oauth-client-context";
 import {
   isLocalOAuthClient,
   oauthClientDisplayName,
   redirectHost,
-  type OAuthClientContext,
   type OAuthClientIdentity,
 } from "./oauth-client-identity";
 
@@ -53,7 +53,16 @@ export async function findOAuthClientIdentity(
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
   `;
-  const row = rows[0] as AppRow | undefined;
+  const row = rows[0] as
+    | {
+        client_name: string | null;
+        admission_mode: string;
+        client_platform: string | null;
+        cimd_host: string | null;
+        client_context: OAuthClientContext;
+        redirect_uris: string[];
+      }
+    | undefined;
   return row
     ? {
         clientName: row.client_name,
@@ -74,7 +83,6 @@ type AppRow = {
   client_name: string | null;
   admission_mode: string;
   client_platform: string | null;
-  cimd_host: string | null;
   client_context: OAuthClientContext;
   redirect_uris: string[];
 };
@@ -93,7 +101,8 @@ async function ownerAppRows(
     /* exomem:owner-app-grants */
     SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, app_use.last_used_at,
            client.client_name, client.admission_mode, client.client_platform,
-           client.cimd_host, client.client_context, client.redirect_uris
+           COALESCE(oauth_grant.client_context_override, client.client_context) AS client_context,
+           client.redirect_uris
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
@@ -149,10 +158,11 @@ export async function listOwnerApps(owner: {
 }
 
 /**
- * Sets the stored engagement context of one of the owner's apps, which every
- * reader of `client_context` then follows. False when the id is not a live
- * grant the list could show; the client row is shared by every owner's grant
- * to it, so the change is not per-grant but per client registration.
+ * Sets the engagement context of one of the owner's apps, which every reader
+ * of `client_context` then follows for that grant. False when the id is not a
+ * grant the list could show. The choice sits on the grant, because the client
+ * row is shared by every tenant's grant to it; `client_context` on the client
+ * stays the registration-derived default.
  */
 export async function setOwnerAppContext(input: {
   userId: string;
@@ -161,24 +171,21 @@ export async function setOwnerAppContext(input: {
   context: OAuthClientContext;
 }): Promise<boolean> {
   if (!validUuid(input.appId)) return false;
-  const resource = loadExomemCloudResource().mcpUrl;
-  const { rows } = await executeExomemSql`
-    /* exomem:set-owner-app-context */
-    UPDATE exomem_oauth_clients AS client
-    SET client_context = ${input.context}, updated_at = now()
-    FROM exomem_oauth_grants AS oauth_grant
-    JOIN exomem_tenants AS tenant
-      ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
-    WHERE client.id = oauth_grant.client_id
-      AND oauth_grant.id = ${input.appId}::uuid
-      AND oauth_grant.user_id = ${input.userId}::uuid
-      AND oauth_grant.tenant_id = ${input.tenantId}::uuid
-      AND oauth_grant.resource = ${resource}
-      AND oauth_grant.revoked_at IS NULL
-      AND client.admission_mode <> 'first_party'
-    RETURNING client.id
-  `;
-  return rows.length > 0;
+  return withExomemTransaction(async (tx) => {
+    const [app] = await ownerAppRows(tx, {
+      userId: input.userId,
+      tenantId: input.tenantId,
+      grantId: input.appId,
+    });
+    if (!app) return false;
+    await tx`
+      /* exomem:set-owner-app-context */
+      UPDATE exomem_oauth_grants AS oauth_grant
+      SET client_context_override = ${input.context}, updated_at = now()
+      WHERE oauth_grant.id = ${app.id}::uuid
+    `;
+    return true;
+  });
 }
 
 /**

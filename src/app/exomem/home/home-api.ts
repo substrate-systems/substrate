@@ -21,6 +21,10 @@ import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";
 import type { loadExomemEmailChange } from "@/lib/exomem-hosted/email-change";
 import type { loadPaddleReceiptContact } from "@/lib/exomem-hosted/paddle-receipt-contact";
 import { postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import {
+  OAUTH_CLIENT_CONTEXTS,
+  type OAuthClientContext,
+} from "@/lib/exomem-hosted/oauth-client-context";
 import { type Lifecycle, parseCloudConnectorUrl, parseLifecycleResponse } from "./home-state";
 
 export type HomeAccount = ExomemAccountView;
@@ -309,7 +313,7 @@ export async function readApps(): Promise<HomeApp[] | null> {
       typeof candidate.displayName === "string" &&
       typeof candidate.connectedAt === "string" &&
       (candidate.kind === "web" || candidate.kind === "local") &&
-      (candidate.context === "coding" || candidate.context === "conversation") &&
+      (OAUTH_CLIENT_CONTEXTS as readonly unknown[]).includes(candidate.context) &&
       Array.isArray(candidate.redirectHosts)
     );
   });
@@ -330,7 +334,7 @@ export async function disconnectApp(id: string): Promise<"disconnected" | "gone"
 /** The stored context the app's calls run in; "gone" when the app is not the owner's. */
 export async function setAppContext(
   id: string,
-  context: "coding" | "conversation"
+  context: OAuthClientContext
 ): Promise<"updated" | "gone" | "failed"> {
   const { status } = await send("POST", `/api/exomem/apps/${encodeURIComponent(id)}/context`, {
     context,
