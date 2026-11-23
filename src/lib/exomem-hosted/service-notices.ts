@@ -531,6 +531,10 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
   const maxStaleMs = options.maxStaleMs ?? 10 * ttlMs;
 
   let notices: ServiceNotice[] | null = null;
+  // Encoding costs milliseconds for a long summary, which no request may pay (the 1 ms budget
+  // of D3). A header depends only on the notice, its state and the address, so each is encoded
+  // once per load: at most two states for each of the 100 open notices.
+  let encoded = new Map<string, string>();
   let loadedAt = 0;
   let attemptedAt = -Infinity;
   let attempt = 0;
@@ -550,6 +554,7 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
           // A load that timed out and finishes later must not replace newer data.
           if (mine !== attempt) return;
           notices = loaded;
+          encoded = new Map();
           loadedAt = now();
         },
         (error: unknown) => {
@@ -594,7 +599,15 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
       }
       if (!notices || at - loadedAt > maxStaleMs) return null;
       const current = pickCurrentNotice(notices, cellId, new Date(at));
-      return current ? encodeNoticeHeader(current.notice, current.state, statusUrl()) : null;
+      if (!current) return null;
+      const url = statusUrl();
+      const key = `${current.notice.id} ${current.state} ${url}`;
+      let header = encoded.get(key);
+      if (header === undefined) {
+        header = encodeNoticeHeader(current.notice, current.state, url);
+        encoded.set(key, header);
+      }
+      return header;
     },
   };
 }
