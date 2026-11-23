@@ -10,7 +10,7 @@ import { randomCloudCellId } from "../cloud-admission";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { drainExomemEmailOutbox } from "../email-outbox";
 import { fanOutServiceNoticeEmails, SERVICE_NOTICE_FANOUT_BATCH } from "../service-notice-fanout";
-import { createNoticeCache, loadOpenServiceNotices } from "../service-notices";
+import { createNoticeCache, loadOpenServiceNotices } from "../service-notice-header";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // Service notices against real PostgreSQL: the operator route, then (in the same

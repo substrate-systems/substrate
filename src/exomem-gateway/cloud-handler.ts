@@ -62,7 +62,7 @@ import {
   type OAuthClientIdentity,
 } from "../lib/exomem-hosted/oauth-client-identity";
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
-import { currentNoticeHeader, NOTICE_HEADER } from "../lib/exomem-hosted/service-notices";
+import { currentNoticeHeader, NOTICE_HEADER } from "../lib/exomem-hosted/service-notice-header";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";
 import { digestSecret } from "../lib/exomem-hosted/security";
 

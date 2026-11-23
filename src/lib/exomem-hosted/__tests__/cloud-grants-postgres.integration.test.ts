@@ -14,7 +14,7 @@ import { applyCloudReleaseChanges, getCloudRolloutView } from "../cloud-release"
 import { findCloudOAuthAccessToken, findCloudOAuthLogin, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
-import { loadOpenServiceNotices } from "../service-notices";
+import { loadOpenServiceNotices } from "../service-notice-header";
 import { assertCellAcceptsGrant } from "./cell-grant-rules";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 

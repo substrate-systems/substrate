@@ -377,7 +377,7 @@ BEGIN
   END IF;
 
   -- The gateway reads the operator's open service notices to set the notice
-  -- header (loadOpenServiceNotices, service-notices.ts). Read only: the two
+  -- header (loadOpenServiceNotices, service-notice-header.ts). Read only: the two
   -- tables hold the operator's own words, times and cell ids, never tenant data.
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
      AND to_regclass('exomem_service_notices') IS NOT NULL

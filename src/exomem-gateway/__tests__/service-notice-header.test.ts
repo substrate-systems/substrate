@@ -4,8 +4,8 @@ import {
   createNoticeCache,
   NOTICE_HEADER_MAX_BYTES,
   SAY_MAX_CHARS,
-  type ServiceNotice,
-} from "../../lib/exomem-hosted/service-notices";
+} from "../../lib/exomem-hosted/service-notice-header";
+import type { ServiceNotice } from "../../lib/exomem-hosted/service-notice-model";
 
 // add-exomem-service-notices D3: what the gateway tells a cell about the operator's
 // notices. These cases run the real cache and header encoder against a stand-in for

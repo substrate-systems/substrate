@@ -22,7 +22,7 @@ import { execFile } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import type { NoticeKind } from "../src/lib/exomem-hosted/service-notices";
+import type { NoticeKind } from "../src/lib/exomem-hosted/service-notice-model";
 
 // The status repository is a third party's (GitHub's) place, so it is configuration.
 const DEFAULT_STATUS_REPO = "substrate-systems/exomem-status";

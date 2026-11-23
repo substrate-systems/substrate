@@ -24,7 +24,7 @@ None. The cell's handling of the new header is specified in the Exomem repositor
 
 - A migration that adds the notice tables and two kinds to `exomem_email_outbox_kind_check`.
 - `src/lib/exomem-hosted/email-outbox.ts` and `src/lib/email-templates/exomem-lifecycle.ts` (two emails), a fan-out step in an existing cron route.
-- `src/app/api/exomem/admin/service-notices` (operator route) and `src/lib/exomem-hosted/service-notices.ts`.
-- `src/exomem-gateway/cloud-handler.ts`: one cached lookup and one header per forwarded request.
+- `src/app/api/exomem/admin/service-notices` (operator route) and `src/lib/exomem-hosted/service-notices.ts` (the record and the operator operations).
+- `src/exomem-gateway/cloud-handler.ts`: one cached lookup and one header per forwarded request, built in `src/lib/exomem-hosted/service-notice-header.ts`.
 - `scripts/exomem-service-notice.ts` and `docs/runbooks/exomem-cloud-operations.md`, a new section "Service notices".
 - The cell side ships separately in the Exomem repository. A cell without it ignores the header, so either side can ship first.

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ExomemHostedError } from "../errors";
-import { noticeState, parseNewNotice, type ServiceNotice } from "../service-notices";
+import { noticeState, type ServiceNotice } from "../service-notice-model";
+import { parseNewNotice } from "../service-notices";
 
 const NOW = new Date("2026-11-23T12:00:00Z");
 const HOUR = 60 * 60 * 1000;
