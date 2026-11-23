@@ -157,7 +157,7 @@ describe("Exomem OAuth token store", () => {
     );
   });
 
-  it("rotates atomically and refuses a consumed digest without revoking the family", async () => {
+  it("rotates atomically and refuses a consumed digest", async () => {
     let query = "";
     setSqlForTests(async (strings) => {
       query = strings.join("?");

@@ -8,11 +8,12 @@ Every refresh rotates the refresh token. Before this change, a spent token prese
 
 - Raise the same-client refresh-reuse window to seven days by default (`EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`, maximum thirty days; `0` still disables reuse).
 - Refuse a spent token presented after the window with `invalid_grant` without revoking the family; the family's other live tokens keep working.
-- Bound each spent token to at most sixteen replacement tokens, counted under the existing tenant lock on the already-indexed parent column.
+- Cap one spent token at sixty-four children, counted under the tenant row lock on the already-indexed parent column. This is a loop guard for a client stuck re-presenting one token, not a theft bound.
+- Let a spent token inside the reuse interval trigger the refetch of lapsed client metadata, as a live token does, so a self-registering client's daily metadata lapse signs nothing out.
 - Extend access tokens to one hour (`expires_in: 3600`); revocation stays immediate because every gateway call checks the family and grant.
 - Log `spend_age_seconds` on `exomem_oauth_refresh_reused` and add `exomem_oauth_refresh_reuse_stale` for refused stale presentations, metadata only.
 - Keep different-client presentations refused as before, and keep every admission, family and grant check identical for reuse as for a first rotation.
 
 ## Impact
 
-Connected apps that share one stored credential across parallel processes stay signed in; a lost reply or a stale sibling stops signing out every session. A stolen just-spent token can mint up to sixteen bounded chains inside the window instead of none; each chain dies with the family or grant, and owner Disconnect in Home remains the endpoint. No schema change: the replacement bound uses the parent index from migration 0067.
+Connected apps that share one stored credential across parallel processes stay signed in; a lost reply or a stale sibling stops signing out every session. A stolen just-spent token can mint new chains inside the window instead of none, and the fan-out guard does not bound that: every minted token fans out on its own spend. Only a family or grant revocation ends what a stolen token starts, and owner Disconnect in Home remains that endpoint. Migration 0090 adds one function, `exomem_oauth_refresh_reuse_opens_at`, which holds the reuse-interval boundary that rotation and metadata refetch both read; the fan-out guard uses the parent index from migration 0067.
