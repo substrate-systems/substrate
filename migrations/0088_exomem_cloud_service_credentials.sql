@@ -1,4 +1,4 @@
--- Migration 0088 — Exomem Cloud per-cell service credentials.
+-- Migration 0088 — Exomem Cloud service credentials (tenant-scoped).
 --
 -- A product backend reaches its tenant's Cloud cell with one long-lived
 -- secret instead of the 15-minute OAuth tokens (change
@@ -6,8 +6,8 @@
 -- secret's SHA-256 digest; the secret itself appears once, in the issue
 -- response, and is never recoverable afterwards.
 --
--- Additive only: no existing table changes, no procedural blocks — the
--- repository migration runner splits on semicolons.
+-- Additive only: no existing table changes, and the one function body is a
+-- single SELECT — the repository migration runner splits on semicolons.
 
 CREATE TABLE exomem_cloud_service_credentials (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -40,3 +40,27 @@ CREATE TABLE exomem_cloud_service_credentials (
 CREATE INDEX exomem_cloud_service_credentials_live_idx
   ON exomem_cloud_service_credentials (tenant_id, principal)
   WHERE revoked_at IS NULL;
+
+-- Operator lists order a tenant's credentials by creation time.
+CREATE INDEX exomem_cloud_service_credentials_tenant_created_idx
+  ON exomem_cloud_service_credentials (tenant_id, created_at);
+
+-- Review B1: the tenant-access predicate the gateway's OAuth and service
+-- credential lookups share — the tenant is not leaving and its owner has no
+-- account block. One SQL function keeps the two lookups in step where a copied
+-- fragment could drift; the cell's `desired_state <> 'deleted'` predicate stays
+-- inline in each caller, beside the partial-unique-index predicate it pairs
+-- with. SECURITY INVOKER by default, so callers read only the columns their
+-- own role already holds.
+CREATE FUNCTION exomem_cloud_tenant_access_allowed(target_tenant uuid, target_owner uuid)
+RETURNS boolean LANGUAGE sql STABLE AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM exomem_tenants AS tenant
+    WHERE tenant.id = target_tenant
+      AND tenant.status NOT IN ('deletion_pending', 'deleted')
+      AND NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_account_blocks AS block
+        WHERE block.tenant_id = tenant.id AND block.owner_user_id = target_owner
+      )
+  )
+$function$;

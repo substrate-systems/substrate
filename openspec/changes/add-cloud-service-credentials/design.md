@@ -16,13 +16,14 @@ A product backend, the first being a creator platform that keeps each creator's 
 
 - Separate authority for the product inside the cell. That is Exomem's service-principal stage. Until it ships, the product holds the owner's cell authority.
 - The Exomem typed service API path. It gets its own forwarding change when Exomem ships it.
+- Upload and download routes. A service credential is refused on `/download` and is never signed the upload route capsule — it cannot redeem the upload handoff, so both stay OAuth-only for now (review B2/B4).
 - Self-service issuance by tenants, or any OAuth change.
 
 ## Decisions
 
 ### D1. A separate credential table, not long-lived OAuth rows
 
-Service credentials live in their own table: id, tenant, principal, secret digest, created and revoked times. An OAuth access token lives 15 minutes and sits under a grant, a token family and a client registration, and every OAuth check assumes that. A long-lived row in those tables would weaken that invariant for every reader of them. A separate table keeps each credential kind's lifetime rules in one place.
+Service credentials live in their own table: id, tenant, principal, secret digest, created and revoked times. An OAuth access token lives 15 minutes and sits under a grant, a token family and a client registration, and every OAuth check assumes that. A long-lived row in those tables would weaken that invariant for every reader of them. A separate table keeps each credential kind's lifetime rules in one place. The credential binds to the tenant, not the cell row: a rebuilt cell keeps the credential working, and the consumer's identity check is what catches a new cell id (review R1).
 
 ### D2. The secret's prefix selects the lookup
 
@@ -30,7 +31,7 @@ A service secret is `exs_` followed by 32 random bytes in base64url. The gateway
 
 ### D3. The lookup returns the shape the pass-through already uses
 
-The service lookup applies the OAuth lookup's tenant and cell predicates: the tenant is not pending deletion or deleted, its owner has no account block, and its cell is not deleted. It returns the fields that the pass-through reads:
+The service lookup shares the OAuth lookup's tenant eligibility predicate through migration 0088's `exomem_cloud_tenant_access_allowed` SQL function — one definition both lookups call (review B1): the tenant is not pending deletion or deleted and its owner has no account block. The cell `desired_state <> 'deleted'` predicate stays inline in each query. It returns the fields that the pass-through reads:
 
 - `tenantId`, `cellId`, `cellDesiredState` and `userId` (the tenant owner);
 - the credential id as both `grantId` and `familyId`;
@@ -46,11 +47,11 @@ The identity rate limit and the per-identity concurrency guard apply with the ke
 
 ### D5. Rotation is two live credentials
 
-The issue route refuses a third live credential for one tenant and principal with `SERVICE_CREDENTIAL_LIMIT`. A product rotates in three steps: issue a second credential, switch to it, then revoke the first. The issue transaction locks the tenant row so that two concurrent issues cannot both pass the count.
+The issue route refuses a third live credential for one tenant and principal with `SERVICE_CREDENTIAL_LIMIT`. It also refuses a tenant that cannot hold a credential — one leaving, owner-blocked, without a non-deleted cell, or a marketplace-reviewer tenant whose reviewer credentials carry their own expiry contract a long-lived secret would sidestep — with `SERVICE_CREDENTIAL_TENANT_INELIGIBLE` (review R2). A product rotates in three steps: issue a second credential, switch to it, then revoke the first. The issue transaction locks the tenant row so that two concurrent issues cannot both pass the count.
 
 ### D6. Discovery forwarding
 
-`GET /.well-known/exomem-cell` on the gateway authenticates the caller with either credential kind and the same scope check. It applies the identity rate limit and the desired-state gate, then fetches the same path from the caller's cell. The cell serves discovery without a credential, and only the gateway and cellctl can reach a cell, so the gateway sends no bearer and no proof on this fetch. The gateway returns a 200 body unchanged, with `private, no-store`. It caps the body at 64 KiB, answers an unreachable cell with 503 `CELL_NOT_READY`, and answers any other upstream status with 502. It never forwards the caller's headers.
+`GET /.well-known/exomem-cell` on the gateway authenticates the caller with either credential kind and the same scope check. It applies the identity rate limit and the desired-state gate, then fetches the same path from the caller's cell. The cell serves discovery without a credential, and only the gateway and cellctl can reach a cell, so the gateway sends no bearer and no proof on this fetch. The gateway returns a 200 body unchanged, with `private, no-store`. It caps the body at 64 KiB, answers an unreachable cell with 503 `CELL_NOT_READY`, a headers timeout with 504 `CELL_TIMEOUT`, and any other upstream status or an oversized body with 502. It never forwards the caller's headers.
 
 ### D7. Operator routes
 

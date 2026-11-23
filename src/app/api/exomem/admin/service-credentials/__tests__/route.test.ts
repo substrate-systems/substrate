@@ -30,7 +30,8 @@ before(() => {
         revokeCalls += 1;
         return nextRevokeResult;
       },
-      SERVICE_CREDENTIAL_PRINCIPAL_FORMAT: /^service:[a-z][a-z0-9-]{0,39}$/,
+      // The principal format is not mocked: the route reads the production
+      // regex from service-credential-format directly (review R6).
     },
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {

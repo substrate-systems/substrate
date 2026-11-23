@@ -47,14 +47,15 @@ import {
   findCloudOAuthAccessToken,
   findCloudOAuthLogin,
   recordCloudAppUse,
+  REQUIRED_CLOUD_SCOPES,
   type ActiveCloudOAuthAccessToken,
   type ActiveCloudOAuthLogin,
 } from "../lib/exomem-hosted/cloud-oauth";
 import {
   findCloudServiceCredential,
-  SERVICE_CREDENTIAL_PREFIX,
   type ActiveCloudServiceCredential,
 } from "../lib/exomem-hosted/cloud-service-credentials";
+import { SERVICE_CREDENTIAL_PREFIX } from "../lib/exomem-hosted/service-credential-format";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
 import {
   oauthClientContext,
@@ -116,10 +117,6 @@ const RELAYED_DOWNLOAD_HEADERS = [
 ];
 const MAX_CLOUD_CONCURRENCY = 16;
 const MAX_CLOUD_TENANT_CONCURRENCY = 4;
-// D2's required scope pair: a cell exposes one fixed non-owner principal and
-// cannot itself enforce a read-only grant, so every Cloud-resource token the
-// gateway accepts must carry both.
-const REQUIRED_CLOUD_SCOPES = ["exomem.read", "exomem.write"] as const;
 
 let activeCloudCalls = 0;
 const activeCloudCallsByIdentity = new Map<string, number>();
@@ -412,6 +409,56 @@ export type CloudGatewayDependencies = {
 type PreparedBody = Awaited<ReturnType<typeof readCloudArtifactBody>>;
 
 /**
+ * Review B4: the one place a Cloud route turns the Authorization header into
+ * access — bearer parse, D2's prefix dispatch, the IP bucket, the refusal and
+ * the required-scope check — shared by the MCP, discovery and download routes
+ * so the dispatch can never drift between them again.
+ *
+ * `serviceCredentials` is the route's contract: the MCP and discovery routes
+ * admit both credential kinds; the download route keeps its OAuth-only
+ * contract, where an `exs_` bearer is refused without touching either lookup.
+ * A resolved first-party or service credential skips the IP bucket — its
+ * identity limit is the bound — while a bearer the lookup refused, including
+ * an unresolved `exs_`, pays it before the 401 (D4).
+ */
+async function authenticateCloudBearer(
+  request: Request,
+  dependencies: CloudGatewayDependencies,
+  config: ExomemCloudConfig,
+  admission: { serviceCredentials: boolean }
+): Promise<{ access: ActiveCloudOAuthAccessToken; bearer: string } | { response: Response }> {
+  const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
+  const findServiceCredential = dependencies.findServiceCredential ?? findCloudServiceCredential;
+  const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
+
+  const bearer = parseBearerAuthorization(request.headers.get("authorization"));
+  const access = bearer
+    ? bearer.startsWith(SERVICE_CREDENTIAL_PREFIX)
+      ? admission.serviceCredentials
+        ? await findServiceCredential(digestSecret(bearer), config.mcpUrl)
+        : null
+      : await findAccessToken(digestSecret(bearer), config.mcpUrl)
+    : null;
+
+  if (!access?.firstParty && !isServiceCredentialAccess(access)) {
+    const ipKey = trustedIngressClientAddress(request);
+    if (ipKey === null) {
+      recordIpBucketSkip();
+    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+      return { response: errorResponse(429, "RATE_LIMITED") };
+    }
+  }
+  if (!access) return { response: unauthorized(config) };
+  // Security review finding 2: a cell exposes one fixed non-owner principal
+  // and cannot itself enforce a read-only grant, so a credential missing
+  // either required scope is refused here, before any cell contact.
+  if (!REQUIRED_CLOUD_SCOPES.every((scope) => access.scopes.includes(scope))) {
+    return { response: errorResponse(403, "INSUFFICIENT_SCOPE") };
+  }
+  return { access, bearer: bearer as string };
+}
+
+/**
  * D3's pass-through. Every branch below is numbered in the order it runs.
  * D3 lists the same steps with the IP limit before the token lookup; the
  * Home channel's first-party exemption (launch-exomem-cloud-web) moved it.
@@ -421,8 +468,6 @@ export async function handleCloudMcpRequest(
   dependencies: CloudGatewayDependencies = {}
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
-  const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
-  const findServiceCredential = dependencies.findServiceCredential ?? findCloudServiceCredential;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
 
   // 1. GET is refused before anything else is even parsed.
@@ -437,46 +482,16 @@ export async function handleCloudMcpRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // 3. Bearer parse and credential lookup (exact Cloud-resource match).
-  // Design D2 (add-cloud-service-credentials): the `exs_` prefix selects the
-  // credential kind — a service credential resolves only against its own
-  // table, any other bearer only against OAuth tokens; neither lookup can
-  // ever resolve the other's kind. The IP decision below needs the lookup's
-  // answer, so a refusal waits for it.
-  const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  const access = bearer
-    ? bearer.startsWith(SERVICE_CREDENTIAL_PREFIX)
-      ? await findServiceCredential(digestSecret(bearer), config.mcpUrl)
-      : await findAccessToken(digestSecret(bearer), config.mcpUrl)
-    : null;
+  // 3–4. Bearer admission — parse, D2's prefix dispatch, the IP bucket, the
+  // refusal and the scope check — is the shared helper every Cloud route
+  // uses (review B4). This route admits both credential kinds.
+  const admitted = await authenticateCloudBearer(request, dependencies, config, {
+    serviceCredentials: true,
+  });
+  if ("response" in admitted) return admitted.response;
+  const { access, bearer } = admitted;
 
-  // 4. IP rate limit, keyed on the ingress-recorded client address. Home's
-  // server calls for every owner from a few shared addresses, so a token
-  // that the lookup resolved to the first-party client, by its stored row,
-  // skips it; the identity limit below still applies to it. A resolved
-  // service credential skips the bucket too — its `tenant:principal`
-  // identity limit is the bound (D4). Every other request, valid or not —
-  // including an `exs_` bearer the lookup refused — takes the IP bucket
-  // before it is answered. Skipped entirely when there is no address to key
-  // on (security review finding 6) — never collapsed into one shared bucket.
-  if (!access?.firstParty && !isServiceCredentialAccess(access)) {
-    const ipKey = trustedIngressClientAddress(request);
-    if (ipKey === null) {
-      recordIpBucketSkip();
-    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
-      return errorResponse(429, "RATE_LIMITED");
-    }
-  }
-  if (!access) return unauthorized(config);
-
-  // 5. Required scopes (D2), identity rate limit and concurrency guard.
-  // Security review finding 2: a cell exposes one fixed non-owner principal
-  // and cannot itself enforce a read-only grant, so a token missing either
-  // exomem.read or exomem.write is refused here, before any cell contact.
-  if (!REQUIRED_CLOUD_SCOPES.every((scope) => access.scopes.includes(scope))) {
-    return errorResponse(403, "INSUFFICIENT_SCOPE");
-  }
-
+  // 5. Identity rate limit and concurrency guard.
   const identityKey = `${access.tenantId}:${access.clientId}`;
   if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIdentity, identityKey))) {
     return errorResponse(429, "RATE_LIMITED");
@@ -495,7 +510,6 @@ export async function handleCloudMcpRequest(
     let prepared: PreparedBody | undefined;
     if (
       config.transferToolsEnabled &&
-      bearer &&
       !isServiceCredentialAccess(access) &&
       request.method === "POST"
     ) {
@@ -626,7 +640,11 @@ async function proxyToCell(
   forwardHeaders.set("x-request-id", randomUUID());
   // Set from the token's stored client, never from the request; set() and
   // delete() also clear any copy that reached these headers some other way.
-  const clientName = cellClientName(access.client);
+  // Review R4: a service credential is named by its stored principal — the
+  // same value the origin proof carries as client — never a request value.
+  const clientName = isServiceCredentialAccess(access)
+    ? access.clientId
+    : cellClientName(access.client);
   if (clientName === null) forwardHeaders.delete(CELL_CLIENT_NAME_HEADER);
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
@@ -664,7 +682,10 @@ async function proxyToCell(
         CLOUD_ORIGIN_HEADER,
         await signCloudOriginProof(access, key, { purpose: "mcp" })
       );
-      if (cloudUploadEnabled(config, access.cellId)) {
+      // Review B2: a service credential cannot redeem the upload handoff at
+      // the control plane, so it is never signed the route capsule — its call
+      // carries the origin proof alone, like a cell not selected for uploads.
+      if (cloudUploadEnabled(config, access.cellId) && !isServiceCredentialAccess(access)) {
         forwardHeaders.set(CLOUD_UPLOAD_ROUTE_HEADER, await signCloudUploadRoute(access, key));
       }
     } catch {
@@ -926,7 +947,6 @@ export async function handleCloudDownloadRequest(
   dependencies: CloudGatewayDependencies = {}
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
-  const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
   const findLogin = dependencies.findLogin ?? findCloudOAuthLogin;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
   const key = config.artifactSigningKey;
@@ -942,21 +962,16 @@ export async function handleCloudDownloadRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // 2. Token lookup and IP bucket, in the MCP route's order.
-  const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  const access = bearer ? await findAccessToken(digestSecret(bearer), config.mcpUrl) : null;
-  if (!access?.firstParty) {
-    const ipKey = trustedIngressClientAddress(request);
-    if (ipKey === null) {
-      recordIpBucketSkip();
-    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
-      return errorResponse(429, "RATE_LIMITED");
-    }
-  }
-  if (!access) return unauthorized(config);
-  if (!REQUIRED_CLOUD_SCOPES.every((scope) => access.scopes.includes(scope))) {
-    return errorResponse(403, "INSUFFICIENT_SCOPE");
-  }
+  // 2. Token lookup and IP bucket, in the MCP route's order — the shared
+  // admission helper (review B4). This route keeps its OAuth-only contract:
+  // an `exs_` bearer is refused without touching either lookup, so no service
+  // credential — and no OAuth token whose bytes collided with the prefix —
+  // can reach a cell here.
+  const admitted = await authenticateCloudBearer(request, dependencies, config, {
+    serviceCredentials: false,
+  });
+  if ("response" in admitted) return admitted.response;
+  const { access } = admitted;
 
   // 3. The one query parameter, decoded once; the proof binds exactly this value.
   const url = new URL(request.url);
@@ -1067,8 +1082,6 @@ export async function handleCloudDiscoveryRequest(
   dependencies: CloudGatewayDependencies = {}
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
-  const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
-  const findServiceCredential = dependencies.findServiceCredential ?? findCloudServiceCredential;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
 
   if (request.method !== "GET") {
@@ -1078,26 +1091,13 @@ export async function handleCloudDiscoveryRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // D2's prefix dispatch and the MCP route's IP-bucket rule, unchanged: a
-  // resolved service credential skips it, an unresolved `exs_` takes it.
-  const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  const access = bearer
-    ? bearer.startsWith(SERVICE_CREDENTIAL_PREFIX)
-      ? await findServiceCredential(digestSecret(bearer), config.mcpUrl)
-      : await findAccessToken(digestSecret(bearer), config.mcpUrl)
-    : null;
-  if (!access?.firstParty && !isServiceCredentialAccess(access)) {
-    const ipKey = trustedIngressClientAddress(request);
-    if (ipKey === null) {
-      recordIpBucketSkip();
-    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
-      return errorResponse(429, "RATE_LIMITED");
-    }
-  }
-  if (!access) return unauthorized(config);
-  if (!REQUIRED_CLOUD_SCOPES.every((scope) => access.scopes.includes(scope))) {
-    return errorResponse(403, "INSUFFICIENT_SCOPE");
-  }
+  // The shared admission helper (review B4) — this route, like the MCP route,
+  // admits both credential kinds.
+  const admitted = await authenticateCloudBearer(request, dependencies, config, {
+    serviceCredentials: true,
+  });
+  if ("response" in admitted) return admitted.response;
+  const { access } = admitted;
   if (access.cellDesiredState !== "running" && access.cellDesiredState !== "read_only") {
     return errorResponse(503, "CELL_NOT_READY");
   }

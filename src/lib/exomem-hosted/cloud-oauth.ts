@@ -22,6 +22,15 @@ import { executeExomemSql } from "./db";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
 
 /**
+ * D2's required scope pair, exported for the gateway and the service
+ * credential lookup (review R5): a cell sees one fixed non-owner principal and
+ * cannot itself enforce a read-only grant, so every credential kind the
+ * gateway admits must carry both — and a service credential is stamped with
+ * exactly this pair so it passes the identical check.
+ */
+export const REQUIRED_CLOUD_SCOPES = ["exomem.read", "exomem.write"] as const;
+
+/**
  * D2's scope rule: "A cell sees one fixed non-owner principal and cannot
  * enforce a read-only grant. A Cloud-resource grant therefore always
  * carries both exomem.read and exomem.write: an authorization request that
@@ -138,10 +147,13 @@ type CloudOAuthSelector = { accessDigest: Buffer } | { familyId: string; grantId
  * is `CELL_NOT_READY`), not as part of "is this token valid".
  *
  * L3: also requires the tenant's own `status` to be outside
- * `deletion_pending`/`deleted`. A confirmed deletion revokes the tenant's
- * OAuth grants only once the Cloud reconcile has deleted its cell row (D4);
- * until then -- or if that reconcile ever fails -- the cell row can still be
- * non-deleted while the account is gone, and this token must not work.
+ * `deletion_pending`/`deleted` and the owner to be unblocked — the
+ * `exomem_cloud_tenant_access_allowed` predicate migration 0088 defines once
+ * for this lookup and the service credential lookup (review B1). A confirmed
+ * deletion revokes the tenant's OAuth grants only once the Cloud reconcile
+ * has deleted its cell row (D4); until then -- or if that reconcile ever
+ * fails -- the cell row can still be non-deleted while the account is gone,
+ * and this token must not work.
  */
 export async function findCloudOAuthAccessToken(
   accessDigest: Buffer,
@@ -252,9 +264,6 @@ async function findCloudOAuthAuthority(
     JOIN exomem_cloud_cells AS cell
       ON cell.tenant_id = oauth_grant.tenant_id
      AND cell.desired_state <> 'deleted'
-    JOIN exomem_tenants AS tenant
-      ON tenant.id = oauth_grant.tenant_id
-     AND tenant.status NOT IN ('deletion_pending', 'deleted')
     WHERE token.resource = ${expectedResource}
       AND token.reviewer_credential_id IS NOT DISTINCT FROM family.reviewer_credential_id
       AND token.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
@@ -263,10 +272,10 @@ async function findCloudOAuthAuthority(
         ${cloudReviewerAccessEnabled()}
         AND exomem_cloud_reviewer_authorized(token.reviewer_credential_id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform)
       ))
-      AND NOT EXISTS (
-        SELECT 1 FROM exomem_oauth_account_blocks AS block
-        WHERE block.tenant_id = oauth_grant.tenant_id AND block.owner_user_id = oauth_grant.user_id
-      )
+      -- Review B1 (add-cloud-service-credentials): migration 0088's function
+      -- is the one definition of "tenant live, owner unblocked" that this
+      -- lookup and the service credential lookup share.
+      AND exomem_cloud_tenant_access_allowed(oauth_grant.tenant_id, oauth_grant.user_id)
     LIMIT 1
   `;
   return (rows[0] as CloudOAuthAuthorityRow | undefined) ?? null;

@@ -6,7 +6,7 @@ The product also reads the cell's discovery document (`/.well-known/exomem-cell`
 
 ## What Changes
 
-- Add per-cell **service credentials**. An operator issues one for a tenant and a named product principal (`service:<product>`). The control plane stores only the credential's digest. A tenant may hold at most two live credentials for one principal, so a product can rotate without downtime. The operator revokes a credential by id, and the gateway refuses it on the next request.
+- Add tenant-scoped **service credentials**. An operator issues one for a tenant and a named product principal (`service:<product>`). The control plane stores only the credential's digest. A tenant may hold at most two live credentials for one principal, so a product can rotate without downtime. The operator revokes a credential by id, and the gateway refuses it on the next request.
 - The gateway accepts a service credential on the MCP path, as it accepts an access token. It routes only to the tenant's cell, derives the cell bearer and signs the origin proof as for an access token. The proof names the product principal as its client, so a later cell change can tell the product apart from the owner's own agents without a gateway change.
 - The gateway forwards an authenticated `GET /.well-known/exomem-cell` to the caller's cell and returns the cell's bytes unchanged. An unauthenticated request still receives 401 and reaches no cell.
 - Add operator routes to issue, list and revoke service credentials, guarded by the existing admin token. The issue response is the only place the secret appears.
@@ -15,7 +15,7 @@ The product also reads the cell's discovery document (`/.well-known/exomem-cell`
 
 ### New Capabilities
 
-- `exomem-cloud-service-credentials`: issuance, storage, rotation and revocation of per-cell product credentials, and how the Cloud gateway admits them and forwards cell discovery.
+- `exomem-cloud-service-credentials`: issuance, storage, rotation and revocation of tenant-scoped product credentials, and how the Cloud gateway admits them and forwards cell discovery.
 
 ### Modified Capabilities
 

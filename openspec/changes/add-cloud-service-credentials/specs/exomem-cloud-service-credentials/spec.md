@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement: Operators issue and revoke per-cell service credentials
+### Requirement: Operators issue and revoke tenant-scoped service credentials
 
 The control plane SHALL let an operator holding the admin token issue a service credential for one tenant and one product principal of the form `service:<name>`. It SHALL store only the credential secret's SHA-256 digest and SHALL return the secret only in the issue response. It SHALL refuse a third live credential for the same tenant and principal with `SERVICE_CREDENTIAL_LIMIT`. Revoking a credential SHALL take effect on the next gateway request that presents it.
 

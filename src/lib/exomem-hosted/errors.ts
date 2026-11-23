@@ -166,6 +166,12 @@ export const exomemErrors = {
       status: 409,
       message: "a principal holds at most two live credentials",
     }),
+  serviceCredentialTenantIneligible: () =>
+    new ExomemHostedError({
+      code: "SERVICE_CREDENTIAL_TENANT_INELIGIBLE",
+      status: 409,
+      message: "this tenant cannot hold a service credential",
+    }),
 } as const;
 
 export function safeErrorEnvelope(error: unknown, requestId?: string): ExomemHostedErrorEnvelope {

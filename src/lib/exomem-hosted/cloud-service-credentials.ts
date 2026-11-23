@@ -1,37 +1,31 @@
 /**
- * Per-cell service credentials for Exomem Cloud (change
- * add-cloud-service-credentials).
+ * Service credentials for Exomem Cloud (change add-cloud-service-credentials).
  *
- * A product backend holds one long-lived `exs_` secret per cell instead of a
- * 15-minute OAuth access token. The control plane stores only the secret's
- * SHA-256 digest; the plaintext appears once, in the issue response.
+ * A product backend holds one long-lived `exs_` secret for its tenant's cell
+ * instead of a 15-minute OAuth access token. The control plane stores only the
+ * secret's SHA-256 digest; the plaintext appears once, in the issue response.
+ * The credential binds to the tenant, not the cell row — a rebuilt cell keeps
+ * the credential working (review R1).
  *
- * The gateway lookup (`findCloudServiceCredential`) deliberately mirrors the
- * tenant, owner account-block and cell predicates of `findCloudOAuthAuthority`
- * (cloud-oauth.ts): the tenant is not pending deletion or deleted, its owner
- * has no account block, and its cell is not deleted. The SQL here is a second
- * copy of those predicates' meaning, not a shared fragment — this repository's
- * tagged-template executor binds values positionally and cannot splice SQL
- * text, so the parity is pinned by the PostgreSQL integration test instead.
+ * The gateway lookup (`findCloudServiceCredential`) shares its tenant
+ * eligibility predicate with `findCloudOAuthAuthority` through migration
+ * 0088's `exomem_cloud_tenant_access_allowed` function (review B1): the tenant
+ * is not pending deletion or deleted and its owner has no account block. The
+ * cell `desired_state <> 'deleted'` predicate stays inline beside the partial
+ * unique index it pairs with.
  */
 
 import { executeExomemSql, withExomemTransaction } from "./db";
-import type { ActiveCloudOAuthAccessToken } from "./cloud-oauth";
+import {
+  REQUIRED_CLOUD_SCOPES,
+  type ActiveCloudOAuthAccessToken,
+} from "./cloud-oauth";
 import { exomemErrors } from "./errors";
 import { digestSecret, generateExternalToken } from "./security";
-
-/**
- * Design D2: the secret's own prefix selects the lookup. `exs_` followed by 32
- * random bytes in base64url is a service credential; every other bearer is an
- * OAuth candidate. The two kinds can never be accepted as each other.
- */
-export const SERVICE_CREDENTIAL_PREFIX = "exs_";
-
-/**
- * The principal format design D7 fixes: `service:<name>`. A format check on an
- * identifier, not a list of products — a new product needs no code change.
- */
-export const SERVICE_CREDENTIAL_PRINCIPAL_FORMAT = /^service:[a-z][a-z0-9-]{0,39}$/;
+import {
+  SERVICE_CREDENTIAL_PREFIX,
+  SERVICE_CREDENTIAL_PRINCIPAL_FORMAT,
+} from "./service-credential-format";
 
 /** Design D5: rotation without downtime is exactly two live credentials. */
 const MAX_LIVE_CREDENTIALS_PER_PRINCIPAL = 2;
@@ -111,16 +105,18 @@ export async function issueCloudServiceCredentialAtomic(input: {
             )
           )
         )
-        AND tenant.status NOT IN ('deletion_pending', 'deleted')
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_account_blocks AS block
-          WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
-        )
+        AND exomem_cloud_tenant_access_allowed(tenant.id, tenant.owner_user_id)
+        -- Review R2: a marketplace-reviewer's credentials have their own
+        -- expiry contract; a long-lived service credential would sidestep it.
+        AND NOT tenant.marketplace_reviewer_purpose
       LIMIT 1
       FOR UPDATE OF tenant
     `;
     const row = tenant.rows[0] as { id: string; cell_id: string } | undefined;
-    if (!row) throw exomemErrors.invalidRequest();
+    // R2: one distinct code for every tenant state that cannot hold a
+    // credential — gone cells, leaving or blocked tenants, and marketplace
+    // reviewers — so the operator sees why rather than a bare INVALID_REQUEST.
+    if (!row) throw exomemErrors.serviceCredentialTenantIneligible();
     const live = await tx`
       /* exomem-cloud:issue-service-credential-count */
       SELECT count(*)::integer AS count
@@ -215,9 +211,9 @@ export async function revokeCloudServiceCredentialAtomic(input: {
 }
 
 /**
- * The gateway's `exs_` lookup (designs D2, D3). Applies the OAuth lookup's
- * tenant, owner account-block and cell predicates (see the module docstring)
- * and returns the pass-through's access shape: the credential id stands in
+ * The gateway's `exs_` lookup (designs D2, D3). Applies the shared
+ * tenant-access predicate and the inline cell predicate (see the module
+ * docstring) and returns the pass-through's access shape: the credential id stands in
  * for both grant and family, the principal is the client, and the resource is
  * the configured Cloud resource the caller authenticated against. A revoked,
  * unknown, blocked or deleting credential resolves to null — indistinguishable
@@ -235,17 +231,12 @@ export async function findCloudServiceCredential(
     FROM exomem_cloud_service_credentials AS credential
     JOIN exomem_tenants AS tenant
       ON tenant.id = credential.tenant_id
-     AND tenant.status NOT IN ('deletion_pending', 'deleted')
     JOIN exomem_cloud_cells AS cell
       ON cell.tenant_id = credential.tenant_id
      AND cell.desired_state <> 'deleted'
     WHERE credential.secret_digest = ${secretDigest}
       AND credential.revoked_at IS NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM exomem_oauth_account_blocks AS block
-        WHERE block.tenant_id = credential.tenant_id
-          AND block.owner_user_id = tenant.owner_user_id
-      )
+      AND exomem_cloud_tenant_access_allowed(credential.tenant_id, tenant.owner_user_id)
     LIMIT 1
   `;
   const row = rows[0] as
@@ -271,7 +262,7 @@ export async function findCloudServiceCredential(
     // engagement context derives to the default non-local level.
     clientId: row.principal,
     resource: expectedResource,
-    scopes: ["exomem.read", "exomem.write"],
+    scopes: [...REQUIRED_CLOUD_SCOPES],
     cellId: row.cell_id,
     cellDesiredState: row.cell_desired_state,
     client: {

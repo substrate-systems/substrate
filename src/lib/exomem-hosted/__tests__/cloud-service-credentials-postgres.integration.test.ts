@@ -4,13 +4,13 @@ import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
+import { findCloudOAuthAccessToken } from "../cloud-oauth";
 import {
   findCloudServiceCredential,
   generateCloudServiceCredentialSecret,
   issueCloudServiceCredentialAtomic,
   listCloudServiceCredentials,
   revokeCloudServiceCredentialAtomic,
-  SERVICE_CREDENTIAL_PREFIX,
 } from "../cloud-service-credentials";
 import {
   __setExomemSqlForTests,
@@ -18,12 +18,13 @@ import {
   type ExomemSql,
 } from "../db";
 import { digestSecret } from "../security";
+import { SERVICE_CREDENTIAL_PREFIX } from "../service-credential-format";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // add-cloud-service-credentials (D1-D5): the service credential store and the
 // gateway's digest lookup against real PostgreSQL — the digest-only storage,
-// the two-live-credential limit under the tenant lock, and the OAuth
-// lookup's eligibility predicates copied to the service table.
+// the two-live-credential limit under the tenant lock, and migration 0088's
+// shared tenant-access predicate both credential kinds run (review B1).
 
 const CLOUD_RESOURCE = "https://cloud.example.test/mcp/v1";
 const OPERATOR_DIGEST = digestSecret("operator-test-principal");
@@ -60,14 +61,15 @@ async function transaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<
 async function newTenantWithCell(input: {
   status?: string;
   cellDesiredState?: string;
+  marketplaceReviewer?: boolean;
 } = {}): Promise<{ tenantId: string; ownerUserId: string; cellId: string }> {
   const user = await pool!.query<{ id: string }>(
     "INSERT INTO exomem_users (email) VALUES ($1) RETURNING id",
     [`svc-cred-${randomUUID()}@example.test`]
   );
   const tenant = await pool!.query<{ id: string }>(
-    "INSERT INTO exomem_tenants (owner_user_id, status) VALUES ($1, $2) RETURNING id",
-    [user.rows[0]!.id, input.status ?? "active"]
+    "INSERT INTO exomem_tenants (owner_user_id, status, marketplace_reviewer_purpose) VALUES ($1, $2, $3) RETURNING id",
+    [user.rows[0]!.id, input.status ?? "active", input.marketplaceReviewer ?? false]
   );
   const cellId = randomCloudCellId();
   await pool!.query(
@@ -308,15 +310,34 @@ describe("Exomem Cloud service credentials PostgreSQL integration", { skip: !dat
     });
     assert.equal(issued.tenantId, tenant.rows[0]!.id);
 
-    // A tenant already leaving is refused at issue time, not only at lookup.
+    // A tenant already leaving is refused at issue time, not only at lookup —
+    // with the ineligible code, not a bare INVALID_REQUEST (review R2).
     const leaving = await newTenantWithCell({ status: "deletion_pending" });
-    await assert.rejects(issue(leaving.tenantId), { code: "INVALID_REQUEST" });
+    await assert.rejects(issue(leaving.tenantId), {
+      code: "SERVICE_CREDENTIAL_TENANT_INELIGIBLE",
+    });
     const blocked = await newTenantWithCell();
     await pool!.query(
       "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'operator_revoked')",
       [blocked.tenantId, blocked.ownerUserId]
     );
-    await assert.rejects(issue(blocked.tenantId), { code: "INVALID_REQUEST" });
+    await assert.rejects(issue(blocked.tenantId), {
+      code: "SERVICE_CREDENTIAL_TENANT_INELIGIBLE",
+    });
+  });
+
+  it("refuses issuance for a marketplace-reviewer tenant (review R2)", async () => {
+    // Reviewer credentials carry their own expiry contract; a long-lived
+    // service credential would sidestep it, so issuance is refused outright.
+    const reviewer = await newTenantWithCell({ marketplaceReviewer: true });
+    await assert.rejects(issue(reviewer.tenantId), {
+      code: "SERVICE_CREDENTIAL_TENANT_INELIGIBLE",
+    });
+    const { rows } = await pool!.query(
+      "SELECT count(*)::integer AS count FROM exomem_cloud_service_credentials WHERE tenant_id = $1",
+      [reviewer.tenantId]
+    );
+    assert.equal(rows[0]!.count, 0);
   });
 
   it("separates the credential kinds: a digest in one table is invisible to the other's lookup", async () => {
@@ -331,5 +352,12 @@ describe("Exomem Cloud service credentials PostgreSQL integration", { skip: !dat
     // And the unprefixed random suffix is not a credential of any kind.
     const bare = generateCloudServiceCredentialSecret().slice(SERVICE_CREDENTIAL_PREFIX.length);
     assert.equal(await findCloudServiceCredential(digestSecret(bare), CLOUD_RESOURCE), null);
+    // Review R6: the OAuth lookup must refuse a service secret's digest
+    // outright — the credential kind is enforced by which table the dispatch
+    // lets each lookup see, and the OAuth table never holds the digest.
+    assert.equal(
+      await findCloudOAuthAccessToken(digestSecret(issued.secret), CLOUD_RESOURCE),
+      null
+    );
   });
 });

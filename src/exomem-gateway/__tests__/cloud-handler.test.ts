@@ -159,6 +159,38 @@ function postRequest(input: {
 
 const CLIENT_BEARER = "a".repeat(43);
 
+// Service-credential fixtures shared by the MCP and discovery describes.
+// UUID-shaped ids — the origin proof's schema parses grant and tenant ids as
+// UUIDs, so a proof-bearing test cannot reuse the OAuth fixture's plain strings.
+const SERVICE_BEARER = `exs_${"b".repeat(43)}`;
+const SERVICE_ACCESS: ActiveCloudServiceCredential = {
+  ...VALID_ACCESS,
+  familyId: "018f2d91-7c42-7000-8000-00000000000a",
+  grantId: "018f2d91-7c42-7000-8000-00000000000a",
+  tenantId: "018f2d91-7c42-7000-8000-00000000000b",
+  clientId: "service:creator-platform",
+  client: {
+    clientName: "service:creator-platform",
+    admissionMode: "service",
+    platform: null,
+    redirectUris: [],
+  },
+  serviceCredential: true,
+};
+
+function discoveryRequest(input: {
+  bearer?: string;
+  headers?: Record<string, string>;
+  method?: string;
+}): Request {
+  const headers = new Headers(input.headers ?? {});
+  if (input.bearer) headers.set("authorization", `Bearer ${input.bearer}`);
+  return new Request("http://gateway.invalid/.well-known/exomem-cell", {
+    method: input.method ?? "GET",
+    headers,
+  });
+}
+
 describe("Exomem Cloud gateway handler", () => {
   beforeEach(() => {
     resetCloudGatewayConcurrencyForTests();
@@ -1346,25 +1378,6 @@ describe("Exomem Cloud service credentials", () => {
     resetCloudGatewayConcurrencyForTests();
   });
 
-  const SERVICE_BEARER = `exs_${"b".repeat(43)}`;
-  const SERVICE_ACCESS: ActiveCloudServiceCredential = {
-    ...VALID_ACCESS,
-    // UUID-shaped ids — the origin proof's schema parses grant and tenant
-    // ids as UUIDs, so a proof-bearing test cannot reuse the OAuth fixture's
-    // plain strings.
-    familyId: "018f2d91-7c42-7000-8000-00000000000a",
-    grantId: "018f2d91-7c42-7000-8000-00000000000a",
-    tenantId: "018f2d91-7c42-7000-8000-00000000000b",
-    clientId: "service:creator-platform",
-    client: {
-      clientName: "service:creator-platform",
-      admissionMode: "service",
-      platform: null,
-      redirectUris: [],
-    },
-    serviceCredential: true,
-  };
-
   it("reaches only the credential's tenant's cell with the derived bearer and a proof naming the principal", async () => {
     const { privateKey } = generateKeyPairSync("ed25519");
     const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
@@ -1400,6 +1413,10 @@ describe("Exomem Cloud service credentials", () => {
       assert.equal(payload.client_id, "service:creator-platform");
       assert.equal(payload.tenant_id, SERVICE_ACCESS.tenantId);
       assert.equal(payload.cell_id, TEST_CELL_ID);
+      // R4: the cell client-name header is the stored principal, not the
+      // synthesized client object's name fallback — which has no redirect to
+      // fall back to and would otherwise leave the header unset.
+      assert.equal(received.headers["x-exomem-oauth-client"], "service:creator-platform");
     } finally {
       await cell.close();
     }
@@ -1432,21 +1449,21 @@ describe("Exomem Cloud service credentials", () => {
   });
 
   it("answers 401 for a revoked or unknown `exs_` bearer and contacts no cell", async () => {
+    // The lookup resolves revoked and unknown alike to null — indistinguishable
+    // from never having existed.
     let fetchCalls = 0;
-    for (const found of [null]) {
-      const response = await handleCloudMcpRequest(
-        postRequest({ bearer: SERVICE_BEARER, body: "{}" }),
-        baseDeps({
-          findServiceCredential: async () => found,
-          fetchCell: (async () => {
-            fetchCalls += 1;
-            return new Response("unreachable");
-          }) as typeof fetch,
-        })
-      );
-      assert.equal(response.status, 401);
-      assert.deepEqual(await response.json(), { error: "ACCESS_TOKEN_INVALID" });
-    }
+    const response = await handleCloudMcpRequest(
+      postRequest({ bearer: SERVICE_BEARER, body: "{}" }),
+      baseDeps({
+        findServiceCredential: async () => null,
+        fetchCell: (async () => {
+          fetchCalls += 1;
+          return new Response("unreachable");
+        }) as typeof fetch,
+      })
+    );
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: "ACCESS_TOKEN_INVALID" });
     assert.equal(fetchCalls, 0);
   });
 
@@ -1501,90 +1518,70 @@ describe("Exomem Cloud service credentials", () => {
     assert.equal(fetchCalls, 0);
   });
 
-  it("skips the IP bucket for a resolved service credential but takes it for an unresolved one", async () => {
-    const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
-    const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
-    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-ingress-trusted";
-    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = "traefik";
-    try {
-      const trustedHeaders = { "x-ingress-trusted": "traefik", "x-real-ip": "203.0.113.9" };
-      const buckets: string[] = [];
-      const takeRateLimit: CloudGatewayDependencies["takeRateLimit"] = async (limit) => {
-        buckets.push(limit.scope);
-        return true;
-      };
-      const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
+  // Review R6: one parameterized test covers the D4 rule on both routes the
+  // shared admission helper serves — a resolved service credential skips the
+  // IP bucket, an unresolved `exs_` takes it.
+  for (const route of ["mcp", "discovery"] as const) {
+    it(`skips the IP bucket for a resolved service credential but takes it for an unresolved one on the ${route} route`, async () => {
+      const handle = route === "mcp" ? handleCloudMcpRequest : handleCloudDiscoveryRequest;
+      const buildRequest = (headers: Record<string, string>) =>
+        route === "mcp"
+          ? postRequest({ bearer: SERVICE_BEARER, headers, body: "{}" })
+          : discoveryRequest({ bearer: SERVICE_BEARER, headers });
+      const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+      process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-ingress-trusted";
+      process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = "traefik";
       try {
-        const resolved = await handleCloudMcpRequest(
-          postRequest({ bearer: SERVICE_BEARER, headers: trustedHeaders, body: "{}" }),
+        const trustedHeaders = { "x-ingress-trusted": "traefik", "x-real-ip": "203.0.113.9" };
+        const buckets: string[] = [];
+        const takeRateLimit: CloudGatewayDependencies["takeRateLimit"] = async (limit) => {
+          buckets.push(limit.scope);
+          return true;
+        };
+        const resolved = await handle(
+          buildRequest(trustedHeaders),
           baseDeps({
             findServiceCredential: async () => SERVICE_ACCESS,
             takeRateLimit,
-            fetchCell: fetchCellAt(cell.port),
+            fetchCell: (async () =>
+              new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              })) as typeof fetch,
           })
         );
         assert.equal(resolved.status, 200);
         await resolved.text();
         assert.deepEqual(buckets, ["exomem:mcp:identity"]);
-      } finally {
-        await cell.close();
-      }
 
-      buckets.length = 0;
-      const unresolved = await handleCloudMcpRequest(
-        postRequest({ bearer: SERVICE_BEARER, headers: trustedHeaders, body: "{}" }),
-        baseDeps({
-          findServiceCredential: async () => null,
-          takeRateLimit,
-          fetchCell: (async () => new Response("unreachable")) as typeof fetch,
-        })
-      );
-      assert.equal(unresolved.status, 401);
-      assert.deepEqual(buckets, ["exomem:mcp:ip"]);
-    } finally {
-      if (previousHeader === undefined)
-        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
-      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
-      if (previousValue === undefined)
-        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
-      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
-    }
-  });
+        buckets.length = 0;
+        const unresolved = await handle(
+          buildRequest(trustedHeaders),
+          baseDeps({
+            findServiceCredential: async () => null,
+            takeRateLimit,
+            fetchCell: (async () => new Response("unreachable")) as typeof fetch,
+          })
+        );
+        assert.equal(unresolved.status, 401);
+        assert.deepEqual(buckets, ["exomem:mcp:ip"]);
+      } finally {
+        if (previousHeader === undefined)
+          delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+        else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
+        if (previousValue === undefined)
+          delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+        else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
+      }
+    });
+  }
 });
 
 describe("Exomem Cloud authenticated discovery (D6)", () => {
   beforeEach(() => {
     resetCloudGatewayConcurrencyForTests();
   });
-
-  const SERVICE_BEARER = `exs_${"b".repeat(43)}`;
-  const SERVICE_ACCESS: ActiveCloudServiceCredential = {
-    ...VALID_ACCESS,
-    familyId: "018f2d91-7c42-7000-8000-00000000000a",
-    grantId: "018f2d91-7c42-7000-8000-00000000000a",
-    tenantId: "018f2d91-7c42-7000-8000-00000000000b",
-    clientId: "service:creator-platform",
-    client: {
-      clientName: "service:creator-platform",
-      admissionMode: "service",
-      platform: null,
-      redirectUris: [],
-    },
-    serviceCredential: true,
-  };
-
-  function discoveryRequest(input: {
-    bearer?: string;
-    headers?: Record<string, string>;
-    method?: string;
-  }): Request {
-    const headers = new Headers(input.headers ?? {});
-    if (input.bearer) headers.set("authorization", `Bearer ${input.bearer}`);
-    return new Request("http://gateway.invalid/.well-known/exomem-cell", {
-      method: input.method ?? "GET",
-      headers,
-    });
-  }
 
   it("returns the cell's discovery bytes unchanged with private, no-store — for a service credential and an OAuth token", async () => {
     const document = '{"cell":"exo-cell-aaaaaaaaaaaaaaaa","version":1}';
@@ -1672,50 +1669,5 @@ describe("Exomem Cloud authenticated discovery (D6)", () => {
       })
     );
     assert.equal(response.status, 502);
-  });
-
-  it("skips the IP bucket for a resolved service credential but takes it for an unresolved one", async () => {
-    const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
-    const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
-    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-ingress-trusted";
-    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = "traefik";
-    try {
-      const trustedHeaders = { "x-ingress-trusted": "traefik", "x-real-ip": "203.0.113.9" };
-      const buckets: string[] = [];
-      const takeRateLimit: CloudGatewayDependencies["takeRateLimit"] = async (limit) => {
-        buckets.push(limit.scope);
-        return true;
-      };
-      const resolved = await handleCloudDiscoveryRequest(
-        discoveryRequest({ bearer: SERVICE_BEARER, headers: trustedHeaders }),
-        baseDeps({
-          findServiceCredential: async () => SERVICE_ACCESS,
-          takeRateLimit,
-          fetchCell: (async () =>
-            new Response("{}", { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch,
-        })
-      );
-      assert.equal(resolved.status, 200);
-      assert.deepEqual(buckets, ["exomem:mcp:identity"]);
-
-      buckets.length = 0;
-      const unresolved = await handleCloudDiscoveryRequest(
-        discoveryRequest({ bearer: SERVICE_BEARER, headers: trustedHeaders }),
-        baseDeps({
-          findServiceCredential: async () => null,
-          takeRateLimit,
-          fetchCell: (async () => new Response("unreachable")) as typeof fetch,
-        })
-      );
-      assert.equal(unresolved.status, 401);
-      assert.deepEqual(buckets, ["exomem:mcp:ip"]);
-    } finally {
-      if (previousHeader === undefined)
-        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
-      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
-      if (previousValue === undefined)
-        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
-      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
-    }
   });
 });

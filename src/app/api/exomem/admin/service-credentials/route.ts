@@ -4,8 +4,8 @@ import {
   issueCloudServiceCredentialAtomic,
   listCloudServiceCredentials,
   revokeCloudServiceCredentialAtomic,
-  SERVICE_CREDENTIAL_PRINCIPAL_FORMAT,
 } from "@/lib/exomem-hosted/cloud-service-credentials";
+import { SERVICE_CREDENTIAL_PRINCIPAL_FORMAT } from "@/lib/exomem-hosted/service-credential-format";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
   newRequestId,

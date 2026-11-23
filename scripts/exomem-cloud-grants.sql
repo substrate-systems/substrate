@@ -487,6 +487,16 @@ BEGIN
         GRANT SELECT (owner_user_id) ON exomem_tenants TO exomem_gateway;
       END IF;
     END IF;
+    -- Review B1: migration 0088's shared tenant-access predicate runs
+    -- SECURITY INVOKER, so it reads only the tenant and account-block
+    -- columns the gateway was granted above. EXECUTE is granted anyway so
+    -- the privilege table names the function's caller rather than relying
+    -- on the PUBLIC default; substrate_app's schema-wide grant already
+    -- covers the issue path.
+    IF to_regprocedure('exomem_cloud_tenant_access_allowed(uuid,uuid)') IS NOT NULL THEN
+      GRANT EXECUTE ON FUNCTION exomem_cloud_tenant_access_allowed(uuid,uuid)
+        TO exomem_gateway;
+    END IF;
   END IF;
 END
 $$;
