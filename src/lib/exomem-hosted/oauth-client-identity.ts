@@ -14,6 +14,10 @@ export type OAuthClientIdentity = {
   /** `admission_mode`, a closed set fixed by its CHECK constraint (migrations 0025 and 0062). */
   admissionMode: string;
   platform: string | null;
+  /** The host of a CIMD client's `client_id` URL: the host that vouched for it; null otherwise. */
+  cimdHost: string | null;
+  /** The stored engagement context (`client_context`); owner-editable on Home. */
+  clientContext: OAuthClientContext;
   redirectUris: string[];
 };
 
@@ -57,9 +61,10 @@ export function isLocalOAuthClient(redirectUris: readonly string[]): boolean {
 
 /**
  * The context a client's calls run in: a local app is a coding agent, every
- * other client a conversational app. It reads the client's registered
- * redirects, which last as long as the client; a grant keeps no redirect,
- * because its authorization transaction is pruned a day after use.
+ * other client a conversational app. Registration stores the result in
+ * `exomem_oauth_clients.client_context`, which is what the gateway and the
+ * apps list read; the owner can change the stored value on Home, so this
+ * derivation must not run at request time again.
  */
 export function oauthClientContext(redirectUris: readonly string[]): OAuthClientContext {
   return isLocalOAuthClient(redirectUris) ? "coding" : "conversation";
