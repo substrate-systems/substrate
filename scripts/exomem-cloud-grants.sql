@@ -438,6 +438,19 @@ BEGIN
     ) THEN
       GRANT SELECT (client_name) ON exomem_oauth_clients TO exomem_gateway;
     END IF;
+    -- Migration 0088's stored client context: the gateway sets
+    -- x-exomem-client-context from it. Guarded on the column's own existence,
+    -- and the admission function's grant on its own signature.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_oauth_clients'
+        AND column_name = 'client_context'
+    ) THEN
+      GRANT SELECT (client_context) ON exomem_oauth_clients TO exomem_gateway;
+    END IF;
+    IF to_regprocedure('exomem_oauth_client_admitted(text,boolean,bytea,timestamptz,integer,timestamptz,text,text,boolean,timestamptz)') IS NOT NULL THEN
+      EXECUTE 'GRANT EXECUTE ON FUNCTION exomem_oauth_client_admitted(text,boolean,bytea,timestamptz,integer,timestamptz,text,text,boolean,timestamptz) TO exomem_gateway';
+    END IF;
     IF to_regclass('exomem_oauth_admitted_cimd_hosts') IS NOT NULL THEN
       GRANT SELECT (host, platform) ON exomem_oauth_admitted_cimd_hosts TO exomem_gateway;
     END IF;
