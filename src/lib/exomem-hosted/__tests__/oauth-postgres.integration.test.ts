@@ -2657,6 +2657,97 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
     }
   });
+
+  // The incident behind the grace window: one shared auto-registered client
+  // whose metadata lapses daily, with parallel sessions holding copies of one
+  // stored token. A session presenting a token a sibling rotated must still
+  // reach the refetch path — answering invalid_grant there clears its store.
+  it("refetches lapsed CIMD metadata for a spent token inside the reuse interval", async () => {
+    const grace: OAuthSessionPolicy = {
+      refreshIdleDays: 30,
+      sessionMaxDays: 365,
+      refreshReuseSeconds: 604800,
+    };
+    const host = `reuse-refetch-${randomUUID()}.example.test`;
+    const connector = `https://${host}/oauth/client.json`;
+    const fetchCimd = async () => cimdMetadata(connector, [`https://${host}/callback`], "c");
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('claude', $1)",
+      [host]
+    );
+    try {
+      const registered = await registerAdmittedCimdClient(connector, { fetchCimd });
+      assert.ok(registered);
+      const fixture = await seedAuthorizationCode(registered.id, 7501, true);
+      assert.ok(
+        await issueOAuthTokensFromCodeAtomic({
+          codeDigest: fixture.codeDigest,
+          clientId: connector,
+          redirectUri: "https://client.example.test/callback",
+          resource,
+          pkceChallenge: "challenge",
+          refreshDigest: digest(7502),
+          accessDigest: digest(7503),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+          sessionPolicy: grace,
+        })
+      );
+      const rotate = (sequence: number) =>
+        rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(7502),
+          replacementRefreshDigest: digest(sequence),
+          accessDigest: digest(sequence + 1),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+          clientId: connector,
+          resource,
+          sessionPolicy: grace,
+        });
+      assert.equal((await rotate(7504))?.kind, "issued", "the first rotation spends the token");
+
+      // A parallel session kept the stored token and presents it an hour
+      // after the sibling's spend: inside the interval it gets its own pair.
+      await pool!.query(
+        "UPDATE exomem_oauth_refresh_tokens SET consumed_at = now() - interval '1 hour' WHERE refresh_digest = $1",
+        [digest(7502)]
+      );
+      assert.equal((await rotate(7506))?.kind, "issued");
+
+      // A day later the shared client's metadata has lapsed again and the same
+      // session presents the spent token once more. The rotation refuses only
+      // for the metadata, so the route path must refetch and then issue.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
+         SET metadata_fetched_at = metadata_fetched_at - interval '25 hours',
+             metadata_expires_at = metadata_expires_at - interval '25 hours'
+         WHERE client_id = $1`,
+        [connector]
+      );
+      assert.equal(await rotate(7508), null, "rotation still needs fresh metadata");
+      assert.equal(
+        await refreshCimdMetadataState({
+          refreshDigest: digest(7502),
+          clientId: connector,
+          sessionPolicy: grace,
+        }),
+        "lapsed",
+        "a spent token inside the interval is eligible for the refetch"
+      );
+      assert.ok(await registerAdmittedCimdClient(connector, { fetchCimd }));
+      assert.equal(
+        (await rotate(7510))?.kind,
+        "issued",
+        "the token route refetches and then issues instead of answering invalid_grant"
+      );
+    } finally {
+      await pool!.query(
+        `DELETE FROM exomem_oauth_grants
+         WHERE client_id = (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [connector]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [connector]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
   // A connected client stays signed in for as long as it keeps refreshing, and a
   // refresh token spent a moment ago is not yet a stolen one: parallel sessions
   // that share one stored credential, and a client retrying after a lost reply,
@@ -2931,8 +3022,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       const first = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
       assert.equal(first.rotation?.kind, "issued");
 
-      // The spend minted replacement 1 of 16, so fifteen reuses succeed.
-      for (let index = 0; index < 15; index += 1) {
+      // The spend minted replacement 1 of 64, so sixty-three reuses succeed.
+      for (let index = 0; index < 63; index += 1) {
         assert.equal(
           (await refresh(session.refreshDigest, { sessionPolicy: gracePolicy })).rotation
             ?.kind,
@@ -2943,8 +3034,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
 
       const over = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
 
-      // Sixteen replacements is the bound: this reuse is refused like any other
-      // refusal, and it is not a stale presentation either.
+      // Sixty-four children is the loop guard: this reuse is refused like any
+      // other refusal, and it is not a stale presentation either.
       assert.equal(over.rotation, null);
       assert.equal((await familyState(session.familyId)).revoked, false);
       // The first chain still rotates normally.
