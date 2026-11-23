@@ -140,6 +140,13 @@ async function openIssue(issue: StatusIssue): Promise<string> {
 
 type GhRun = (args: string[]) => Promise<string>;
 
+/** No status issue, open or closed, carries the notice's marker: nothing is left to close. */
+export class NoStatusIssueError extends Error {
+  constructor() {
+    super("no status issue carries this notice's marker");
+  }
+}
+
 async function findIssueNumber(
   run: GhRun,
   label: string,
@@ -191,7 +198,7 @@ export async function closeIssueFor(
     return { ref: `${statusRepo()}#${open}`, alreadyClosed: false };
   }
   const closed = await findIssueNumber(run, label, notice.id, "closed");
-  if (closed === null) throw new Error(`no ${label} issue carries this notice's marker`);
+  if (closed === null) throw new NoStatusIssueError();
   await run(["issue", "comment", String(closed), "--repo", statusRepo(), "--body", comment]);
   return { ref: `${statusRepo()}#${closed}`, alreadyClosed: true };
 }
@@ -311,8 +318,11 @@ async function main(): Promise<void> {
           : `Closed status issue ${closed.ref}.`
       );
     } catch (error) {
+      const done = command === "cancel" ? "cancelled" : "resolved";
       console.error(
-        `The notice is ${command === "cancel" ? "cancelled" : "resolved"}, but its status issue is still open: ${error instanceof Error ? error.message : error}`
+        error instanceof NoStatusIssueError
+          ? `The notice is ${done}, but ${error.message}.`
+          : `The notice is ${done}, but its status issue is still open: ${error instanceof Error ? error.message : error}`
       );
       process.exitCode = 2;
     }

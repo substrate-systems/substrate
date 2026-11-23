@@ -4,6 +4,7 @@ import {
   closeIssueFor,
   type DescribedNotice,
   issueNumberFor,
+  NoStatusIssueError,
   noticeMarker,
   statusIssueFor,
 } from "../../../../scripts/exomem-service-notice";
@@ -128,6 +129,11 @@ describe("closing the status issue", () => {
 
   it("still fails when no issue, open or closed, carries the notice's marker", async () => {
     const { run } = fakeGh({ open: [], closed: [] });
-    await assert.rejects(closeIssueFor(incident, "A bad deploy.", "completed", run), /marker/);
+    await assert.rejects(
+      closeIssueFor(incident, "A bad deploy.", "completed", run),
+      (error: unknown) =>
+        error instanceof NoStatusIssueError &&
+        error.message === "no status issue carries this notice's marker"
+    );
   });
 });

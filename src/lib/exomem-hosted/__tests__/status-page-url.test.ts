@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { statusPageUrl, statusPageUrlOrDefault } from "../status-page-url";
 
 // One setting names the status page for Home's link and for service notices. Home links
@@ -17,7 +17,8 @@ describe("the status page address", () => {
     assert.equal(statusPageUrlOrDefault(env), "https://status.example.test/");
   });
 
-  it("never sends a reader to a mistyped, non-https or over-long address", () => {
+  it("never sends a reader to a mistyped, non-https or over-long address, and says so once without the value", () => {
+    const warn = mock.method(console, "warn", () => {});
     for (const value of [
       "http://status.example.test",
       "status.example.test",
@@ -29,5 +30,11 @@ describe("the status page address", () => {
       assert.equal(statusPageUrl(env), null, value);
       assert.equal(statusPageUrlOrDefault(env), "https://status.substratesystems.io", value);
     }
+    warn.mock.restore();
+    // A silent fallback hides a mistyped setting; one line per process makes it visible.
+    assert.equal(warn.mock.callCount(), 1);
+    const [line] = warn.mock.calls[0]!.arguments as [Record<string, unknown>];
+    assert.equal(line.setting, "EXOMEM_STATUS_PAGE_URL");
+    assert.doesNotMatch(JSON.stringify(line), /status\.example\.test|javascript/);
   });
 });

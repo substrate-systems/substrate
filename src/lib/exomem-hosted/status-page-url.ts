@@ -18,12 +18,28 @@ export function statusPageUrl(
   env: Record<string, string | undefined> = process.env
 ): string | null {
   const value = env.EXOMEM_STATUS_PAGE_URL?.trim();
-  if (!value || value.length > STATUS_PAGE_URL_MAX_CHARS) return null;
+  if (!value) return null;
+  if (value.length > STATUS_PAGE_URL_MAX_CHARS) return rejected("too_long");
   try {
-    return new URL(value).protocol === "https:" ? value : null;
+    return new URL(value).protocol === "https:" ? value : rejected("not_https");
   } catch {
-    return null;
+    return rejected("not_https");
   }
+}
+
+// Once per process: Home renders and every gateway request read the setting, so a line per read
+// would flood the log. It names the setting and why, never the value, which may hold a token.
+let warnedRejected = false;
+function rejected(reason: "too_long" | "not_https"): null {
+  if (!warnedRejected) {
+    warnedRejected = true;
+    console.warn({
+      event: "exomem_status_page_url_rejected",
+      setting: "EXOMEM_STATUS_PAGE_URL",
+      reason,
+    });
+  }
+  return null;
 }
 
 /** The address for service notices, which always point at a status page: the default when none is set. */
