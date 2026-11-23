@@ -25,7 +25,7 @@ import {
   type OAuthFamilyEndReason,
 } from "./oauth-family-end";
 import { loadOAuthSessionPolicy, type OAuthSessionPolicy } from "./oauth-session-policy";
-import { notifyEndedAppSessions } from "./oauth-signout-notice";
+import { notifyEndedAppSessions, SIGNOUT_CAP_HOURS } from "./oauth-signout-notice";
 
 export type OAuthTokenContext = {
   grantId: string;
@@ -748,7 +748,11 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
     )
   `;
   // Rotation lineage stays until its family expires: a leaf token goes first,
-  // its parent on a later run.
+  // its parent on a later run. One hold-out: a family whose ending the
+  // sign-out cap still suppresses — no marker of its own, an emailed marker
+  // on its grant inside the cap — keeps its rows until the notice lane reads
+  // the ending again once the cap lifts. Holding the tokens holds the family:
+  // the family delete below only takes a tokenless one.
   await executeExomemSql`
     /* exomem:prune-expired-refresh-tokens */
     DELETE FROM exomem_oauth_refresh_tokens
@@ -759,6 +763,17 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_refresh_tokens AS child
           WHERE child.parent_refresh_token_id = token.id
+        )
+        AND (
+          EXISTS (
+            SELECT 1 FROM exomem_oauth_app_signout_notices AS notice
+            WHERE notice.family_id = family.id
+          )
+          OR NOT EXISTS (
+            SELECT 1 FROM exomem_oauth_app_signout_notices AS notice
+            WHERE notice.grant_id = family.grant_id
+              AND notice.emailed_at > now() - (${SIGNOUT_CAP_HOURS} * interval '1 hour')
+          )
         )
       ORDER BY token.expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
     )

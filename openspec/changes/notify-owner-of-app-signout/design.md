@@ -89,7 +89,11 @@ and enqueueing the email happen in one transaction, and
 family once. Markers exist only for endings that emailed (`emailed_at NOT
 NULL`): an ending the per-grant 24 h cap suppresses gets no marker, so it is
 seen again once the cap lifts and still emails if the app is dead — one email
-per distinct sign-out, spaced by the cap, rather than silence forever. The
+per distinct sign-out, spaced by the cap, rather than silence forever. Being
+seen again requires its evidence to survive the wait: the sweep's prune keeps
+a family the cap still suppresses — unmarked, with an emailed marker on its
+grant inside the cap — instead of deleting it in the run that suppressed it;
+the hold releases when the family is marked or the cap lets go. The
 cap itself reads emailed markers on `(grant_id, emailed_at)`. The outbox
 `dedupe_key` (`app-signout:<family_id>`) is the second belt for exactly-once
 enqueue. `family_id` is deliberately not a foreign key: the sweep deletes an

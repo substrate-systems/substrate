@@ -21,8 +21,12 @@ import type { ExomemThemeChoice } from "@/lib/exomem/theme";
 const SIGNOUT_CANDIDATES_PER_SWEEP = 100;
 /** Endings older than this are stale news: the sweep looks back no further. */
 const SIGNOUT_LOOKBACK_HOURS = 25;
-/** At most one sign-out email per grant in this window, enforced on emailed markers. */
-const SIGNOUT_CAP_HOURS = 24;
+/**
+ * At most one sign-out email per grant in this window, enforced on emailed
+ * markers. The sweep's prune reads the same window: an ending the cap still
+ * suppresses must keep the rows it will be read from once the cap lifts.
+ */
+export const SIGNOUT_CAP_HOURS = 24;
 /**
  * Markers live long enough to answer the send-time recheck and span the cap;
  * past this age the sweep deletes the oldest per run, bounded like the
@@ -298,6 +302,11 @@ async function claimEndedFamilyNotices(
             AND notice.ended_at
                   = exomem_oauth_family_ended_at(family.revoked_at, live.live_until)
         )
+        -- A candidate whose usable credentials vanished between list and
+        -- claim has no ending left to mark: ended_at comes back NULL, and
+        -- aborting the insert on the NOT NULL violation would sink every
+        -- other candidate in the batch.
+        AND exomem_oauth_family_ended_at(family.revoked_at, live.live_until) IS NOT NULL
     ), marked AS (
       INSERT INTO exomem_oauth_app_signout_notices (family_id, grant_id, ended_at, ended_reason, emailed_at)
       SELECT family_id, grant_id, ended_at, ended_reason, now()
