@@ -141,6 +141,43 @@ async function newFamily(
   return row.rows[0]!.id;
 }
 
+// The real idle window lives on the refresh token, not the family row: a
+// family is live while it holds an unconsumed, unexpired one.
+async function newRefreshToken(
+  familyId: string,
+  ending: { expiredAgo?: string; consumedAgo?: string } = {}
+): Promise<void> {
+  const expires = ending.expiredAgo
+    ? `now() - interval '${ending.expiredAgo}'`
+    : `now() + interval '30 days'`;
+  const consumed = ending.consumedAgo ? `now() - interval '${ending.consumedAgo}'` : "NULL";
+  await pool!.query(
+    `INSERT INTO exomem_oauth_refresh_tokens
+       (refresh_digest, family_id, expires_at, consumed_at, created_at)
+     VALUES ($1, $2, ${expires}, ${consumed}, now() - interval '60 days')`,
+    [randomBytes(32), familyId]
+  );
+}
+
+// A family issued without refresh reaches the cell on its access tokens.
+async function newAccessToken(
+  familyId: string,
+  grantId: string,
+  client: Client,
+  ending: { expiredAgo?: string } = {}
+): Promise<void> {
+  const expires = ending.expiredAgo
+    ? `now() - interval '${ending.expiredAgo}'`
+    : `now() + interval '1 hour'`;
+  await pool!.query(
+    `INSERT INTO exomem_oauth_access_tokens
+       (access_digest, grant_id, family_id, client_id, resource, scopes, expires_at, created_at)
+     VALUES ($1, $2, $3, $4, $5, '{exomem.read,exomem.write}'::text[], ${expires},
+             ${expires} - interval '1 hour')`,
+    [randomBytes(32), grantId, familyId, client.pk, CLOUD_RESOURCE]
+  );
+}
+
 async function markUsed(grantId: string, ago = "1 hour"): Promise<void> {
   await pool!.query(
     `INSERT INTO exomem_oauth_grant_usage (grant_id, last_used_at)
@@ -207,7 +244,8 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     );
     const liveClient = await newClient("openai");
     const live = await newGrant(owner, liveClient);
-    await newFamily(live, liveClient, {});
+    const liveFamily = await newFamily(live, liveClient, {});
+    await newRefreshToken(liveFamily);
 
     const { apps } = await listOwnerApps(owner);
     const signedOut = apps.find((app) => app.id === dead)!;
@@ -250,6 +288,7 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     const expiredGrant = await newGrant(owner, expiredClient);
     await markUsed(expiredGrant, "3 hours");
     const expired = await newFamily(expiredGrant, expiredClient, { expiredAgo: "2 hours" });
+    await newRefreshToken(expired, { expiredAgo: "2 hours" });
     const quietClient = await newClient();
     const quiet = await newGrant(owner, quietClient);
     await markUsed(quiet, "20 days");
@@ -262,7 +301,11 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     await markUsed(disconnected);
     const disconnectedFamily = await newFamily(disconnected, disconnectedClient, {});
     assert.equal(
-      await disconnectOwnerApp({ userId: owner.userId, tenantId: owner.tenantId, appId: disconnected }),
+      await disconnectOwnerApp({
+        userId: owner.userId,
+        tenantId: owner.tenantId,
+        appId: disconnected,
+      }),
       true
     );
 
@@ -349,5 +392,62 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     const settled = await appSignoutEmails([family]);
     assert.equal(settled.length, 1);
     assert.equal(settled[0]!.state, "cancelled");
+  });
+
+  it("reads an idle-lapsed family signed out and emails it though the family row is unexpired", async () => {
+    // The reviewer's first reproduction: the family row reads live for
+    // months (its expires_at is only the session ceiling) while the real
+    // idle window — the refresh token's own expiry — passed a day ago.
+    const owner = await newOwner();
+    const client = await newClient();
+    const grant = await newGrant(owner, client);
+    await markUsed(grant);
+    const family = await newFamily(grant, client, {});
+    await newRefreshToken(family, { expiredAgo: "20 hours" });
+
+    const { apps } = await listOwnerApps(owner);
+    const session = apps.find((app) => app.id === grant)!.session;
+    assert.equal(session.state, "signed_out");
+    assert.ok(session.since !== null);
+
+    const result = await pruneExpiredOAuthState();
+    assert.deepEqual(result.signouts, { candidates: 1, emailed: 1 });
+    const emails = await appSignoutEmails([family]);
+    assert.equal(emails.length, 1);
+    assert.equal(emails[0]!.state, "pending");
+  });
+
+  it("reads a never-refreshed family signed out, live on an unexpired access token only", async () => {
+    // The reviewer's second reproduction: a family that never held a
+    // refresh token read signed in for the row's whole ceiling. It is live
+    // only while an access token is unexpired; with none it never had an
+    // ending to tell, so it signs out without a date and emails nobody.
+    const owner = await newOwner();
+    const deadClient = await newClient();
+    const dead = await newGrant(owner, deadClient);
+    await markUsed(dead);
+    const deadFamily = await newFamily(dead, deadClient, {});
+    await newAccessToken(deadFamily, dead, deadClient, { expiredAgo: "2 hours" });
+
+    const bareClient = await newClient("openai");
+    const bare = await newGrant(owner, bareClient);
+    await markUsed(bare);
+    await newFamily(bare, bareClient, {});
+
+    const liveClient = await newClient();
+    const live = await newGrant(owner, liveClient);
+    const liveFamily = await newFamily(live, liveClient, {});
+    await newAccessToken(liveFamily, live, liveClient, {});
+
+    const { apps } = await listOwnerApps(owner);
+    assert.equal(apps.find((app) => app.id === dead)!.session.state, "signed_out");
+    const bareSession = apps.find((app) => app.id === bare)!.session;
+    assert.deepEqual(bareSession, { state: "signed_out", since: null });
+    assert.equal(apps.find((app) => app.id === live)!.session.state, "signed_in");
+
+    const result = await pruneExpiredOAuthState();
+    assert.deepEqual(result.signouts, { candidates: 1, emailed: 1 });
+    const emails = await appSignoutEmails([deadFamily]);
+    assert.equal(emails.length, 1);
   });
 });

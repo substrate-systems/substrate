@@ -1184,8 +1184,10 @@ const EXOMEM_EMAILS = {
       // The marker is the durable record of the ending: the sweep may have
       // deleted the family row itself between enqueue and send, so the check
       // anchors on it, not the family. What still has to be true — the grant
-      // lives (an owner disconnect revokes it), the account lives, no family
-      // is live again (the app reconnected) and the last use is still recent.
+      // lives (an owner disconnect revokes it), the account lives and is no
+      // reviewer's, the app is still one Home would list, no family holds a
+      // usable credential again (the app reconnected) and the last use is
+      // still recent.
       const { rows } = await tx`
         /* exomem:email-app-signout-still-out */
         SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice,
@@ -1198,9 +1200,11 @@ const EXOMEM_EMAILS = {
           ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
            AND tenant.status IN ('provisioning', 'active', 'suspended')
            AND tenant.deleted_at IS NULL
+           AND NOT tenant.marketplace_reviewer_purpose
         JOIN exomem_users AS owner
           ON owner.id = tenant.owner_user_id AND owner.deleted_at IS NULL
-        JOIN exomem_oauth_clients AS client ON client.id = oauth_grant.client_id
+        JOIN exomem_oauth_clients AS client
+          ON client.id = oauth_grant.client_id AND client.admission_mode <> 'first_party'
         JOIN exomem_oauth_grant_usage AS app_use
           ON app_use.grant_id = oauth_grant.id
            AND app_use.last_used_at > now() - (${SIGNOUT_RECENT_USE_DAYS} * interval '1 day')
@@ -1211,7 +1215,7 @@ const EXOMEM_EMAILS = {
             FROM exomem_oauth_token_families AS sibling
             WHERE sibling.grant_id = notice.grant_id
               AND sibling.revoked_at IS NULL
-              AND sibling.expires_at > now()
+              AND exomem_oauth_family_live_until(sibling.id) > now()
           )
       `;
       const row = rows[0] as

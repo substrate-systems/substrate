@@ -9,6 +9,13 @@ access ended and how to reconnect. Detection SHALL run in the scheduled
 OAuth sweep; each ended family SHALL notify at most once and at most one
 email SHALL send per grant per 24 h.
 
+#### Scenario: An idle lapse ends the family, not its row's expiry
+
+- **WHEN** a family's last unconsumed refresh token expires — or, for a
+  family without refresh, its last unrevoked access token expires — while
+  its row stays unrevoked and unexpired
+- **THEN** the family is no longer live and its ending is eligible for notice
+
 #### Scenario: Refresh replay signs the app out
 
 - **WHEN** a recently used grant's last live family is revoked as

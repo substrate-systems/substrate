@@ -23,12 +23,14 @@ import {
 
 export { oauthClientDisplayName, redirectHost, type OAuthClientIdentity };
 
-export type OwnerAppSession = {
+type OwnerAppSession = {
   /**
    * Whether the app can still reach the Exomem: signed in while a token
-   * family under the grant is unrevoked and unexpired, signed out once the
-   * last one ended, unknown only when the read gave no answer. A failed or
-   * missing read is never signed in.
+   * family under the grant holds a usable credential — an unconsumed,
+   * unexpired refresh token, or an unexpired access token for a family
+   * issued without refresh — signed out once the last one ended, unknown
+   * only when the read gave no answer. A failed or missing read is never
+   * signed in.
    */
   state: "signed_in" | "signed_out" | "unknown";
   /** For signed_out: when the last live family ended; null when the grant never held one. */
@@ -82,7 +84,7 @@ type AppRow = {
   created_at: string | Date;
   updated_at: string | Date;
   last_used_at: string | Date | null;
-  live_families: number | string;
+  live_families: number | string | null;
   last_ended_at: string | Date | null;
   client_name: string | null;
   admission_mode: string;
@@ -111,15 +113,19 @@ async function ownerAppRows(
     JOIN exomem_oauth_clients AS client ON client.id = oauth_grant.client_id
     LEFT JOIN exomem_oauth_grant_usage AS app_use ON app_use.grant_id = oauth_grant.id
     -- One lateral aggregate per grant row, index-only on
-    -- exomem_oauth_families_grant_cover_idx: whether any family can still
-    -- reach the cell, and when the last live one ended. A grant that has
-    -- never held a family gets a zero count and a null ended-at.
+    -- exomem_oauth_families_grant_cover_idx plus one token probe per family:
+    -- whether any family can still reach the cell, and when the last live
+    -- one ended. A grant that has never held a family gets a zero count and
+    -- a null ended-at.
     LEFT JOIN LATERAL (
       SELECT count(*) FILTER (
-               WHERE family.revoked_at IS NULL AND family.expires_at > now()
+               WHERE family.revoked_at IS NULL AND live.live_until > now()
              )::int AS live_families,
-             max(exomem_oauth_family_ended_at(family.revoked_at, family.expires_at)) AS last_ended_at
+             max(exomem_oauth_family_ended_at(family.revoked_at, live.live_until)) AS last_ended_at
       FROM exomem_oauth_token_families AS family
+      CROSS JOIN LATERAL (
+        SELECT exomem_oauth_family_live_until(family.id) AS live_until
+      ) AS live
       WHERE family.grant_id = oauth_grant.id
     ) AS reach ON true
     WHERE oauth_grant.user_id = ${input.userId}::uuid
@@ -139,12 +145,13 @@ async function ownerAppRows(
 /**
  * The reachability the row's family aggregate gives. The mapping is total:
  * a positive live count is signed in, zero is signed out (since the last
- * ended-at, or with no date when the grant never held a family), and a count
- * that is not a number is unknown — never signed in.
+ * ended-at, or with no date when the grant never held a family), and any
+ * count the read did not produce — null, absent, not a number — is unknown,
+ * never signed in.
  */
 function appSession(row: Pick<AppRow, "live_families" | "last_ended_at">): OwnerAppSession {
-  const live = Number(row.live_families);
-  if (!Number.isFinite(live)) return { state: "unknown", since: null };
+  const live = row.live_families === null ? NaN : Number(row.live_families);
+  if (!Number.isFinite(live) || live < 0) return { state: "unknown", since: null };
   if (live > 0) return { state: "signed_in", since: null };
   const ended = row.last_ended_at === null ? null : new Date(row.last_ended_at);
   return {
