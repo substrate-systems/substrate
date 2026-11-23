@@ -985,7 +985,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
       __setExomemSqlForTests(taggedSql(gatewayPool!));
       try {
-        const found = await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE);
+        const found = await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]);
         assert.ok(found, "exomem_gateway should be able to run the real lookup query");
         assert.equal(found!.tenantId, tenantId);
         assert.equal(found!.cellDesiredState, "running");
@@ -1000,14 +1000,14 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         assert.equal(recorded.rowCount, 1);
         // A delegated upload names its login family instead of a token, through the same role.
         const login = { familyId: family.rows[0]!.id, grantId: grant.rows[0]!.id };
-        assert.equal((await findCloudOAuthLogin(login, CLOUD_RESOURCE))?.tenantId, tenantId);
+        assert.equal((await findCloudOAuthLogin(login, [CLOUD_RESOURCE]))?.tenantId, tenantId);
         if (reviewerPurpose) {
           await ownerPool!.query(
             "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",
             [tenantId],
           );
-          assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
-          assert.equal(await findCloudOAuthLogin(login, CLOUD_RESOURCE), null);
+          assert.equal(await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]), null);
+          assert.equal(await findCloudOAuthLogin(login, [CLOUD_RESOURCE]), null);
         }
       } finally {
         __setExomemSqlForTests(null);
@@ -1578,7 +1578,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       const bearer = new Headers(init.headers).get("authorization")!.slice("Bearer ".length);
       __setExomemSqlForTests(taggedSql(gatewayPool!));
       try {
-        routed = (await findCloudOAuthAccessToken(digestSecret(bearer), CLOUD_RESOURCE)) ?? undefined;
+        routed = (await findCloudOAuthAccessToken(digestSecret(bearer), [CLOUD_RESOURCE])) ?? undefined;
       } finally {
         __setExomemSqlForTests(taggedSql(appPool!));
       }

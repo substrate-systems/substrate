@@ -40,7 +40,11 @@ import {
 } from "./cloud-upstream";
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
-import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import {
+  cloudResourceForHost,
+  loadExomemCloudConfig,
+  type ExomemCloudConfig,
+} from "../lib/exomem-hosted/cloud-config";
 import { loggedOccurrence } from "../lib/exomem-hosted/logged-occurrence";
 import {
   APP_USE_WINDOW_SECONDS,
@@ -341,10 +345,14 @@ function defaultCellOrigin(cellId: string): string {
 // same library version that reads it.
 const defaultFetchCell = undiciFetch as unknown as typeof fetch;
 
-function unauthorized(config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath">): Response {
+function unauthorized(config: ExomemCloudConfig, request: Request): Response {
+  const resource = cloudResourceForHost(config, new URL(request.url).host);
   return Response.json(
     { error: "ACCESS_TOKEN_INVALID" },
-    { status: 401, headers: { ...CACHE_HEADERS, "www-authenticate": cloudBearerChallenge(config) } }
+    {
+      status: 401,
+      headers: { ...CACHE_HEADERS, "www-authenticate": cloudBearerChallenge(config, resource) },
+    }
   );
 }
 
@@ -372,11 +380,12 @@ function trustedIngressClientAddress(request: Request): string | null {
 }
 
 export function buildCloudProtectedResourceMetadata(
-  config: Pick<ExomemCloudConfig, "mcpUrl">
+  config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath" | "acceptedResources">,
+  host?: string | null
 ): Record<string, unknown> {
   const issuer = `${exomemPublicBaseUrlFromEnv()}/api/exomem/oauth`;
   return {
-    resource: config.mcpUrl,
+    resource: cloudResourceForHost(config, host),
     authorization_servers: [issuer],
     bearer_methods_supported: ["header"],
     // Security review finding 2: the Cloud resource document must advertise
@@ -434,9 +443,12 @@ async function authenticateCloudBearer(
   const access = bearer
     ? bearer.startsWith(SERVICE_CREDENTIAL_PREFIX)
       ? admission.serviceCredentials
-        ? await findServiceCredential(digestSecret(bearer), config.mcpUrl)
+        ? await findServiceCredential(
+            digestSecret(bearer),
+            cloudResourceForHost(config, new URL(request.url).host)
+          )
         : null
-      : await findAccessToken(digestSecret(bearer), config.mcpUrl)
+      : await findAccessToken(digestSecret(bearer), config.acceptedResources)
     : null;
 
   if (!access?.firstParty && !isServiceCredentialAccess(access)) {
@@ -447,7 +459,7 @@ async function authenticateCloudBearer(
       return { response: errorResponse(429, "RATE_LIMITED") };
     }
   }
-  if (!access) return { response: unauthorized(config) };
+  if (!access) return { response: unauthorized(config, request) };
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a credential missing
   // either required scope is refused here, before any cell contact.
@@ -560,7 +572,8 @@ async function serveTransferTool(
   if (!call) return { prepared };
   const answer = await answerCloudTransferCall(call, {
     bearer,
-    mcpUrl: config.mcpUrl,
+    // The address this client connected to, so transfer commands reach the same host.
+    mcpUrl: access.resource,
     publicBaseUrl: exomemPublicBaseUrlFromEnv,
     clientContext: access.client.clientContext,
     attachmentsEnabled: cloudArtifactTransportEnabled(config, access.cellId),
@@ -775,7 +788,7 @@ async function currentUploadLogin(
 ): Promise<ActiveCloudOAuthLogin | null> {
   const login = await findLogin(
     { familyId: route.family_id, grantId: route.grant_id },
-    config.mcpUrl
+    config.acceptedResources
   );
   if (!login || !sameCloudOrigin(cloudOAuthOrigin(login), route)) return null;
   return cloudUploadEnabled(config, login.cellId) ? login : null;
@@ -821,7 +834,7 @@ export async function handleCloudUploadRequest(
   try {
     const handoff = parseCloudUploadAuthorization(request.headers.get("authorization"));
     ticket = handoff.ticket;
-    route = await verifyCloudUploadRoute(handoff.capsule, key, config.mcpUrl);
+    route = await verifyCloudUploadRoute(handoff.capsule, key, config.acceptedResources);
   } catch {
     return uploadUnavailable();
   }
@@ -997,11 +1010,11 @@ export async function handleCloudDownloadRequest(
     // 5. Re-check the login as it is now, as the upload relay does.
     const login = await findLogin(
       { familyId: access.familyId, grantId: access.grantId },
-      config.mcpUrl
+      config.acceptedResources
     );
     if (!login || !sameCloudOrigin(cloudOAuthOrigin(login), cloudOAuthOrigin(access))) {
       release();
-      return unauthorized(config);
+      return unauthorized(config, request);
     }
     return releaseConcurrencyWhenBodyEnds(
       await relayDownloadFromCell(request, login, path, key, config, dependencies),

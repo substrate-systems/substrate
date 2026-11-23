@@ -129,7 +129,7 @@ function fakeCell(answer: (call: CellCall) => unknown) {
   const calls: CellCall[] = [];
   const fetchCell = (async (_url: string, init: RequestInit) => {
     const bearer = new Headers(init.headers).get("authorization")!.slice("Bearer ".length);
-    const access = await findCloudOAuthAccessToken(digestSecret(bearer), RESOURCE);
+    const access = await findCloudOAuthAccessToken(digestSecret(bearer), [RESOURCE]);
     if (!access) return Response.json({ error: "ACCESS_TOKEN_INVALID" }, { status: 401 });
     const rawBody = String(init.body);
     const request = JSON.parse(rawBody);
@@ -677,11 +677,11 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       ]);
 
       assert.equal(
-        await findCloudOAuthAccessToken(digestSecret(blockedCall!.bearer), RESOURCE),
+        await findCloudOAuthAccessToken(digestSecret(blockedCall!.bearer), [RESOURCE]),
         null
       );
       assert.equal(
-        await findCloudOAuthAccessToken(digestSecret(deletingCall!.bearer), RESOURCE),
+        await findCloudOAuthAccessToken(digestSecret(deletingCall!.bearer), [RESOURCE]),
         null
       );
     });
@@ -772,21 +772,20 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         refreshAllowed: false,
         accessIssuedSecondsAgo: 60,
       });
-      assert.ok(await findCloudOAuthAccessToken(digestSecret(liveLineage.access), RESOURCE));
+      assert.ok(await findCloudOAuthAccessToken(digestSecret(liveLineage.access), [RESOURCE]));
       const cell = fakeCell(() => ({ revision: "r1", levels: LEVELS }));
 
       assert.equal((await getLevels(refreshable, cell.fetchCell)).status, 200);
       assert.equal((await getLevels(live, cell.fetchCell)).status, 200);
 
       assert.equal(
-        await findCloudOAuthAccessToken(digestSecret(liveLineage.access), RESOURCE),
+        await findCloudOAuthAccessToken(digestSecret(liveLineage.access), [RESOURCE]),
         null
       );
       for (const [index, retired] of [refreshableLineage, liveLineage].entries()) {
-        const minted = await findCloudOAuthAccessToken(
-          digestSecret(cell.calls[index]!.bearer),
-          RESOURCE
-        );
+        const minted = await findCloudOAuthAccessToken(digestSecret(cell.calls[index]!.bearer), [
+          RESOURCE,
+        ]);
         assert.notEqual(minted!.grantId, retired.grantId);
         const grant = await pool.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
           retired.grantId,

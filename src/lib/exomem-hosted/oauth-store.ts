@@ -482,7 +482,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
   codeDigest: Buffer;
   codeExpiresAt: Date;
 }): Promise<{ grantId: string; tenantId: string } | null> {
-  const cloudResource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   return withCohortLock(async (tx) => {
     const locked = await tx`
@@ -550,7 +550,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
         AND (transaction.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
         AND (transaction.reviewer_credential_id IS NULL OR (
-          transaction.resource = ${cloudResource}::text AND ${cloudReviewersEnabled}
+          transaction.resource = ANY(${[...acceptedResources]}::text[]) AND ${cloudReviewersEnabled}
             AND exomem_cloud_reviewer_authorized(credential.id, session.tenant_id, session.user_id, client.client_platform)
         ))
         AND (
@@ -1005,7 +1005,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
   accessExpiresAt: Date;
   sessionPolicy?: OAuthSessionPolicy;
 }): Promise<OAuthTokenContext | null> {
-  const cloudResource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   const { refreshIdleDays, sessionMaxDays } = input.sessionPolicy ?? loadOAuthSessionPolicy();
   return withCohortLock(async (tx) => {
@@ -1048,7 +1048,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND oauth_grant.candidate_id IS NULL
         AND code.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
         AND (oauth_grant.reviewer_credential_id IS NULL OR (
-          code.resource = ${cloudResource}::text AND ${cloudReviewersEnabled}
+          code.resource = ANY(${[...acceptedResources]}::text[]) AND ${cloudReviewersEnabled}
             AND exomem_cloud_reviewer_authorized(reviewer_credential.id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform)
         ))
         AND code.redirect_uri = ${input.redirectUri}
@@ -1173,7 +1173,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
   resource: string;
   sessionPolicy?: OAuthSessionPolicy;
 }): Promise<OAuthTokenContext | null> {
-  const cloudResource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   const { refreshIdleDays, refreshReuseSeconds } = input.sessionPolicy ?? loadOAuthSessionPolicy();
   return withCohortLock(async (tx) => {
@@ -1242,7 +1242,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         )
         AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
         AND (oauth_grant.reviewer_credential_id IS NULL OR (
-          oauth_grant.resource = ${cloudResource}::text AND ${cloudReviewersEnabled}
+          oauth_grant.resource = ANY(${[...acceptedResources]}::text[]) AND ${cloudReviewersEnabled}
             AND exomem_cloud_reviewer_authorized(reviewer_credential.id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform)
         ))
         AND NOT EXISTS (

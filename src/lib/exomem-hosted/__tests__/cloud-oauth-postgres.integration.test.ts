@@ -201,7 +201,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       userId,
       resource: "https://substratesystems.io/api/exomem/mcp/v1",
     });
-    assert.equal(await findCloudOAuthAccessToken(hostedToken, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(hostedToken, [CLOUD_RESOURCE]), null);
 
     const cloudToken = await mintAccessToken({
       clientDbId,
@@ -209,8 +209,15 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       userId,
       resource: CLOUD_RESOURCE,
     });
-    const found = await findCloudOAuthAccessToken(cloudToken, CLOUD_RESOURCE);
+    const found = await findCloudOAuthAccessToken(cloudToken, [CLOUD_RESOURCE]);
     assert.equal(found?.resource, CLOUD_RESOURCE);
+
+    // move-cloud-to-evermatter-hosts: a token issued for the old host stays valid once the
+    // accepted list leads with the new host, and stops only when the old host leaves the list.
+    const NEW_HOST_RESOURCE = "https://mcp.example.test/mcp/v1";
+    const moved = await findCloudOAuthAccessToken(cloudToken, [NEW_HOST_RESOURCE, CLOUD_RESOURCE]);
+    assert.equal(moved?.resource, CLOUD_RESOURCE);
+    assert.equal(await findCloudOAuthAccessToken(cloudToken, [NEW_HOST_RESOURCE]), null);
   });
 
   it("L3: refuses a Cloud token once the tenant is deletion_pending or deleted, even with a live cell", async () => {
@@ -235,7 +242,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       resource: CLOUD_RESOURCE,
     });
     assert.ok(
-      await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE),
+      await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]),
       "sanity: the token is live before the tenant's status changes"
     );
 
@@ -243,7 +250,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       tenantId,
     ]);
     assert.equal(
-      await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE),
+      await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]),
       null,
       "deletion_pending refuses the token even though the cell row is still 'running'"
     );
@@ -252,7 +259,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       "UPDATE exomem_tenants SET status = 'deleted', deleted_at = now() WHERE id = $1",
       [tenantId]
     );
-    assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]), null);
   });
 
   it("finds a Cloud token's cell and desired_state without gating on it", async () => {
@@ -276,7 +283,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       userId: tenant.rows[0]!.owner_user_id,
       resource: CLOUD_RESOURCE,
     });
-    const found = await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE);
+    const found = await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]);
     assert.ok(found);
     assert.equal(found!.cellDesiredState, "stopped");
   });
@@ -311,7 +318,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
             userId: owner.rows[0]!.owner_user_id,
             resource: CLOUD_RESOURCE,
           }),
-          CLOUD_RESOURCE
+          [CLOUD_RESOURCE]
         );
         assert.ok(found);
         return found.client;
@@ -351,7 +358,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       userId: tenant.rows[0]!.owner_user_id,
       resource: CLOUD_RESOURCE,
     });
-    assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]), null);
   });
 
   it("issues Cloud tokens only to a principal owning a non-deleted cell row", async () => {
@@ -432,7 +439,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       [accessDigest]
     );
     const login = { familyId: token.rows[0]!.family_id, grantId: token.rows[0]!.grant_id };
-    const current = () => findCloudOAuthLogin(login, CLOUD_RESOURCE);
+    const current = () => findCloudOAuthLogin(login, [CLOUD_RESOURCE]);
 
     await pool!.query(
       // A 15-minute token issued 20 minutes ago, as an upload long after the handoff would see.
@@ -441,7 +448,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
        WHERE access_digest = $1`,
       [accessDigest]
     );
-    assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]), null);
     const found = await current();
     assert.equal(found?.tenantId, tenantId);
     assert.equal(found?.clientId, clientId);
@@ -449,10 +456,10 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     assert.equal("scopes" in found!, false);
 
     assert.equal(
-      await findCloudOAuthLogin({ ...login, grantId: randomUUID() }, CLOUD_RESOURCE),
+      await findCloudOAuthLogin({ ...login, grantId: randomUUID() }, [CLOUD_RESOURCE]),
       null
     );
-    assert.equal(await findCloudOAuthLogin(login, "https://hosted.example.test/mcp"), null);
+    assert.equal(await findCloudOAuthLogin(login, ["https://hosted.example.test/mcp"]), null);
 
     const revocations: Array<[string, string, string]> = [
       [

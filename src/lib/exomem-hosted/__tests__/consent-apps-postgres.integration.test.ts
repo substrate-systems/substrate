@@ -479,7 +479,7 @@ describe(
           "the grant is neither revoked nor re-issued"
         );
         assert.deepEqual(await grantsAndCodesFor(client), { grants: 1, codes: 1 });
-        assert.ok(await findCloudOAuthAccessToken(existing.accessDigest, CLOUD_RESOURCE));
+        assert.ok(await findCloudOAuthAccessToken(existing.accessDigest, [CLOUD_RESOURCE]));
         // A Connect on the same request afterwards mints nothing.
         assert.equal(
           await attachExistingOwnerAuthorizationAtomic({
@@ -571,7 +571,7 @@ describe(
         const disconnectedConnection = await connect(owner, disconnected);
         const keptConnection = await connect(owner, kept);
         assert.ok(
-          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, CLOUD_RESOURCE)
+          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, [CLOUD_RESOURCE])
         );
 
         const response = await disconnectRoute(
@@ -581,11 +581,11 @@ describe(
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { status: "disconnected" });
         assert.equal(
-          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, CLOUD_RESOURCE),
+          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, [CLOUD_RESOURCE]),
           null
         );
         assert.equal(await refresh(disconnected, disconnectedConnection), null);
-        assert.ok(await findCloudOAuthAccessToken(keptConnection.accessDigest, CLOUD_RESOURCE));
+        assert.ok(await findCloudOAuthAccessToken(keptConnection.accessDigest, [CLOUD_RESOURCE]));
         assert.ok(await refresh(kept, keptConnection));
         const listed = await listOwnerApps(owner);
         assert.deepEqual(
@@ -624,7 +624,7 @@ describe(
           [foreign.status, otherResource.status, unknownId.status, malformed.status],
           [404, 404, 404, 404]
         );
-        assert.ok(await findCloudOAuthAccessToken(otherConnection.accessDigest, CLOUD_RESOURCE));
+        assert.ok(await findCloudOAuthAccessToken(otherConnection.accessDigest, [CLOUD_RESOURCE]));
         assert.ok(await refresh(client, otherConnection));
         const untouched = await pool!.query(
           "SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1",
@@ -650,7 +650,7 @@ describe(
         // The gateway's own lookup reads the stored context, not the redirects.
         const authority = await findCloudOAuthAccessToken(
           connection.accessDigest,
-          CLOUD_RESOURCE
+          [CLOUD_RESOURCE]
         );
         assert.equal(authority?.client.clientContext, "coding");
 
@@ -698,7 +698,7 @@ describe(
         assert.equal((await listOwnerApps(ownerB)).apps[0]?.context, "conversation");
         const authorityB = await findCloudOAuthAccessToken(
           connectionB.accessDigest,
-          CLOUD_RESOURCE
+          [CLOUD_RESOURCE]
         );
         assert.equal(authorityB?.client.clientContext, "conversation");
         const stored = await pool!.query(
@@ -969,7 +969,7 @@ describe(
 
           assert.deepEqual(apps, []);
           assert.equal(response.status, 404);
-          assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, CLOUD_RESOURCE));
+          assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, [CLOUD_RESOURCE]));
         });
 
         // The release before this one shares these store statements. They admit

@@ -33,6 +33,7 @@ const EXPECTED_CELL_BEARER = deriveCloudCellBearer(TEST_TOKEN_KEY, TEST_CELL_ID)
 
 const TEST_CONFIG: ExomemCloudConfig = {
   mcpUrl: TEST_CLOUD_RESOURCE,
+  acceptedResources: [TEST_CLOUD_RESOURCE],
   mcpPath: "/api/exomem/cloud/mcp/v1",
   cellTokenKey: TEST_TOKEN_KEY,
 };
@@ -149,10 +150,12 @@ function postRequest(input: {
   headers?: Record<string, string>;
   body?: string;
   method?: string;
+  /** The public host the request arrived on; server.ts builds the URL from Host. */
+  host?: string;
 }): Request {
   const headers = new Headers(input.headers ?? {});
   if (input.bearer) headers.set("authorization", `Bearer ${input.bearer}`);
-  return new Request("http://gateway.invalid/api/exomem/cloud/mcp/v1", {
+  return new Request(`http://${input.host ?? "gateway.invalid"}/api/exomem/cloud/mcp/v1`, {
     method: input.method ?? "POST",
     headers,
     body: input.body,
@@ -257,6 +260,30 @@ describe("Exomem Cloud gateway handler", () => {
     assert.equal(unknownToken.headers.get("www-authenticate"), expected);
   });
 
+  // move-cloud-to-evermatter-hosts: an app on the old host that re-runs discovery after a 401
+  // must be sent to the old host's metadata, or it would start a new connection elsewhere.
+  it("names the metadata of the host the request arrived on", async () => {
+    const OLD_HOST_RESOURCE = "https://old.example.test/api/exomem/cloud/mcp/v1";
+    const NEW_HOST_RESOURCE = "https://new.example.test/api/exomem/cloud/mcp/v1";
+    const config: ExomemCloudConfig = {
+      ...TEST_CONFIG,
+      mcpUrl: NEW_HOST_RESOURCE,
+      acceptedResources: [NEW_HOST_RESOURCE, OLD_HOST_RESOURCE],
+    };
+    const challenge = async (host: string) =>
+      (await handleCloudMcpRequest(postRequest({ host }), baseDeps({ config }))).headers.get(
+        "www-authenticate"
+      );
+    assert.match(
+      (await challenge("old.example.test")) ?? "",
+      /resource_metadata="https:\/\/old\.example\.test\/\.well-known\//
+    );
+    assert.match(
+      (await challenge("unlisted.example.test")) ?? "",
+      /resource_metadata="https:\/\/new\.example\.test\/\.well-known\//
+    );
+  });
+
   // Item 4 / task 3.5 (design D2): explicit evidence that the handler asks
   // findCloudOAuthAccessToken (D2's exact-resource lookup) for the
   // configured Cloud resource specifically, never the hosted one. This is
@@ -269,14 +296,15 @@ describe("Exomem Cloud gateway handler", () => {
   it("refuses a token bound to the hosted resource even though its digest is otherwise valid", async () => {
     const HOSTED_RESOURCE = "https://hosted.example.test/api/exomem/mcp/v1";
     const tokensByResource = new Map([[HOSTED_RESOURCE, VALID_ACCESS]]);
-    let receivedResource: string | undefined;
+    let receivedResources: readonly string[] | undefined;
     let fetchCalls = 0;
     const response = await handleCloudMcpRequest(
       postRequest({ bearer: CLIENT_BEARER }),
       baseDeps({
-        findAccessToken: async (_digest, expectedResource) => {
-          receivedResource = expectedResource;
-          return tokensByResource.get(expectedResource) ?? null;
+        findAccessToken: async (_digest, acceptedResources) => {
+          receivedResources = acceptedResources;
+          const match = acceptedResources.find((resource) => tokensByResource.has(resource));
+          return match ? tokensByResource.get(match)! : null;
         },
         fetchCell: (async () => {
           fetchCalls += 1;
@@ -286,7 +314,7 @@ describe("Exomem Cloud gateway handler", () => {
     );
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: "ACCESS_TOKEN_INVALID" });
-    assert.equal(receivedResource, TEST_CLOUD_RESOURCE);
+    assert.deepEqual(receivedResources, [TEST_CLOUD_RESOURCE]);
     assert.equal(fetchCalls, 0);
   });
 
