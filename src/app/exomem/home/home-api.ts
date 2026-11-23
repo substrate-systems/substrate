@@ -309,6 +309,7 @@ export async function readApps(): Promise<HomeApp[] | null> {
       typeof candidate.displayName === "string" &&
       typeof candidate.connectedAt === "string" &&
       (candidate.kind === "web" || candidate.kind === "local") &&
+      (candidate.context === "coding" || candidate.context === "conversation") &&
       Array.isArray(candidate.redirectHosts)
     );
   });
@@ -322,6 +323,19 @@ export async function disconnectApp(id: string): Promise<"disconnected" | "gone"
     {}
   );
   if (status === 200) return "disconnected";
+  if (status === 404) return "gone";
+  return "failed";
+}
+
+/** The stored context the app's calls run in; "gone" when the app is not the owner's. */
+export async function setAppContext(
+  id: string,
+  context: "coding" | "conversation"
+): Promise<"updated" | "gone" | "failed"> {
+  const { status } = await send("POST", `/api/exomem/apps/${encodeURIComponent(id)}/context`, {
+    context,
+  });
+  if (status === 200) return "updated";
   if (status === 404) return "gone";
   return "failed";
 }

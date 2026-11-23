@@ -33,6 +33,13 @@ export type ConsentApp = {
   loopback: boolean;
   /** The host this request's authorization code would be sent to. */
   redirectHost: string;
+  /**
+   * For a CIMD client, the verified host its client document was fetched from
+   * (the client_id URL's host): the host vouching for the client, and null for
+   * every other admission mode. An allowlisted host names a platform as well;
+   * an unlisted one is all the vouch the client has.
+   */
+  vouchedHost: string | null;
 };
 
 export type ConsentView =
@@ -99,6 +106,7 @@ export async function loadConsentView(
     platform: client.platform,
     loopback,
     redirectHost: redirectHost(continuation.redirectUri),
+    vouchedHost: client.admissionMode === "cimd" ? client.cimdHost : null,
   };
   // Without its form nonce this page cannot answer the request, but it still knows
   // which app to start again from.

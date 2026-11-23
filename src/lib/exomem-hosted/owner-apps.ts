@@ -14,7 +14,6 @@ import { revokeOwnerOAuthGrant } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import {
   isLocalOAuthClient,
-  oauthClientContext,
   oauthClientDisplayName,
   redirectHost,
   type OAuthClientContext,
@@ -49,7 +48,8 @@ export async function findOAuthClientIdentity(
 ): Promise<OAuthClientIdentity | null> {
   const { rows } = await executeExomemSql`
     /* exomem:find-oauth-client-identity */
-    SELECT client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
+    SELECT client.client_name, client.admission_mode, client.client_platform,
+           client.cimd_host, client.client_context, client.redirect_uris
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
   `;
@@ -59,6 +59,8 @@ export async function findOAuthClientIdentity(
         clientName: row.client_name,
         admissionMode: row.admission_mode,
         platform: row.client_platform,
+        cimdHost: row.cimd_host,
+        clientContext: row.client_context,
         redirectUris: row.redirect_uris,
       }
     : null;
@@ -72,6 +74,8 @@ type AppRow = {
   client_name: string | null;
   admission_mode: string;
   client_platform: string | null;
+  cimd_host: string | null;
+  client_context: OAuthClientContext;
   redirect_uris: string[];
 };
 
@@ -88,7 +92,8 @@ async function ownerAppRows(
   const { rows } = await sql`
     /* exomem:owner-app-grants */
     SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, app_use.last_used_at,
-           client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
+           client.client_name, client.admission_mode, client.client_platform,
+           client.cimd_host, client.client_context, client.redirect_uris
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
@@ -133,7 +138,7 @@ export async function listOwnerApps(owner: {
       ),
       platform: row.client_platform,
       kind: clientKind(row.redirect_uris),
-      context: oauthClientContext(row.redirect_uris),
+      context: row.client_context,
       redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
       connectedAt: new Date(row.created_at).toISOString(),
       lastAuthorizedAt: new Date(row.updated_at).toISOString(),
@@ -141,6 +146,39 @@ export async function listOwnerApps(owner: {
     })
   );
   return { serverTime, apps };
+}
+
+/**
+ * Sets the stored engagement context of one of the owner's apps, which every
+ * reader of `client_context` then follows. False when the id is not a live
+ * grant the list could show; the client row is shared by every owner's grant
+ * to it, so the change is not per-grant but per client registration.
+ */
+export async function setOwnerAppContext(input: {
+  userId: string;
+  tenantId: string;
+  appId: string;
+  context: OAuthClientContext;
+}): Promise<boolean> {
+  if (!validUuid(input.appId)) return false;
+  const resource = loadExomemCloudResource().mcpUrl;
+  const { rows } = await executeExomemSql`
+    /* exomem:set-owner-app-context */
+    UPDATE exomem_oauth_clients AS client
+    SET client_context = ${input.context}, updated_at = now()
+    FROM exomem_oauth_grants AS oauth_grant
+    JOIN exomem_tenants AS tenant
+      ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
+    WHERE client.id = oauth_grant.client_id
+      AND oauth_grant.id = ${input.appId}::uuid
+      AND oauth_grant.user_id = ${input.userId}::uuid
+      AND oauth_grant.tenant_id = ${input.tenantId}::uuid
+      AND oauth_grant.resource = ${resource}
+      AND oauth_grant.revoked_at IS NULL
+      AND client.admission_mode <> 'first_party'
+    RETURNING client.id
+  `;
+  return rows.length > 0;
 }
 
 /**
