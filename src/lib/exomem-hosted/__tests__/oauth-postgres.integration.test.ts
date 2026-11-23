@@ -1843,7 +1843,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         const firstAccess = randomBytes(32);
         assert.ok(await exchange(codeNow, firstRefresh, firstAccess), "token exchange must admit");
         assert.ok(
-          await findCloudOAuthAccessToken(firstAccess, resource),
+          await findCloudOAuthAccessToken(firstAccess, [resource]),
           "the gateway's token lookup must admit"
         );
         const secondRefresh = randomBytes(32);
@@ -1891,7 +1891,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           "token exchange must stop"
         );
         assert.equal(
-          await findCloudOAuthAccessToken(secondAccess, resource),
+          await findCloudOAuthAccessToken(secondAccess, [resource]),
           null,
           "the gateway's token lookup must stop"
         );
@@ -2786,7 +2786,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       assert.equal(retry.issued?.familyId, session.familyId);
       assert.equal(retry.issued?.refreshReused, true);
       assert.equal((await familyState(session.familyId)).revoked, false);
-      assert.ok(await findCloudOAuthAccessToken(retry.accessDigest, resource));
+      assert.ok(await findCloudOAuthAccessToken(retry.accessDigest, [resource]));
       // Neither session loses its credential: both replacements rotate.
       assert.ok((await refresh(first.replacementRefreshDigest)).issued);
       assert.ok((await refresh(retry.replacementRefreshDigest)).issued);
@@ -2804,7 +2804,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       assert.equal(family.revoked, true);
       assert.equal(family.revoked_reason, "refresh_replayed");
       assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
-      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, [resource]), null);
     });
 
     it("treats a spent token as replayed at once when the interval is set to 0", async () => {
@@ -2873,7 +2873,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       const session = await signIn(8108);
       const first = await refresh(session.refreshDigest);
       assert.ok(first.issued);
-      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
+      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, [resource]));
 
       assert.equal(
         await disconnectOwnerApp({
@@ -2886,14 +2886,14 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
 
       assert.equal((await refresh(session.refreshDigest)).issued, null);
       assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
-      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, [resource]), null);
     });
 
     it("ends access when one family is revoked, retry inside the interval included", async () => {
       const session = await signIn(8109);
       const first = await refresh(session.refreshDigest);
       assert.ok(first.issued);
-      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
+      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, [resource]));
 
       assert.equal(
         await revokeOAuthTokenFamilyForOwner({
@@ -2906,7 +2906,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
 
       assert.equal((await refresh(session.refreshDigest)).issued, null);
       assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
-      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, [resource]), null);
     });
   });
 });

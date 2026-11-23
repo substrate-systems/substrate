@@ -11,7 +11,7 @@ import {
   resolveActiveOAuthClient,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { isAcceptedCloudResource, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
 import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
@@ -241,7 +241,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     // A misconfigured Cloud deployment throws ExomemCloudConfigurationError
     // here, which the outer catch below turns into the bound client's
     // temporarily_unavailable callback.
-    const resource = loadExomemCloudResource().mcpUrl;
+    // A client that names an accepted resource keeps it (an existing connection re-authorizing
+    // on its old host); any other request is checked against the advertised one and refused.
+    const cloud = loadExomemCloudResource();
+    const resource = isAcceptedCloudResource(cloud, parameters.resource)
+      ? parameters.resource
+      : cloud.mcpUrl;
     // D2: a Cloud-resource grant always carries both exomem.read and
     // exomem.write. An omitted scope receives both; a request naming only a
     // subset is refused with invalid_scope before validateAuthorizationRequest

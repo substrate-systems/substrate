@@ -356,7 +356,7 @@ describe("Exomem Cloud service credentials PostgreSQL integration", { skip: !dat
     // outright — the credential kind is enforced by which table the dispatch
     // lets each lookup see, and the OAuth table never holds the digest.
     assert.equal(
-      await findCloudOAuthAccessToken(digestSecret(issued.secret), CLOUD_RESOURCE),
+      await findCloudOAuthAccessToken(digestSecret(issued.secret), [CLOUD_RESOURCE]),
       null
     );
   });

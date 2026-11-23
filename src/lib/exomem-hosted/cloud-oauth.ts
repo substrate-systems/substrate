@@ -127,9 +127,9 @@ type CloudOAuthSelector = { accessDigest: Buffer } | { familyId: string; grantId
  * to the client-admission predicate above and to the principal's non-deleted
  * cell row. Reviewer lineages additionally require matching Cloud credential
  * authority; ordinary NULL lineages retain their existing routing semantics.
- * There is no candidate or assignment authority. `expectedResource` is compared
- * with plain equality against the token's stored resource, so a token minted
- * for the retired Hosted resource never matches here.
+ * There is no candidate or assignment authority. The token's stored resource
+ * must be one of `acceptedResources` (move-cloud-to-evermatter-hosts D1), so a
+ * token minted for the retired Hosted resource never matches here.
  *
  * Returns the cell's `desired_state` rather than gating on it here — D3
  * gates on desired state as a distinct routing decision the gateway makes
@@ -147,9 +147,9 @@ type CloudOAuthSelector = { accessDigest: Buffer } | { familyId: string; grantId
  */
 export async function findCloudOAuthAccessToken(
   accessDigest: Buffer,
-  expectedResource: string
+  acceptedResources: readonly string[]
 ): Promise<ActiveCloudOAuthAccessToken | null> {
-  const row = await findCloudOAuthAuthority({ accessDigest }, expectedResource);
+  const row = await findCloudOAuthAuthority({ accessDigest }, acceptedResources);
   return row ? { ...cloudOAuthLogin(row), scopes: row.scopes! } : null;
 }
 
@@ -161,9 +161,9 @@ export async function findCloudOAuthAccessToken(
  */
 export async function findCloudOAuthLogin(
   login: { familyId: string; grantId: string },
-  expectedResource: string
+  acceptedResources: readonly string[]
 ): Promise<ActiveCloudOAuthLogin | null> {
-  const row = await findCloudOAuthAuthority(login, expectedResource);
+  const row = await findCloudOAuthAuthority(login, acceptedResources);
   return row ? cloudOAuthLogin(row) : null;
 }
 
@@ -193,7 +193,7 @@ type CloudOAuthAuthorityRow = {
  */
 async function findCloudOAuthAuthority(
   selector: CloudOAuthSelector,
-  expectedResource: string
+  acceptedResources: readonly string[]
 ): Promise<CloudOAuthAuthorityRow | null> {
   const accessDigest = "accessDigest" in selector ? selector.accessDigest : null;
   const familyId = "familyId" in selector ? selector.familyId : null;
@@ -210,8 +210,11 @@ async function findCloudOAuthAuthority(
         AND access.expires_at > now()
       UNION ALL
       -- A delegated upload names its login family; the family row stands in
-      -- for the token, and its lineage is checked against the grant below.
-      SELECT login.id, login.grant_id, login.client_id, ${expectedResource}::text, NULL::text[],
+      -- for the token, and its lineage is checked against the grant below. The
+      -- family carries its grant's resource, which the filter below must accept.
+      SELECT login.id, login.grant_id, login.client_id,
+             (SELECT family_grant.resource FROM exomem_oauth_grants AS family_grant
+              WHERE family_grant.id = login.grant_id), NULL::text[],
              login.reviewer_credential_id, login.candidate_id
       FROM exomem_oauth_token_families AS login
       WHERE ${accessDigest}::bytea IS NULL
@@ -253,7 +256,7 @@ async function findCloudOAuthAuthority(
     JOIN exomem_cloud_cells AS cell
       ON cell.tenant_id = oauth_grant.tenant_id
      AND cell.desired_state <> 'deleted'
-    WHERE token.resource = ${expectedResource}
+    WHERE token.resource = ANY(${[...acceptedResources]}::text[])
       AND token.reviewer_credential_id IS NOT DISTINCT FROM family.reviewer_credential_id
       AND token.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
       AND token.candidate_id IS NULL AND family.candidate_id IS NULL AND oauth_grant.candidate_id IS NULL
@@ -366,7 +369,10 @@ export async function assertGrantOwnsCloudCell(grantId: string): Promise<void> {
  * serves it) and the scopes to request, so a client reaches the
  * authorization server without probing well-known paths.
  */
-export function cloudBearerChallenge(config: ExomemCloudResource): string {
-  const metadata = `${new URL(config.mcpUrl).origin}/.well-known/oauth-protected-resource${config.mcpPath}`;
+export function cloudBearerChallenge(
+  config: ExomemCloudResource,
+  resource: string = config.mcpUrl
+): string {
+  const metadata = `${new URL(resource).origin}/.well-known/oauth-protected-resource${config.mcpPath}`;
   return `Bearer resource_metadata="${metadata}", scope="${ADVERTISED_SCOPES.join(" ")}"`;
 }

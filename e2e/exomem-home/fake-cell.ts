@@ -131,7 +131,7 @@ export function startFakeCell(options: {
           return json(response, 404, { error: "NOT_FOUND" });
         }
         const bearer = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
-        const access = await findCloudOAuthAccessToken(digestSecret(bearer), options.resource);
+        const access = await findCloudOAuthAccessToken(digestSecret(bearer), [options.resource]);
         if (!access) return json(response, 401, { error: "ACCESS_TOKEN_INVALID" });
         const rpc = JSON.parse(await body(request));
         const result = call(cell(access.tenantId), rpc.params.name, rpc.params.arguments ?? {});

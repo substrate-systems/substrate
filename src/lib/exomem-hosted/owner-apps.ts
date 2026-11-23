@@ -114,7 +114,7 @@ async function ownerAppRows(
   sql: ExomemSql,
   input: { userId: string; tenantId: string; grantId: string | null }
 ): Promise<AppRow[]> {
-  const resource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   const { rows } = await sql`
     /* exomem:owner-app-grants */
     SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, oauth_grant.revoked_at,
@@ -146,7 +146,7 @@ async function ownerAppRows(
     ) AS reach ON true
     WHERE oauth_grant.user_id = ${input.userId}::uuid
       AND oauth_grant.tenant_id = ${input.tenantId}::uuid
-      AND oauth_grant.resource = ${resource}
+      AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
       AND client.admission_mode <> 'first_party'
       AND (${input.grantId}::uuid IS NULL OR oauth_grant.id = ${input.grantId}::uuid)
       -- The list reads live grants only, which lets it use the partial index on

@@ -5,7 +5,7 @@
  */
 import { createHash, createPublicKey, type KeyObject } from "node:crypto";
 import { isIP } from "node:net";
-import { jwtVerify, type JWTPayload } from "jose";
+import { decodeJwt, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import { signCloudJwt } from "../lib/exomem-hosted/cloud-jwt";
@@ -180,10 +180,16 @@ export function signCloudOriginProof(
 export async function verifyCloudUploadRoute(
   capsule: string,
   key: KeyObject,
-  resource: string,
+  acceptedResources: readonly string[],
   now = nowSeconds()
 ): Promise<CloudUploadRoute> {
   try {
+    // The capsule is issued under its login's resource; read which one before verifying, and
+    // verify only against an accepted resource.
+    const resource = decodeJwt(capsule).iss;
+    if (typeof resource !== "string" || !acceptedResources.includes(resource)) {
+      throw new CloudUploadUnavailable();
+    }
     const { payload } = await jwtVerify(capsule, createPublicKey(key), {
       algorithms: ["EdDSA"],
       typ: "JWT",

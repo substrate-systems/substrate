@@ -186,7 +186,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           response.writeHead(404, CACHE_HEADERS).end();
           return;
         }
-        const body = JSON.stringify(buildCloudProtectedResourceMetadata(loadExomemCloudConfig()));
+        const body = JSON.stringify(
+          buildCloudProtectedResourceMetadata(loadExomemCloudConfig(), request.headers.host)
+        );
         response.writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" }).end(body);
         return;
       }
