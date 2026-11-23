@@ -889,6 +889,17 @@
   .levelSwitch {
     width: auto;
   }
+
+  /* An app row carries a segmented control and a Disconnect; on a phone they
+     wrap under the title, past the glyph, instead of squeezing it away. */
+  .appRow {
+    flex-wrap: wrap;
+  }
+
+  .appRow .rowActions {
+    flex-basis: 100%;
+    padding-left: 48px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

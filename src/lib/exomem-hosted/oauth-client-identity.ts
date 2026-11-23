@@ -7,6 +7,7 @@
 
 import { clientPlatformName, type OAuthClientDisplayNameSource } from "./client-platforms";
 import { isLoopbackRedirectDestination } from "./oauth-client-admission";
+import type { OAuthClientContext } from "./oauth-client-context";
 
 export type OAuthClientIdentity = {
   /** The stored `client_name`, or null when the client has none. */
@@ -14,11 +15,12 @@ export type OAuthClientIdentity = {
   /** `admission_mode`, a closed set fixed by its CHECK constraint (migrations 0025 and 0062). */
   admissionMode: string;
   platform: string | null;
+  /** The host of a CIMD client's `client_id` URL: the host that vouched for it; null otherwise. */
+  cimdHost: string | null;
+  /** The engagement context this lookup resolved: the grant's `client_context_override` when set, else the client row's registration-derived `client_context`. */
+  clientContext: OAuthClientContext;
   redirectUris: string[];
 };
-
-/** The engagement contexts a cell resolves levels for; the cell's own closed set. */
-export type OAuthClientContext = "coding" | "conversation";
 
 /** The host an authorization code sent to `redirectUri` reaches. */
 export function redirectHost(redirectUri: string): string {
@@ -57,9 +59,11 @@ export function isLocalOAuthClient(redirectUris: readonly string[]): boolean {
 
 /**
  * The context a client's calls run in: a local app is a coding agent, every
- * other client a conversational app. It reads the client's registered
- * redirects, which last as long as the client; a grant keeps no redirect,
- * because its authorization transaction is pruned a day after use.
+ * other client a conversational app. Registration stores the result in
+ * `exomem_oauth_clients.client_context` as the default every grant starts
+ * with; the gateway and the apps list read it under each grant's
+ * `client_context_override`, so this derivation must not run at request time
+ * again.
  */
 export function oauthClientContext(redirectUris: readonly string[]): OAuthClientContext {
   return isLocalOAuthClient(redirectUris) ? "coding" : "conversation";

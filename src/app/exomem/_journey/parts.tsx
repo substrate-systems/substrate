@@ -10,7 +10,15 @@ import {
   involvementLevel,
   type InvolvementLevelKey,
 } from "@/components/exomem/involvement-levels";
-import { breakCopy, claimCopy, consentCopy, joinedCopy, sentCopy, signedInCopy } from "./copy";
+import {
+  breakCopy,
+  claimCopy,
+  consentCopy,
+  joinedCopy,
+  sentCopy,
+  signedInCopy,
+  vouchedCopy,
+} from "./copy";
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
@@ -341,10 +349,13 @@ export function ScopesCard({
   scopes,
   readOnly,
   claimedName,
+  vouchedHost,
 }: {
   scopes: string[];
   readOnly: boolean;
   claimedName?: string | null;
+  /** A CIMD client's verified host: what Exomem actually vouched for. */
+  vouchedHost?: string | null;
 }) {
   const read = scopes.includes("exomem.read");
   const write = scopes.includes("exomem.write");
@@ -360,6 +371,12 @@ export function ScopesCard({
           <>
             <br />
             <span>{claimCopy(claimedName)}</span>
+          </>
+        ) : null}
+        {vouchedHost ? (
+          <>
+            <br />
+            <span>{vouchedCopy(vouchedHost)}</span>
           </>
         ) : null}
       </li>

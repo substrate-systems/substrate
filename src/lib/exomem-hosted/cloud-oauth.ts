@@ -1,5 +1,6 @@
 import type { ExomemCloudResource } from "./cloud-config";
 import { ADVERTISED_SCOPES } from "./oauth";
+import type { OAuthClientContext } from "./oauth-client-context";
 import type { OAuthClientIdentity } from "./oauth-client-identity";
 /**
  * Exomem Cloud OAuth client admission and exact-resource token binding
@@ -76,21 +77,10 @@ export async function resolveApprovedCloudOAuthClient(
       -- The first_party mode is absent: that client gets tokens only from
       -- the server-side mint (cloud-home-mcp.ts), never through a consent.
       AND admission_mode IN ('pinned', 'cimd', 'generic')
-      AND enabled = true
-      AND (
-        admission_mode = 'pinned'
-        OR exomem_oauth_generic_client_admitted(client.admission_mode)
-        OR (
-          metadata_document_digest IS NOT NULL
-          AND metadata_fetched_at IS NOT NULL
-          AND metadata_ttl_seconds BETWEEN 300 AND 604800
-          AND metadata_expires_at > now()
-          AND cimd_host IS NOT NULL
-          AND EXISTS (
-            SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-            WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
-          )
-        )
+      AND exomem_oauth_client_admitted(
+        client.admission_mode, client.enabled, client.metadata_document_digest,
+        client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
+        client.cimd_host, client.client_platform, true, now()
       )
     LIMIT 1
   `;
@@ -190,6 +180,8 @@ type CloudOAuthAuthorityRow = {
   client_name: string | null;
   admission_mode: string;
   client_platform: string | null;
+  cimd_host: string | null;
+  client_context: OAuthClientContext;
   redirect_uris: string[];
 };
 
@@ -228,7 +220,12 @@ async function findCloudOAuthAuthority(
     SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
            client.client_id, token.resource, token.scopes,
            cell.cell_id, cell.desired_state AS cell_desired_state,
-           client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
+           client.client_name, client.admission_mode, client.client_platform,
+           client.cimd_host,
+           -- The owner's choice sits on this grant; the client row holds the
+           -- registration-derived default it falls back to.
+           COALESCE(oauth_grant.client_context_override, client.client_context) AS client_context,
+           client.redirect_uris
     FROM token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
@@ -244,21 +241,13 @@ async function findCloudOAuthAuthority(
      AND client.enabled = true
      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
      AND (
-       client.admission_mode = 'pinned'
        -- Only the server-side mint writes a first-party token; this lookup
        -- is the one place that admits the mode.
-       OR client.admission_mode = 'first_party'
-       OR exomem_oauth_generic_client_admitted(client.admission_mode)
-       OR (
-         client.metadata_document_digest IS NOT NULL
-         AND client.metadata_fetched_at IS NOT NULL
-         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
-         AND client.metadata_expires_at > now()
-         AND client.cimd_host IS NOT NULL
-         AND EXISTS (
-           SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-           WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
-         )
+       client.admission_mode = 'first_party'
+       OR exomem_oauth_client_admitted(
+         client.admission_mode, client.enabled, client.metadata_document_digest,
+         client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
+         client.cimd_host, client.client_platform, true, now()
        )
      )
     JOIN exomem_cloud_cells AS cell
@@ -295,6 +284,8 @@ function cloudOAuthLogin(row: CloudOAuthAuthorityRow): ActiveCloudOAuthLogin {
       clientName: row.client_name,
       admissionMode: row.admission_mode,
       platform: row.client_platform,
+      cimdHost: row.cimd_host,
+      clientContext: row.client_context,
       redirectUris: row.redirect_uris,
     },
     firstParty: row.admission_mode === "first_party",

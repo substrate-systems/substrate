@@ -58,7 +58,6 @@ import {
 import { SERVICE_CREDENTIAL_PREFIX } from "../lib/exomem-hosted/service-credential-format";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
 import {
-  oauthClientContext,
   oauthClientDisplayName,
   type OAuthClientIdentity,
 } from "../lib/exomem-hosted/oauth-client-identity";
@@ -563,7 +562,7 @@ async function serveTransferTool(
     bearer,
     mcpUrl: config.mcpUrl,
     publicBaseUrl: exomemPublicBaseUrlFromEnv,
-    clientContext: oauthClientContext(access.client.redirectUris),
+    clientContext: access.client.clientContext,
     attachmentsEnabled: cloudArtifactTransportEnabled(config, access.cellId),
     fetchControlPlane,
   });
@@ -647,7 +646,7 @@ async function proxyToCell(
     : cellClientName(access.client);
   if (clientName === null) forwardHeaders.delete(CELL_CLIENT_NAME_HEADER);
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
-  forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, oauthClientContext(access.client.redirectUris));
+  forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, access.client.clientContext);
   forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
   // D5: with the hold on, every body is prepared through the one capped
   // reader, so a held request can be sent again. A body over the cap streams

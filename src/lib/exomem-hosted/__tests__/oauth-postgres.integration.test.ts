@@ -1061,6 +1061,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     });
 
     it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
+    // The lane is off, so an unlisted host answers exactly like an unknown
+    // client: no fetch, no row, and the authorize lookup cannot tell the two
+    // apart.
+    await setGenericLane(false);
     const host = "connector-unlisted.example.test";
     const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
     let fetched = false;
@@ -1076,6 +1080,64 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       clientId,
     ]);
     assert.equal(stored.rowCount, 0);
+    assert.equal(await resolveApprovedCloudOAuthClient(clientId), null);
+  });
+
+  it("registers an unlisted CIMD host through the lane into the generic partition, and refuses its refresh once the lane closes", async () => {
+    const host = `lane-cimd-${randomUUID()}.example.test`;
+    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const redirectUris = [`https://${host}/callback`];
+    const fetchCimd = async () => cimdMetadata(clientId, redirectUris, "lane");
+    const genericUsed = async () =>
+      (
+        await pool!.query<{ used: number }>(
+          "SELECT used FROM exomem_oauth_client_partitions() WHERE client_partition = 'generic'"
+        )
+      ).rows[0]!.used;
+
+    await setGenericLane(true);
+    try {
+      const before = await genericUsed();
+      assert.ok(await registerAdmittedCimdClient(clientId, { fetchCimd }));
+      const stored = await pool!.query(
+        `SELECT admission_mode, auto_registered, client_platform, oauth_client_config_sha256,
+                cimd_host, client_context
+         FROM exomem_oauth_clients WHERE client_id = $1`,
+        [clientId]
+      );
+      // No platform to pin and no certified configuration: the row the lane
+      // admits keeps both NULL (their CHECK requires it), names only the host
+      // that served its document, and counts in the generic partition it was
+      // admitted through.
+      assert.deepEqual(stored.rows[0], {
+        admission_mode: "cimd",
+        auto_registered: true,
+        client_platform: null,
+        oauth_client_config_sha256: null,
+        cimd_host: host,
+        client_context: "conversation",
+      });
+      assert.equal(await genericUsed(), before + 1, "the lane's CIMD clients share its bound");
+      assert.equal((await resolveApprovedCloudOAuthClient(clientId))?.clientId, clientId);
+
+      await setGenericLane(false);
+      let fetched = false;
+      assert.equal(
+        await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => {
+            fetched = true;
+            return fetchCimd();
+          },
+        }),
+        null,
+        "a lane-off re-fetch must fail like a withdrawn host"
+      );
+      assert.equal(fetched, false, "the lane check runs before any fetch");
+      assert.equal(await resolveApprovedCloudOAuthClient(clientId), null);
+    } finally {
+      await setGenericLane(false);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+    }
   });
 
   it("never lets auto-registration rewrite an operator-managed client", async () => {
@@ -1667,19 +1729,20 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     return inviteDigest;
   }
 
-  // The admission clause lives in eight statements: client resolution, the
-  // authorization transaction, consent, owner attachment, invite admission,
-  // token exchange, refresh and the gateway's token lookup. A missed one does not
-  // fail at authorize -- it fails later, as a client that signs in and then
-  // cannot keep its session, which reads as an intermittent client bug. Drive one
-  // client of each self-registering lane through every stage, then withdraw its
-  // lane and require every stage to stop. The negative half is the drift guard:
-  // a predicate that ignored the lane would keep admitting after withdrawal.
+  // The admission rule lives in one function now, called from the client
+  // resolution, authorization transaction, consent, owner attachment, invite
+  // admission, token exchange, refresh and gateway token-lookup statements. A
+  // missed one does not fail at authorize -- it fails later, as a client that
+  // signs in and then cannot keep its session, which reads as an intermittent
+  // client bug. Drive one client of each self-registering lane through every
+  // stage, then withdraw its lane and require every stage to stop. The negative
+  // half is the drift guard: a predicate that ignored the lane would keep
+  // admitting after withdrawal.
   //
-  // The host-allowlisted client runs with the generic lane enabled, so a generic
-  // arm that did not check the admission mode would keep admitting it once its
-  // host is withdrawn.
-  for (const lane of ["host-allowlisted", "generic"] as const) {
+  // The host-allowlisted client runs with the generic lane enabled, so when its
+  // host is withdrawn the lane still admits it -- exactly what the unlisted
+  // lane offers every CIMD host. Only with the lane off does it stop.
+  for (const lane of ["host-allowlisted", "generic", "unlisted-cimd"] as const) {
     it(`admits a ${lane} client at every stage, and withdraws it at every stage`, async () => {
       const host = `crossstage-${lane}-${randomUUID()}.example.test`;
       const redirectUri = `https://${host}/callback`;
@@ -1700,10 +1763,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           clientId = registered!.clientId;
         } else {
           clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-          await pool!.query(
-            "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
-            [host]
-          );
+          if (lane === "host-allowlisted") {
+            await pool!.query(
+              "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
+              [host]
+            );
+          }
           assert.ok(
             await registerAdmittedCimdClient(clientId, {
               fetchCimd: async () => cimdMetadata(clientId, [redirectUri], "cross-stage"),
@@ -1785,10 +1850,17 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         const secondAccess = randomBytes(32);
         assert.ok(await refresh(firstRefresh, secondRefresh, secondAccess), "refresh must admit");
 
-        // Vary only the lane under test.
-        if (lane === "generic") await setGenericLane(false);
-        else
+        // Vary only the lane under test. A withdrawn allowlist entry is not a
+        // withdrawal while the generic lane still admits the host; the lane has
+        // to close too for every stage to stop.
+        if (lane === "host-allowlisted") {
           await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+          assert.ok(
+            await resolveApprovedCloudOAuthClient(clientId),
+            "the lane carries a de-allowlisted CIMD client while it is open"
+          );
+        }
+        await setGenericLane(false);
 
         // Every stage refuses.
         assert.equal(await resolveApprovedCloudOAuthClient(clientId), null, "authorize must stop");
@@ -1884,6 +1956,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       ((await (await metadata()).json()) as { registration_endpoint?: string })
         .registration_endpoint;
     let registeredClientId = "";
+    let grokClientId = "";
     try {
       const clientsBefore = await clients();
       assert.equal(await registrationEndpoint(), undefined, "a disabled lane is not advertised");
@@ -1923,18 +1996,41 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       assert.equal("grant_types" in body, false);
       assert.deepEqual(body.redirect_uris, valid.redirect_uris);
       const stored = await pool!.query(
-        "SELECT admission_mode, client_platform, client_name FROM exomem_oauth_clients WHERE client_id = $1",
+        "SELECT admission_mode, client_platform, client_name, client_context FROM exomem_oauth_clients WHERE client_id = $1",
         [registeredClientId]
       );
       assert.deepEqual(stored.rows[0], {
         admission_mode: "generic",
         client_platform: null,
         client_name: "Probe agent",
+        client_context: "coding",
+      });
+
+      // A public https redirect registers the same way -- this is Grok's
+      // connectors exchange endpoint -- and stores the conversation context.
+      const grok = await post(
+        {
+          client_name: "Grok",
+          redirect_uris: ["https://grok.com/connectors-oauth-exchange-code/"],
+          token_endpoint_auth_method: "none",
+        },
+        "grok"
+      );
+      assert.equal(grok.status, 201);
+      grokClientId = String(((await grok.json()) as Record<string, unknown>).client_id);
+      const grokStored = await pool!.query(
+        "SELECT admission_mode, client_platform, client_context FROM exomem_oauth_clients WHERE client_id = $1",
+        [grokClientId]
+      );
+      assert.deepEqual(grokStored.rows[0], {
+        admission_mode: "generic",
+        client_platform: null,
+        client_context: "conversation",
       });
     } finally {
       await setGenericLane(false);
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
-        registeredClientId,
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
+        [registeredClientId, grokClientId],
       ]);
       if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
       else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;

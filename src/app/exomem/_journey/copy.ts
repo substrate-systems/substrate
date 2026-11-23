@@ -429,5 +429,11 @@ export const failureCopy = {
  */
 export const claimCopy = (name: string) => `App-supplied name: “${name}”`;
 
+/**
+ * Beside the name claim, for a CIMD app: the host its client document was
+ * fetched from. That host is what Exomem verified; the app's own name is not.
+ */
+export const vouchedCopy = (host: string) => `Verified host: “${host}”`;
+
 /** A date the account does not know yet (Known with a reason), in a sentence that needs one. */
 export const unknownDate = "a date not known yet";

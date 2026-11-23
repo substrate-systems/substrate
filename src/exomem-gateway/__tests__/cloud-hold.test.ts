@@ -41,6 +41,8 @@ function access(tenantId: string, cellId: string): ActiveCloudOAuthAccessToken {
       clientName: null,
       admissionMode: "cimd",
       platform: "claude",
+      cimdHost: "claude.ai",
+      clientContext: "conversation",
       redirectUris: ["https://chat.example.test/oauth/callback"],
     },
     firstParty: false,

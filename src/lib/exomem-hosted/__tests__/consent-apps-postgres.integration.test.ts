@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { POST as completeRoute } from "../../../app/api/exomem/oauth/authorize/complete/route";
 import { POST as declineRoute } from "../../../app/api/exomem/oauth/authorize/decline/route";
+import { POST as contextRoute } from "../../../app/api/exomem/apps/[id]/context/route";
 import { POST as disconnectRoute } from "../../../app/api/exomem/apps/[id]/disconnect/route";
 import { randomCloudCellId } from "../cloud-admission";
 import { findCloudOAuthAccessToken, recordCloudAppUse } from "../cloud-oauth";
@@ -12,10 +13,12 @@ import { loadConsentView } from "../consent-view";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { setOperationalEventSinkForTests } from "../observability";
 import { consumeDeclinedOAuthAuthorization } from "../oauth-consent";
+import { oauthClientContext } from "../oauth-client-identity";
 import { createOAuthContinuation, oauthConsentPath } from "../oauth-continuity";
 import {
   attachExistingOwnerAuthorizationAtomic,
   issueOAuthTokensFromCodeAtomic,
+  registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
 import { listOwnerApps } from "../owner-apps";
@@ -136,6 +139,27 @@ async function newCimdClient(platform: "claude" | "openai" = "claude"): Promise<
   return { clientId, redirectUri };
 }
 
+// A self-registered client on a host with no allowlisted platform, as any
+// unlisted host registers while the generic lane is open.
+async function newUnlistedCimdClient(): Promise<Client> {
+  const clientId = `https://unlisted-${randomUUID()}.example.test/client.json`;
+  const host = new URL(clientId).hostname;
+  const redirectUri = `https://${host}/callback`;
+  await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = true");
+  await pool!.query(
+    `INSERT INTO exomem_oauth_clients (
+       client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+       metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
+       cimd_host, client_platform, oauth_client_config_sha256
+     ) VALUES (
+       $1, 'cimd', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
+       $3, now(), 3600, now() + interval '1 hour', $4, NULL, NULL
+     )`,
+    [clientId, JSON.stringify([redirectUri]), randomBytes(32), host]
+  );
+  return { clientId, redirectUri };
+}
+
 type Authorization = { transaction: string; formNonce: string; state: string; challenge: string };
 
 // What /authorize does when an app opens the consent page in a browser.
@@ -223,6 +247,25 @@ function disconnectRequest(
       "x-exomem-csrf": owner.csrfToken,
       cookie: `exomem_session=${owner.sessionToken}; exomem_csrf=${owner.csrfToken}`,
     },
+  });
+  return [request, { params: Promise.resolve({ id: appId }) }];
+}
+
+function contextRequest(
+  owner: Owner,
+  appId: string,
+  body: Record<string, unknown>
+): [Request, { params: Promise<{ id: string }> }] {
+  const request = new Request(`${ORIGIN}/api/exomem/apps/${appId}/context`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      host: new URL(ORIGIN).host,
+      "x-exomem-csrf": owner.csrfToken,
+      cookie: `exomem_session=${owner.sessionToken}; exomem_csrf=${owner.csrfToken}`,
+    },
+    body: JSON.stringify(body),
   });
   return [request, { params: Promise.resolve({ id: appId }) }];
 }
@@ -590,6 +633,147 @@ describe(
         assert.equal(untouched.rows[0]!.revoked_at, null);
       });
 
+      it("lets the owner set an app's stored context, which the gateway then reads", async () => {
+        const owner = await newOwner();
+        const client = await newCimdClient();
+        const connection = await connect(owner, client);
+        const listed = await listOwnerApps(owner);
+        assert.equal(listed.apps[0]?.context, "conversation");
+
+        const response = await contextRoute(
+          ...contextRequest(owner, connection.grantId, { context: "coding" })
+        );
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { status: "updated" });
+        const relisted = await listOwnerApps(owner);
+        assert.equal(relisted.apps[0]?.context, "coding");
+        // The gateway's own lookup reads the stored context, not the redirects.
+        const authority = await findCloudOAuthAccessToken(
+          connection.accessDigest,
+          CLOUD_RESOURCE
+        );
+        assert.equal(authority?.client.clientContext, "coding");
+
+        // The stored choice sits on the grant, so a metadata re-registration
+        // of the shared client row never touches it. The fixture inserted the
+        // row directly; the re-registration path only rewrites rows its own
+        // auto-registration wrote.
+        await pool!.query("UPDATE exomem_oauth_clients SET auto_registered = true WHERE client_id = $1", [
+          client.clientId,
+        ]);
+        assert.ok(
+          await registerAdmittedCimdClient(client.clientId, {
+            fetchCimd: async () => ({
+              raw: JSON.stringify({
+                client_id: client.clientId,
+                redirect_uris: [client.redirectUri],
+                token_endpoint_auth_method: "none",
+              }),
+              document: {
+                client_id: client.clientId,
+                redirect_uris: [client.redirectUri],
+                token_endpoint_auth_method: "none" as const,
+              },
+            }),
+          })
+        );
+        assert.equal((await listOwnerApps(owner)).apps[0]?.context, "coding");
+      });
+
+      it("keeps one owner's context choice on that owner's grant, never the shared client", async () => {
+        const ownerA = await newOwner();
+        const ownerB = await newOwner();
+        const client = await newCimdClient();
+        const connectionA = await connect(ownerA, client);
+        const connectionB = await connect(ownerB, client);
+
+        const response = await contextRoute(
+          ...contextRequest(ownerA, connectionA.grantId, { context: "coding" })
+        );
+        assert.equal(response.status, 200);
+
+        // B's own grant, list and gateway context are all untouched by A's
+        // choice, because the choice lives on A's grant, not the shared row.
+        assert.equal((await listOwnerApps(ownerA)).apps[0]?.context, "coding");
+        assert.equal((await listOwnerApps(ownerB)).apps[0]?.context, "conversation");
+        const authorityB = await findCloudOAuthAccessToken(
+          connectionB.accessDigest,
+          CLOUD_RESOURCE
+        );
+        assert.equal(authorityB?.client.clientContext, "conversation");
+        const stored = await pool!.query(
+          "SELECT client_context FROM exomem_oauth_clients WHERE client_id = $1",
+          [client.clientId]
+        );
+        assert.equal(stored.rows[0]!.client_context, "conversation");
+      });
+
+      it("leaves the grant's authorization stamp and list order alone, and refuses a revoked grant", async () => {
+        const owner = await newOwner();
+        await connect(owner, await newCimdClient());
+        const second = await connect(owner, await newCimdClient());
+
+        const before = await listOwnerApps(owner);
+        const orderBefore = before.apps.map((app) => app.id);
+        const stampBefore = new Map(before.apps.map((app) => [app.id, app.lastAuthorizedAt]));
+
+        const response = await contextRoute(
+          ...contextRequest(owner, second.grantId, { context: "coding" })
+        );
+        assert.equal(response.status, 200);
+
+        // A preference change is not an authorization: the grant's stamp,
+        // which orders the list and feeds joinedSince and the retirement
+        // sweep, stays exactly as it was.
+        const after = await listOwnerApps(owner);
+        assert.deepEqual(
+          after.apps.map((app) => app.id),
+          orderBefore
+        );
+        for (const app of after.apps) {
+          assert.equal(app.lastAuthorizedAt, stampBefore.get(app.id));
+        }
+
+        // A disconnected app is no live grant; the same indistinguishable 404.
+        const disconnected = await disconnectRoute(
+          ...disconnectRequest(owner, second.grantId)
+        );
+        assert.equal(disconnected.status, 200);
+        const revoked = await contextRoute(
+          ...contextRequest(owner, second.grantId, { context: "conversation" })
+        );
+        assert.equal(revoked.status, 404);
+      });
+
+      it("answers 404 for a context change on an id the list cannot show", async () => {
+        const owner = await newOwner();
+        const otherOwner = await newOwner();
+        const client = await newCimdClient();
+        const otherConnection = await connect(otherOwner, client);
+
+        const foreign = await contextRoute(
+          ...contextRequest(owner, otherConnection.grantId, { context: "coding" })
+        );
+        const unknown = await contextRoute(
+          ...contextRequest(owner, randomUUID(), { context: "coding" })
+        );
+        const malformed = await contextRoute(
+          ...contextRequest(owner, "not-an-app-id", { context: "coding" })
+        );
+        const badContext = await contextRoute(
+          ...contextRequest(owner, otherConnection.grantId, { context: "agent" })
+        );
+        assert.equal(foreign.status, 404);
+        assert.equal(unknown.status, 404);
+        assert.equal(malformed.status, 404);
+        assert.notEqual(badContext.status, 200, "an invalid context never writes");
+        const stored = await pool!.query(
+          "SELECT client_context FROM exomem_oauth_clients WHERE client_id = $1",
+          [client.clientId]
+        );
+        assert.equal(stored.rows[0]!.client_context, "conversation");
+      });
+
       it("shows when each app last reached its Exomem, and nothing before its first call", async () => {
         const owner = await newOwner();
         const used = await connect(owner, await newCimdClient());
@@ -666,11 +850,17 @@ describe(
           const clientId = `pinned-${randomUUID()}`;
           await pool!.query(
             `INSERT INTO exomem_oauth_clients (
-               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
+               client_context
              ) VALUES (
-               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3
+               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3, $4
              )`,
-            [clientId, JSON.stringify([input.redirectUri]), input.clientName ?? null]
+            [
+              clientId,
+              JSON.stringify([input.redirectUri]),
+              input.clientName ?? null,
+              oauthClientContext([input.redirectUri]),
+            ]
           );
           return { clientId, redirectUri: input.redirectUri };
         }
@@ -891,7 +1081,29 @@ describe(
             platform: "openai",
             loopback: false,
             redirectHost: new URL(impostor.redirectUri).hostname,
+            // An allowlisted platform already vouches for this client; the
+            // verified-host line is reserved for unlisted lane-admitted hosts.
+            vouchedHost: null,
           });
+
+          // On an unlisted host the vouching host is the only verified signal.
+          const unlisted = await newUnlistedCimdClient();
+          try {
+            const unlistedRequest = await startAuthorization(unlisted);
+            const unlistedView = await loadConsentView({
+              confirmation: confirmationOf(unlistedRequest.transaction),
+              transactionCookie: unlistedRequest.transaction,
+              formNonceCookie: unlistedRequest.formNonce,
+              sessionCookie: undefined,
+            });
+            assert.notEqual(unlistedView.step, "expired");
+            assert.equal(
+              (unlistedView as Exclude<typeof unlistedView, { step: "expired" }>).app.vouchedHost,
+              new URL(unlisted.clientId).hostname
+            );
+          } finally {
+            await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = false");
+          }
         });
       });
     });
