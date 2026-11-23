@@ -53,7 +53,7 @@ For each forwarded MCP request, the gateway finds the current notices that cover
 
 The gateway reads all current notices and their cells in one query and keeps the result in process memory for at most 30 seconds. A new or ended notice reaches every gateway instance within that time. The header never carries tenant data. Callers cannot send it: the gateway already refuses any caller header that starts with `x-exomem-`.
 
-The status page address is configuration (`EXOMEM_STATUS_URL`), with the current address as its default.
+The status page address is configuration (`EXOMEM_STATUS_PAGE_URL`), with the current address as its default.
 
 ### D4. The status page follows from the same action
 

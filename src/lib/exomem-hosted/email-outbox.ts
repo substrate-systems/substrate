@@ -64,7 +64,7 @@ import { oauthClientDisplayName } from "./oauth-client-identity";
 import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import { incidentStillResolved, maintenanceStillScheduled } from "./service-notice-emails";
 import { fanOutServiceNoticeEmails } from "./service-notice-fanout";
-import { serviceNoticeStatusUrl } from "./service-notices";
+import { statusPageUrlOrDefault } from "./status-page-url";
 import type { ExomemInviteKind } from "./invitation-contract";
 import { normalizeProviderMessageId, pruneProviderEvents } from "./email-provider-events";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
@@ -1338,7 +1338,7 @@ const EXOMEM_EMAILS = {
         summary: context.summary,
         startsAt: context.startsAt,
         endsAt: context.endsAt as Date,
-        statusUrl: serviceNoticeStatusUrl(),
+        statusUrl: statusPageUrlOrDefault(),
         timeZone,
         scheme: emailScheme,
         themeChoice,
@@ -1355,7 +1355,7 @@ const EXOMEM_EMAILS = {
         summary: context.summary,
         startedAt: context.startsAt,
         resolvedAt: context.resolvedAt as Date,
-        statusUrl: serviceNoticeStatusUrl(),
+        statusUrl: statusPageUrlOrDefault(),
         timeZone,
         scheme: emailScheme,
         themeChoice,

@@ -17,6 +17,7 @@
 import { loggedOccurrence } from "./logged-occurrence";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError } from "./errors";
+import { statusPageUrlOrDefault } from "./status-page-url";
 import { emailDateTime, emailTimeSpan } from "../email-templates/exomem-email-time";
 
 // Each kind sends different emails and follows different rules, so the set is
@@ -38,15 +39,6 @@ const NOTICE_JSON_MAX_BYTES = (NOTICE_HEADER_MAX_BYTES / 4) * 3;
 export const DEFAULT_ANNOUNCE_LEAD_MS = 48 * 60 * 60 * 1000;
 /** The longest a gateway instance serves a notice without asking the database again. */
 export const NOTICE_CACHE_TTL_MS = 30_000;
-
-const DEFAULT_STATUS_URL = "https://status.substratesystems.io";
-
-/** The public status page's address: configuration, because the page is a third party's. */
-export function serviceNoticeStatusUrl(
-  env: Record<string, string | undefined> = process.env
-): string {
-  return env.EXOMEM_STATUS_URL?.trim() || DEFAULT_STATUS_URL;
-}
 
 export type ServiceNotice = {
   id: string;
@@ -443,7 +435,7 @@ export async function previewServiceNotice(input: NewNotice): Promise<NoticePrev
     say: composeNoticeSay(
       input,
       input.kind === "incident" ? "active" : "scheduled",
-      serviceNoticeStatusUrl()
+      statusPageUrlOrDefault()
     ),
   };
 }
@@ -454,7 +446,7 @@ export function describeNotice(notice: ServiceNotice, at: Date) {
   // Only a current notice has words for the assistant to relay.
   const say =
     state === "scheduled" || state === "active"
-      ? composeNoticeSay(notice, state, serviceNoticeStatusUrl())
+      ? composeNoticeSay(notice, state, statusPageUrlOrDefault())
       : null;
   const iso = (value: Date | null) => (value ? value.toISOString() : null);
   return {
@@ -524,7 +516,7 @@ let noticeLoadFailures = 0;
  */
 export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
   const now = options.now ?? (() => Date.now());
-  const statusUrl = options.statusUrl ?? (() => serviceNoticeStatusUrl());
+  const statusUrl = options.statusUrl ?? (() => statusPageUrlOrDefault());
   const ttlMs = options.ttlMs ?? NOTICE_CACHE_TTL_MS;
   const coldWaitMs = options.coldWaitMs ?? 250;
   const loadTimeoutMs = options.loadTimeoutMs ?? 5_000;
