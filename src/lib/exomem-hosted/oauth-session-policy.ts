@@ -7,7 +7,8 @@ export type OAuthSessionPolicy = {
   sessionMaxDays: number;
   /**
    * Seconds after a refresh token is spent in which its own client may present
-   * it again and get a fresh pair. 0 turns the interval off.
+   * it again and get a fresh pair. 0 turns the interval off; a spent token
+   * presented after it is refused without revoking the family.
    */
   refreshReuseSeconds: number;
 };
@@ -29,8 +30,9 @@ type Bound = {
 // - Idle: a refresh token unused for a quarter is more likely lost than waiting.
 // - Session: re-authenticating at least every two years bounds any credential
 //   that kept rotating unnoticed.
-// - Reuse: long enough for a lost reply or parallel sessions that share one
-//   stored credential; short enough that a stolen just-spent token goes stale.
+// - Reuse: long enough for parallel sessions that share one stored credential
+//   and present a token rotated days earlier; bounded per spent token so a
+//   stolen just-spent token mints a fixed number of replacements, not more.
 //   A malformed value reads as 0, not as the default: a reuse interval widens
 //   what a stolen token can do, and an operator who wrote `off` or `-1` wants
 //   strict replay. Strict replay is what ran before reuse existed, so a wrong
@@ -52,10 +54,12 @@ const BOUNDS = {
   },
   refreshReuseSeconds: {
     variable: "EXOMEM_OAUTH_REFRESH_REUSE_SECONDS",
-    fallback: 60,
+    // Seven days covers a session that returns with a token rotated while it
+    // was away; the maximum is a month, the default idle window.
+    fallback: 604800,
     invalid: 0,
     min: 0,
-    max: 300,
+    max: 2592000,
   },
 } as const satisfies Record<keyof OAuthSessionPolicy, Bound>;
 

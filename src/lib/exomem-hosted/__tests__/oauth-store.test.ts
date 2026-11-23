@@ -157,7 +157,7 @@ describe("Exomem OAuth token store", () => {
     );
   });
 
-  it("rotates atomically and revokes the family when the digest was already consumed", async () => {
+  it("rotates atomically and refuses a consumed digest without revoking the family", async () => {
     let query = "";
     setSqlForTests(async (strings) => {
       query = strings.join("?");
@@ -174,13 +174,75 @@ describe("Exomem OAuth token store", () => {
     });
     assert.equal(result, null);
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
-    assert.match(query, /refresh_replayed/i);
-    assert.match(query, /UPDATE exomem_oauth_token_families/i);
+    assert.match(query, /UNION ALL[\s\S]*FROM stale/i);
+    assert.match(query, /parent_refresh_token_id = credential\.id/i);
+    assert.doesNotMatch(query, /refresh_replayed/i);
+    assert.doesNotMatch(query, /UPDATE exomem_oauth_token_families/i);
     assert.match(query, /JOIN exomem_tenants AS tenant/i);
     assert.match(query, /JOIN exomem_entitlements AS entitlement/i);
   });
 
-  it("keeps replay lookup independent of current entitlement policy", async () => {
+  it("maps a stale-refusal row and an issued row to their outcomes", async () => {
+    let queries = 0;
+    setSqlForTests(async (strings) => {
+      const query = strings.join("?");
+      if (query.includes("SELECT tenant.id")) return { rows: [{ id: "tenant-1" }] };
+      if (query.includes("exomem:oauth-refresh-rotate")) queries += 1;
+      return {
+        rows: [{ stale_refused: true, family_id: "family-1", spend_age_seconds: 691200 }],
+      };
+    });
+    const stale = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: Buffer.alloc(32, 1),
+      replacementRefreshDigest: Buffer.alloc(32, 2),
+      accessDigest: Buffer.alloc(32, 3),
+      accessExpiresAt: new Date("2026-07-26T01:00:00.000Z"),
+      clientId: "client-1",
+      resource: "resource",
+    });
+    assert.deepEqual(stale, {
+      kind: "stale",
+      familyId: "family-1",
+      spendAgeSeconds: 691200,
+    });
+
+    setSqlForTests(async (strings) => {
+      const query = strings.join("?");
+      if (query.includes("SELECT tenant.id")) return { rows: [{ id: "tenant-1" }] };
+      if (query.includes("exomem:oauth-refresh-rotate")) queries += 1;
+      return {
+        rows: [
+          {
+            stale_refused: false,
+            grant_id: "grant-1",
+            family_id: "family-1",
+            client_id: "client-1",
+            resource: "resource",
+            scopes: ["exomem.read"],
+            refresh_reused: true,
+            spend_age_seconds: 7200,
+          },
+        ],
+      };
+    });
+    const issued = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: Buffer.alloc(32, 1),
+      replacementRefreshDigest: Buffer.alloc(32, 2),
+      accessDigest: Buffer.alloc(32, 3),
+      accessExpiresAt: new Date("2026-07-26T01:00:00.000Z"),
+      clientId: "client-1",
+      resource: "resource",
+    });
+    assert.equal(issued?.kind, "issued");
+    assert.equal(issued?.kind === "issued" && issued.refreshReused, true);
+    assert.equal(
+      issued?.kind === "issued" && issued.refreshReusedSpendAgeSeconds,
+      7200
+    );
+    assert.equal(queries, 2);
+  });
+
+  it("keeps the stale lookup independent of current entitlement policy", async () => {
     let query = "";
     setSqlForTests(async (strings) => {
       query = strings.join("?");
@@ -200,6 +262,10 @@ describe("Exomem OAuth token store", () => {
     assert.match(query, /credential\.consumed_at IS NOT NULL/i);
     assert.doesNotMatch(
       query.slice(query.indexOf("WITH credential"), query.indexOf("current_policy")),
+      /JOIN exomem_entitlements/i
+    );
+    assert.doesNotMatch(
+      query.slice(query.indexOf("stale AS")),
       /JOIN exomem_entitlements/i
     );
   });
