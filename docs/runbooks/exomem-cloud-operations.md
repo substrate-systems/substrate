@@ -197,6 +197,70 @@ drains queued notices as failed — the outbox claims each row, finds the kind
 unregistered (`EMAIL_KIND_UNREGISTERED`) and settles it as failed. They are
 not re-sent when the fixed release returns.
 
+### Measure refresh-token reuse ages
+
+The reuse window (`EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`) is meant to shrink to
+the longest reuse that clients actually need. Its 7-day default applies once
+the refresh grace change ships; until then the default is 60 s. The token table
+already records each reuse: a refresh token's second and later children were
+minted from the already-spent parent. This query reports, per app, how old the
+spent token was at each reuse and how many rotations its session had missed. It
+reads only sign-in metadata.
+
+1. Set `since` to the first full day after the grace change deployed.
+2. Run the query below with `psql "$DATABASE_URL" -v since=<YYYY-MM-DD> -f <file>`.
+3. Propose a tighter window above the largest `p99_age` across apps, with margin.
+
+The parent scan is unindexed on `consumed_at`; at current volume it finishes
+well inside its 60-second timeout. Expected result: one row per app that reused
+a token, with ages and missed-rotation counts.
+
+```sql
+-- Refresh-token reuse ages since the grace change. Read-only, metadata only.
+-- A reuse is a refresh token's second or later child: the first child is the
+-- ordinary rotation; each later one was minted from the already-spent parent.
+-- Both measures read the children's created_at, the transaction-start clock:
+-- the parent's consumed_at is clock_timestamp() after the rotation's locks,
+-- so the first child always predates it and a window anchored on consumed_at
+-- would drop that rotation from every count.
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '60s';
+WITH reuse AS (
+  SELECT family.client_id,
+         reuse_child.created_at - first_child.created_at AS age,
+         (SELECT count(*) FROM exomem_oauth_refresh_tokens AS meanwhile
+           WHERE meanwhile.family_id = parent.family_id
+             AND meanwhile.created_at >= first_child.created_at
+             AND meanwhile.created_at < reuse_child.created_at) AS rotations_missed
+  FROM exomem_oauth_refresh_tokens AS parent
+  JOIN exomem_oauth_token_families AS family ON family.id = parent.family_id
+  CROSS JOIN LATERAL (
+    SELECT created_at FROM exomem_oauth_refresh_tokens AS child
+    WHERE child.parent_refresh_token_id = parent.id
+    ORDER BY created_at LIMIT 1
+  ) AS first_child
+  JOIN LATERAL (
+    SELECT created_at FROM exomem_oauth_refresh_tokens AS reuse_child
+    WHERE reuse_child.parent_refresh_token_id = parent.id
+    ORDER BY created_at OFFSET 1
+  ) AS reuse_child ON true
+  WHERE parent.consumed_at >= :'since'::timestamptz
+)
+SELECT coalesce(client.client_name, client.client_platform, client.admission_mode) AS app,
+       count(*) AS reuses,
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY age) AS p50_age,
+       percentile_disc(0.9) WITHIN GROUP (ORDER BY age) AS p90_age,
+       percentile_disc(0.99) WITHIN GROUP (ORDER BY age) AS p99_age,
+       max(age) AS max_age,
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY rotations_missed) AS p50_rotations_missed,
+       max(rotations_missed) AS max_rotations_missed
+FROM reuse
+JOIN exomem_oauth_clients AS client ON client.id = reuse.client_id
+GROUP BY 1
+ORDER BY reuses DESC;
+ROLLBACK;
+```
+
 ### Revoke connected apps
 
 Revoke the narrowest scope that stops the problem. Each step takes effect on the

@@ -365,6 +365,47 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     assert.equal(emails[1]!.dedupe_key, `app-signout:${second}`);
   });
 
+  it("keeps a cap-suppressed ending that died at its ceiling, and emails it once the cap lifts", async () => {
+    // The reviewer's reproduction: the second ending dies at its session
+    // ceiling, so the same sweep that suppresses it also finds its rows
+    // prune-eligible. The ending must survive the cap to email when it lifts.
+    const owner = await newOwner();
+    const client = await newClient();
+    const grant = await newGrant(owner, client);
+    await markUsed(grant);
+    const first = await newFamily(grant, client, {
+      revokedReason: "refresh_replayed",
+      revokedAgo: "3 hours",
+    });
+    await newRefreshToken(first, { consumedAgo: "3 hours" });
+    await pruneExpiredOAuthState();
+    const second = await newFamily(grant, client, { expiredAgo: "1 hour" });
+    await newRefreshToken(second, { expiredAgo: "1 hour" });
+
+    const capped = await pruneExpiredOAuthState();
+    assert.deepEqual(capped.signouts, { candidates: 1, emailed: 0 });
+    assert.deepEqual(await appSignoutEmails([second]), []);
+    // Suppressed, not forgotten: the ending's rows outlive the run that
+    // suppressed it.
+    const { rows: kept } = await pool!.query<{ families: number; tokens: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM exomem_oauth_token_families WHERE id = $1) AS families,
+         (SELECT count(*)::int FROM exomem_oauth_refresh_tokens WHERE family_id = $1) AS tokens`,
+      [second]
+    );
+    assert.deepEqual(kept, [{ families: 1, tokens: 1 }]);
+
+    await pool!.query(
+      "UPDATE exomem_oauth_app_signout_notices SET emailed_at = now() - interval '25 hours' WHERE family_id = $1",
+      [first]
+    );
+    const lifted = await pruneExpiredOAuthState();
+    assert.deepEqual(lifted.signouts, { candidates: 1, emailed: 1 });
+    const emails = await appSignoutEmails([second]);
+    assert.equal(emails.length, 1);
+    assert.equal(emails[0]!.dedupe_key, `app-signout:${second}`);
+  });
+
   it("cancels the queued email when the owner disconnects before it sends", async () => {
     const owner = await newOwner();
     const client = await newClient();

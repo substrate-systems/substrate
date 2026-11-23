@@ -89,8 +89,14 @@ and enqueueing the email happen in one transaction, and
 family once. Markers exist only for endings that emailed (`emailed_at NOT
 NULL`): an ending the per-grant 24 h cap suppresses gets no marker, so it is
 seen again once the cap lifts and still emails if the app is dead — one email
-per distinct sign-out, spaced by the cap, rather than silence forever. The
-cap itself reads emailed markers on `(grant_id, emailed_at)`. The outbox
+per distinct sign-out, spaced by the cap, rather than silence forever. Being
+seen again requires its evidence to survive the wait, so the sweep's
+refresh-token prune only takes tokens of a family whose ceiling is more than
+the lookback old — an ending falls at or before the ceiling, so every ending
+the lane can still read keeps its rows, whether the run that should have
+emailed it was held by the cap, outrun by the candidate queue or lost to a
+lane failure. The cap itself reads emailed markers on `(grant_id, emailed_at)`.
+The outbox
 `dedupe_key` (`app-signout:<family_id>`) is the second belt for exactly-once
 enqueue. `family_id` is deliberately not a foreign key: the sweep deletes an
 expired family in the same run that notices it, and the marker must outlive

@@ -78,10 +78,9 @@ CREATE TABLE exomem_oauth_app_signout_notices (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- The sweep's three drivers of "ended inside the lookback": a revocation
--- stamped on the family, the expiry of a family's last unconsumed refresh
--- token, and the expiry of a no-refresh family's last unrevoked access
--- token. Each range scan leads on its own column.
+-- The sweep's two drivers of "ended inside the lookback": a revocation
+-- stamped on the family, and the expiry of a family's last unconsumed
+-- refresh token. Each range scan leads on its own column.
 CREATE INDEX exomem_oauth_families_revoked_idx
   ON exomem_oauth_token_families (revoked_at)
   WHERE revoked_at IS NOT NULL;
@@ -90,17 +89,15 @@ CREATE INDEX exomem_oauth_refresh_ended_idx
   ON exomem_oauth_refresh_tokens (expires_at)
   WHERE consumed_at IS NULL;
 
--- Per-family probes of the access-token side: a no-refresh family's
--- live_until, and the "is this the last" check inside the sweep's third
--- driver. The existing exomem_oauth_access_active_idx leads on expires_at
--- for the range scan itself.
+-- Per-family probe of the access-token side: a no-refresh family's
+-- live_until, which the sweep and Home's reachability aggregate both call.
 CREATE INDEX exomem_oauth_access_family_active_idx
   ON exomem_oauth_access_tokens (family_id, expires_at)
   WHERE revoked_at IS NULL;
 
 -- Home's per-grant aggregate reads every family of each listed grant
 -- index-only on these columns, then probes each family's tokens through
--- exomem_oauth_refresh_active_idx (0025) and the index above.
+-- exomem_oauth_refresh_active_idx (0025) and the per-family access index.
 CREATE INDEX exomem_oauth_families_grant_cover_idx
   ON exomem_oauth_token_families (grant_id, revoked_at, id);
 
