@@ -17,11 +17,13 @@ describe("the status page address", () => {
     assert.equal(statusPageUrlOrDefault(env), "https://status.example.test/");
   });
 
-  it("never sends a reader to a mistyped or non-https address", () => {
+  it("never sends a reader to a mistyped, non-https or over-long address", () => {
     for (const value of [
       "http://status.example.test",
       "status.example.test",
       "javascript:alert(1)",
+      // Longer than a notice sentence can carry beside the operator's words.
+      `https://status.example.test/${"a".repeat(200)}`,
     ]) {
       const env = { EXOMEM_STATUS_PAGE_URL: value };
       assert.equal(statusPageUrl(env), null, value);

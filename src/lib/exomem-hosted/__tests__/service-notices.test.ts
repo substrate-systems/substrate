@@ -59,6 +59,13 @@ describe("a new service notice", () => {
     assert.match(refusal({ ...maintenance, summary: "  " }), /summary must be 1 to 280/);
     assert.match(refusal({ ...maintenance, summary: "x".repeat(281) }), /summary must be 1 to 280/);
     assert.match(refusal({ ...maintenance, summary: "Line one.\nLine two." }), /single line/);
+    // Separators and bidi controls split or reorder the line a reader sees, as a newline does.
+    for (const character of ["\u2028", "\u2029", "\u202E", "\u2066", "\u2069"]) {
+      assert.match(
+        refusal({ ...maintenance, summary: `Line one.${character}Line two.` }),
+        /single line/
+      );
+    }
     // The limit counts characters, so 280 emoji are accepted.
     assert.equal(
       parseNewNotice({ ...maintenance, summary: "🛠".repeat(280) }, NOW).summary.length,

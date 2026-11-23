@@ -10,6 +10,7 @@
  */
 
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { CLOUD_CELL_ID_PATTERN } from "./cloud-config";
 import { ExomemHostedError } from "./errors";
 import {
   NOTICE_KINDS,
@@ -34,7 +35,6 @@ function noticeError(code: string, status: number, message: string): ExomemHoste
 }
 const invalid = (message: string) => noticeError("SERVICE_NOTICE_INVALID", 400, message);
 
-const CELL_ID = /^[a-z2-7]{16}$/;
 // An instant must name its zone: a bare local time would mean the server's zone.
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -84,14 +84,18 @@ export function parseNewNotice(body: Record<string, unknown>, now: Date): NewNot
   if (length < 1 || length > SUMMARY_MAX_CHARS) {
     throw invalid(`summary must be 1 to ${SUMMARY_MAX_CHARS} characters`);
   }
-  // The summary is one line in an email, a sentence and a status issue title.
-  if (/\p{Cc}/u.test(summary)) throw invalid("summary must be a single line of plain text");
+  // The summary is one line in an email, a sentence and a status issue title. This is a closed
+  // set the Unicode standard fixes: control characters, the line and paragraph separators, and
+  // the bidi embedding, override and isolate controls that split or reorder what a reader sees.
+  if (/[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069]/u.test(summary)) {
+    throw invalid("summary must be a single line of plain text");
+  }
 
   let cellIds: string[] = [];
   if (body.cellIds !== undefined) {
     if (
       !Array.isArray(body.cellIds) ||
-      !body.cellIds.every((id) => typeof id === "string" && CELL_ID.test(id))
+      !body.cellIds.every((id) => typeof id === "string" && CLOUD_CELL_ID_PATTERN.test(id))
     ) {
       throw invalid("cellIds must be a list of cell ids");
     }

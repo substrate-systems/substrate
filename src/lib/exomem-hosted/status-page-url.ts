@@ -6,6 +6,9 @@
  */
 
 const DEFAULT_STATUS_PAGE_URL = "https://status.substratesystems.io";
+// The address goes into every notice sentence and header, which are bounded (400 characters,
+// 1,024 bytes); a longer one would crowd out the operator's summary or overflow the header.
+const STATUS_PAGE_URL_MAX_CHARS = 200;
 
 /**
  * The configured address, for "Status page" links that appear only when someone set
@@ -15,7 +18,7 @@ export function statusPageUrl(
   env: Record<string, string | undefined> = process.env
 ): string | null {
   const value = env.EXOMEM_STATUS_PAGE_URL?.trim();
-  if (!value) return null;
+  if (!value || value.length > STATUS_PAGE_URL_MAX_CHARS) return null;
   try {
     return new URL(value).protocol === "https:" ? value : null;
   } catch {
