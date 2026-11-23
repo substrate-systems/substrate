@@ -135,10 +135,11 @@ token within the interval of its legitimate spend can use it:
   refresh token still expires inside its own idle window.
 - Nothing but revoking the family, or the grant through Disconnect, ends such a
   chain — a stale presentation refuses only itself.
-- One spent token mints at most 16 replacement tokens: the one its spend
-  created, plus at most fifteen reuses. A stolen just-spent token therefore
-  yields a bounded number of chains, and every one of them dies with the
-  family.
+- One spent token mints at most 64 children: the one its spend created, plus
+  at most sixty-three reuses. This is a loop guard for a client stuck
+  re-presenting one token, not a bound on a thief — every minted token fans
+  out on its own spend, so only revoking the family or grant ends what a
+  stolen token starts.
 
 Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to refuse every spent-token
 presentation at once.

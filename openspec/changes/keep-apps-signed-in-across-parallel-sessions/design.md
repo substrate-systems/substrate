@@ -5,7 +5,7 @@
 1. **Grace window.** A spent refresh token presented by the same OAuth client row as its family, while the family and grant are unrevoked and the family is unexpired, receives a fresh pair in the same family for `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` after its spend. Default 604800 s (7 days), maximum 2592000 s (30 days); `0` or a non-integer disables reuse, matching the loader's existing contract.
 2. **After the window.** The presentation is stale: refused with `invalid_grant`, and the family is *not* revoked. The rotation statement returns a `stale` result inside the same locked transaction so the refusal carries the family ID and spend age without a second query.
 3. **Different client.** A spent token presented by any other client issues nothing and creates no rows, exactly as a first rotation failure does.
-4. **Reuse bound.** One spent token mints at most sixteen replacement tokens: the one its spend created, plus at most fifteen reuses, counted via `parent_refresh_token_id` under the tenant lock. Parallel sessions sharing one credential legitimately need several reuses; the bound stops a stolen just-spent token from minting without limit (an unbounded seven-day window would otherwise allow ~290k chains at the per-address rate limit).
+4. **Reuse fan-out guard.** One spent token mints at most sixty-four children — the one its spend created, plus at most sixty-three reuses — counted via `parent_refresh_token_id` under the tenant row lock. This is a loop guard for a client stuck re-presenting one token, not a theft bound: every minted token fans out on its own spend, so only family or grant revocation ends what a stolen token starts. Users run 15–25 parallel sessions, and refusing the Nth presentation of a token that a store-clearing client holds would itself sign every session out, so the guard sits well above ordinary fan-out.
 5. **Access token TTL.** Sixty minutes, and the token route reports `expires_in: 3600`. Revocation stays immediate: `findCloudOAuthAuthority` joins the family on `revoked_at IS NULL`/`expires_at > now()` and the grant on `revoked_at IS NULL` on every gateway call.
 6. **Telemetry.** `exomem_oauth_refresh_reused` gains `spend_age_seconds`; refused stale presentations log `exomem_oauth_refresh_reuse_stale` with client ID, family ID and spend age. No token material is logged.
 
@@ -13,7 +13,7 @@
 
 - Reuse runs through the same `replacement` CTE as a first rotation, so minted refresh tokens stay capped by `LEAST(now() + idle, family.expires_at, reviewer credential expiry)` and access tokens by the family expiry: nothing outlives the family's idle window or session ceiling.
 - Admission predicates (client pinned/generic admission, current-policy join) are untouched; the merge with the in-flight admission change stays small.
-- Tenant advisory lock serializes concurrent presentations of one token, so the bound is exact and simultaneous stale presentations issue at most once.
+- The tenant row lock (`FOR UPDATE OF tenant`) serializes concurrent presentations of one token, so the bound is exact and simultaneous stale presentations issue at most once.
 
 ## How comparable providers handle refresh-token reuse
 
@@ -40,9 +40,9 @@ Sources:
 
 Where this change sits:
 - Published grace windows run from none to 10 minutes. A 7-day window for a spent token from the same client is far longer than any of them.
-- Two providers never revoke a family when a spent token comes back: Microsoft, and Cloudflare's provider for MCP servers. Cloudflare limits this to the previous token; this change allows any spent token in the window, bounded to 16 replacements per spent token.
+- Two providers never revoke a family when a spent token comes back: Microsoft, and Cloudflare's provider for MCP servers. Cloudflare limits this to the previous token; this change allows any spent token in the window, with a fan-out guard of 64 children per spent token.
 - We choose the longer window because the clients that connect here (Claude Code, Codex) share one token store across parallel processes. An idle process can present a token two or more generations old hours after another process rotated it. Under a previous-token-only rule that process is refused, and Claude Code then clears the shared store for every session.
 - The controls that remain:
-  - A token works only for the client it was issued to.
   - Family and grant revocation (Disconnect on Home) take effect at once on every MCP call.
   - The idle window and the session ceiling still end every family.
+- One correctness rule, not a control: a spent token is honoured only for the client it was issued to. The client ID is public, so this binds lineage rather than authenticating the presenter — it narrows a stolen token to whoever can claim the same client ID, which is everyone.
