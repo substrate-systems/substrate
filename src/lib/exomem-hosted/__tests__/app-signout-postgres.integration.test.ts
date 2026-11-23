@@ -236,11 +236,15 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     const owner = await newOwner();
     const deadClient = await newClient();
     const dead = await newGrant(owner, deadClient);
+    const deadFamily = await newFamily(dead, deadClient, {});
+    // A real replayed family is refresh-bearing; its spent token stays on
+    // the row as evidence.
+    await newRefreshToken(deadFamily, { consumedAgo: "2 hours" });
     const endedAt = await pool!.query<{ ended_at: Date }>(
       `UPDATE exomem_oauth_token_families
        SET revoked_at = now() - interval '2 hours', revoked_reason = 'refresh_replayed'
        WHERE id = $1 RETURNING revoked_at AS ended_at`,
-      [await newFamily(dead, deadClient, {})]
+      [deadFamily]
     );
     const liveClient = await newClient("openai");
     const live = await newGrant(owner, liveClient);
@@ -265,6 +269,7 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
       revokedReason: "refresh_replayed",
       revokedAgo: "1 hour",
     });
+    await newRefreshToken(family, { consumedAgo: "1 hour" });
 
     const first = await pruneExpiredOAuthState();
     const second = await pruneExpiredOAuthState();
@@ -296,10 +301,12 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
       revokedReason: "refresh_replayed",
       revokedAgo: "1 hour",
     });
+    await newRefreshToken(quietFamily, { consumedAgo: "1 hour" });
     const disconnectedClient = await newClient();
     const disconnected = await newGrant(owner, disconnectedClient);
     await markUsed(disconnected);
     const disconnectedFamily = await newFamily(disconnected, disconnectedClient, {});
+    await newRefreshToken(disconnectedFamily);
     assert.equal(
       await disconnectOwnerApp({
         userId: owner.userId,
@@ -333,6 +340,7 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
       revokedReason: "refresh_replayed",
       revokedAgo: "3 hours",
     });
+    await newRefreshToken(first, { consumedAgo: "3 hours" });
     await pruneExpiredOAuthState();
     // A newer ending lands while the emailed marker is fresh: it stays a
     // candidate but claims nothing — no email, and no marker of its own.
@@ -340,6 +348,7 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
       revokedReason: "refresh_replayed",
       revokedAgo: "1 hour",
     });
+    await newRefreshToken(second, { consumedAgo: "1 hour" });
     const capped = await pruneExpiredOAuthState();
     assert.deepEqual(capped.signouts, { candidates: 1, emailed: 0 });
     assert.deepEqual(await appSignoutEmails([second]), []);
@@ -365,6 +374,7 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
       revokedReason: "refresh_replayed",
       revokedAgo: "1 hour",
     });
+    await newRefreshToken(family, { consumedAgo: "1 hour" });
     await pruneExpiredOAuthState();
     const queued = await appSignoutEmails([family]);
     assert.equal(queued.length, 1);
@@ -417,11 +427,13 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     assert.equal(emails[0]!.state, "pending");
   });
 
-  it("reads a never-refreshed family signed out, live on an unexpired access token only", async () => {
+  it("reads a never-refreshed family by its access token, and never emails for one", async () => {
     // The reviewer's second reproduction: a family that never held a
     // refresh token read signed in for the row's whole ceiling. It is live
     // only while an access token is unexpired; with none it never had an
-    // ending to tell, so it signs out without a date and emails nobody.
+    // ending to tell, so it signs out without a date. Its access lapse is
+    // an end by design minutes after sign-in, not a notice — and even a
+    // revocation of a refresh-less family emails nobody.
     const owner = await newOwner();
     const deadClient = await newClient();
     const dead = await newGrant(owner, deadClient);
@@ -432,7 +444,13 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     const bareClient = await newClient("openai");
     const bare = await newGrant(owner, bareClient);
     await markUsed(bare);
-    await newFamily(bare, bareClient, {});
+    const bareFamily = await newFamily(bare, bareClient, {});
+    await pool!.query(
+      `UPDATE exomem_oauth_token_families
+       SET revoked_at = now() - interval '1 hour', revoked_reason = 'operator_revoked'
+       WHERE id = $1`,
+      [bareFamily]
+    );
 
     const liveClient = await newClient();
     const live = await newGrant(owner, liveClient);
@@ -442,12 +460,11 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     const { apps } = await listOwnerApps(owner);
     assert.equal(apps.find((app) => app.id === dead)!.session.state, "signed_out");
     const bareSession = apps.find((app) => app.id === bare)!.session;
-    assert.deepEqual(bareSession, { state: "signed_out", since: null });
+    assert.equal(bareSession.state, "signed_out");
     assert.equal(apps.find((app) => app.id === live)!.session.state, "signed_in");
 
     const result = await pruneExpiredOAuthState();
-    assert.deepEqual(result.signouts, { candidates: 1, emailed: 1 });
-    const emails = await appSignoutEmails([deadFamily]);
-    assert.equal(emails.length, 1);
+    assert.deepEqual(result.signouts, { candidates: 0, emailed: 0 });
+    assert.deepEqual(await appSignoutEmails([deadFamily, bareFamily]), []);
   });
 });

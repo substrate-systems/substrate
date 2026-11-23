@@ -40,14 +40,18 @@ unparseable state to signed in.
 
 The sweep lane selects, per grant, the _latest_-ended family inside the
 lookback window (25 h — long enough to cover missed runs, short enough to
-keep the anti-join scan bounded). Three drivers land the endings inside the
+keep the anti-join scan bounded). Two drivers land the endings inside the
 window on their own range scans: a family's `revoked_at` (partial index on
-`revoked_at`), an unconsumed refresh token's `expires_at` where it is the
-family's last (index on `expires_at WHERE consumed_at IS NULL`), and an
-unrevoked access token's `expires_at` where the family never had refresh
-(per-family index plus the existing active-access index). Each driver's "is
-this the last" check probes its per-family index, so the lane never scans a
-token table end to end.
+`revoked_at`) and an unconsumed refresh token's `expires_at` where it is
+the family's last (index on `expires_at WHERE consumed_at IS NULL`). Only
+refresh-bearing families produce an ending: a family issued without refresh
+loses reachability by design when its access token lapses minutes after
+sign-in, so treating that lapse — or a later revocation of the dead family —
+as a notice would email a still-in-use app every day, and probing every
+expired, unpruned access token is the lane's most expensive scan. Home still
+reads its state from `live_until`, but the sweep pretends it never ended.
+Each driver's "is this the last" check probes its per-family index, so the
+lane never scans a token table end to end.
 
 `DISTINCT ON (grant_id) ... ORDER BY ended_at DESC` picks the latest ending
 before per-ending predicates apply: the latest ending is the one that took

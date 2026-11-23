@@ -11,10 +11,16 @@ email SHALL send per grant per 24 h.
 
 #### Scenario: An idle lapse ends the family, not its row's expiry
 
-- **WHEN** a family's last unconsumed refresh token expires — or, for a
-  family without refresh, its last unrevoked access token expires — while
-  its row stays unrevoked and unexpired
+- **WHEN** a family's last unconsumed refresh token expires while its row
+  stays unrevoked and unexpired
 - **THEN** the family is no longer live and its ending is eligible for notice
+
+#### Scenario: A family without refresh produces no notice
+
+- **WHEN** a family issued without refresh tokens loses its last unrevoked
+  access token, or is itself revoked
+- **THEN** it is not an ending for notice purposes and no email is enqueued —
+  its liveness on Home still follows its access tokens
 
 #### Scenario: Refresh replay signs the app out
 

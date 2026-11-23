@@ -45,12 +45,15 @@ type SignoutCandidate = { family_id: string; grant_id: string };
  * family's ending is the earlier of its revocation and the moment its last
  * usable credential expired (exomem_oauth_family_live_until /
  * exomem_oauth_family_ended_at — the same pair Home's reachability reads).
- * Three drivers land the endings inside the lookback on their own range
- * scans: a revocation stamped inside the window, an unconsumed refresh
- * token's expiry for a family that has one, and an unrevoked access token's
- * expiry for a family without refresh. The per-driver "is this the last"
- * check probes the per-family indexes, so the lane never scans a token table
- * end to end.
+ * Two drivers land the endings inside the lookback on their own range
+ * scans: a revocation stamped inside the window and a family's last
+ * unconsumed refresh token expiring. Only refresh-bearing families produce
+ * an ending: a family issued without refresh loses reachability by design
+ * when its access token lapses minutes after sign-in, so treating that as
+ * an ending would email a still-in-use app every day — and a revocation of
+ * one says nothing the owner could act on either. The per-driver "is this
+ * the last" check probes the per-family indexes, so the lane never scans a
+ * token table end to end.
  *
  * The ending that actually took reachability is always the *latest* one, so
  * the `DISTINCT ON` picks it before any per-ending predicate applies: an
@@ -80,6 +83,10 @@ async function listSignoutCandidates(limit: number): Promise<SignoutCandidate[]>
           SELECT exomem_oauth_family_live_until(family.id) AS live_until
         ) AS live
         WHERE family.revoked_at > now() - (${SIGNOUT_LOOKBACK_HOURS} * interval '1 hour')
+          AND EXISTS (
+            SELECT 1 FROM exomem_oauth_refresh_tokens AS refresh
+            WHERE refresh.family_id = family.id
+          )
 
         UNION ALL
 
@@ -101,34 +108,6 @@ async function listSignoutCandidates(limit: number): Promise<SignoutCandidate[]>
             SELECT 1
             FROM exomem_oauth_refresh_tokens AS newer
             WHERE newer.family_id = token.family_id AND newer.consumed_at IS NULL
-              AND newer.expires_at > token.expires_at
-            OFFSET 0
-          )
-
-        UNION ALL
-
-        -- A family issued without refresh: its last unrevoked access token
-        -- expired.
-        SELECT family.id, family.grant_id, token.expires_at, NULL
-        FROM exomem_oauth_access_tokens AS token
-        CROSS JOIN LATERAL (
-          SELECT family.id, family.grant_id
-          FROM exomem_oauth_token_families AS family
-          WHERE family.id = token.family_id AND family.revoked_at IS NULL
-          OFFSET 0
-        ) AS family
-        WHERE token.revoked_at IS NULL
-          AND token.expires_at <= now()
-          AND token.expires_at > now() - (${SIGNOUT_LOOKBACK_HOURS} * interval '1 hour')
-          AND NOT EXISTS (
-            SELECT 1 FROM exomem_oauth_refresh_tokens AS refresh
-            WHERE refresh.family_id = token.family_id
-            OFFSET 0
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM exomem_oauth_access_tokens AS newer
-            WHERE newer.family_id = token.family_id AND newer.revoked_at IS NULL
               AND newer.expires_at > token.expires_at
             OFFSET 0
           )
@@ -275,13 +254,17 @@ async function claimEndedFamilyNotices(
             AND sibling.revoked_at IS NULL
             AND exomem_oauth_family_live_until(sibling.id) > now()
         )
-        -- Still the latest ending: a family that ended between list and
-        -- claim owns the notice instead (or suppresses it, when it is a
-        -- silent ending).
+        -- Still the latest ending: a refresh-bearing family that ended
+        -- between list and claim owns the notice instead (or suppresses it,
+        -- when it is a silent ending).
         AND NOT EXISTS (
           SELECT 1
           FROM exomem_oauth_token_families AS newer
           WHERE newer.grant_id = picked.grant_id
+            AND EXISTS (
+              SELECT 1 FROM exomem_oauth_refresh_tokens AS refresh
+              WHERE refresh.family_id = newer.id
+            )
             AND exomem_oauth_family_ended_at(
                   newer.revoked_at, exomem_oauth_family_live_until(newer.id)
                 ) > exomem_oauth_family_ended_at(family.revoked_at, live.live_until)
