@@ -62,6 +62,7 @@ import {
   type OAuthClientIdentity,
 } from "../lib/exomem-hosted/oauth-client-identity";
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
+import { currentNoticeHeader, NOTICE_HEADER } from "../lib/exomem-hosted/service-notice-header";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";
 import { digestSecret } from "../lib/exomem-hosted/security";
 
@@ -83,6 +84,8 @@ const MCP_PARAMETER_HEADER_PREFIX = "mcp-param-";
 const CELL_CLIENT_NAME_HEADER = "x-exomem-oauth-client";
 const CELL_CLIENT_CONTEXT_HEADER = "x-exomem-client-context";
 const CELL_APP_ID_HEADER = "x-exomem-app-id";
+// The operator's service notice (add-exomem-service-notices D3) travels the same way:
+// the gateway sets NOTICE_HEADER from its own lookup, and a caller's copy never gets here.
 // RFC 9110 section 5.5: a field value this gateway sends is visible ASCII and spaces.
 const HEADER_SAFE_VALUE = /^[\x20-\x7e]+$/;
 // Security review finding 12: only these three response headers are ever
@@ -403,6 +406,8 @@ export type CloudGatewayDependencies = {
   cellOrigin?: (cellId: string) => string;
   /** Set by server.ts, so a held request also gives back the server's slot. */
   serverSlot?: GatewayServerSlot;
+  /** The service-notice header value for a cell, or null; a test injects its own. */
+  serviceNoticeHeader?: (cellId: string) => Promise<string | null>;
 };
 
 type PreparedBody = Awaited<ReturnType<typeof readCloudArtifactBody>>;
@@ -648,6 +653,16 @@ async function proxyToCell(
   else forwardHeaders.set(CELL_CLIENT_NAME_HEADER, clientName);
   forwardHeaders.set(CELL_CLIENT_CONTEXT_HEADER, access.client.clientContext);
   forwardHeaders.set(CELL_APP_ID_HEADER, access.grantId);
+  // The notice is a courtesy to the person: a lookup that fails must not fail their request,
+  // so any error sends the request on without the header. Set or deleted, never a caller's copy.
+  let serviceNotice: string | null = null;
+  try {
+    serviceNotice = await (dependencies.serviceNoticeHeader ?? currentNoticeHeader)(access.cellId);
+  } catch {
+    serviceNotice = null;
+  }
+  if (serviceNotice === null) forwardHeaders.delete(NOTICE_HEADER);
+  else forwardHeaders.set(NOTICE_HEADER, serviceNotice);
   // D5: with the hold on, every body is prepared through the one capped
   // reader, so a held request can be sent again. A body over the cap streams
   // as before and is never held.

@@ -93,6 +93,8 @@ function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDe
     findLogin: async () => LOGIN,
     takeRateLimit: async () => true,
     fetchCell: async () => assert.fail("the cell was contacted"),
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
     ...overrides,
   };
 }
@@ -112,6 +114,7 @@ async function forwardMcp(config: ExomemCloudConfig, login = LOGIN): Promise<Hea
       findAccessToken: async () => ({ ...login, scopes: ["exomem.read", "exomem.write"] }),
       recordAppUse: async () => undefined,
       takeRateLimit: async () => true,
+      serviceNoticeHeader: async () => null,
       fetchCell: async (_url, init) => {
         forwarded = new Headers(init?.headers);
         return new Response("ok");

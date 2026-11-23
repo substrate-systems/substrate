@@ -15,7 +15,7 @@ import {
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
-import { statusPageUrl } from "../_journey/status-page";
+import { statusPageUrl } from "@/lib/exomem-hosted/status-page-url";
 import AuthorizeClient, { type AccountFacts, type RequestApp } from "./authorize-client";
 import { consentScreen } from "./consent-screen";
 

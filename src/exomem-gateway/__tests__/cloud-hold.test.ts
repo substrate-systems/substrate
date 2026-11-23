@@ -71,6 +71,8 @@ function deps(
     takeRateLimit: async () => true,
     upstream: settings,
     cellOrigin: () => `http://127.0.0.1:${port}`,
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
   };
 }
 

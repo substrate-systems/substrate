@@ -4,7 +4,7 @@ import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
 import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
-import { statusPageUrl } from "../_journey/status-page";
+import { statusPageUrl } from "@/lib/exomem-hosted/status-page-url";
 import SignInClient from "./sign-in-client";
 
 export const dynamic = "force-dynamic";

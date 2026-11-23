@@ -5,6 +5,7 @@ import {
   emailDateTime,
   emailDuration,
   emailSameDay,
+  emailTimeSpan,
 } from "../exomem-email-time";
 
 // Every time limit in an email is computed at send in the reader's zone. These cases are
@@ -18,9 +19,18 @@ describe("time limits in Exomem emails", () => {
   });
 
   it("follows the clock change: the same local hour twice on the night summer time ends", () => {
-    assert.equal(emailDateTime(new Date("2026-10-25T00:30:00.000Z"), "Europe/Berlin"), "25 October, 02:30");
-    assert.equal(emailDateTime(new Date("2026-10-25T01:30:00.000Z"), "Europe/Berlin"), "25 October, 02:30");
-    assert.equal(emailDateTime(new Date("2026-10-25T02:30:00.000Z"), "Europe/Berlin"), "25 October, 03:30");
+    assert.equal(
+      emailDateTime(new Date("2026-10-25T00:30:00.000Z"), "Europe/Berlin"),
+      "25 October, 02:30"
+    );
+    assert.equal(
+      emailDateTime(new Date("2026-10-25T01:30:00.000Z"), "Europe/Berlin"),
+      "25 October, 02:30"
+    );
+    assert.equal(
+      emailDateTime(new Date("2026-10-25T02:30:00.000Z"), "Europe/Berlin"),
+      "25 October, 03:30"
+    );
   });
 
   it("labels a time UTC when the reader's zone is unknown", () => {
@@ -43,5 +53,16 @@ describe("time limits in Exomem emails", () => {
     const sentAt = new Date("2026-10-25T00:10:00.000Z");
     assert.equal(emailSameDay(deletedAt, sentAt, null), false);
     assert.equal(emailSameDay(deletedAt, sentAt, "Europe/Tallinn"), true);
+  });
+
+  it("writes a span on the reader's calendar: one day, or two when the night crosses midnight", () => {
+    const start = new Date("2026-10-24T22:30:00.000Z");
+    // 22:30 and 23:30 UTC are both on 25 October in Tallinn, but on two days in UTC.
+    const end = new Date("2026-10-24T23:30:00.000Z");
+    assert.equal(emailTimeSpan(start, end, "Europe/Tallinn"), "25 October, 01:30 to 02:30");
+    assert.equal(
+      emailTimeSpan(start, new Date("2026-10-25T00:30:00.000Z"), null),
+      "24 October, 22:30 to 25 October, 00:30 UTC"
+    );
   });
 });
