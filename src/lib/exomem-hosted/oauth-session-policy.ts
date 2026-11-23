@@ -31,12 +31,14 @@ type Bound = {
 // - Session: re-authenticating at least every two years bounds any credential
 //   that kept rotating unnoticed.
 // - Reuse: long enough for parallel sessions that share one stored credential
-//   and present a token rotated days earlier; bounded per spent token so a
-//   stolen just-spent token mints a fixed number of replacements, not more.
+//   and present a token rotated days earlier; a spent token's fan-out is
+//   capped only as a loop guard, since every minted token can fan out again
+//   and only family or grant revocation bounds a thief.
 //   A malformed value reads as 0, not as the default: a reuse interval widens
 //   what a stolen token can do, and an operator who wrote `off` or `-1` wants
-//   strict replay. Strict replay is what ran before reuse existed, so a wrong
-//   read costs only that.
+//   strict replay. That strictness is not cheap: with no grace, a spent
+//   token's first re-presentation is refused, and clients that clear their
+//   store on invalid_grant sign every parallel session out.
 const BOUNDS = {
   refreshIdleDays: {
     variable: "EXOMEM_OAUTH_REFRESH_IDLE_DAYS",

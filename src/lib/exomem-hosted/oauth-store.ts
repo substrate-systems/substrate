@@ -59,10 +59,12 @@ export type ApprovedOAuthClient = {
 };
 
 const MAX_PENDING_OAUTH_AUTHORIZATIONS = 2_000;
-// Parallel sessions of one client share one stored credential, so one spend
-// legitimately serves several reuses; the bound stops a stolen just-spent
-// token from minting replacements for the whole reuse interval.
-const MAX_SPENT_TOKEN_REPLACEMENTS = 16;
+// A loop guard for a client stuck re-presenting one spent token: parallel
+// sessions sharing a stored credential legitimately reuse one spend dozens of
+// times, and past the bound the extra presentations refuse like any other. It
+// does not bound a thief — every minted token can fan out again, so only
+// revoking the family or the grant ends what a stolen token starts.
+const MAX_SPENT_TOKEN_REPLACEMENTS = 64;
 
 async function withCohortLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
@@ -290,12 +292,17 @@ export async function registerGenericMcpClient(
  * Otherwise `lapsed` when the connector's metadata document has expired, and
  * `fresh` when it has not, for example because another request fetched it
  * after this rotation was refused. A caller must hold a live refresh token to
- * cause a fetch.
+ * cause a fetch. Live here means what the rotation's grace rule means:
+ * unconsumed, or spent inside the reuse interval — a shared client whose
+ * metadata lapses must still refetch for a same-client spent token, or every
+ * parallel session holding it is signed out instead.
  */
 export async function refreshCimdMetadataState(input: {
   refreshDigest: Buffer;
   clientId: string;
+  sessionPolicy?: OAuthSessionPolicy;
 }): Promise<"not_eligible" | "fresh" | "lapsed"> {
+  const { refreshReuseSeconds } = input.sessionPolicy ?? loadOAuthSessionPolicy();
   const { rows } = await executeExomemSql`
     /* exomem:refresh-cimd-metadata-state */
     SELECT client.metadata_expires_at <= now() AS lapsed
@@ -304,7 +311,11 @@ export async function refreshCimdMetadataState(input: {
     JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = family.client_id
     WHERE token.refresh_digest = ${input.refreshDigest}
-      AND token.consumed_at IS NULL AND token.expires_at > now()
+      AND token.expires_at > now()
+      AND (
+        token.consumed_at IS NULL
+        OR token.consumed_at > exomem_oauth_refresh_reuse_opens_at(${refreshReuseSeconds}::int)
+      )
       AND family.revoked_at IS NULL AND family.expires_at > now()
       AND oauth_grant.revoked_at IS NULL
       AND client.client_id = ${input.clientId}
@@ -1179,9 +1190,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
  * another pair in the same family, as a sibling of the first replacement, and
  * nothing is revoked. After the interval the presentation is stale: it is
  * refused as `stale` and the family stays live, so sessions holding its other
- * tokens keep working. One spent token mints at most
- * MAX_SPENT_TOKEN_REPLACEMENTS replacements — its spend's child plus reuses —
- * so a stolen just-spent token cannot mint unboundedly for the whole interval.
+ * tokens keep working. A spent token mints at most
+ * MAX_SPENT_TOKEN_REPLACEMENTS children — a loop guard for a stuck client,
+ * not a bound on a thief: each child fans out on its own spend, so only a
+ * family or grant revocation ends what a stolen token starts.
  * A different client's presentation never reaches either branch. No earlier
  * token material is kept, so a reused token gets a new pair, never the
  * earlier one back.
@@ -1277,9 +1289,10 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     ),
     -- A presentation that waited on the tenant lock can have begun before the one
     -- it waited for, so now() can precede that token's consumed_at. The wall
-    -- clock cannot, and with it a zero interval is off.
+    -- clock cannot, and with it a zero interval is off. The boundary lives in
+    -- exomem_oauth_refresh_reuse_opens_at, shared with the metadata-state read.
     reuse_interval AS (
-      SELECT clock_timestamp() - (${refreshReuseSeconds}::int * interval '1 second') AS opens_at
+      SELECT exomem_oauth_refresh_reuse_opens_at(${refreshReuseSeconds}::int) AS opens_at
     ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token
@@ -1304,8 +1317,8 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND credential.expires_at > now()
         AND credential.revoked_at IS NULL
         AND credential.family_expires_at > now()
-        -- Bounded so one stolen just-spent token cannot mint replacements
-        -- without end; a spend's first child counts toward the bound.
+        -- Loop guard only: past the bound this spent token stops minting
+        -- siblings, not because a thief is bounded — only revocation is.
         AND (
           SELECT count(*) FROM exomem_oauth_refresh_tokens AS child
           WHERE child.parent_refresh_token_id = credential.id
