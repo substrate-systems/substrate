@@ -85,9 +85,10 @@ export default function ExomemTermsPage() {
 
       <h2>Intellectual property and feedback</h2>
       <p>
-        These terms do not transfer ownership of your content or the rights that Exomem&apos;s
-        repository licence grants. Substrate Systems OÜ retains rights in the Cloud service, site,
-        branding, and materials not published under that licence. If you send feedback, you allow us to use it
+        These terms do not transfer ownership of your content or limit the rights that the published
+        repository licences grant: Exomem&apos;s repository licence for the server, and
+        AGPL-3.0-or-later for the Substrate control plane. Substrate Systems OÜ retains rights in the
+        Cloud service, site, branding, and materials not published under those licences. If you send feedback, you allow us to use it
         without obligation, but it does not give us rights to your knowledge content.
       </p>
 

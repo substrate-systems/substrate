@@ -3,12 +3,13 @@ title: "Exomem vs mem0, Letta, Zep, cognee, and Basic Memory: an honest comparis
 slug: exomem-vs-mem0-letta-zep
 description: "An honest comparison of memory for AI agents — Exomem vs mem0, Letta, Zep, cognee, and Basic Memory — on hosting, data ownership, storage format, retrieval, MCP support, license, and price."
 published: 2026-07-04
+updated: 2026-11-23
 tags:
   - exomem
   - ai-agents
   - agent-memory
   - mcp
-  - open-source
+  - source-available
 author: Hugo Ander Kivi
 status: published
 ---
@@ -31,7 +32,7 @@ Neither camp is "correct." Which one you want depends entirely on whether you're
 
 | Tool              | Hosting                                 | Your data                                                     | Multimodal                                    | Knowledge layer                                                                | Retrieval                                                              | License                                | Price                              |
 | ----------------- | --------------------------------------- | ------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------- | ---------------------------------- |
-| Exomem            | Self-hosted, local-first                | Plain Markdown you own                                        | OCR + audio/video ASR + CLIP image, all local | Typed sources / notes / entities / evidence, supersession, human review queues | Hybrid FTS5 + local vectors + graph — benchmarked (864 ms @ 50k notes) | AGPL-3.0                               | Free (self-host)                   |
+| Exomem            | Self-hosted, local-first                | Plain Markdown you own                                        | OCR + audio/video ASR + CLIP image, all local | Typed sources / notes / entities / evidence, supersession, human review queues | Hybrid FTS5 + local vectors + graph — benchmarked (864 ms @ 50k notes) | FSL-1.1-ALv2                           | Free (self-host)                   |
 | Basic Memory      | Local-first; optional cloud             | Plain Markdown you own                                        | Text only                                     | Notes + wikilinks                                                              | Full-text + vector + wikilink graph                                    | AGPL-3.0                               | Free local; $15/mo cloud           |
 | mem0              | OSS core + managed cloud                | LLM-extracted facts in a vector store (their cloud / your DB) | Text only                                     | Auto-extracted memories                                                        | Semantic/vector + optional graph                                       | Apache-2.0 (core)                      | Free 10k; $19–$249/mo              |
 | Letta (ex-MemGPT) | OSS server + managed cloud              | Agent state in Postgres/pgvector                              | Text only                                     | Self-editing memory blocks                                                     | Tiered core / recall / archival                                        | Apache-2.0                             | Free; $20/mo + usage               |
@@ -64,7 +65,7 @@ cognee treats memory as a data-engineering pipeline: its **ECL (Extract, Cognify
 
 ### Basic Memory — the closest peer, and where Exomem pulls ahead
 
-[Basic Memory](https://github.com/basicmachines-co/basic-memory) is the tool most like Exomem, and the one worth taking seriously: same core philosophy — memory stays as plain Markdown files you own, editable in Obsidian or any editor, with a native MCP server and the same AGPL-3.0 license — plus polished bidirectional human↔AI sync and a cheap $15/mo hosted option. If your memory is purely **text notes** and you want the lightest possible tool for exactly that, it's a genuinely good pick, and I'd point you to it without hesitation.
+[Basic Memory](https://github.com/basicmachines-co/basic-memory) is the tool most like Exomem, and the one worth taking seriously: same core philosophy — memory stays as plain Markdown files you own, editable in Obsidian or any editor, with a native MCP server — plus polished bidirectional human↔AI sync and a cheap $15/mo hosted option. If your memory is purely **text notes** and you want the lightest possible tool for exactly that, it's a genuinely good pick, and I'd point you to it without hesitation.
 
 But "purely text notes" is the whole gap. Basic Memory is **text-only** — no OCR, no audio/video transcription, no image search — so screenshots, PDFs, scans, and recordings are invisible to it; Exomem indexes all of them, locally. It publishes **no retrieval benchmarks**, so you're trusting it holds up as the vault grows — where Exomem measured **864 ms end-to-end at 50,000 notes** and put the methodology in the repo so you can check it. And it has no typed knowledge layer — no evidence, supersession, or review queues to keep conclusions current as sources change. So the honest split is narrow and real: Basic Memory wins if you want the simplest text-only vault; Exomem wins the moment your memory includes mixed media, has to scale to a size you can verify, or needs to stay trustworthy over time — which, for most people accumulating a real knowledge base, it eventually does.
 
@@ -81,7 +82,7 @@ The honest tradeoff runs the other way too: if you want a fully managed memory A
 
 ## Where you can get it
 
-Exomem is [open source under AGPL-3.0 on GitHub](https://github.com/Artexis10/exomem), installs with `pip install exomem`, and runs against your existing Obsidian or Markdown vault. You can read the [product page](https://substratesystems.io/exomem) for the full feature list, check the [benchmarks](https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md) before you trust the numbers, or just point it at a vault and search.
+Exomem is [source-available under FSL-1.1-ALv2 on GitHub](https://github.com/Artexis10/exomem) (releases before the licence change stay AGPL-3.0-or-later), installs with `pip install exomem`, and runs against your existing Obsidian or Markdown vault. You can read the [product page](https://substratesystems.io/exomem) for the full feature list, check the [benchmarks](https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md) before you trust the numbers, or just point it at a vault and search.
 
 ## FAQ
 
@@ -92,13 +93,13 @@ There isn't one "best" — it depends on what your memory is. For a managed memo
 mem0 uses an LLM to extract facts from your conversations and stores them in a vector database (its cloud, or your own Qdrant). Exomem keeps your notes as plain Markdown files in a vault you own and indexes them locally. mem0 is a managed memory API; Exomem is a self-hosted knowledge substrate over your own files.
 
 **How is Exomem different from Basic Memory?**
-Both keep your memory as plain Markdown files you own, both are MCP-native, and both are AGPL-3.0 — they're close cousins. Basic Memory focuses on bidirectional human↔AI sync and offers a $15/mo hosted option. Exomem adds multimodal indexing (OCR, audio/video ASR, CLIP image search), typed knowledge operations with a human review loop, and published benchmarks for sub-second hybrid retrieval at 50,000 notes.
+Both keep your memory as plain Markdown files you own, and both are MCP-native — they're close cousins. Basic Memory focuses on bidirectional human↔AI sync and offers a $15/mo hosted option. Exomem adds multimodal indexing (OCR, audio/video ASR, CLIP image search), typed knowledge operations with a human review loop, and published benchmarks for sub-second hybrid retrieval at 50,000 notes.
 
 **Do I have to run a database or send my data to the cloud?**
 Not with Exomem's lean install. Keyword/BM25 search runs on SQLite FTS5, which ships inside Python's standard library, so there's no separate database to operate and no cloud dependency. That's a real contrast with the graph-based tools (Zep/Graphiti, cognee), which expect a graph database, and with the managed services, which store your memory in their cloud.
 
-**Is Exomem really free and open source?**
-Yes — it's AGPL-3.0 licensed and [on GitHub](https://github.com/Artexis10/exomem), self-hosted, with no paid tier and no account required. You run it on your own machine against your own vault.
+**Is Exomem really free?**
+Self-hosting is free, with no account required: you run it on your own machine against your own vault. The code is public [on GitHub](https://github.com/Artexis10/exomem) under FSL-1.1-ALv2, which allows any use except offering a competing commercial product or service, and each release becomes Apache-2.0 two years after it is published. Releases before the licence change stay AGPL-3.0-or-later.
 
 **What about claude-mem?**
 It is the most popular memory tool for Claude Code, but it belongs in a different comparison: it captures and replays session activity rather than storing curated conclusions. I cover that difference in [Exomem vs claude-mem](/blog/exomem-vs-claude-mem).

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { FIRST_FSL_RELEASE, sourceOfferLinks, sourceOfferReleaseText } from "../source-offer";
+import {
+  FIRST_FSL_RELEASE,
+  sourceOfferLicenceNote,
+  sourceOfferLinks,
+  sourceOfferReleaseText,
+} from "../source-offer";
 
 describe("sourceOfferReleaseText", () => {
   it("names the release that the cell runs", () => {
@@ -14,27 +19,43 @@ describe("sourceOfferReleaseText", () => {
 });
 
 describe("sourceOfferLinks", () => {
-  const serverLabel = (release: string | null | undefined) => sourceOfferLinks(release)[0].label;
-  const [major, minor] = FIRST_FSL_RELEASE;
+  const server = (release: string | null | undefined) => sourceOfferLinks(release)[0];
 
-  it("names AGPL-3.0 for a cell that runs a release from before the licence change", () => {
-    assert.equal(serverLabel(`v${major}.${minor - 1}.9`), "Evermatter (AGPL-3.0)");
+  it("names AGPL-3.0-or-later and links the tag for a cell on a release before the licence change", () => {
+    assert.deepEqual(server("v0.201.0"), {
+      label: "Evermatter (AGPL-3.0-or-later)",
+      href: "https://github.com/substrate-systems/evermatter/tree/v0.201.0",
+    });
   });
 
   it("names FSL-1.1-ALv2 from the first FSL release on", () => {
-    assert.equal(serverLabel(FIRST_FSL_RELEASE.join(".")), "Evermatter (FSL-1.1-ALv2)");
-    assert.equal(serverLabel(`v${major}.${minor}.1`), "Evermatter (FSL-1.1-ALv2)");
-    assert.equal(serverLabel(`${major + 1}.0.0`), "Evermatter (FSL-1.1-ALv2)");
+    assert.equal(server(FIRST_FSL_RELEASE).label, "Evermatter (FSL-1.1-ALv2)");
+    assert.equal(server("v0.202.1").label, "Evermatter (FSL-1.1-ALv2)");
+    assert.equal(server("v1.0.0").label, "Evermatter (FSL-1.1-ALv2)");
   });
 
-  it("names both licences when the release is unknown or not a plain version", () => {
-    const both = `Evermatter (FSL-1.1-ALv2; releases before ${FIRST_FSL_RELEASE.join(".")}: AGPL-3.0)`;
-    assert.equal(serverLabel(undefined), both);
-    assert.equal(serverLabel(null), both);
-    assert.equal(serverLabel("main-4f3a2b1"), both);
+  it("names both licences and links the repository when the release is unknown or not a tag", () => {
+    const both = `Evermatter (FSL-1.1-ALv2; before ${FIRST_FSL_RELEASE}: AGPL-3.0-or-later)`;
+    for (const release of [undefined, null, "main-4f3a2b1", "0.202.0"]) {
+      assert.deepEqual(server(release), {
+        label: both,
+        href: "https://github.com/substrate-systems/evermatter",
+      });
+    }
   });
 
-  it("keeps the control plane under AGPL-3.0", () => {
-    assert.equal(sourceOfferLinks("v9.9.9")[1].label, "Substrate (AGPL-3.0)");
+  it("keeps the control plane under AGPL-3.0-or-later", () => {
+    assert.equal(sourceOfferLinks("v9.9.9")[1].label, "Substrate (AGPL-3.0-or-later)");
+  });
+});
+
+describe("sourceOfferLicenceNote", () => {
+  it("states the FSL terms whenever the running release may be under FSL, and not for an AGPL release", () => {
+    const note = sourceOfferLicenceNote("v0.202.0");
+    assert.match(note ?? "", /free to self-host/);
+    assert.match(note ?? "", /competing/);
+    assert.match(note ?? "", /Apache-2\.0 two years after/);
+    assert.equal(sourceOfferLicenceNote(undefined), note);
+    assert.equal(sourceOfferLicenceNote("v0.201.0"), null);
   });
 });

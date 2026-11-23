@@ -74,7 +74,7 @@ const softwareJsonLd = {
       "Source-available MCP server exposing a Markdown or Obsidian vault as a governed, searchable knowledge substrate.",
     codeRepository: GITHUB,
     programmingLanguage: "Python",
-    license: "https://fsl.software/",
+    license: "https://spdx.org/licenses/FSL-1.1-ALv2.html",
   },
 };
 

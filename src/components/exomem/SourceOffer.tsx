@@ -1,4 +1,8 @@
-import { sourceOfferLinks, sourceOfferReleaseText } from "@/lib/exomem-hosted/source-offer";
+import {
+  sourceOfferLicenceNote,
+  sourceOfferLinks,
+  sourceOfferReleaseText,
+} from "@/lib/exomem-hosted/source-offer";
 import styles from "./SourceOffer.module.css";
 
 /**
@@ -16,6 +20,7 @@ export function SourceOffer({
   pinned?: boolean;
 }) {
   const text = sourceOfferReleaseText(release);
+  const note = sourceOfferLicenceNote(release);
   const classes = [
     styles.offer,
     align === "center" ? styles.center : "",
@@ -33,6 +38,12 @@ export function SourceOffer({
         </span>
       ))}
       {text === null ? null : ` · ${text}`}
+      {note === null ? null : (
+        <>
+          <br />
+          {note}
+        </>
+      )}
     </p>
   );
 }
