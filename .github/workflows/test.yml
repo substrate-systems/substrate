@@ -2,6 +2,8 @@ name: test
 
 on:
   pull_request:
+  # The merge queue runs the required checks on main plus the queued pull requests.
+  merge_group:
   push:
     branches: [main]
 
