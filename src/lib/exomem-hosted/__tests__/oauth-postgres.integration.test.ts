@@ -106,10 +106,10 @@ async function seedClient(): Promise<string> {
   const result = await pool!.query(
     `INSERT INTO exomem_oauth_clients (
        client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-       client_platform, oauth_client_config_sha256, client_context
+       client_platform, oauth_client_config_sha256
      ) VALUES ($1, 'pinned', true, '["https://client.example.test/callback"]'::jsonb,
                digest(convert_to('["https://client.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-               'claude', $2, 'conversation')
+               'claude', $2)
      ON CONFLICT (client_id) DO UPDATE SET enabled = true
      RETURNING id`,
     [clientId, "f".repeat(64)]
@@ -544,10 +544,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         await pool!.query(
           `INSERT INTO exomem_oauth_clients (
              client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-             client_platform, oauth_client_config_sha256, client_context
+             client_platform, oauth_client_config_sha256
            ) VALUES ($1, 'pinned', false, $2::jsonb,
                      digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
-                     'claude', $3, 'conversation')`,
+                     'claude', $3)`,
           [
             fillerClientId,
             JSON.stringify([fillerRedirectUri]),
@@ -1445,13 +1445,13 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            client_id, admission_mode, enabled, auto_registered, reviewer_bootstrap_ever_authorized,
            redirect_uris, redirect_uris_digest, client_platform, oauth_client_config_sha256,
            cimd_host, metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds,
-           metadata_expires_at, metadata_provenance, client_context
+           metadata_expires_at, metadata_provenance
          ) VALUES (
            $1, 'cimd', false, false, $3, $4::jsonb,
            digest(convert_to($4::jsonb::text, 'utf8'), 'sha256'), 'claude',
            encode(digest(convert_to($1, 'utf8'), 'sha256'), 'hex'), $2,
            digest(convert_to($1, 'utf8'), 'sha256'), now() - interval '2 days', 86400,
-           now() - interval '1 day', '{}'::jsonb, 'conversation'
+           now() - interval '1 day', '{}'::jsonb
          )`,
         [id, host, bootstrap, JSON.stringify([`https://${host}/callback`])]
       );
@@ -1517,8 +1517,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
            client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
-           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance,
-           client_context
+           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance
          )
          SELECT
            format('https://%s/oauth/%s-%s/client.json', $1::text, $2::text, step),
@@ -1529,7 +1528,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            encode(digest(convert_to(format('%s-%s', $2::text, step), 'utf8'), 'sha256'), 'hex'),
            $1::text,
            digest(convert_to(format('doc-%s-%s', $2::text, step), 'utf8'), 'sha256'),
-           now(), 3600, now() + interval '1 hour', '{}'::jsonb, 'conversation'
+           now(), 3600, now() + interval '1 hour', '{}'::jsonb
          FROM generate_series(1, $3::int) AS step`,
         [host, filler, shortfall]
       );
@@ -1590,13 +1589,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       const { generic } = await readOAuthClientHeadroom();
       await pool!.query(
         `INSERT INTO exomem_oauth_clients (
-           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
-           client_context
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
          )
          SELECT format('%s-%s', $1::text, step), 'generic', true,
                 '["http://127.0.0.1/callback"]'::jsonb,
                 digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-                'Filler', 'coding'
+                'Filler'
          FROM generate_series(1, $2::int) AS step`,
         [filler, generic.bound - generic.used - 1]
       );
@@ -1643,10 +1641,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       await pool!.query(
         `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-           client_platform, oauth_client_config_sha256, client_context
+           client_platform, oauth_client_config_sha256
          ) VALUES ($1, 'pinned', false, '["https://operator.example.test/callback"]'::jsonb,
                    digest(convert_to('["https://operator.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-                   'claude', $2, 'conversation')`,
+                   'claude', $2)`,
         [operatorClientId, "e".repeat(64)]
       );
       const before = await pool!.query("SELECT * FROM exomem_oauth_clients WHERE client_id = $1", [
@@ -2250,8 +2248,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
            client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
-           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance,
-           client_context
+           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance
          )
          SELECT format('https://%s/oauth/%s-%s/client.json', $1::text, $2::text, step),
                 'cimd', true, true,
@@ -2261,7 +2258,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
                 encode(digest(convert_to(format('%s-%s', $2::text, step), 'utf8'), 'sha256'), 'hex'),
                 $1::text,
                 digest(convert_to(format('doc-%s-%s', $2::text, step), 'utf8'), 'sha256'),
-                now(), 3600, now() + interval '1 hour', '{}'::jsonb, 'conversation'
+                now(), 3600, now() + interval '1 hour', '{}'::jsonb
          FROM generate_series(1, $3::int) AS step`,
         [host, filler, autoRegistered.bound - autoRegistered.used]
       );
@@ -2518,10 +2515,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     const retired = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-         client_platform, oauth_client_config_sha256, retired_at, client_context
+         client_platform, oauth_client_config_sha256, retired_at
        ) VALUES ($1, 'pinned', false, '["https://retired.example.test/callback"]'::jsonb,
                  digest(convert_to('["https://retired.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-                 'claude', $2, now(), 'conversation')
+                 'claude', $2, now())
        RETURNING id`,
       [retiredClientId, "f".repeat(64)]
     );
@@ -2824,10 +2821,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       await pool!.query(
         `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-           client_platform, oauth_client_config_sha256, client_context
+           client_platform, oauth_client_config_sha256
          ) VALUES ($1, 'pinned', true, '["https://other-client.example.test/callback"]'::jsonb,
                    digest(convert_to('["https://other-client.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-                   'claude', $2, 'conversation')
+                   'claude', $2)
          ON CONFLICT (client_id) DO UPDATE SET enabled = true`,
         [otherClientId, "e".repeat(64)]
       );

@@ -13,6 +13,7 @@ import { loadConsentView } from "../consent-view";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { setOperationalEventSinkForTests } from "../observability";
 import { consumeDeclinedOAuthAuthorization } from "../oauth-consent";
+import { oauthClientContext } from "../oauth-client-identity";
 import { createOAuthContinuation, oauthConsentPath } from "../oauth-continuity";
 import {
   attachExistingOwnerAuthorizationAtomic,
@@ -20,7 +21,6 @@ import {
   registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
-import { oauthClientContext } from "../oauth-client-identity";
 import { listOwnerApps } from "../owner-apps";
 import { digestSecret, generateExternalToken, tokenDigest } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -122,10 +122,10 @@ async function newCimdClient(platform: "claude" | "openai" = "claude"): Promise<
     `INSERT INTO exomem_oauth_clients (
        client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
        metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-       cimd_host, client_platform, oauth_client_config_sha256, client_context
+       cimd_host, client_platform, oauth_client_config_sha256
      ) VALUES (
        $1, 'cimd', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
-       $3, now(), 3600, now() + interval '1 hour', $4, $5, $6, 'conversation'
+       $3, now(), 3600, now() + interval '1 hour', $4, $5, $6
      )`,
     [
       clientId,
@@ -135,6 +135,27 @@ async function newCimdClient(platform: "claude" | "openai" = "claude"): Promise<
       platform,
       randomBytes(32).toString("hex"),
     ]
+  );
+  return { clientId, redirectUri };
+}
+
+// A self-registered client on a host with no allowlisted platform, as any
+// unlisted host registers while the generic lane is open.
+async function newUnlistedCimdClient(): Promise<Client> {
+  const clientId = `https://unlisted-${randomUUID()}.example.test/client.json`;
+  const host = new URL(clientId).hostname;
+  const redirectUri = `https://${host}/callback`;
+  await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = true");
+  await pool!.query(
+    `INSERT INTO exomem_oauth_clients (
+       client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+       metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
+       cimd_host, client_platform, oauth_client_config_sha256
+     ) VALUES (
+       $1, 'cimd', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
+       $3, now(), 3600, now() + interval '1 hour', $4, NULL, NULL
+     )`,
+    [clientId, JSON.stringify([redirectUri]), randomBytes(32), host]
   );
   return { clientId, redirectUri };
 }
@@ -633,10 +654,10 @@ describe(
         );
         assert.equal(authority?.client.clientContext, "coding");
 
-        // The stored choice belongs to the client row, so a metadata
-        // re-registration keeps it rather than deriving it again. The fixture
-        // inserted the row directly; the re-registration path only rewrites
-        // rows its own auto-registration wrote.
+        // The stored choice sits on the grant, so a metadata re-registration
+        // of the shared client row never touches it. The fixture inserted the
+        // row directly; the re-registration path only rewrites rows its own
+        // auto-registration wrote.
         await pool!.query("UPDATE exomem_oauth_clients SET auto_registered = true WHERE client_id = $1", [
           client.clientId,
         ]);
@@ -657,6 +678,34 @@ describe(
           })
         );
         assert.equal((await listOwnerApps(owner)).apps[0]?.context, "coding");
+      });
+
+      it("keeps one owner's context choice on that owner's grant, never the shared client", async () => {
+        const ownerA = await newOwner();
+        const ownerB = await newOwner();
+        const client = await newCimdClient();
+        const connectionA = await connect(ownerA, client);
+        const connectionB = await connect(ownerB, client);
+
+        const response = await contextRoute(
+          ...contextRequest(ownerA, connectionA.grantId, { context: "coding" })
+        );
+        assert.equal(response.status, 200);
+
+        // B's own grant, list and gateway context are all untouched by A's
+        // choice, because the choice lives on A's grant, not the shared row.
+        assert.equal((await listOwnerApps(ownerA)).apps[0]?.context, "coding");
+        assert.equal((await listOwnerApps(ownerB)).apps[0]?.context, "conversation");
+        const authorityB = await findCloudOAuthAccessToken(
+          connectionB.accessDigest,
+          CLOUD_RESOURCE
+        );
+        assert.equal(authorityB?.client.clientContext, "conversation");
+        const stored = await pool!.query(
+          "SELECT client_context FROM exomem_oauth_clients WHERE client_id = $1",
+          [client.clientId]
+        );
+        assert.equal(stored.rows[0]!.client_context, "conversation");
       });
 
       it("answers 404 for a context change on an id the list cannot show", async () => {
@@ -767,8 +816,7 @@ describe(
                client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
                client_context
              ) VALUES (
-               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3,
-               $4
+               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3, $4
              )`,
             [
               clientId,
@@ -996,8 +1044,29 @@ describe(
             platform: "openai",
             loopback: false,
             redirectHost: new URL(impostor.redirectUri).hostname,
-            vouchedHost: new URL(impostor.clientId).hostname,
+            // An allowlisted platform already vouches for this client; the
+            // verified-host line is reserved for unlisted lane-admitted hosts.
+            vouchedHost: null,
           });
+
+          // On an unlisted host the vouching host is the only verified signal.
+          const unlisted = await newUnlistedCimdClient();
+          try {
+            const unlistedRequest = await startAuthorization(unlisted);
+            const unlistedView = await loadConsentView({
+              confirmation: confirmationOf(unlistedRequest.transaction),
+              transactionCookie: unlistedRequest.transaction,
+              formNonceCookie: unlistedRequest.formNonce,
+              sessionCookie: undefined,
+            });
+            assert.notEqual(unlistedView.step, "expired");
+            assert.equal(
+              (unlistedView as Exclude<typeof unlistedView, { step: "expired" }>).app.vouchedHost,
+              new URL(unlisted.clientId).hostname
+            );
+          } finally {
+            await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = false");
+          }
         });
       });
     });

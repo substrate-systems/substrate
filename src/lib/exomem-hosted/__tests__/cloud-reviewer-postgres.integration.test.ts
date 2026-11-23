@@ -124,7 +124,7 @@ async function reviewerFixture(provider: "openai" | "anthropic" = "openai") {
   const clientId = `review-${randomUUID()}`;
   const redirectUri = "https://review.example.test/callback";
   const client = await pool.query(
-    "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256, client_context) VALUES ($1, $2, 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $4, 'conversation') RETURNING id",
+    "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256) VALUES ($1, $2, 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $4) RETURNING id",
     [
       clientId,
       provider === "openai" ? "openai" : "claude",
@@ -288,7 +288,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     const clientId = `generic-review-${randomUUID()}`;
     const redirectUri = "https://review.example.test/callback";
     const client = await pool.query(
-      "INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_context) VALUES ($1, 'generic', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'conversation') RETURNING id",
+      "INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest) VALUES ($1, 'generic', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256')) RETURNING id",
       [clientId, JSON.stringify([redirectUri])]
     );
     const transactionDigest = randomBytes(32);
@@ -716,7 +716,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     const fixture = await reviewerFixture();
     const tokens = await authorize(fixture);
     const client = await pool.query(
-      "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256, client_context) VALUES ($1, 'openai', 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $2, 'conversation') RETURNING id",
+      "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256) VALUES ($1, 'openai', 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $2) RETURNING id",
       [
         `family-client-${randomUUID()}`,
         randomBytes(32).toString("hex"),
