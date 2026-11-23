@@ -364,6 +364,21 @@ describe("the app rows", () => {
     );
   });
 
+  it("keeps the self-declared-name marker and access destination on a signed-out row", () => {
+    const out = app({
+      session: { state: "signed_out", since: "2026-10-09T15:00:00Z" },
+      displayName: "My App",
+      displayNameSource: "client_metadata",
+      kind: "web",
+      redirectHosts: ["app.example.com"],
+    });
+    assert.equal(
+      appMeta(out, clock, false),
+      "signed out since 9 October · open My App and connect Exomem again" +
+        " · name from the app · sends access to app.example.com"
+    );
+  });
+
   it("shows an unreadable sign-in state as unknown, never as signed in", () => {
     const unknown = app({ session: { state: "unknown", since: null } });
     const meta = appMeta(unknown, clock, false);

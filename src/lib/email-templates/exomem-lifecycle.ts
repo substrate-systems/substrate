@@ -442,8 +442,11 @@ export function renderExomemAppSignoutEmail(input: {
 }): RenderedEmail {
   const day = emailDate(input.signedOutAt, input.timeZone);
   // The subject stays within its 45-character slot; a longer self-declared
-  // name still names the app in the headline, body and facts.
-  const subjectName = input.appName.length <= 18 ? input.appName : `${input.appName.slice(0, 17)}…`;
+  // name still names the app in the headline, body and facts. Truncate by
+  // code points so an astral character never leaves a lone surrogate.
+  const namePoints = [...input.appName];
+  const subjectName =
+    namePoints.length <= 18 ? input.appName : `${namePoints.slice(0, 17).join("")}…`;
   const claim = input.appNameClaimed ? ` “${input.appName}” is what the app calls itself.` : "";
   return renderExomemEmail({
     base: input.scheme,

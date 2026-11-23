@@ -547,23 +547,27 @@ export function appGlyph(app: HomeApp): string {
  * access goes.
  */
 export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
-  const remedy = `open ${app.displayName} and connect Exomem again`;
+  const parts: string[] = [];
   if (app.session.state === "signed_out") {
     const since = app.session.since === null ? null : dayMonth(app.session.since, clock.timeZone);
-    return `${since === null ? "signed out" : `signed out since ${since}`} · ${remedy}`;
+    parts.push(since === null ? "signed out" : `signed out since ${since}`);
+    parts.push(`open ${app.displayName} and connect Exomem again`);
+  } else {
+    // An app connected within the hour reads "connected just now" or "12 minutes ago",
+    // as the board draws a fresh account; a reviewer's row keeps the date.
+    const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
+    const connected = recent
+      ? ago(app.connectedAt, clock.now)
+      : dayMonth(app.connectedAt, clock.timeZone);
+    // A state the read gave no answer to is unknown, never signed in.
+    parts.push(app.session.state === "unknown" ? "sign-in unknown" : "signed in");
+    parts.push(`connected ${connected}`);
+    if (reviewer) parts.push("during review");
+    // An older server sends no lastUsedAt; the row then says nothing about use.
+    if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
   }
-  // An app connected within the hour reads "connected just now" or "12 minutes ago",
-  // as the board draws a fresh account; a reviewer's row keeps the date.
-  const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
-  const connected = recent
-    ? ago(app.connectedAt, clock.now)
-    : dayMonth(app.connectedAt, clock.timeZone);
-  // A state the read gave no answer to is unknown, never signed in.
-  const parts = [app.session.state === "unknown" ? "sign-in unknown" : "signed in"];
-  parts.push(`connected ${connected}`);
-  if (reviewer) parts.push("during review");
-  // An older server sends no lastUsedAt; the row then says nothing about use.
-  if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
+  // A name the app gave itself stays marked in every state — a signed-out
+  // row still names where reconnecting sends access.
   if (displayNameClaimedByApp(app.displayNameSource)) {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
     parts.push("name from the app", `sends access to ${destination}`);

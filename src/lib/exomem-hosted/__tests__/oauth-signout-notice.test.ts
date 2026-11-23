@@ -36,4 +36,14 @@ describe("the app sign-out email", () => {
     assert.ok(email.subject.length <= 45, email.subject);
     assert.match(email.textContent, new RegExp(long));
   });
+
+  it("never splits a surrogate pair when it truncates the subject", () => {
+    // A self-declared name may carry astral characters; truncating by UTF-16
+    // units could leave a lone surrogate at the cut.
+    const email = renderExomemAppSignoutEmail({ ...input, appName: `app-${"😀".repeat(30)}` });
+    const lone = [...email.subject].some(
+      (char) => char.length === 1 && char.charCodeAt(0) >= 0xd800 && char.charCodeAt(0) <= 0xdfff
+    );
+    assert.equal(lone, false, email.subject);
+  });
 });
