@@ -1006,7 +1006,7 @@ describe("Cloud artifact fetch authority", () => {
   const FILE_CALL_BODY = JSON.stringify({
     method: "tools/call",
     params: {
-      name: "preserve_artifacts",
+      name: "save_evidence",
       arguments: {
         scope: "sample",
         category: "review",
@@ -1027,7 +1027,7 @@ describe("Cloud artifact fetch authority", () => {
       id: 1,
       method: "tools/call",
       params: {
-        name: "preserve_artifacts",
+        name: "save_evidence",
         arguments: { scope: "sample", category: "review", files: [file] },
       },
     });
@@ -1061,7 +1061,7 @@ describe("Cloud artifact fetch authority", () => {
     );
     const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
     assert.equal(claims.sub, TEST_CELL_ID);
-    assert.equal(claims.op, "preserve_artifacts");
+    assert.equal(claims.op, "save_evidence");
     assert.deepEqual(claims.handles, [
       createHash("sha256")
         .update(JSON.stringify(["synthetic-file", file.download_url, null, file.file_name]))
@@ -1113,7 +1113,7 @@ describe("Cloud artifact fetch authority", () => {
             },
           },
         }),
-        headers: { "mcp-name": "preserve_artifacts" },
+        headers: { "mcp-name": "save_evidence" },
       }),
       deps
     );
@@ -1204,7 +1204,7 @@ describe("Cloud artifact fetch authority", () => {
     const { privateKey } = generateKeyPairSync("ed25519");
     const body = JSON.stringify({
       method: "tools/call",
-      params: { name: "capture_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
+      params: { name: "save_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
     });
     const variants: Record<string, string>[] = [
       {},
