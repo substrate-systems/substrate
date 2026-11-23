@@ -20,7 +20,12 @@ import {
 } from "./cloud-config";
 import { CONNECTABLE_EFFECTIVE_STATES, FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
+import {
+  OAUTH_FAMILY_END_REASON,
+  type OAuthFamilyEndReason,
+} from "./oauth-family-end";
 import { loadOAuthSessionPolicy, type OAuthSessionPolicy } from "./oauth-session-policy";
+import { notifyEndedAppSessions } from "./oauth-signout-notice";
 
 export type OAuthTokenContext = {
   grantId: string;
@@ -712,6 +717,11 @@ export type OAuthStatePruneResult = {
   disabledCimd: number;
   /** Clients retired by this sweep, per partition. */
   retired: { autoRegistered: number; generic: number };
+  /**
+   * The app sign-out notice lane's counts; `null` when that lane failed —
+   * reported, never silently zero. (notify-owner-of-app-signout)
+   */
+  signouts: { candidates: number; emailed: number } | null;
 };
 
 // Each run deletes at most this many rows of each credential kind.
@@ -801,8 +811,10 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
 
 /**
  * The scheduled OAuth maintenance sweep: delete expired transactions, codes and
- * tokens, disable CIMD clients whose metadata expired, and give back the slots
- * of clients that can no longer be used. Retirement keeps the row and is
+ * tokens, disable CIMD clients whose metadata expired, give back the slots
+ * of clients that can no longer be used, and tell owners when an app lost its
+ * last live token family without their action (notify-owner-of-app-signout).
+ * Retirement keeps the row and is
  * refused for any client that still holds live authority
  * (`exomem_oauth_clients_holding_live_authority`).
  */
@@ -810,8 +822,19 @@ export async function pruneExpiredOAuthState(
   env: EnvironmentSource = process.env
 ): Promise<OAuthStatePruneResult> {
   const grace = loadOAuthClientRetirementGrace(env);
+  // The notice lane runs before the deletions: prune-expired-token-families
+  // removes an expired family in this same run, and an ending that is gone
+  // before it is noticed can never email. Its failure is logged and reported
+  // as null, never silently counted, and never keeps a client from returning
+  // its slot.
+  let signouts: OAuthStatePruneResult["signouts"] = null;
+  try {
+    signouts = await notifyEndedAppSessions();
+  } catch {
+    console.error("exomem-oauth: app sign-out notice lane failed");
+  }
   await deleteExpiredOAuthCredentials();
-  return withExomemTransaction(async (tx) => {
+  const retired = await withExomemTransaction(async (tx) => {
     // A client without live authority gains some only through a new
     // authorization transaction or a CIMD re-registration, and both take this
     // lock shared. Every later grant, code or token needs a transaction, grant,
@@ -906,6 +929,7 @@ export async function pruneExpiredOAuthState(
       },
     };
   });
+  return { ...retired, signouts };
 }
 
 /** Operator revocation is always fenced to the authoritative owner and tenant. */
@@ -918,7 +942,7 @@ export async function revokeOAuthTokenFamilyForOwner(input: {
     /* exomem:revoke-oauth-token-family-for-owner */
     UPDATE exomem_oauth_token_families AS family
     SET revoked_at = COALESCE(family.revoked_at, now()),
-        revoked_reason = COALESCE(family.revoked_reason, 'operator_revoked')
+        revoked_reason = COALESCE(family.revoked_reason, ${OAUTH_FAMILY_END_REASON.operatorRevoked})
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
     WHERE family.id = ${input.familyId}::uuid
@@ -935,9 +959,9 @@ export async function revokeOAuthTokenFamilyForOwner(input: {
 export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
   ownerUserId: string;
   tenantId: string;
-  reason?: "operator_revoked" | "lifecycle_deleted";
+  reason?: Extract<OAuthFamilyEndReason, "operator_revoked" | "lifecycle_deleted">;
 }): Promise<number> {
-  const reason = input.reason ?? "operator_revoked";
+  const reason = input.reason ?? OAUTH_FAMILY_END_REASON.operatorRevoked;
   return withExomemTransaction(async (tx) => {
     const { rows } = await tx`
       /* exomem:revoke-oauth-account-for-owner-tenant */
@@ -956,7 +980,8 @@ export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
             -- downgraded: Cloud admission clears lifecycle blocks, so a ban
             -- left recorded as lifecycle_deleted would be re-admitted.
             blocked_reason = CASE
-              WHEN EXCLUDED.blocked_reason = 'operator_revoked' THEN 'operator_revoked'
+              WHEN EXCLUDED.blocked_reason = ${OAUTH_FAMILY_END_REASON.operatorRevoked}
+                THEN ${OAUTH_FAMILY_END_REASON.operatorRevoked}
               ELSE exomem_oauth_account_blocks.blocked_reason
             END
         RETURNING tenant_id
@@ -1009,7 +1034,7 @@ export async function revokeOAuthTokenForClient(input: {
     /* exomem:revoke-oauth-token-for-client */
     UPDATE exomem_oauth_token_families AS family
     SET revoked_at = COALESCE(family.revoked_at, now()),
-        revoked_reason = COALESCE(family.revoked_reason, 'client_revoked')
+        revoked_reason = COALESCE(family.revoked_reason, ${OAUTH_FAMILY_END_REASON.clientRevoked})
     FROM exomem_oauth_clients AS client
     WHERE family.client_id = client.id
       AND client.client_id = ${input.clientId}

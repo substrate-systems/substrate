@@ -540,21 +540,34 @@ export function appGlyph(app: HomeApp): string {
 }
 
 /**
- * The row's second line: when the app connected and when it last reached the
- * Exomem. On a reviewer account it says the app joined during the review; a name
- * the app gave itself shows where access goes.
+ * The row's second line: whether the app can still reach the Exomem, when it
+ * connected and when it last reached it. A signed-out app leads with when it
+ * lost access and what reconnecting takes. On a reviewer account it says the
+ * app joined during the review; a name the app gave itself shows where
+ * access goes.
  */
 export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
-  // An app connected within the hour reads "connected just now" or "12 minutes ago",
-  // as the board draws a fresh account; a reviewer's row keeps the date.
-  const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
-  const connected = recent
-    ? ago(app.connectedAt, clock.now)
-    : dayMonth(app.connectedAt, clock.timeZone);
-  const parts = [`connected ${connected}`];
-  if (reviewer) parts.push("during review");
-  // An older server sends no lastUsedAt; the row then says nothing about use.
-  if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
+  const parts: string[] = [];
+  if (app.session.state === "signed_out") {
+    const since = app.session.since === null ? null : dayMonth(app.session.since, clock.timeZone);
+    parts.push(since === null ? "signed out" : `signed out since ${since}`);
+    parts.push(`open ${app.displayName} and connect Exomem again`);
+  } else {
+    // An app connected within the hour reads "connected just now" or "12 minutes ago",
+    // as the board draws a fresh account; a reviewer's row keeps the date.
+    const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
+    const connected = recent
+      ? ago(app.connectedAt, clock.now)
+      : dayMonth(app.connectedAt, clock.timeZone);
+    // A state the read gave no answer to is unknown, never signed in.
+    parts.push(app.session.state === "unknown" ? "sign-in unknown" : "signed in");
+    parts.push(`connected ${connected}`);
+    if (reviewer) parts.push("during review");
+    // An older server sends no lastUsedAt; the row then says nothing about use.
+    if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
+  }
+  // A name the app gave itself stays marked in every state — a signed-out
+  // row still names where reconnecting sends access.
   if (displayNameClaimedByApp(app.displayNameSource)) {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
     parts.push("name from the app", `sends access to ${destination}`);

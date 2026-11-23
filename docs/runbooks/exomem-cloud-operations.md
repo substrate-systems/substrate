@@ -152,6 +152,63 @@ cannot explain it, revoke that family as described below. The owner ends a
 sign-in themselves in Home: "Connected apps", then "Disconnect" beside the app,
 which revokes the grant and every family under it.
 
+#### Whether an app can still reach the Exomem
+
+An app can reach its owner's cell only while at least one token family under
+its grant is unrevoked and still holds a usable credential: an unconsumed,
+unexpired refresh token, or — for a family issued without refresh — an
+unrevoked, unexpired access token. The refresh token's `expires_at` is the
+real idle window; the family row's own `expires_at` is only the session
+ceiling the tokens are already capped by. A family whose last refresh token
+expired a day ago is dead even though its row reads unexpired for months.
+This one rule (`exomem_oauth_family_live_until`, migration 0089) decides
+everywhere a sign-in state is read.
+
+Home's "Connected apps" rows now say so: "signed in" while a family is live,
+"signed out since `<date>`" (the day the last live family ended, by
+revocation or by its last credential expiring) with the remedy "open `<app>`
+and connect Exomem again", and "sign-in unknown" when the state cannot be
+read — an unreadable state is never shown as signed in. A grant stays in the
+list while it is unrevoked, so a signed-out app still offers Disconnect.
+
+#### The sign-out email
+
+When the last live family under a grant ends without the owner's action — a
+replay revocation, the idle window or the session ceiling expiring, or an
+operator family revocation — the OAuth lane of `exomem-reconcile` emails the
+owner once per family: which app (the display name Home shows; a name the app
+declares itself is marked as its own claim), when access ended, that nothing
+the app saves reaches the Exomem until it reconnects, and to open the app and
+connect Exomem again. The email goes through the normal outbox with delivery
+evidence (see "Email delivery" below), and cancels at send time if the owner
+disconnected or reconnected meanwhile or the account is gone.
+
+The rules:
+
+- The grant must have been used within the last 14 days
+  (`exomem_oauth_grant_usage.last_used_at`); a quieter app gets no email.
+- Owner disconnects (`owner_disconnected`), the client's own revocation
+  (`client_revoked`) and account, cell or reviewer lifecycle endings
+  (`lifecycle_deleted`, `cloud_cell_deleted`,
+  `reviewer_credential_revoked`) send nothing.
+- At most one email per grant per 24 hours. A durable marker row per family
+  (`exomem_oauth_app_signout_notices`, migration 0089) makes the notice
+  once-per-family under retries and concurrent sweeps; the sweep detects
+  endings within a 25-hour lookback in batches of 100, and deletes markers
+  older than 30 days, bounded per run.
+- Marketplace reviewer tenants never get the email, and Home's own channel
+  (a first-party client) cannot be the app it names.
+- Each queued email logs the content-free event `oauth.app_signout.notified`
+  with the tenant ID and `emailKind` `app_signout` — metadata only, no app
+  names. The reconcile result's `oauth.signouts` carries `candidates` and
+  `emailed`, or `null` when that lane failed (logged as
+  `exomem-oauth: app sign-out notice lane failed`).
+
+Rollback note: a rollback to a release without the `app_signout` email kind
+drains queued notices as failed — the outbox claims each row, finds the kind
+unregistered (`EMAIL_KIND_UNREGISTERED`) and settles it as failed. They are
+not re-sent when the fixed release returns.
+
 ### Revoke connected apps
 
 Revoke the narrowest scope that stops the problem. Each step takes effect on the
@@ -1009,11 +1066,11 @@ Do not edit the outbox row.
 
 Public health readers certify the latest completed proof, rather than a responding process. Missing, failed, stale or unreadable proof returns HTTP 503 with `{"ok":false}`. Fresh successful proof returns HTTP 200 with `{"ok":true}`. Readers disable caching and perform no sends or writes.
 
-| Public route              | Checked scope                                                                          | Schedule                     | Default freshness |
-| ------------------------- | -------------------------------------------------------------------------------------- | ---------------------------- | ----------------- |
-| Control `/healthz`        | PostgreSQL temporary-row write/read                                                    | Each minute                  | 180 seconds       |
-| Control `/healthz/email`  | A canary start accepted and delivered, and no stalled or failed queued email           | Each 30 minutes              | 3,600 seconds     |
-| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                                           | Platform CronJob each minute | 180 seconds       |
+| Public route              | Checked scope                                                                | Schedule                     | Default freshness |
+| ------------------------- | ---------------------------------------------------------------------------- | ---------------------------- | ----------------- |
+| Control `/healthz`        | PostgreSQL temporary-row write/read                                          | Each minute                  | 180 seconds       |
+| Control `/healthz/email`  | A canary start accepted and delivered, and no stalled or failed queued email | Each 30 minutes              | 3,600 seconds     |
+| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                                 | Platform CronJob each minute | 180 seconds       |
 
 The email proof starts a sign-in the way a person does, and checks that the
 email arrives. Every 30 minutes it requests a start for
@@ -1171,7 +1228,7 @@ CELL_NOT_READY` with `Retry-After: EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`.
 - A held request counts against `EXOMEM_CLOUD_HOLD_MAX` and
   `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, not against the in-flight caps. When the
   cell accepts, the request needs a free in-flight slot, or it gets `429
-  RATE_LIMITED`.
+RATE_LIMITED`.
 - `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS` bounds each connection attempt to a cell.
 - A cell that sends no response headers within
   `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS` gets `504 CELL_TIMEOUT`.
@@ -1195,12 +1252,12 @@ image. The deploy token, `EXOMEM_DEPLOY_TOKEN`, may only do these two things:
 - send `PUT /api/exomem/admin/cloud-release` with exactly `cellImage` and
   `release`.
 
-| Answer                         | Meaning                                                                                                   |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `409 CELL_IMAGE_SEEN`          | The deploy token sent a digest that was `cell_image` before. Nothing changed.                             |
-| `409 CELL_RELEASE_OLDER`       | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.          |
-| `403 OPERATOR_SCOPE_DENIED`    | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed.     |
-| `401` on the full `GET`        | The full view names every cell and tenant, so only the admin token reads it.                              |
+| Answer                      | Meaning                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `409 CELL_IMAGE_SEEN`       | The deploy token sent a digest that was `cell_image` before. Nothing changed.                         |
+| `409 CELL_RELEASE_OLDER`    | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.       |
+| `403 OPERATOR_SCOPE_DENIED` | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed. |
+| `401` on the full `GET`     | The full view names every cell and tenant, so only the admin token reads it.                          |
 
 The rollout view holds no cell ID and no tenant ID, and its size does not grow
 with the fleet. It returns `cell_image` and its `release`, `paused` and

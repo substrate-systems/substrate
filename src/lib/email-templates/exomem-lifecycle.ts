@@ -1,7 +1,8 @@
 /**
  * The Exomem account emails after admission, on the one template
  * (exomem-email.ts): 03 to 08 (the lifecycle, R12-Lifecycle and R28-Emails),
- * 14, 15 and 19 (storage), 16 and 16b (email change) and 17 (vault import).
+ * 14, 15 and 19 (storage), 16 and 16b (email change), 17 (vault import) and
+ * the app sign-out notice (notify-owner-of-app-signout).
  * Copy is verbatim from the boards; where the board's dark and light cards
  * differ, the dark card is the email and the light card a shortened sample.
  * Every number and time limit is computed here, at send, in the reader's
@@ -418,5 +419,54 @@ export function renderExomemVaultImportedEmail(input: {
     },
     action: { label: "Open Home", url: input.homeUrl },
     smallPrint: "Checked against its manifest before anything changed.",
+  });
+}
+
+/**
+ * The app sign-out notice (notify-owner-of-app-signout): an app's last live
+ * token family ended without the owner's action, so it can no longer reach
+ * the Exomem. Plain, short, no blame: which app, when, that nothing it saves
+ * gets there until it reconnects, and how. A name the app declared itself is
+ * marked as its own claim, as Home marks it.
+ */
+export function renderExomemAppSignoutEmail(input: {
+  homeUrl: string;
+  /** The same display name Home shows: oauthClientDisplayName's answer. */
+  appName: string;
+  /** True when the name is the app's own claim (client_metadata). */
+  appNameClaimed: boolean;
+  signedOutAt: Date;
+  timeZone: EmailTimeZone;
+  scheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
+}): RenderedEmail {
+  const day = emailDate(input.signedOutAt, input.timeZone);
+  // The subject stays within its 45-character slot; a longer self-declared
+  // name still names the app in the headline, body and facts. Truncate by
+  // code points so an astral character never leaves a lone surrogate.
+  const namePoints = [...input.appName];
+  const subjectName =
+    namePoints.length <= 18 ? input.appName : `${namePoints.slice(0, 17).join("")}…`;
+  const claim = input.appNameClaimed ? ` “${input.appName}” is what the app calls itself.` : "";
+  return renderExomemEmail({
+    base: input.scheme,
+    themeChoice: input.themeChoice,
+    subject: `${subjectName} can’t reach your Exomem`,
+    preheader: `Since ${day}, nothing it saves gets there. Reconnect to fix it.`,
+    band: "readonly",
+    headline: `${input.appName} is signed out`,
+    body: [
+      `On ${day}, ${input.appName}’s connection to your Exomem ended. Until it is connected again, nothing ${input.appName} saves reaches your Exomem.`,
+      `Open ${input.appName} and connect Exomem again to pick up where it left off.`,
+    ],
+    detail: {
+      kind: "facts",
+      rows: [
+        { label: "App", value: input.appName },
+        { label: "Signed out", value: day },
+      ],
+    },
+    action: { label: "Open Home", url: input.homeUrl },
+    smallPrint: `One email per app a day, and only for apps you used lately.${claim} Home lists every connected app.`,
   });
 }
