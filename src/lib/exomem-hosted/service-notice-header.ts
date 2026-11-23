@@ -26,6 +26,10 @@ const NOTICE_JSON_MAX_BYTES = (NOTICE_HEADER_MAX_BYTES / 4) * 3;
 /** The longest a gateway instance serves a notice without asking the database again. */
 export const NOTICE_CACHE_TTL_MS = 30_000;
 
+// The one request that finds the copy old waits for this load, so the bound is a request's
+// added latency. The query reads at most 100 rows by index and takes about 1 ms.
+const NOTICE_LOAD_TIMEOUT_MS = 1_000;
+
 export function codePoints(text: string): string[] {
   return Array.from(text);
 }
@@ -191,7 +195,7 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
   const now = options.now ?? (() => Date.now());
   const statusUrl = options.statusUrl ?? (() => statusPageUrlOrDefault());
   const ttlMs = options.ttlMs ?? NOTICE_CACHE_TTL_MS;
-  const loadTimeoutMs = options.loadTimeoutMs ?? 5_000;
+  const loadTimeoutMs = options.loadTimeoutMs ?? NOTICE_LOAD_TIMEOUT_MS;
 
   let notices: ServiceNotice[] | null = null;
   // Encoding costs milliseconds for a long summary, which no request may pay (the 1 ms budget
@@ -200,12 +204,10 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
   let encoded = new Map<string, string>();
   let loadedAt = -Infinity;
   let failedAt = -Infinity;
-  let attempt = 0;
   let inflight: Promise<void> | null = null;
 
   function refresh(): Promise<void> {
     if (inflight) return inflight;
-    const mine = ++attempt;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("service notice load timed out")), loadTimeoutMs);
@@ -213,8 +215,6 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
     inflight = Promise.race([options.load(), timedOut])
       .then(
         (loaded) => {
-          // A load that timed out and finishes later must not replace newer data.
-          if (mine !== attempt) return;
           notices = loaded;
           encoded = new Map();
           loadedAt = now();

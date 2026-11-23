@@ -1316,7 +1316,7 @@ expected to be down. `--no-mirror` skips the status page.
   older cells ignore it.
 - Substrate sets the header and refuses a caller's own `x-exomem-` header.
   A gateway instance keeps its copy of the notices for 30 seconds. The first
-  request after that waits for one refresh, at most 5 seconds, and carries the
+  request after that waits for one refresh, at most 1 second, and carries the
   result, so a request never carries a notice that changed more than 30 seconds
   ago. An instance with no traffic asks the database nothing.
 - The status page shows maintenance under scheduled maintenance, with its start
