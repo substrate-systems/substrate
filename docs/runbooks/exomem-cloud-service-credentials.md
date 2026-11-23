@@ -51,10 +51,11 @@ The 201 response is the only place the secret ever appears: `secret`,
 with `cache-control: no-store`. Copy it straight into the product's secret
 custody; there is no recovery path. If the value is lost, rotate — the old
 row still works until revoked, so a lost copy is a reason to replace, not to
-share. `cloudMcpUrl` is `null` when the deployment does not publish the Cloud
-MCP URL — derive it from the platform's advertised Cloud endpoint (the same
-origin the operator API is served on, plus the configured MCP path) rather
-than re-issuing; the credential itself is unaffected.
+share. `cloudMcpUrl` is `null` when the web app lacks `EXOMEM_CLOUD_MCP_URL`.
+That deployment is broken, because OAuth also fails closed without it. Fix the
+deployment's setting rather than guessing an address: the gateway runs on its
+own public host, not on the operator API's origin. The credential itself is
+unaffected and needs no reissue.
 
 `GET /api/exomem/admin/service-credentials?tenantId=...` (or `?email=...`)
 lists id, principal, `createdAt` and `revokedAt` — never a secret or a

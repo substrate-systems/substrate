@@ -108,14 +108,18 @@ export async function issueCloudServiceCredentialAtomic(input: {
         AND exomem_cloud_tenant_access_allowed(tenant.id, tenant.owner_user_id)
         -- Review R2: a marketplace-reviewer's credentials have their own
         -- expiry contract; a long-lived service credential would sidestep it.
+        -- A wrong refusal costs the operator one blocked issue, for a tenant
+        -- that no product should serve.
         AND NOT tenant.marketplace_reviewer_purpose
       LIMIT 1
       FOR UPDATE OF tenant
     `;
     const row = tenant.rows[0] as { id: string; cell_id: string } | undefined;
-    // R2: one distinct code for every tenant state that cannot hold a
-    // credential — gone cells, leaving or blocked tenants, and marketplace
-    // reviewers — so the operator sees why rather than a bare INVALID_REQUEST.
+    // R2: one distinct code for every selector that matches no eligible
+    // tenant — an unknown id or email, gone cells, leaving or blocked tenants,
+    // and marketplace reviewers — so the operator sees an eligibility answer
+    // rather than a bare INVALID_REQUEST. A wrong firing costs the operator a
+    // retry with the right selector.
     if (!row) throw exomemErrors.serviceCredentialTenantIneligible();
     const live = await tx`
       /* exomem-cloud:issue-service-credential-count */

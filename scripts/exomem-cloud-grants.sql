@@ -491,8 +491,9 @@ BEGIN
     -- SECURITY INVOKER, so it reads only the tenant and account-block
     -- columns the gateway was granted above. EXECUTE is granted anyway so
     -- the privilege table names the function's caller rather than relying
-    -- on the PUBLIC default; substrate_app's schema-wide grant already
-    -- covers the issue path.
+    -- on the PUBLIC default. substrate_app's issue path also relies on that
+    -- PUBLIC default, because its schema-wide grant covers tables and
+    -- sequences only; revoking EXECUTE from PUBLIC needs a grant here first.
     IF to_regprocedure('exomem_cloud_tenant_access_allowed(uuid,uuid)') IS NOT NULL THEN
       GRANT EXECUTE ON FUNCTION exomem_cloud_tenant_access_allowed(uuid,uuid)
         TO exomem_gateway;

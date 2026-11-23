@@ -170,7 +170,7 @@ export const exomemErrors = {
     new ExomemHostedError({
       code: "SERVICE_CREDENTIAL_TENANT_INELIGIBLE",
       status: 409,
-      message: "this tenant cannot hold a service credential",
+      message: "no eligible tenant matches this selector",
     }),
 } as const;
 

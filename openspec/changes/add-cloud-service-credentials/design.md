@@ -45,9 +45,11 @@ The proxy, the desired-state gate, the derived bearer and the origin proof then 
 
 The identity rate limit and the per-identity concurrency guard apply with the key `tenantId:principal`. A resolved service credential skips the IP bucket, as the first-party client does: a product's servers call from a few shared addresses, and the identity limit still bounds them. A bearer with the service prefix that does not resolve still takes the IP bucket before its 401.
 
+No bucket bounds one product across all its tenants. At launch one product serves one tenant, so the per-identity limits are the bound. Add a bucket keyed on the principal alone when a product holds credentials for a second tenant.
+
 ### D5. Rotation is two live credentials
 
-The issue route refuses a third live credential for one tenant and principal with `SERVICE_CREDENTIAL_LIMIT`. It also refuses a tenant that cannot hold a credential — one leaving, owner-blocked, without a non-deleted cell, or a marketplace-reviewer tenant whose reviewer credentials carry their own expiry contract a long-lived secret would sidestep — with `SERVICE_CREDENTIAL_TENANT_INELIGIBLE` (review R2). A product rotates in three steps: issue a second credential, switch to it, then revoke the first. The issue transaction locks the tenant row so that two concurrent issues cannot both pass the count.
+The issue route refuses a third live credential for one tenant and principal with `SERVICE_CREDENTIAL_LIMIT`. It also refuses a tenant that cannot hold a credential — one leaving, owner-blocked, without a non-deleted cell, or a marketplace-reviewer tenant whose reviewer credentials carry their own expiry contract a long-lived secret would sidestep — with `SERVICE_CREDENTIAL_TENANT_INELIGIBLE` (review R2). An unknown tenant id or email gets the same code. A wrong refusal costs the operator one blocked issue, for a tenant that no product should serve. A product rotates in three steps: issue a second credential, switch to it, then revoke the first. The issue transaction locks the tenant row so that two concurrent issues cannot both pass the count.
 
 ### D6. Discovery forwarding
 
