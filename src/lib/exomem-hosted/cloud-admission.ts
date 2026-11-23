@@ -591,6 +591,11 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
           AND client.enabled = true
           AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+        -- The admission read itself moved into exomem_oauth_client_admitted,
+        -- which reads its own snapshot and cannot see a host withdrawal that
+        -- commits while this statement waits. The FOR KEY SHARE read can: it
+        -- re-reads the row it locked, so a deletion that lands during the wait
+        -- empties it, and the CIMD arm then needs the lane to still admit.
         LEFT JOIN LATERAL (
           SELECT admitted.host
           FROM exomem_oauth_admitted_cimd_hosts AS admitted
@@ -601,12 +606,16 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND transaction.resource = ${cloudResource}
-          AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
-            client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
-            AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
-            AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
-            AND admitted_host.host IS NOT NULL
-          ))
+          AND exomem_oauth_client_admitted(
+            client.admission_mode, client.enabled, client.metadata_document_digest,
+            client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
+            client.cimd_host, client.client_platform, true, now()
+          )
+          AND (
+            client.admission_mode <> 'cimd'
+            OR exomem_oauth_generic_client_admitted('generic')
+            OR admitted_host.host IS NOT NULL
+          )
         FOR UPDATE OF transaction
       `;
       const authorization = authorizationResult.rows[0] as

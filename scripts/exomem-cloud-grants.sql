@@ -405,6 +405,14 @@ BEGIN
       GRANT SELECT (id, user_id, tenant_id, client_id, resource, revoked_at)
         ON exomem_oauth_grants TO exomem_gateway;
     END IF;
+    -- Migration 0088's per-grant context override: the gateway's COALESCE read.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_oauth_grants'
+        AND column_name = 'client_context_override'
+    ) THEN
+      GRANT SELECT (client_context_override) ON exomem_oauth_grants TO exomem_gateway;
+    END IF;
     -- Migration 0036 adds candidate/reviewer lineage to these tables. Keep
     -- partial historical upgrades safe while granting the lookup's exact reads.
     FOREACH oauth_table IN ARRAY ARRAY[
@@ -437,6 +445,19 @@ BEGIN
         AND column_name = 'client_name'
     ) THEN
       GRANT SELECT (client_name) ON exomem_oauth_clients TO exomem_gateway;
+    END IF;
+    -- Migration 0088's stored client context: the gateway sets
+    -- x-exomem-client-context from it. Guarded on the column's own existence,
+    -- and the admission function's grant on its own signature.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_oauth_clients'
+        AND column_name = 'client_context'
+    ) THEN
+      GRANT SELECT (client_context) ON exomem_oauth_clients TO exomem_gateway;
+    END IF;
+    IF to_regprocedure('exomem_oauth_client_admitted(text,boolean,bytea,timestamptz,integer,timestamptz,text,text,boolean,timestamptz)') IS NOT NULL THEN
+      EXECUTE 'GRANT EXECUTE ON FUNCTION exomem_oauth_client_admitted(text,boolean,bytea,timestamptz,integer,timestamptz,text,text,boolean,timestamptz) TO exomem_gateway';
     END IF;
     IF to_regclass('exomem_oauth_admitted_cimd_hosts') IS NOT NULL THEN
       GRANT SELECT (host, platform) ON exomem_oauth_admitted_cimd_hosts TO exomem_gateway;
@@ -474,6 +495,29 @@ BEGIN
         ON exomem_entitlements TO exomem_gateway;
       GRANT SELECT (id, tenant_id, owner_user_id, credential_kind, revoked_at, expires_at, provider)
         ON exomem_marketplace_reviewer_credentials TO exomem_gateway;
+    END IF;
+    -- Migration 0088: the gateway resolves an `exs_` service credential
+    -- itself (findCloudServiceCredential), under the same least-privilege
+    -- pattern as the OAuth lookup. The table stores only the secret's
+    -- digest, so the gateway still never sees a secret. owner_user_id on
+    -- exomem_tenants is the account-block predicate's join column.
+    IF to_regclass('exomem_cloud_service_credentials') IS NOT NULL THEN
+      GRANT SELECT (id, tenant_id, principal, secret_digest, revoked_at)
+        ON exomem_cloud_service_credentials TO exomem_gateway;
+      IF to_regclass('exomem_tenants') IS NOT NULL THEN
+        GRANT SELECT (owner_user_id) ON exomem_tenants TO exomem_gateway;
+      END IF;
+    END IF;
+    -- Review B1: migration 0088's shared tenant-access predicate runs
+    -- SECURITY INVOKER, so it reads only the tenant and account-block
+    -- columns the gateway was granted above. EXECUTE is granted anyway so
+    -- the privilege table names the function's caller rather than relying
+    -- on the PUBLIC default. substrate_app's issue path also relies on that
+    -- PUBLIC default, because its schema-wide grant covers tables and
+    -- sequences only; revoking EXECUTE from PUBLIC needs a grant here first.
+    IF to_regprocedure('exomem_cloud_tenant_access_allowed(uuid,uuid)') IS NOT NULL THEN
+      GRANT EXECUTE ON FUNCTION exomem_cloud_tenant_access_allowed(uuid,uuid)
+        TO exomem_gateway;
     END IF;
   END IF;
 END

@@ -13,6 +13,7 @@ import {
   type CimdFetchedMetadata,
   type OperatorOAuthClientRegistration,
 } from "./oauth-client-admission";
+import { oauthClientContext } from "./oauth-client-identity";
 
 export type OperatorOAuthClient = {
   id: string;
@@ -291,7 +292,7 @@ export async function registerOperatorOAuthClient(
         client_id, admission_mode, enabled, metadata_provenance, redirect_uris,
         redirect_uris_digest, metadata_document_digest, metadata_fetched_at,
         metadata_ttl_seconds, metadata_expires_at, cimd_host, client_platform,
-        oauth_client_config_sha256, authority_version, client_name
+        oauth_client_config_sha256, authority_version, client_name, client_context
       )
       SELECT ${registration.clientId}, ${registration.admissionMode}, false,
              ${metadataProvenance({
@@ -313,7 +314,8 @@ export async function registerOperatorOAuthClient(
                ELSE NULL END,
              ${fetched ? new URL(registration.clientId).hostname.toLowerCase() : null},
              ${registration.platform}, ${configSha256},
-             gen_random_uuid(), ${fetched?.clientName ?? null}
+             gen_random_uuid(), ${fetched?.clientName ?? null},
+             ${oauthClientContext(registration.redirectUris)}
       FROM available CROSS JOIN authority
       WHERE available.allowed
       ON CONFLICT (client_id) DO UPDATE
@@ -329,6 +331,7 @@ export async function registerOperatorOAuthClient(
           client_platform = EXCLUDED.client_platform,
           oauth_client_config_sha256 = EXCLUDED.oauth_client_config_sha256,
           client_name = EXCLUDED.client_name,
+          client_context = EXCLUDED.client_context,
           enabled = CASE
             WHEN exomem_oauth_clients.oauth_client_config_sha256 IS NULL THEN false
             ELSE exomem_oauth_clients.enabled

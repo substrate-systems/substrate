@@ -19,6 +19,9 @@ export const CLOUD_UPLOAD_ROUTE_HEADER = "x-exomem-cloud-upload-route";
 export const CLOUD_UPLOAD_TICKET_HEADER = "x-exomem-cloud-upload-ticket";
 export const CLOUD_UPLOAD_PATH = "/upload";
 export const CLOUD_DOWNLOAD_PATH = "/download";
+// The cell's own well-known path, served unauthenticated inside the cluster;
+// the gateway's credential check is the boundary (add-cloud-service-credentials D6).
+export const CLOUD_DISCOVERY_PATH = "/.well-known/exomem-cell";
 const CLOUD_UPLOAD_PREFIX = "exomem-cloud-upload:v1:";
 const CELL_TICKET_PREFIX = "exomem-upload:";
 // The cell's portable handoff contract caps one handoff at 900 seconds.

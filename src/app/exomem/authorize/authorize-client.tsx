@@ -50,6 +50,8 @@ export type RequestApp = {
   platform: string | null;
   loopback: boolean;
   redirectHost: string;
+  /** A CIMD client's verified host, shown beside its name claim; null otherwise. */
+  vouchedHost: string | null;
 };
 
 /** The footer names the code destination; app-name claims appear beside consent. */
@@ -405,7 +407,12 @@ function Consent({
               )}
             </StepNotice>
           ) : null}
-          <ScopesCard scopes={request.scopes} readOnly={readOnly} claimedName={claimedName} />
+          <ScopesCard
+            scopes={request.scopes}
+            readOnly={readOnly}
+            claimedName={claimedName}
+            vouchedHost={app.vouchedHost}
+          />
           <StepNotice alert visible={!!failure}>
             {failure ?? failureCopy.generic}
           </StepNotice>
@@ -459,7 +466,12 @@ function Consent({
             lede={breakCopy.connectError.lede(name)}
           />
           {statusPageUrl ? <StepNotice>{breakCopy.connectError.notice}</StepNotice> : null}
-          <ScopesCard scopes={request.scopes} readOnly={false} claimedName={claimedName} />
+          <ScopesCard
+            scopes={request.scopes}
+            readOnly={false}
+            claimedName={claimedName}
+            vouchedHost={app.vouchedHost}
+          />
           <StepActions
             primary={{ label: breakCopy.connectError.retry, onClick: () => void connect() }}
             secondary={

@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 import { inspect } from "node:util";
 import { exomemErrors } from "./errors";
+import { SERVICE_CREDENTIAL_PREFIX } from "./service-credential-format";
 
 export const EXTERNAL_TOKEN_BYTES = 32;
 const GCM_IV_BYTES = 12;
@@ -17,11 +18,20 @@ const BASE64URL_TOKEN = /^[A-Za-z0-9_-]+$/;
 export type RandomBytesSource = (size: number) => Buffer;
 
 export function generateExternalToken(randomBytes: RandomBytesSource = nodeRandomBytes): string {
-  const bytes = randomBytes(EXTERNAL_TOKEN_BYTES);
-  if (bytes.length < EXTERNAL_TOKEN_BYTES) {
-    throw exomemErrors.encryptedSecretInvalid();
-  }
-  return Buffer.from(bytes).toString("base64url");
+  // add-cloud-service-credentials review B4: `exs_` is the service credential's
+  // dispatch prefix at the Cloud gateway, so no other opaque token may begin
+  // with it — an OAuth access token that did would be routed to the wrong
+  // credential kind. The draw collides about once in 2^24, so the redraw stays
+  // rare.
+  let token: string;
+  do {
+    const bytes = randomBytes(EXTERNAL_TOKEN_BYTES);
+    if (bytes.length < EXTERNAL_TOKEN_BYTES) {
+      throw exomemErrors.encryptedSecretInvalid();
+    }
+    token = Buffer.from(bytes).toString("base64url");
+  } while (token.startsWith(SERVICE_CREDENTIAL_PREFIX));
+  return token;
 }
 
 export function digestSecret(value: string | Uint8Array): Buffer {

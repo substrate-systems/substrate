@@ -211,16 +211,15 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
           AND client.enabled = true
           AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
           AND transaction.redirect_uri IN (SELECT jsonb_array_elements_text(client.redirect_uris))
-          -- No arm for generic clients: their platform is NULL, which the reviewer
-          -- check reads as any provider, so any generic client could redeem a credential.
-          AND (client.admission_mode = 'pinned' OR (
-            client.admission_mode = 'cimd' AND client.metadata_document_digest IS NOT NULL
-            AND client.metadata_fetched_at IS NOT NULL AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
-            AND client.metadata_expires_at > now() AND EXISTS (
-              SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-              WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
-            )
-          ))
+          -- No arm for uncertified clients: their platform is NULL, which the
+          -- reviewer check reads as any provider, so an uncertified client could
+          -- redeem a credential. p_allow_uncertified = false keeps the rule
+          -- certified-only here while the other sites admit the lanes.
+          AND exomem_oauth_client_admitted(
+            client.admission_mode, client.enabled, client.metadata_document_digest,
+            client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
+            client.cimd_host, client.client_platform, false, now()
+          )
           AND exomem_cloud_reviewer_authorized(credential.id, credential.tenant_id, credential.owner_user_id, client.client_platform)
         FOR UPDATE OF transaction
       ), created AS (

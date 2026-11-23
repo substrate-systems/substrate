@@ -48,6 +48,8 @@ const LOGIN: ActiveCloudOAuthLogin = {
     clientName: null,
     admissionMode: "cimd",
     platform: "claude",
+    cimdHost: "claude.ai",
+    clientContext: "conversation",
     redirectUris: ["https://client.example.test/callback"],
   },
   firstParty: false,
