@@ -274,6 +274,8 @@ export async function findCloudServiceCredential(
       admissionMode: "service",
       platform: null,
       redirectUris: [],
+      cimdHost: null,
+      clientContext: "conversation",
     },
     firstParty: false,
     serviceCredential: true,
