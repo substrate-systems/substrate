@@ -59,7 +59,9 @@ export async function createOwner(
 ): Promise<Owner> {
   const plan = PLAN_STATES[options.plan ?? "active"];
   const email = `home-${randomUUID().slice(0, 8)}@example.test`;
-  const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [email]);
+  const user = await pool.query("INSERT INTO exomem_users (email) VALUES ($1) RETURNING id", [
+    email,
+  ]);
   const userId = String(user.rows[0].id);
   const tenant = await pool.query(
     `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
@@ -165,7 +167,8 @@ export async function signIn(context: BrowserContext, owner: Owner) {
   ]);
 }
 
-/** An app the owner connected: an operator-registered client and its live grant. */
+/** An app the owner connected: an operator-registered client, its live grant, and the
+ * live token family with an unconsumed refresh token that makes the app read signed in. */
 export async function connectApp(
   owner: Owner,
   app: { platform: "claude" | "openai" | null; name?: string; redirect?: string }
@@ -191,7 +194,18 @@ export async function connectApp(
      VALUES ($1, $2, $3, $4, ARRAY['exomem.read', 'exomem.write']) RETURNING id`,
     [owner.userId, owner.tenantId, client.rows[0].id, environment.mcpUrl]
   );
-  return String(grant.rows[0].id);
+  const grantId = String(grant.rows[0].id);
+  const family = await pool.query(
+    `INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+     VALUES ($1, $2, now() + interval '365 days') RETURNING id`,
+    [grantId, client.rows[0].id]
+  );
+  await pool.query(
+    `INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
+     VALUES (decode($1, 'hex'), $2, now() + interval '30 days')`,
+    [randomBytes(32).toString("hex"), family.rows[0].id]
+  );
+  return grantId;
 }
 
 export async function grantRevoked(grantId: string): Promise<boolean> {
