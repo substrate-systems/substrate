@@ -176,6 +176,8 @@ const SERVICE_ACCESS: ActiveCloudServiceCredential = {
     admissionMode: "service",
     platform: null,
     redirectUris: [],
+    cimdHost: null,
+    clientContext: "conversation",
   },
   serviceCredential: true,
 };

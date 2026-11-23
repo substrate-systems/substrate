@@ -16,10 +16,7 @@
  */
 
 import { executeExomemSql, withExomemTransaction } from "./db";
-import {
-  REQUIRED_CLOUD_SCOPES,
-  type ActiveCloudOAuthAccessToken,
-} from "./cloud-oauth";
+import { REQUIRED_CLOUD_SCOPES, type ActiveCloudOAuthAccessToken } from "./cloud-oauth";
 import { exomemErrors } from "./errors";
 import { digestSecret, generateExternalToken } from "./security";
 import {
@@ -56,7 +53,10 @@ type ServiceCredentialRow = {
   revoked_at: string | null;
 };
 
-function selectorKey(input: ServiceCredentialSelector): { tenantId: string | null; email: string | null } {
+function selectorKey(input: ServiceCredentialSelector): {
+  tenantId: string | null;
+  email: string | null;
+} {
   return "tenantId" in input
     ? { tenantId: input.tenantId, email: null }
     : { tenantId: null, email: input.ownerEmail };
@@ -68,10 +68,12 @@ function selectorKey(input: ServiceCredentialSelector): { tenantId: string | nul
  * both pass the two-live-credential count. Returns the stored facts and the
  * plaintext secret, which only the issue response may reveal.
  */
-export async function issueCloudServiceCredentialAtomic(input: {
-  principal: string;
-  operatorPrincipalDigest: Buffer;
-} & ServiceCredentialSelector): Promise<{
+export async function issueCloudServiceCredentialAtomic(
+  input: {
+    principal: string;
+    operatorPrincipalDigest: Buffer;
+  } & ServiceCredentialSelector
+): Promise<{
   credentialId: string;
   tenantId: string;
   principal: string;
@@ -158,9 +160,12 @@ export async function issueCloudServiceCredentialAtomic(input: {
  */
 export async function listCloudServiceCredentials(
   input: ServiceCredentialSelector
-): Promise<
-  Array<{ credentialId: string; principal: string; createdAt: string; revokedAt: string | null }> | null
-> {
+): Promise<Array<{
+  credentialId: string;
+  principal: string;
+  createdAt: string;
+  revokedAt: string | null;
+}> | null> {
   const selector = selectorKey(input);
   // The operator's list deliberately applies none of the gateway lookup's
   // eligibility predicates: a deleting tenant's credentials are exactly the
@@ -274,6 +279,8 @@ export async function findCloudServiceCredential(
       admissionMode: "service",
       platform: null,
       redirectUris: [],
+      cimdHost: null,
+      clientContext: "conversation",
     },
     firstParty: false,
     serviceCredential: true,

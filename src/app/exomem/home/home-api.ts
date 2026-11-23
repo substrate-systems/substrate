@@ -302,21 +302,45 @@ export async function billingDestination(kind: "checkout" | "portal"): Promise<s
 
 // --- Connected apps ---
 
+/**
+ * The row's sign-in state, or unknown when the read gave none. A state the
+ * schema does not name — an absent field as much as a new one — must never
+ * render as signed in.
+ */
+function appSessionOf(value: unknown): HomeApp["session"] {
+  const session = record(value);
+  const state = session?.state;
+  if (state === "signed_in" || state === "signed_out") {
+    const since = session?.since;
+    // A since the formatter cannot read drops to no date, never to a crash.
+    return {
+      state,
+      since: typeof since === "string" && !Number.isNaN(Date.parse(since)) ? since : null,
+    };
+  }
+  return { state: "unknown", since: null };
+}
+
 export async function readApps(): Promise<HomeApp[] | null> {
   const response = await read("/api/exomem/apps");
   if (!Array.isArray(response.apps)) return null;
-  return response.apps.filter((app): app is HomeApp => {
+  const apps: HomeApp[] = [];
+  for (const app of response.apps) {
     const candidate = record(app);
-    return (
-      candidate !== null &&
-      typeof candidate.id === "string" &&
-      typeof candidate.displayName === "string" &&
-      typeof candidate.connectedAt === "string" &&
-      (candidate.kind === "web" || candidate.kind === "local") &&
-      (OAUTH_CLIENT_CONTEXTS as readonly unknown[]).includes(candidate.context) &&
-      Array.isArray(candidate.redirectHosts)
-    );
-  });
+    if (
+      candidate === null ||
+      typeof candidate.id !== "string" ||
+      typeof candidate.displayName !== "string" ||
+      typeof candidate.connectedAt !== "string" ||
+      (candidate.kind !== "web" && candidate.kind !== "local") ||
+      !(OAUTH_CLIENT_CONTEXTS as readonly unknown[]).includes(candidate.context) ||
+      !Array.isArray(candidate.redirectHosts)
+    ) {
+      continue;
+    }
+    apps.push({ ...(candidate as unknown as HomeApp), session: appSessionOf(candidate.session) });
+  }
+  return apps;
 }
 
 /** True when the app is disconnected now or was already; false when the server refused. */
