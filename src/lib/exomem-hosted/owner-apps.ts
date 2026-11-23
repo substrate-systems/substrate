@@ -12,12 +12,11 @@ import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import { loadExomemCloudResource } from "./cloud-config";
 import { revokeOwnerOAuthGrant } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import type { OAuthClientContext } from "./oauth-client-context";
 import {
   isLocalOAuthClient,
-  oauthClientContext,
   oauthClientDisplayName,
   redirectHost,
-  type OAuthClientContext,
   type OAuthClientIdentity,
 } from "./oauth-client-identity";
 
@@ -64,16 +63,28 @@ export async function findOAuthClientIdentity(
 ): Promise<OAuthClientIdentity | null> {
   const { rows } = await executeExomemSql`
     /* exomem:find-oauth-client-identity */
-    SELECT client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
+    SELECT client.client_name, client.admission_mode, client.client_platform,
+           client.cimd_host, client.client_context, client.redirect_uris
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
   `;
-  const row = rows[0] as AppRow | undefined;
+  const row = rows[0] as
+    | {
+        client_name: string | null;
+        admission_mode: string;
+        client_platform: string | null;
+        cimd_host: string | null;
+        client_context: OAuthClientContext;
+        redirect_uris: string[];
+      }
+    | undefined;
   return row
     ? {
         clientName: row.client_name,
         admissionMode: row.admission_mode,
         platform: row.client_platform,
+        cimdHost: row.cimd_host,
+        clientContext: row.client_context,
         redirectUris: row.redirect_uris,
       }
     : null;
@@ -83,12 +94,14 @@ type AppRow = {
   id: string;
   created_at: string | Date;
   updated_at: string | Date;
+  revoked_at: string | Date | null;
   last_used_at: string | Date | null;
   live_families: number | string | null;
   last_ended_at: string | Date | null;
   client_name: string | null;
   admission_mode: string;
   client_platform: string | null;
+  client_context: OAuthClientContext;
   redirect_uris: string[];
 };
 
@@ -104,9 +117,12 @@ async function ownerAppRows(
   const resource = loadExomemCloudResource().mcpUrl;
   const { rows } = await sql`
     /* exomem:owner-app-grants */
-    SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, app_use.last_used_at,
+    SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, oauth_grant.revoked_at,
+           app_use.last_used_at,
            reach.live_families, reach.last_ended_at,
-           client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
+           client.client_name, client.admission_mode, client.client_platform,
+           COALESCE(oauth_grant.client_context_override, client.client_context) AS client_context,
+           client.redirect_uris
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
@@ -185,7 +201,7 @@ export async function listOwnerApps(owner: {
       ),
       platform: row.client_platform,
       kind: clientKind(row.redirect_uris),
-      context: oauthClientContext(row.redirect_uris),
+      context: row.client_context,
       redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
       connectedAt: new Date(row.created_at).toISOString(),
       lastAuthorizedAt: new Date(row.updated_at).toISOString(),
@@ -194,6 +210,40 @@ export async function listOwnerApps(owner: {
     })
   );
   return { serverTime, apps };
+}
+
+/**
+ * Sets the engagement context of one of the owner's apps, which every reader
+ * of `client_context` then follows for that grant. False when the id is not a
+ * live grant the list could show: a revoked grant is a disconnect, not an app.
+ * The choice sits on the grant, because the client row is shared by every
+ * tenant's grant to it; `client_context` on the client stays the
+ * registration-derived default. The grant's `updated_at` is its last
+ * authorization stamp, which orders the list and feeds joinedSince and the
+ * retirement sweep, so a preference change must not touch it.
+ */
+export async function setOwnerAppContext(input: {
+  userId: string;
+  tenantId: string;
+  appId: string;
+  context: OAuthClientContext;
+}): Promise<boolean> {
+  if (!validUuid(input.appId)) return false;
+  return withExomemTransaction(async (tx) => {
+    const [app] = await ownerAppRows(tx, {
+      userId: input.userId,
+      tenantId: input.tenantId,
+      grantId: input.appId,
+    });
+    if (!app || app.revoked_at !== null) return false;
+    await tx`
+      /* exomem:set-owner-app-context */
+      UPDATE exomem_oauth_grants AS oauth_grant
+      SET client_context_override = ${input.context}
+      WHERE oauth_grant.id = ${app.id}::uuid
+    `;
+    return true;
+  });
 }
 
 /**

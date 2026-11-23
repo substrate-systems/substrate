@@ -10,6 +10,10 @@ import {
   CLIENT_PLATFORM_LISTING_URLS,
   CLIENT_PLATFORM_NAMES,
 } from "@/lib/exomem-hosted/client-platforms";
+import {
+  OAUTH_CLIENT_CONTEXTS,
+  type OAuthClientContext,
+} from "@/lib/exomem-hosted/oauth-client-context";
 import type { HomeApp, LevelKey } from "./home-api";
 import { count, type Clock } from "./home-format";
 import { appGlyph, appMeta } from "./home-view";
@@ -19,6 +23,17 @@ import styles from "./home.module.css";
 const COPIED_MS = 1800;
 const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
 const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
+const CONTEXT_FAILED = "That didn’t save. Try again in a minute.";
+
+const APP_CONTEXT_LABELS: Readonly<Record<OAuthClientContext, string>> = {
+  coding: "Coding agent",
+  conversation: "Chat app",
+};
+
+// Conversation first: a directory app is the common case on this list.
+const APP_CONTEXT_OPTIONS = [...OAUTH_CLIENT_CONTEXTS]
+  .reverse()
+  .map((value) => ({ value, label: APP_CONTEXT_LABELS[value] }));
 
 // Provider downloads are separate from the public directory install path.
 type CloudPlugin = {
@@ -64,6 +79,8 @@ type AppsProps = {
   checkoutAvailable: boolean;
   disconnected: ReadonlySet<string>;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
+  /** The stored context the app's calls run in; true when the change saved. */
+  onContext: (app: HomeApp, context: HomeApp["context"]) => Promise<boolean>;
   connectorUrl: string | null;
   /** The level the add-app instructions start on: the coding agents level when known. */
   startLevel: LevelKey;
@@ -79,6 +96,7 @@ function AppRow({
   checkoutAvailable,
   off,
   onDisconnect,
+  onContext,
   reviewer,
   clock,
   active,
@@ -88,6 +106,7 @@ function AppRow({
   checkoutAvailable: boolean;
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
+  onContext: (app: HomeApp, context: HomeApp["context"]) => Promise<boolean>;
   reviewer: boolean;
   clock: Clock;
   active: boolean;
@@ -95,6 +114,7 @@ function AppRow({
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [contextFailed, setContextFailed] = useState(false);
   const action = useRef<HTMLButtonElement | null>(null);
   const title = useRef<HTMLSpanElement>(null);
   const focusTitle = useRef(false);
@@ -111,7 +131,14 @@ function AppRow({
     meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
   else if (failed) meta = DISCONNECT_FAILED;
+  else if (contextFailed) meta = CONTEXT_FAILED;
   else if (confirming) meta = DISCONNECT_CONFIRM;
+
+  async function changeContext(value: HomeApp["context"]) {
+    if (value === app.context) return;
+    setContextFailed(false);
+    if (!(await onContext(app, value))) setContextFailed(true);
+  }
 
   async function disconnect() {
     setWorking(true);
@@ -152,6 +179,13 @@ function AppRow({
       </div>
       {!ended && !off && (
         <span className={styles.rowActions}>
+          <SegmentedSwitch
+            size="row"
+            label={`Kind of app ${app.displayName} is`}
+            options={APP_CONTEXT_OPTIONS}
+            value={app.context}
+            onChange={(value) => void changeContext(value)}
+          />
           <Button
             variant={confirming ? "primary" : "quiet"}
             size="row"
@@ -348,6 +382,7 @@ export function ConnectedApps(props: AppsProps) {
           checkoutAvailable={props.checkoutAvailable}
           off={props.disconnected.has(app.id)}
           onDisconnect={props.onDisconnect}
+          onContext={props.onContext}
           reviewer={props.reviewer}
           clock={props.clock}
           active={props.activeAppId === app.id}

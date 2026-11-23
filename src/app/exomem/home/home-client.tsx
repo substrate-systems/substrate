@@ -26,6 +26,7 @@ import {
   readStatus,
   requestDeletion,
   requestExportLink,
+  setAppContext,
   SignedOutError,
   signOut,
   startExport,
@@ -437,6 +438,21 @@ export default function HomeClient({
     }
   }
 
+  async function onContext(app: HomeApp, context: HomeApp["context"]): Promise<boolean> {
+    try {
+      const result = await setAppContext(app.id, context);
+      if (result !== "updated") return false;
+      setApps(
+        (current) =>
+          current?.map((entry) => (entry.id === app.id ? { ...entry, context } : entry)) ?? current
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+      return false;
+    }
+  }
+
   async function onLevel(context: LevelContext, level: LevelKey, revision: string) {
     setLevelPending(context);
     setLevelMessage(null);
@@ -818,6 +834,7 @@ export default function HomeClient({
               checkoutAvailable={billing?.checkoutAvailable ?? false}
               disconnected={disconnected}
               onDisconnect={onDisconnect}
+              onContext={onContext}
               connectorUrl={status?.connectorUrl ?? null}
               startLevel={codingLevel}
               reviewer={reviewer}

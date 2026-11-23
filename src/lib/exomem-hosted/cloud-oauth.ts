@@ -1,5 +1,6 @@
 import type { ExomemCloudResource } from "./cloud-config";
 import { ADVERTISED_SCOPES } from "./oauth";
+import type { OAuthClientContext } from "./oauth-client-context";
 import type { OAuthClientIdentity } from "./oauth-client-identity";
 /**
  * Exomem Cloud OAuth client admission and exact-resource token binding
@@ -20,6 +21,15 @@ import type { OAuthClientIdentity } from "./oauth-client-identity";
 
 import { executeExomemSql } from "./db";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
+
+/**
+ * D2's required scope pair, exported for the gateway and the service
+ * credential lookup (review R5): a cell sees one fixed non-owner principal and
+ * cannot itself enforce a read-only grant, so every credential kind the
+ * gateway admits must carry both — and a service credential is stamped with
+ * exactly this pair so it passes the identical check.
+ */
+export const REQUIRED_CLOUD_SCOPES = ["exomem.read", "exomem.write"] as const;
 
 /**
  * D2's scope rule: "A cell sees one fixed non-owner principal and cannot
@@ -67,21 +77,10 @@ export async function resolveApprovedCloudOAuthClient(
       -- The first_party mode is absent: that client gets tokens only from
       -- the server-side mint (cloud-home-mcp.ts), never through a consent.
       AND admission_mode IN ('pinned', 'cimd', 'generic')
-      AND enabled = true
-      AND (
-        admission_mode = 'pinned'
-        OR exomem_oauth_generic_client_admitted(client.admission_mode)
-        OR (
-          metadata_document_digest IS NOT NULL
-          AND metadata_fetched_at IS NOT NULL
-          AND metadata_ttl_seconds BETWEEN 300 AND 604800
-          AND metadata_expires_at > now()
-          AND cimd_host IS NOT NULL
-          AND EXISTS (
-            SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-            WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
-          )
-        )
+      AND exomem_oauth_client_admitted(
+        client.admission_mode, client.enabled, client.metadata_document_digest,
+        client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
+        client.cimd_host, client.client_platform, true, now()
       )
     LIMIT 1
   `;
@@ -138,10 +137,13 @@ type CloudOAuthSelector = { accessDigest: Buffer } | { familyId: string; grantId
  * is `CELL_NOT_READY`), not as part of "is this token valid".
  *
  * L3: also requires the tenant's own `status` to be outside
- * `deletion_pending`/`deleted`. A confirmed deletion revokes the tenant's
- * OAuth grants only once the Cloud reconcile has deleted its cell row (D4);
- * until then -- or if that reconcile ever fails -- the cell row can still be
- * non-deleted while the account is gone, and this token must not work.
+ * `deletion_pending`/`deleted` and the owner to be unblocked — the
+ * `exomem_cloud_tenant_access_allowed` predicate migration 0088 defines once
+ * for this lookup and the service credential lookup (review B1). A confirmed
+ * deletion revokes the tenant's OAuth grants only once the Cloud reconcile
+ * has deleted its cell row (D4); until then -- or if that reconcile ever
+ * fails -- the cell row can still be non-deleted while the account is gone,
+ * and this token must not work.
  */
 export async function findCloudOAuthAccessToken(
   accessDigest: Buffer,
@@ -178,6 +180,8 @@ type CloudOAuthAuthorityRow = {
   client_name: string | null;
   admission_mode: string;
   client_platform: string | null;
+  cimd_host: string | null;
+  client_context: OAuthClientContext;
   redirect_uris: string[];
 };
 
@@ -216,7 +220,12 @@ async function findCloudOAuthAuthority(
     SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
            client.client_id, token.resource, token.scopes,
            cell.cell_id, cell.desired_state AS cell_desired_state,
-           client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
+           client.client_name, client.admission_mode, client.client_platform,
+           client.cimd_host,
+           -- The owner's choice sits on this grant; the client row holds the
+           -- registration-derived default it falls back to.
+           COALESCE(oauth_grant.client_context_override, client.client_context) AS client_context,
+           client.redirect_uris
     FROM token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
@@ -232,29 +241,18 @@ async function findCloudOAuthAuthority(
      AND client.enabled = true
      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
      AND (
-       client.admission_mode = 'pinned'
        -- Only the server-side mint writes a first-party token; this lookup
        -- is the one place that admits the mode.
-       OR client.admission_mode = 'first_party'
-       OR exomem_oauth_generic_client_admitted(client.admission_mode)
-       OR (
-         client.metadata_document_digest IS NOT NULL
-         AND client.metadata_fetched_at IS NOT NULL
-         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
-         AND client.metadata_expires_at > now()
-         AND client.cimd_host IS NOT NULL
-         AND EXISTS (
-           SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-           WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
-         )
+       client.admission_mode = 'first_party'
+       OR exomem_oauth_client_admitted(
+         client.admission_mode, client.enabled, client.metadata_document_digest,
+         client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
+         client.cimd_host, client.client_platform, true, now()
        )
      )
     JOIN exomem_cloud_cells AS cell
       ON cell.tenant_id = oauth_grant.tenant_id
      AND cell.desired_state <> 'deleted'
-    JOIN exomem_tenants AS tenant
-      ON tenant.id = oauth_grant.tenant_id
-     AND tenant.status NOT IN ('deletion_pending', 'deleted')
     WHERE token.resource = ${expectedResource}
       AND token.reviewer_credential_id IS NOT DISTINCT FROM family.reviewer_credential_id
       AND token.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
@@ -263,10 +261,10 @@ async function findCloudOAuthAuthority(
         ${cloudReviewerAccessEnabled()}
         AND exomem_cloud_reviewer_authorized(token.reviewer_credential_id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform)
       ))
-      AND NOT EXISTS (
-        SELECT 1 FROM exomem_oauth_account_blocks AS block
-        WHERE block.tenant_id = oauth_grant.tenant_id AND block.owner_user_id = oauth_grant.user_id
-      )
+      -- Review B1 (add-cloud-service-credentials): migration 0088's function
+      -- is the one definition of "tenant live, owner unblocked" that this
+      -- lookup and the service credential lookup share.
+      AND exomem_cloud_tenant_access_allowed(oauth_grant.tenant_id, oauth_grant.user_id)
     LIMIT 1
   `;
   return (rows[0] as CloudOAuthAuthorityRow | undefined) ?? null;
@@ -286,6 +284,8 @@ function cloudOAuthLogin(row: CloudOAuthAuthorityRow): ActiveCloudOAuthLogin {
       clientName: row.client_name,
       admissionMode: row.admission_mode,
       platform: row.client_platform,
+      cimdHost: row.cimd_host,
+      clientContext: row.client_context,
       redirectUris: row.redirect_uris,
     },
     firstParty: row.admission_mode === "first_party",

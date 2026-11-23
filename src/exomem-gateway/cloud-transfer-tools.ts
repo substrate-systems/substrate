@@ -19,7 +19,7 @@ import {
 } from "../lib/exomem/cloud-import-contract";
 import { HOME_YOUR_DATA_ANCHOR } from "../lib/exomem/home-anchors";
 import { readBoundedJsonRequest } from "../lib/exomem-hosted/bounded-json";
-import type { OAuthClientContext } from "../lib/exomem-hosted/oauth-client-identity";
+import type { OAuthClientContext } from "../lib/exomem-hosted/oauth-client-context";
 import { exomemHomeUrl } from "../lib/exomem-hosted/public-origin";
 import {
   CLOUD_ARTIFACT_MAX_BYTES,

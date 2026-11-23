@@ -21,6 +21,10 @@ import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";
 import type { loadExomemEmailChange } from "@/lib/exomem-hosted/email-change";
 import type { loadPaddleReceiptContact } from "@/lib/exomem-hosted/paddle-receipt-contact";
 import { postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import {
+  OAUTH_CLIENT_CONTEXTS,
+  type OAuthClientContext,
+} from "@/lib/exomem-hosted/oauth-client-context";
 import { type Lifecycle, parseCloudConnectorUrl, parseLifecycleResponse } from "./home-state";
 
 export type HomeAccount = ExomemAccountView;
@@ -311,8 +315,7 @@ function appSessionOf(value: unknown): HomeApp["session"] {
     // A since the formatter cannot read drops to no date, never to a crash.
     return {
       state,
-      since:
-        typeof since === "string" && !Number.isNaN(Date.parse(since)) ? since : null,
+      since: typeof since === "string" && !Number.isNaN(Date.parse(since)) ? since : null,
     };
   }
   return { state: "unknown", since: null };
@@ -330,6 +333,7 @@ export async function readApps(): Promise<HomeApp[] | null> {
       typeof candidate.displayName !== "string" ||
       typeof candidate.connectedAt !== "string" ||
       (candidate.kind !== "web" && candidate.kind !== "local") ||
+      !(OAUTH_CLIENT_CONTEXTS as readonly unknown[]).includes(candidate.context) ||
       !Array.isArray(candidate.redirectHosts)
     ) {
       continue;
@@ -347,6 +351,19 @@ export async function disconnectApp(id: string): Promise<"disconnected" | "gone"
     {}
   );
   if (status === 200) return "disconnected";
+  if (status === 404) return "gone";
+  return "failed";
+}
+
+/** The stored context the app's calls run in; "gone" when the app is not the owner's. */
+export async function setAppContext(
+  id: string,
+  context: OAuthClientContext
+): Promise<"updated" | "gone" | "failed"> {
+  const { status } = await send("POST", `/api/exomem/apps/${encodeURIComponent(id)}/context`, {
+    context,
+  });
+  if (status === 200) return "updated";
   if (status === 404) return "gone";
   return "failed";
 }

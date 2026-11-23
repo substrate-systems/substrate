@@ -63,12 +63,15 @@ const ACCESS: ActiveCloudOAuthAccessToken = {
     clientName: null,
     admissionMode: "cimd",
     platform: "claude",
+    cimdHost: "claude.ai",
+    clientContext: "conversation",
     redirectUris: ["https://chat.example.test/oauth/callback"],
   },
   firstParty: false,
 };
 const CODING_CLIENT = {
   ...ACCESS.client,
+  clientContext: "coding" as const,
   redirectUris: ["http://127.0.0.1:53682/callback"],
 };
 

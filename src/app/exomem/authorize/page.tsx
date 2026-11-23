@@ -77,6 +77,7 @@ function requestApp(app: ConsentApp): RequestApp {
     platform: app.platform,
     loopback: app.loopback,
     redirectHost: app.redirectHost,
+    vouchedHost: app.vouchedHost,
   };
 }
 

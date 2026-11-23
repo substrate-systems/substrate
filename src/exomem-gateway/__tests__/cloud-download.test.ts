@@ -42,6 +42,8 @@ const ACCESS: ActiveCloudOAuthAccessToken = {
     clientName: null,
     admissionMode: "cimd",
     platform: "claude",
+    cimdHost: "claude.ai",
+    clientContext: "conversation",
     redirectUris: ["https://client.example.test/callback"],
   },
   firstParty: false,
@@ -88,6 +90,22 @@ describe("Cloud exact-original download at the gateway", () => {
       assert.equal(response.status, 401, name);
       assert.match(response.headers.get("www-authenticate") ?? "", /^Bearer /, name);
     }
+  });
+
+  it("refuses an `exs_` bearer outright — the download route is OAuth-only (review B4)", async () => {
+    // Before the shared admission helper, this route never learned the prefix
+    // dispatch: an OAuth token whose bytes collided with `exs_` — or a service
+    // secret — could reach a cell here. Neither lookup may even be asked now.
+    const response = await handleCloudDownloadRequest(
+      downloadRequest({ authorization: `Bearer exs_${"b".repeat(43)}` }),
+      deps({
+        findAccessToken: async () => assert.fail("the OAuth lookup never sees an `exs_` bearer"),
+        findServiceCredential: async () =>
+          assert.fail("the download route never resolves a service credential"),
+      })
+    );
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: "ACCESS_TOKEN_INVALID" });
   });
 
   it("answers 401 without contacting the cell when the login was revoked since the token was issued", async () => {
