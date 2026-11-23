@@ -182,16 +182,21 @@ app again from the app's own connect step, which creates a new grant and family.
 
 ### Withdraw or revive a self-registering client
 
-A client is admitted when it is enabled and either pinned or serving a valid
-metadata document from a host in `exomem_oauth_admitted_cimd_hosts`
-(`chatgpt.com` → `openai`, `claude.ai` → `claude`). Clients on an admitted host
-register and refresh themselves on contact with `/authorize`. Generic clients
-have their own lane; see "Generic MCP clients" below.
+A client is admitted when it is enabled and either pinned, admitted through the
+generic lane, or serving a valid metadata document from a host in
+`exomem_oauth_admitted_cimd_hosts` (`chatgpt.com` → `openai`, `claude.ai` →
+`claude`). Clients on an admitted host register and refresh themselves on
+contact with `/authorize`. While the generic lane is enabled a CIMD client from
+any other https host registers the same way, with no platform and a slot in the
+generic partition; see "Generic MCP clients" below.
 
 To withdraw one, delete its allowlist row. Setting `enabled = false` on the
 client is not a durable off switch, because the next anonymous contact
 re-enables it. Deleting the row for `claude.ai` withdraws every Claude client,
-because claude.ai serves one global client document.
+because claude.ai serves one global client document. While the generic lane is
+enabled a deleted host no longer withdraws its clients by itself: the lane
+admits them like any other unlisted host, so withdraw the lane too or disable
+the client's row.
 
 Cached metadata lives 24 hours. When it lapses, the sweep disables the row, and
 token issuance, refresh and MCP calls need unexpired metadata. A self-registered
@@ -264,11 +269,13 @@ Codex CLI or a hand-written agent. It registers itself through RFC 7591 dynamic
 client registration at `/api/exomem/oauth/register`. It has no platform and no
 metadata host. The lane ships disabled.
 
-What the lane widens: any program can register and ask for authorization. The
-invite stays the only way to a tenant. A generic client reaches an account only
-when the person who signs in already owns one, or holds an unspent invite. PKCE
-S256, exact redirect matching, single-use codes and resource binding apply as
-for every other client.
+What the lane widens: any program can register and ask for authorization, and
+an OAuth client ID metadata document from any https host is admitted on first
+contact with `/authorize`, not only the allowlisted hosts. The invite stays the
+only way to a tenant. A generic client reaches an account only when the person
+who signs in already owns one, or holds an unspent invite. PKCE S256, exact
+redirect matching, single-use codes and resource binding apply as for every
+other client.
 
 Attribution is lost once the lane is enabled. Admission state cannot tell which
 software wrote a memory. A generic client may name itself in `client_name`, and
@@ -280,17 +287,22 @@ Registration has these bounds:
 
 - 5 registrations in 10 minutes per IPv4 address, or per IPv6 /64.
 - The generic partition's bound of unretired clients, 50,000 at launch,
-  counted apart from operator and CIMD clients. The sweep frees the slot of a
-  generic client that has held nothing for its grace; see "Client slots and
-  retirement". When the partition is full, every new registration is refused.
-  Read it with `SELECT * FROM exomem_oauth_client_partitions();`.
+  counted apart from operator and allowlisted-CIMD clients. Lane-admitted CIMD
+  clients -- auto-registered rows with no platform -- count in the generic
+  partition, so a CIMD flood draws on the same bound as DCR. The sweep frees
+  the slot of a client that has held nothing for its grace; see "Client slots
+  and retirement". When the partition is full, every new registration is
+  refused. Read it with `SELECT * FROM exomem_oauth_client_partitions();`.
 - Every refusal answers `404` with an empty body, whatever the cause. The log
   event `exomem_oauth_register_rejection` names the stage, never a request value.
 
-Deploy order: the web deploy applies migration 0062 and the grants script. The
-gateway reads the lane on every token lookup, for every client. Roll a gateway
-image that contains the generic arm only after that web deploy, or every MCP
-call fails.
+Deploy order: the web deploy applies the migration and the grants script; both
+predate the image that needs them. Migration 0062 adds the lane and its arm;
+0088 adds the one admission function, `exomem_oauth_client_admitted`, and the
+stored `client_context`. The gateway reads the function on every token lookup,
+for every client, so roll a gateway image that calls it only after that web
+deploy, or every MCP call fails. The function exists first, so an older
+gateway's inlined rule keeps working against the new schema during the window.
 
 Enable the lane only when all of these are true:
 
@@ -298,14 +310,15 @@ Enable the lane only when all of these are true:
   (`reclaim-oauth-client-slots`, migration 0067), and the reconcile job's
   response includes `oauth.retiredGeneric`. Without slot reclaim, the
   partition fills once and stays full.
-- Each OAuth client has a stored prominence context, coding or conversation,
-  that its owner can change, and that defaults from the client's redirect
-  shape. Today Substrate derives the context from the redirect URIs alone: an
-  https redirect means conversation, and a loopback redirect means coding. That
-  is right for every client admitted at launch, but it puts a desktop chat app
-  with a loopback callback into coding.
+- Done in migration 0088 (`admit-standard-mcp-clients`): each OAuth client
+  carries a stored `client_context`, coding or conversation, set at
+  registration from its redirect shape and readable by the gateway and the
+  apps list. The owner changes it on Home. That is right for every client
+  admitted at launch, and no longer puts a desktop chat app with a loopback
+  callback into coding permanently.
 - An independent review has checked that the consent page names the client
-  and its scopes plainly, and shows the client's name as its own claim.
+  and its scopes plainly, shows the client's name as its own claim, and names
+  the verified host that served its document for a CIMD client.
 - One real third-party MCP client, such as Codex CLI, has completed
   registration, authorization, tool discovery and a durable capture in a test
   environment with the lane enabled.
@@ -330,8 +343,10 @@ To withdraw the lane in one action:
 
 The document has no `registration_endpoint`, and the registration endpoint
 answers `404`. Every generic client stops at every stage at once: authorization,
-consent, token exchange, refresh and MCP calls through the gateway. Operator and
-CIMD clients are not affected.
+consent, token exchange, refresh and MCP calls through the gateway. A CIMD
+client whose host is not allowlisted stops the same way -- its lane was the
+generic lane -- while allowlisted CIMD clients and operator clients are not
+affected.
 
 Withdrawal suspends live grants; it does not revoke them. Grant and token rows
 stay, and enabling the lane again lets unexpired tokens and refresh families work
@@ -359,13 +374,15 @@ Each client takes one slot in one of three partitions: operator, auto-registered
 CIMD connectors, and generic clients. Each partition's bound is a row in
 `exomem_oauth_client_partition_bounds`. The function
 `exomem_oauth_client_partitions()` reads those rows, counts each partition, and
-admission reads it. The first-party Home client takes no slot.
+admission reads it. The first-party Home client takes no slot. An
+auto-registered CIMD client with no platform is one only the generic lane can
+admit, so it counts in `generic`, not `auto_registered`.
 
-| Partition         | Launch bound | What one slot is                                           |
-| ----------------- | ------------ | ---------------------------------------------------------- |
-| `operator`        | 96           | A client that an operator registered by hand.              |
-| `auto_registered` | 50,000       | One ChatGPT connector, or the one global claude.ai client. |
-| `generic`         | 50,000       | One installed generic app, or one more registration of it. |
+| Partition         | Launch bound | What one slot is                                             |
+| ----------------- | ------------ | ------------------------------------------------------------ |
+| `operator`        | 96           | A client that an operator registered by hand.                |
+| `auto_registered` | 50,000       | A connector on an allowlisted host, or the one global claude.ai client. |
+| `generic`         | 50,000       | A dynamically registered app, or a lane-admitted CIMD client. |
 
 A bound limits two things: the clients connected at the same time, and the rows
 that a registration flood can add before the sweep retires them. Each
