@@ -89,13 +89,13 @@ AS $$
 $$;
 
 -- The two new email kinds join the outbox's fixed set. The list repeats
--- migration 0086's, plus these two.
+-- migration 0089's, plus these two.
 ALTER TABLE exomem_email_outbox DROP CONSTRAINT exomem_email_outbox_kind_check;
 ALTER TABLE exomem_email_outbox ADD CONSTRAINT exomem_email_outbox_kind_check CHECK (
   kind IN ('start', 'place_opened', 'waitlist', 'hold_reminder', 'ready', 'payment_failed',
     'subscription_ended', 'deletion_reminder', 'deleted', 'invitation', 'friend_invitation', 'covered_invitation',
     'invitation_reminder', 'invitation_used', 'invitation_ended',
     'email_change_confirmation', 'email_change_cancellation',
-    'invitation_waiting', 'waitlist_still_waiting',
+    'invitation_waiting', 'waitlist_still_waiting', 'app_signout',
     'maintenance_scheduled', 'incident_resolved')
 );
