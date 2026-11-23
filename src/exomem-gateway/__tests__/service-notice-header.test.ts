@@ -98,7 +98,10 @@ describe("the service notice header", () => {
     assert.equal(body.state, "scheduled");
     assert.equal(body.starts_at, "2026-12-01T12:00:00Z");
     assert.equal(body.ends_at, "2026-12-01T13:00:00Z");
-    assert.match(body.say, /^Exomem maintenance is planned for 1 December, 12:00 to 13:00 UTC\./);
+    assert.match(
+      body.say,
+      /^Tell the user once in this conversation: Exomem maintenance is planned for 1 December, 12:00 to 13:00 UTC\./
+    );
     assert.match(body.say, /We are moving storage\./);
     assert.ok(body.say.endsWith(`More at ${STATUS}`));
     assert.ok(!JSON.stringify(body).includes(CELL), "the cell id stays out of the header");
@@ -110,14 +113,19 @@ describe("the service notice header", () => {
     assert.equal(body.kind, "incident");
     assert.equal(body.state, "active");
     assert.equal(body.ends_at, null);
-    assert.match(body.say, /^Exomem has a known problem that started 1 December, 09:00 UTC\./);
+    assert.match(
+      body.say,
+      /^Tell the user once in this conversation: Exomem has a known problem that started 1 December, 09:00 UTC\./
+    );
   });
 
   it("stays inside both limits for a summary that is long, wide or full of quotes", async () => {
-    // 280 plain characters fit whole. The others outgrow the 1,024 bytes first: an emoji
-    // is four bytes, a CJK character three, and a quote becomes two in JSON.
+    // 200 plain characters fit whole beside the instruction and the times, and 280 outgrow
+    // the 400-character sentence. The rest outgrow the 1,024 bytes first: an emoji is four
+    // bytes, a CJK character three, and a quote becomes two in JSON.
     const cases = [
-      { summary: "x".repeat(280), whole: true },
+      { summary: "x".repeat(200), whole: true },
+      { summary: "x".repeat(280), whole: false },
       { summary: "🛠".repeat(280), whole: false },
       { summary: "語".repeat(280), whole: false },
       { summary: '"'.repeat(280), whole: false },
@@ -211,7 +219,10 @@ describe("which notice a cell hears", () => {
     clock.at = T0 + 20_000;
     const after = decode(await cache.headerFor(CELL));
     assert.equal(after.state, "active");
-    assert.match(after.say, /^Exomem maintenance is under way until 1 December, 11:00 UTC\./);
+    assert.match(
+      after.say,
+      /^Tell the user once in this conversation: Exomem maintenance is under way until 1 December, 11:00 UTC\./
+    );
     assert.equal(loads(), 1);
   });
 });

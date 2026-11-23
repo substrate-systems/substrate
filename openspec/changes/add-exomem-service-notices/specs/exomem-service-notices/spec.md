@@ -87,7 +87,7 @@ For each MCP request it forwards to a cell, the gateway SHALL set the `x-exomem-
 
 ### Requirement: The notice header has one bounded shape
 
-The header value SHALL be base64url-encoded UTF-8 JSON of at most 1,024 bytes. It SHALL carry `v` (1), `kind`, `state` (`scheduled` or `active`), `starts_at`, `ends_at` (null for an active incident) and `say`, a sentence of at most 400 characters for the assistant to relay. The header MUST NOT carry tenant data.
+The header value SHALL be base64url-encoded UTF-8 JSON of at most 1,024 bytes. It SHALL carry `v` (1), `kind`, `state` (`scheduled` or `active`), `starts_at`, `ends_at` (null for an active incident) and `say`, text of at most 400 characters that begins "Tell the user once in this conversation: " and then gives the notice for the assistant to relay. The header MUST NOT carry tenant data.
 
 #### Scenario: Long operator summary
 

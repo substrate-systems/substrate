@@ -1252,7 +1252,9 @@ declared notice does four things.
 ### Write the summary
 
 The summary is one line of plain text, at most 280 characters. The email, the
-assistant's sentence and the status issue title all use it.
+assistant's sentence and the status issue title all use it. The assistant's text
+is capped at 400 characters in all, so a summary over about 200 characters is
+shortened there. The email and the issue title keep it whole.
 
 1. Say what is affected, in the owner's terms, and what still works.
 2. Say only what you know. Name no cause you have not confirmed and promise no time.
@@ -1304,9 +1306,10 @@ expected to be down. `--no-mirror` skips the status page.
   The email states the times in the owner's time zone, your summary and the
   status page address. The delivery job sends 20 emails a minute, so declare
   early for a large fleet: a maintenance email not sent by the start is dropped.
-- A person's assistant gets a sentence with the times in UTC, your summary and
-  the status page address. A cell shows it only after the Exomem cell release
-  that reads the header; older cells ignore it.
+- A person's assistant gets an instruction to tell the person once in the
+  conversation, with the times in UTC, your summary and the status page address.
+  A cell shows it only after the Exomem cell release that reads the header;
+  older cells ignore it.
 - Substrate sets the header and refuses a caller's own `x-exomem-` header.
   A gateway instance keeps its copy of the notices for 30 seconds. The first
   request after that waits for one refresh, at most 5 seconds, and carries the

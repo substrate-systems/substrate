@@ -41,10 +41,14 @@ function clip(text: string, limit: number): string {
   return `${kept.trimEnd()}…`;
 }
 
+// Exomem's `say` fields address the agent. A model relays a notice reliably only when it is
+// worded as an instruction; a statement alone was missed in a replay on a real recall packet.
+const SAY_INSTRUCTION = "Tell the user once in this conversation: ";
+
 /**
- * The sentence for the assistant to relay. It says only what the operator
- * declared: the times, the operator's summary and where to read more. Times
- * are UTC because the assistant does not know the person's time zone.
+ * The text for the assistant: an instruction to tell the person, then what the
+ * operator declared: the times, the operator's summary and where to read more.
+ * Times are UTC because the assistant does not know the person's time zone.
  */
 export function composeNoticeSay(
   notice: Pick<ServiceNotice, "kind" | "summary" | "startsAt" | "endsAt">,
@@ -64,9 +68,12 @@ export function composeNoticeSay(
   }
   const tail = `More at ${statusUrl}`;
   // The summary gives way first when the sentence is too long.
-  const room = Math.max(0, Math.min(summaryLimit, SAY_MAX_CHARS - lead.length - tail.length - 2));
+  const room = Math.max(
+    0,
+    Math.min(summaryLimit, SAY_MAX_CHARS - SAY_INSTRUCTION.length - lead.length - tail.length - 2)
+  );
   const summary = clip(notice.summary, room);
-  return [lead, summary, tail].filter(Boolean).join(" ");
+  return SAY_INSTRUCTION + [lead, summary, tail].filter(Boolean).join(" ");
 }
 
 function isoSeconds(at: Date): string {

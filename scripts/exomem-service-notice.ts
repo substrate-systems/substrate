@@ -244,7 +244,7 @@ async function main(): Promise<void> {
       ...fields,
     });
     console.log(`This notice reaches ${preview.coveredTenants} Exomem owner(s) by email.`);
-    console.log(`The assistant will say: ${preview.say}`);
+    console.log(`The assistant is told: ${preview.say}`);
     if (command === "preview") return;
     if (!(await confirmed(values))) {
       console.log("Nothing was created.");

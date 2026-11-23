@@ -49,7 +49,7 @@ For each forwarded MCP request, the gateway finds the current notices that cover
 {"v":1,"kind":"maintenance","state":"scheduled","starts_at":"2026-11-25T02:00:00Z","ends_at":"2026-11-25T02:30:00Z","say":"..."}
 ```
 
-`say` is the sentence the assistant should relay, at most 400 characters. Substrate composes it from the notice and the status page address, so all user-facing wording stays in one repository. When several notices are current, the gateway sends the one that matters most: an active incident, then active maintenance, then the earliest scheduled maintenance.
+`say` is addressed to the assistant, at most 400 characters. It begins "Tell the user once in this conversation: ", as Exomem's other `say` fields address the agent, because a real-model replay relayed a notice worded that way more reliably than one worded as a statement. Substrate composes it from the notice and the status page address, so all user-facing wording stays in one repository. When several notices are current, the gateway sends the one that matters most: an active incident, then active maintenance, then the earliest scheduled maintenance.
 
 The gateway reads all current notices and their cells in one query and keeps the result in process memory for at most 30 seconds. A new or ended notice reaches every gateway instance within that time. The header never carries tenant data. Callers cannot send it: the gateway already refuses any caller header that starts with `x-exomem-`.
 
