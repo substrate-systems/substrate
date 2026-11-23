@@ -63,13 +63,18 @@ Fan-out SHALL run in bounded batches in the delivery job, outside the operator r
 
 ### Requirement: Covered owners hear when an incident is over
 
-When the operator resolves an incident, the system SHALL queue one `incident_resolved` email to the owner of each covered tenant whose cell is not deleted, at most once per incident. The email SHALL state when the incident started and ended in the owner's time zone and the operator summary. The system MUST NOT send it for an incident that is still active.
+When the operator resolves an incident, the system SHALL queue one `incident_resolved` email to the owner of each covered tenant whose cell is not deleted, at most once per incident. The email SHALL state when the incident started and ended in the owner's time zone and the operator summary. The system MUST NOT send it for an incident that is still active, and MUST NOT send it to the owner of a cell created after the incident was resolved, because that owner never lived through it.
 
 #### Scenario: Incident on one cell is resolved
 
 - **WHEN** the operator resolves an incident that covered one cell
 - **THEN** that tenant's owner receives one incident-resolved email
 - **AND** no other owner receives one
+
+#### Scenario: A fleet-wide incident covers only cells that existed at its end
+
+- **WHEN** the operator resolves an incident that covers every cell, and a tenant's cell was created after the resolution
+- **THEN** that tenant's owner receives no incident-resolved email
 
 ### Requirement: The gateway tells a covered cell about a current notice
 

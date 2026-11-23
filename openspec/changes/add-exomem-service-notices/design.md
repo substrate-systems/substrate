@@ -39,7 +39,7 @@ Two kinds join the registry: `maintenance_scheduled` and `incident_resolved`. Ea
 
 Fan-out runs in the existing delivery cron, not in the operator request. Each tick takes at most one bounded batch per notice of covered tenants that have no outbox row yet. It finds them with one anti-join on the dedupe key and inserts them in one multi-row statement. A tick never runs one query per tenant. The batch size is a named constant with a one-line reason. Covered tenants are those whose cell is not deleted and whose owner has an email address; the owner's current address is read at send time, as other account emails do.
 
-A maintenance email is enqueued only while the maintenance is scheduled. An incident email is enqueued only after the incident is resolved.
+A maintenance email is enqueued only while the maintenance is scheduled. An incident email is enqueued only after the incident is resolved, and only for cells created at or before the resolution: a fleet-wide incident covers every cell, and a later cell's owner never lived through it. One covered-tenants function carries this rule (`created_before`) for both the fan-out and the send-time check, so the two cannot disagree.
 
 ### D3. The gateway passes the notice in one header
 

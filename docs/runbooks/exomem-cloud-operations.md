@@ -1308,6 +1308,8 @@ expected to be down. `--no-mirror` skips the status page.
   The email states the times in the owner's time zone, your summary and the
   status page address. The delivery job sends 20 emails a minute, so declare
   early for a large fleet: a maintenance email not sent by the start is dropped.
+  An incident email goes only to owners whose cell existed when you resolved the
+  incident, so a cell created later gets none.
 - A person's assistant gets an instruction to tell the person once in the
   conversation, with the times in UTC, your summary and the status page address.
   A cell shows it only after the Exomem cell release that reads the header;
