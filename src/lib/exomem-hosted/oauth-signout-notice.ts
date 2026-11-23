@@ -185,20 +185,22 @@ type ClaimedAppSignout = {
 };
 
 /**
- * Claims the endings that still qualify: the grants are locked first in
- * their own statement so a concurrent sweep decides the same grant serially —
- * the claim statement's READ COMMITTED snapshot then postdates the lock,
- * seeing everything a just-finished sweep committed. The lock is
- * FOR NO KEY UPDATE, not FOR UPDATE: the sweep never writes the grant row,
- * and the weaker mode does not block the key-share lock the code-exchange
- * transaction takes on the grant through its family insert — the lock cycle
- * between "grant then tenant" here and "tenant then grant" there needs that
- * one gap to break. Then each candidate is re-verified (live grant, live
- * tenant and owner, recent use, still a connected app, not a silent ending,
- * still no live family, no emailed marker inside the cap) and its marker is
- * inserted once per family. The returned rows carry everything the enqueue
- * needs, so the email is written against the same verified state the marker
- * was.
+ * Claims the endings that still qualify: the tenants are locked first in
+ * their own statement, then the grants, so a concurrent sweep decides the
+ * same grant serially — the claim statement's READ COMMITTED snapshot then
+ * postdates the locks, seeing everything a just-finished sweep committed.
+ * Tenant-then-grant is the order every path that writes these rows already
+ * takes — code exchange, disconnect and account revocation all lock the
+ * tenant FOR UPDATE first — so the outbox insert's tenant key-share can
+ * never wait on a grant holder that itself waits on this tenant. Both locks
+ * are FOR NO KEY UPDATE: the sweep never writes either row, and the weaker
+ * mode does not block the key-share lock code exchange takes on the grant
+ * through its family insert. Then each candidate is re-verified (live
+ * grant, live tenant and owner, recent use, still a connected app, not a
+ * silent ending, still no live family, no emailed marker inside the cap)
+ * and its marker is inserted once per family. The returned rows carry
+ * everything the enqueue needs, so the email is written against the same
+ * verified state the marker was.
  */
 async function claimEndedFamilyNotices(
   tx: Parameters<Parameters<typeof withExomemTransaction>[0]>[0],
@@ -207,6 +209,18 @@ async function claimEndedFamilyNotices(
   const resource = loadExomemCloudResource().mcpUrl;
   const familyIds = candidates.map((candidate) => candidate.family_id);
   const grantIds = candidates.map((candidate) => candidate.grant_id);
+  // Tenant locks first, in id order — the codebase's order on every path
+  // that writes these rows — so the outbox insert's tenant key-share never
+  // waits on a grant holder waiting on this tenant.
+  await tx`
+    /* exomem:app-signout-tenant-lock */
+    SELECT tenant.id
+    FROM exomem_tenants AS tenant
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.tenant_id = tenant.id
+    WHERE oauth_grant.id = ANY(${grantIds}::uuid[])
+    ORDER BY tenant.id
+    FOR NO KEY UPDATE OF tenant
+  `;
   await tx`
     /* exomem:app-signout-lock */
     SELECT oauth_grant.id

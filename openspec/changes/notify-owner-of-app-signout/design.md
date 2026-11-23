@@ -98,16 +98,20 @@ the family — it is the send-time check's record of the ending and the cap's
 record of the email. Markers older than 30 days are pruned in the same sweep,
 bounded per run.
 
-The grant rows are locked in their own statement before the claim,
-serializing two sweeps that race the same grant. It is its own statement
-because the claim runs under `READ COMMITTED`: a lock inside the claim would
-still read the snapshot taken before the wait, missing a marker the other
-sweep just committed; a separate statement makes the claim's snapshot
-postdate the lock. The lock is `FOR NO KEY UPDATE`: the sweep never writes
-the grant row, and the weaker mode does not block the key-share lock the
-code-exchange transaction takes on the grant through its family insert —
-the lock cycle between "grant then tenant" here and "tenant then grant"
-there needs that one gap to break. Endings at the same instant (a mass
+The tenant and grant rows are locked in their own statements before the
+claim, tenants first (in id order), then grants — the order every path that
+writes these rows already takes (code exchange, `disconnectOwnerApp` and
+account revocation each lock the tenant `FOR UPDATE` first). Locking in the
+sweep's own statements serializes two sweeps racing the same grant, and the
+claim's `READ COMMITTED` snapshot postdates the locks — a lock inside the
+claim would still read the snapshot taken before the wait, missing a marker
+the other sweep just committed. Matching the tenant-first order matters
+just as much: the sweep's outbox insert key-share-locks the tenant, so
+taking the grant first would complete the cycle the reproduced deadlock ran
+(disconnect held the tenant and waited on the grant the sweep held). Both
+locks are `FOR NO KEY UPDATE`: the sweep never writes either row, and the
+weaker mode does not block the key-share lock code exchange takes on the
+grant through its family insert. Endings at the same instant (a mass
 revocation stamps one `now()` on them all) share one emailed marker's
 `ended_at`, so the second email the twin would send is suppressed
 permanently rather than retold a day later.
