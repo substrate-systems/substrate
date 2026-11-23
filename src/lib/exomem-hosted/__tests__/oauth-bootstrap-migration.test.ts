@@ -8,10 +8,10 @@ const migration = resolve(
   "migrations/0044_exomem_marketplace_reviewer_oauth_bootstrap.sql"
 );
 
-// Number 0088 was merged twice on 2026-11-23 (#318 and #319), and production
-// recorded both files in schema_migrations by filename. Renaming either would
-// re-run it, so this one historical pair stays; the two touch disjoint objects.
-// Every other number, and every future one, must be unique.
+// Number 0088 was merged twice on 2026-11-23 (#318 and #319). The runner
+// records applied migrations by filename, and a production deploy may already
+// have recorded both, so renaming either could re-run it. This one pair stays;
+// the two touch disjoint objects. Every other number must be unique.
 const APPLIED_DUPLICATE_NAMES = new Set([
   "0088_exomem_cloud_service_credentials.sql",
   "0088_exomem_standard_mcp_clients.sql",
