@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getPublishedPostsMeta } from "@/lib/blog";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 const baseUrl = "https://substratesystems.io";
 
@@ -48,7 +49,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   });
 
   const staticEntries: MetadataRoute.Sitemap = staticRoutes.map((route) => ({
-    url: `${baseUrl}${route.path}`,
+    // Product pages carry their canonical URL, which moves to the product site when it is on.
+    url: route.path.startsWith("/exomem") ? productPageUrl(route.path) : `${baseUrl}${route.path}`,
     changeFrequency: route.changeFrequency,
     priority: route.priority,
   }));

@@ -24,6 +24,7 @@ import { effectiveExomemTheme, type ExomemThemeChoice } from "@/lib/exomem/theme
 
 import { exomemTokens, type ExomemTokenMap } from "@/lib/exomem/design-tokens";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 /** The account's state, as the web in slot 3 shows it (R28 "The band follows the account"). */
 export const EXOMEM_EMAIL_BANDS = ["arrive", "live", "readonly", "kept", "fading", "gone"] as const;
@@ -123,7 +124,7 @@ export type RenderedExomemEmail = {
 
 const FOOTER = "Exomem by Substrate Systems";
 const SENDER = "Exomem";
-const WORDMARK_URL = "https://substratesystems.io/exomem";
+const WORDMARK_URL = productPageUrl("/exomem");
 
 // The board's delivery note: web fonts often don't load in mail, so IBM Plex
 // Mono falls back to Menlo or Consolas, and Inter to Helvetica or Arial.

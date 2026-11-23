@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { productSiteRoutes } from "./src/lib/exomem/product-site";
+
+const productSite = productSiteRoutes();
 
 // Keep in sync with src/app/providers.tsx — the SDK posts to /ingest and these
 // rewrites forward to whichever PostHog region is configured.
@@ -29,8 +32,12 @@ const nextConfig: NextConfig = {
     "/api/exomem/**": ["./src/app/exomem/exomem-tokens.css"],
     "/api/cron/**": ["./src/app/exomem/exomem-tokens.css"],
   },
+  async redirects() {
+    return productSite.redirects;
+  },
   async rewrites() {
     return {
+      beforeFiles: productSite.rewrites,
       afterFiles: [
         // Pretty public URL for the Endstate installer. Served by the
         // /api/download route which 302s to the current artifact.
