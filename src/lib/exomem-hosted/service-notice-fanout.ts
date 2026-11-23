@@ -9,7 +9,11 @@
 
 import { executeExomemSql } from "./db";
 import { enqueueExomemEmails, type EnqueueExomemEmailInput } from "./email-outbox";
-import { serviceNoticeDedupeKey, serviceNoticeDedupePrefix } from "./service-notice-emails";
+import {
+  serviceNoticeCoverageEnd,
+  serviceNoticeDedupeKey,
+  serviceNoticeDedupePrefix,
+} from "./service-notice-emails";
 import type { ExomemEmailScheme } from "@/lib/email-templates/exomem-email";
 import type { ExomemThemeChoice } from "@/lib/exomem/theme";
 
@@ -57,13 +61,14 @@ export async function fanOutServiceNoticeEmails(): Promise<ServiceNoticeFanOutRe
     // The covered tenants are the migration's one definition, the same one the
     // operator's preview counts and the send-time check reads. The anti-join
     // leaves out owners who already have a row, whether sent, pending or settled.
+    // An incident reaches only owners whose cell existed when it was resolved.
     const candidates = await executeExomemSql`
       /* exomem:service-notice-fanout-candidates */
-      SELECT covered.tenant_id, owner.email::text AS owner_email,
-             tenant.time_zone, tenant.email_scheme, tenant.theme_choice
-      FROM exomem_service_notice_covered_tenants(${notice.cell_ids as string[]}::text[]) AS covered
-      JOIN exomem_tenants AS tenant ON tenant.id = covered.tenant_id
-      JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
+      SELECT covered.tenant_id, covered.owner_email AS owner_email,
+             covered.time_zone, covered.email_scheme, covered.theme_choice
+      FROM exomem_service_notice_covered_tenants(
+             ${notice.cell_ids as string[]}::text[], ${serviceNoticeCoverageEnd(notice.kind as string, notice.resolved_at as Date | null)}::timestamptz
+           ) AS covered
       WHERE NOT EXISTS (
         SELECT 1 FROM exomem_email_outbox AS outbox
         WHERE outbox.dedupe_key = ${serviceNoticeDedupePrefix(noticeId)} || covered.tenant_id::text

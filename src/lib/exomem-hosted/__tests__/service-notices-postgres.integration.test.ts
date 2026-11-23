@@ -7,8 +7,14 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { GET, POST } from "../../../app/api/exomem/admin/service-notices/route";
 import { randomCloudCellId } from "../cloud-admission";
-import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { drainExomemEmailOutbox } from "../email-outbox";
+import {
+  __setExomemSqlForTests,
+  __setExomemTransactionForTests,
+  executeExomemSql,
+  type ExomemSql,
+} from "../db";
+import { drainExomemEmailOutbox, enqueueExomemEmails } from "../email-outbox";
+import { serviceNoticeDedupeKey } from "../service-notice-emails";
 import { fanOutServiceNoticeEmails, SERVICE_NOTICE_FANOUT_BATCH } from "../service-notice-fanout";
 import { createNoticeCache, loadOpenServiceNotices } from "../service-notice-header";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -58,6 +64,8 @@ async function seedTenant(
     reviewer?: boolean;
     status?: "active" | "deletion_pending";
     timeZone?: string;
+    /** How long ago the cell was created; by default it is new. */
+    cellAgeHours?: number;
   } = {}
 ): Promise<{ email: string; tenantId: string; cellId: string }> {
   const email = `notice-${randomUUID()}@example.test`;
@@ -76,8 +84,9 @@ async function seedTenant(
   );
   const cellId = randomCloudCellId();
   await pool.query(
-    "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, $3)",
-    [cellId, tenant.rows[0].id, options.cell ?? "running"]
+    `INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state, created_at)
+     VALUES ($1, $2, $3, now() - make_interval(hours => $4::int))`,
+    [cellId, tenant.rows[0].id, options.cell ?? "running", options.cellAgeHours ?? 0]
   );
   return { email, tenantId: String(tenant.rows[0].id), cellId };
 }
@@ -413,8 +422,8 @@ describe("Exomem service notices on PostgreSQL", { skip: !databaseUrl }, () => {
     });
 
     it("tells a covered owner once that a resolved incident is over, and not while it is active", async () => {
-      const owner = await seedTenant();
-      await seedTenant();
+      const owner = await seedTenant({ cellAgeHours: 3 });
+      await seedTenant({ cellAgeHours: 3 });
       const incident = await pool.query(
         `INSERT INTO exomem_service_notices (kind, summary, starts_at)
          VALUES ('incident', 'Saving is slow.', now() - interval '2 hours') RETURNING id`
@@ -434,6 +443,45 @@ describe("Exomem service notices on PostgreSQL", { skip: !databaseUrl }, () => {
       assert.equal(sent[0]?.to, owner.email);
       assert.match(sent[0]?.textContent ?? "", /Saving is slow\./);
       assert.equal((await deliver()).sent.length, 0);
+    });
+
+    it("never tells an owner whose cell began after the incident ended that it is over", async () => {
+      // A fleet-wide incident from five hours ago to three hours ago. One owner's cell is
+      // older; the other began an hour after the incident was resolved.
+      const present = await seedTenant({ cellAgeHours: 6 });
+      const latecomer = await seedTenant({ cellAgeHours: 2 });
+      const incident = await pool.query(
+        `INSERT INTO exomem_service_notices (kind, summary, starts_at, resolved_at)
+         VALUES ('incident', 'Saving was slow.', now() - interval '5 hours', now() - interval '3 hours')
+         RETURNING id`
+      );
+      const noticeId = String(incident.rows[0].id);
+
+      assert.equal((await fanOutServiceNoticeEmails()).enqueued, 1);
+      assert.deepEqual(await queuedFor(noticeId), [present.email]);
+      assert.equal((await fanOutServiceNoticeEmails()).enqueued, 0);
+
+      // A row queued for the latecomer anyway, as a release without this rule would have,
+      // is dropped when it comes to be sent.
+      await enqueueExomemEmails(executeExomemSql, [
+        {
+          kind: "incident_resolved",
+          dedupeKey: serviceNoticeDedupeKey(noticeId, latecomer.tenantId),
+          recipient: latecomer.email,
+          recipientTimeZone: null,
+          recipientEmailScheme: null,
+          recipientThemeChoice: null,
+          tenantId: latecomer.tenantId,
+          payload: { version: 1, noticeId, tenantId: latecomer.tenantId },
+          expiresAt: new Date(Date.now() + HOUR),
+        },
+      ]);
+      const result = await deliver();
+      assert.deepEqual(
+        result.sent.map((message) => message.to),
+        [present.email]
+      );
+      assert.equal(result.cancelled, 1);
     });
   });
 

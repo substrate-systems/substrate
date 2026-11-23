@@ -55,21 +55,33 @@ CREATE TABLE exomem_service_notice_cells (
 );
 
 -- The tenants a notice covers: one row per tenant whose cell is not deleted
--- and whose owner has an email address. An empty array covers the fleet; a
+-- and whose owner has an email address, with the owner's address, zone and
+-- scheme as the emails need them. An empty array covers the fleet; a
 -- non-empty one names the cells. A marketplace reviewer's tenant is a review
 -- fixture, not a person's Exomem, so it is never covered (email 03 skips it
--- the same way). The operator's preview count, the fan-out and the send-time
--- check all read this one definition. STABLE and one SELECT, so PostgreSQL
--- inlines it and pushes a `tenant_id =` filter into the scan.
-CREATE FUNCTION exomem_service_notice_covered_tenants(cell_ids text[])
-RETURNS TABLE (tenant_id uuid, cell_id text)
+-- the same way). `created_before` limits coverage to cells that existed by
+-- then: an owner whose cell began after an incident was resolved never had the
+-- problem, so the incident email passes the resolution time. Maintenance
+-- passes infinity. The operator's preview count, the fan-out and the
+-- send-time check all read this one definition. STABLE and one SELECT, so
+-- PostgreSQL inlines it and pushes a `tenant_id =` filter into the scan.
+CREATE FUNCTION exomem_service_notice_covered_tenants(
+  cell_ids text[],
+  created_before timestamptz DEFAULT 'infinity'
+)
+RETURNS TABLE (
+  tenant_id uuid, cell_id text, owner_email text,
+  time_zone text, email_scheme text, theme_choice text
+)
 LANGUAGE sql STABLE PARALLEL SAFE
 AS $$
-  SELECT tenant.id, cell.cell_id
+  SELECT tenant.id, cell.cell_id, owner.email::text,
+         tenant.time_zone, tenant.email_scheme, tenant.theme_choice
   FROM exomem_cloud_cells AS cell
   JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
   JOIN exomem_users AS owner ON owner.id = tenant.owner_user_id
   WHERE cell.desired_state <> 'deleted'
+    AND cell.created_at <= created_before
     AND tenant.status NOT IN ('deletion_pending', 'deleted')
     AND NOT tenant.marketplace_reviewer_purpose
     AND owner.email IS NOT NULL
