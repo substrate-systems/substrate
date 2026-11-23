@@ -257,7 +257,7 @@ export function GET() {
                 fontSize: 17,
               }}
             >
-              Python · AGPL-3.0 · self-hosted · no account
+              Python · FSL-1.1 · self-hosted · no account
             </div>
           </div>
         </div>

@@ -1,8 +1,8 @@
-import { SOURCE_OFFER_LINKS, sourceOfferReleaseText } from "@/lib/exomem-hosted/source-offer";
+import { sourceOfferLinks, sourceOfferReleaseText } from "@/lib/exomem-hosted/source-offer";
 import styles from "./SourceOffer.module.css";
 
 /**
- * The "Source code (AGPL-3.0)" offer. Give `release` only where the page has read the cell's own
+ * The "Source code" offer, which names the licence of each repository. Give `release` only where the page has read the cell's own
  * release. `pinned` takes the line out of the page's flow, for the journey pages, whose content
  * is centred between two equal spacers; `align="center"` is for pages without a padded column.
  */
@@ -23,8 +23,8 @@ export function SourceOffer({
   ];
   return (
     <p className={classes.filter(Boolean).join(" ")}>
-      Source code (AGPL-3.0):{" "}
-      {SOURCE_OFFER_LINKS.map((link, index) => (
+      Source code:{" "}
+      {sourceOfferLinks(release).map((link, index) => (
         <span key={link.href}>
           {index > 0 ? " · " : null}
           <a href={link.href} target="_blank" rel="noreferrer noopener">

@@ -48,7 +48,7 @@ const softwareJsonLd = {
   name: "Exomem",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Windows, macOS, Linux",
-  description: `Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at ${proof.scaleNotes} notes, measured, with local OCR, ASR, and image indexing.`,
+  description: `Source-available MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at ${proof.scaleNotes} notes, measured, with local OCR, ASR, and image indexing.`,
   url: `${siteConfig.url}/exomem`,
   downloadUrl: PYPI,
   installUrl: PYPI,
@@ -71,10 +71,10 @@ const softwareJsonLd = {
     "@type": "SoftwareSourceCode",
     name: "Exomem",
     description:
-      "Open-source MCP server exposing a Markdown or Obsidian vault as a governed, searchable knowledge substrate.",
+      "Source-available MCP server exposing a Markdown or Obsidian vault as a governed, searchable knowledge substrate.",
     codeRepository: GITHUB,
     programmingLanguage: "Python",
-    license: "https://www.gnu.org/licenses/agpl-3.0.html",
+    license: "https://fsl.software/",
   },
 };
 
@@ -403,7 +403,7 @@ export default function ExomemPage() {
               <div className={styles.door}>
                 <div className={styles.doorHead}>
                   <h3>Run it yourself</h3>
-                  <span className={styles.tag}>open source</span>
+                  <span className={styles.tag}>source available</span>
                 </div>
                 <div className={styles.tagline}>
                   <Copy
@@ -419,7 +419,7 @@ export default function ExomemPage() {
                 </div>
                 <PipInstall look="door" />
                 <div className={`${styles.doorText} ${responsive.deskOnly}`}>
-                  Open source. Runs on your machine with any MCP client, Cursor included.
+                  Free to self-host. Runs on your machine with any MCP client, Cursor included.
                 </div>
                 <div className={styles.sourceLinks}>
                   <a href={GITHUB} {...external} className={`exo-link-ts ${phone.hitArea}`}>
@@ -443,7 +443,7 @@ export default function ExomemPage() {
               <Eyebrow>04 · Yours to keep</Eyebrow>
               <h2 className={`${styles.h2} ${styles.cloudTitle}`}>We run it. You own it.</h2>
               <p className={`${styles.cloudLede} ${responsive.deskOnly}`}>
-                The same open-source engine, hosted for you. Your vault is plain Markdown
+                The same source-available engine, hosted for you. Your vault is plain Markdown
                 {exportOffered
                   ? ", and you can export it any time, even after you stop paying"
                   : ""}

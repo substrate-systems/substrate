@@ -5,7 +5,7 @@ import { ExomemPublicPage } from "../public-page";
 export const metadata = buildExomemMetadata({
   title: "Exomem Cloud Terms of Service",
   description:
-    "The agreement between you and Substrate Systems OÜ for an Exomem Cloud subscription. The open-source Exomem software remains governed by the licence in its own repository.",
+    "The agreement between you and Substrate Systems OÜ for an Exomem Cloud subscription. The Exomem software remains governed by the licence in its own repository.",
   path: "/exomem/terms",
 });
 
@@ -15,8 +15,8 @@ export default function ExomemTermsPage() {
       <p>
         These terms are an agreement between you and Substrate Systems OÜ (Estonian registry code
         17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Exomem Cloud. They apply when
-        you receive an invitation or use the Cloud service. The open-source Exomem software remains
-        governed by the license in its repository.
+        you receive an invitation or use the Cloud service. The Exomem software remains governed by
+        the licence in its repository.
       </p>
 
       <h2>Eligibility and availability</h2>
@@ -85,9 +85,9 @@ export default function ExomemTermsPage() {
 
       <h2>Intellectual property and feedback</h2>
       <p>
-        These terms do not transfer ownership of your content or the open-source rights granted by
-        Exomem&apos;s repository license. Substrate Systems OÜ retains rights in the Cloud service,
-        site, branding, and non-open-source materials. If you send feedback, you allow us to use it
+        These terms do not transfer ownership of your content or the rights that Exomem&apos;s
+        repository licence grants. Substrate Systems OÜ retains rights in the Cloud service, site,
+        branding, and materials not published under that licence. If you send feedback, you allow us to use it
         without obligation, but it does not give us rights to your knowledge content.
       </p>
 

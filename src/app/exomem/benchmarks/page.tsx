@@ -155,7 +155,7 @@ export default function ExomemBenchmarksPage() {
         </p>
         <p>
           The full contract, including the reviewer&rsquo;s checklist of what to attack
-          first, is maintained in the open-source repository and is the normative version of
+          first, is maintained in the public repository and is the normative version of
           this page.
         </p>
         <p>
@@ -164,7 +164,7 @@ export default function ExomemBenchmarksPage() {
           </a>
         </p>
         <p>
-          Exomem itself is an open-source, MCP-native memory server over a Markdown vault you
+          Exomem itself is a source-available, MCP-native memory server over a Markdown vault you
           own — see <Link href="/exomem">the product page</Link>, or the honest comparisons
           with{" "}
           <Link href="/blog/exomem-vs-mem0-letta-zep">mem0, Letta, Zep and Basic Memory</Link>{" "}
