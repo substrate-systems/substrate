@@ -16,8 +16,8 @@
 
 ## 4. Operator command and runbook
 
-- [ ] 4.1 Add `scripts/exomem-service-notice.ts` with the confirmation step and the status-page mirror; verify the issue body against the status renderer's metadata parser.
-- [ ] 4.2 Add "Service notices" to `docs/runbooks/exomem-cloud-operations.md`: when to declare, copy rules, the command, and what each person sees.
+- [x] 4.1 Add `scripts/exomem-service-notice.ts` with the confirmation step and the status-page mirror; verify the issue body against the status renderer's metadata parser.
+- [x] 4.2 Add "Service notices" to `docs/runbooks/exomem-cloud-operations.md`: when to declare, copy rules, the command, and what each person sees.
 
 ## 5. Delivery
 

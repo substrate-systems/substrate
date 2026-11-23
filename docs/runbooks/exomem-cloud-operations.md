@@ -60,6 +60,7 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED`                                                                                                                                                                                                                                                                                      | Gateway only. `true` serves `observe_transfer` and `transfer_memory` from the control plane. Needs gateway HTTPS egress (chart flag `cloudGateway.transferTools.enabled`). Anything else is off, the rollback.                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS`, `EXOMEM_CLOUD_HOLD_INTERVAL_MS`, `EXOMEM_CLOUD_HOLD_JITTER_MS`, `EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`, `EXOMEM_CLOUD_HOLD_MAX`, `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS`, `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS`, `EXOMEM_CLOUD_UPSTREAM_IDLE_SECONDS` | Gateway only, all required: the gateway does not start without each one. The platform chart renders them from `cloudGateway.hold.*` and `cloudGateway.upstream.*`. See "The gateway hold" below.                                                                                                                                                                                                                                                                                                                                                                                        |
 | `EXOMEM_CLOUD_UPLOAD_ENABLED`, `EXOMEM_CLOUD_UPLOAD_CELL_IDS`                                                                                                                                                                                                                                                              | Gateway only. `true` plus a JSON array of cell IDs serves Cloud upload handoffs for exactly those cells, signed with `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`. Each selected cell needs the matching public key; see Exomem's `cloud-upload-handoff` runbook. The ingress must route `POST /upload` to the gateway. Anything else is off, the rollback. Artifact transport alone never enables uploads.                                                                                                                                                                                      |
+| `EXOMEM_STATUS_URL`                                                                                                                                                                                                                                                                                                        | Optional, on the web app and the gateway. The public status page address that service-notice emails and the assistant's sentence point to. Default `https://status.substratesystems.io`. See "Service notices" below.                                                                                                                                                                                                                                                                                                                                                                   |
 | `OPENAI_APPS_CHALLENGE`                                                                                                                                                                                                                                                                                                    | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                                                                                                                                                                                                                                                                               | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXOMEM_CONNECTOR_SETTINGS_URLS`                                                                                                                                                                                                                                                                                           | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -1225,6 +1226,107 @@ RATE_LIMITED`.
 
 To turn the hold off, set `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS` to `0`. The
 gateway then answers a refused connection with `503 CELL_NOT_READY` at once.
+
+## Service notices
+
+An operator declares planned maintenance or a known incident with one command.
+Substrate does nothing by itself: no notice exists until you declare one. A
+declared notice does four things.
+
+- It emails the owner of each covered Exomem, once.
+- It adds the header `x-exomem-service-notice` to each MCP request that goes to
+  a covered cell, so the person's assistant can tell them.
+- It lists the notice on the public status page.
+- It ends when maintenance ends, when you cancel it, or when you resolve it.
+
+### When to declare
+
+- Declare maintenance for planned work that stops or slows Exomem Cloud, such
+  as a cell release or a storage move. Declare it at least two days ahead.
+  Substrate emails owners 48 hours before the start unless you set
+  `--announce-from`.
+- Declare an incident when you know of a problem that owners can feel. Resolve
+  it when it is over.
+- Declare nothing for a fault that nobody can feel.
+
+### Write the summary
+
+The summary is one line of plain text, at most 280 characters. The email, the
+assistant's sentence and the status issue title all use it.
+
+1. Say what is affected, in the owner's terms, and what still works.
+2. Say only what you know. Name no cause you have not confirmed and promise no time.
+3. Name no person, tenant or cell.
+
+Example: "Saving is slow. Recall works, and nothing is lost."
+
+### Declare maintenance
+
+Set `EXOMEM_PUBLIC_BASE_URL` and `EXOMEM_ADMIN_TOKEN` in your shell. Sign in to
+`gh` with an account that can write to the status repository.
+
+1. Run `gh auth status`. Expect your account and no error.
+2. To cover the whole fleet, run the command below. Add `--cell <cell-id>` once per cell to cover only some.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts create maintenance --summary "Saving may pause for a few minutes while we move storage." --starts 2026-12-01T02:00:00Z --ends 2026-12-01T02:30:00Z --line website-and-sign-in
+   ```
+3. Read the owner count and the assistant's sentence. Type `y` to confirm.
+4. Expect `Created maintenance notice <id> (scheduled).` and the URL of the status issue.
+
+To see the owner count and the sentence without creating anything, use `preview`
+in place of `create`. `--line` names the status lines that the issue lists as
+expected to be down. `--no-mirror` skips the status page.
+
+### Declare an incident
+
+1. Run the command below. `--line` is the slug of the affected status line, as the status site shows it.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts create incident --summary "Saving is slow. Recall works, and nothing is lost." --line website-and-sign-in
+   ```
+2. Read the owner count and the sentence. Type `y` to confirm.
+3. When the problem is over, run the command below with the notice id from `list`.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts resolve <notice-id> --account "Storage was slow for 40 minutes after a disk filled; we cleared it."
+   ```
+4. Expect `Resolved notice <id>.` and `Closed status issue`. Covered owners get one email that says the problem is resolved.
+
+### Fix a wrong notice
+
+- To correct a wrong time or wrong cells, cancel the notice and declare a new one.
+  Run `npx tsx scripts/exomem-service-notice.ts cancel <notice-id>`.
+- A cancelled or started maintenance sends no further emails. An email that has
+  already gone cannot be recalled. Tell owners on the status page.
+- `npx tsx scripts/exomem-service-notice.ts list` shows each notice, its state and its id.
+
+### What each person sees
+
+- An owner gets one email for maintenance and one when an incident is resolved.
+  The email states the times in the owner's time zone, your summary and the
+  status page address. The delivery job sends 20 emails a minute, so declare
+  early for a large fleet: a maintenance email not sent by the start is dropped.
+- A person's assistant gets a sentence with the times in UTC, your summary and
+  the status page address. A cell shows it only after the Exomem cell release
+  that reads the header; older cells ignore it.
+- Substrate sets the header and refuses a caller's own `x-exomem-` header.
+  Each gateway instance asks the database once every 30 seconds, so a notice
+  appears or disappears within 30 seconds.
+- The status page shows maintenance under scheduled maintenance, with its start
+  and end, and an incident under its status line.
+
+### Configuration and grants
+
+- `EXOMEM_STATUS_URL` sets the status page address in emails and in the
+  assistant's sentence. Home's own link reads `EXOMEM_STATUS_PAGE_URL`; set both
+  to the same address.
+- `EXOMEM_STATUS_REPO` names the status repository for the script. Default
+  `substrate-systems/exomem-status`.
+- `exomem_gateway` has `SELECT` on `exomem_service_notices` and
+  `exomem_service_notice_cells`, applied by `scripts/exomem-cloud-grants.sql`
+  after each migration run.
+- If the gateway logs `exomem_cloud_gateway_service_notices_unavailable`, it
+  sends no notice and serves every request as before. After 5 minutes without a
+  good lookup it also stops sending the last notice it knew. Check the grants
+  and the database connection.
 
 ## Cloud releases
 
