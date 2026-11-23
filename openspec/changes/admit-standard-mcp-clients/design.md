@@ -2,9 +2,10 @@
 
 ## One admission predicate
 
-`exomem_oauth_client_admitted(admission_mode, enabled, oauth_client_config_sha256,
-cimd_metadata_fetched_at, cimd_metadata_ttl_seconds, cimd_metadata_expires_at,
-cimd_host, client_platform, allow_uncertified, evaluated_at)` encodes:
+`exomem_oauth_client_admitted(p_admission_mode, p_enabled,
+p_metadata_document_digest, p_metadata_fetched_at, p_metadata_ttl_seconds,
+p_metadata_expires_at, p_cimd_host, p_client_platform, p_allow_uncertified,
+p_as_of)` encodes:
 
 - not `enabled` → false;
 - `pinned` → true;
@@ -47,13 +48,18 @@ therefore spends the same bound as a DCR flood.
 
 ## Stored client context
 
-`client_context` is a check-constrained `text` (`'coding' | 'conversation'`),
-set at registration by the existing redirect-shape rule (all-loopback →
-coding, otherwise conversation) and backfilled the same way. Readers select
-the column: the gateway forwards it as `x-exomem-client-context` and uses it
-to pick transfer tools, and Home lists it. `setOwnerAppContext` updates it
-under the same ownership checks as the other app mutations — owner of the
-grant's tenant, live grant, non-first-party client — behind
+`client_context` is a check-constrained `text` (`'coding' | 'conversation'`)
+with `DEFAULT 'conversation'`, set at registration by the existing
+redirect-shape rule (all-loopback → coding, otherwise conversation) and
+backfilled the same way. The default keeps the previous release's client
+inserts working against the new schema during the deploy window. The owner's
+choice lives on `exomem_oauth_grants.client_context_override` (nullable, same
+closed set), because the client row is shared by every tenant's grant to one
+global client. Readers take `COALESCE(override, client_context)`: the gateway
+forwards it as `x-exomem-client-context` and uses it to pick transfer tools,
+and Home lists it. `setOwnerAppContext` resolves the grant through
+`ownerAppRows`' one ownership rule — owner of the grant's tenant, Cloud
+resource, live grant, non-first-party client — behind
 `POST /api/exomem/apps/[id]/context`, which answers malformed, unknown and
 foreign IDs identically.
 

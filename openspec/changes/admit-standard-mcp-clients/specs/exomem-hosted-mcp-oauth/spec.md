@@ -194,7 +194,7 @@ The bound on stored OAuth clients SHALL be partitioned so that clients created b
 
 ### Requirement: An OAuth Client Carries A Stored Context
 
-Every OAuth client SHALL carry a `client_context` of `coding` or `conversation`, set at registration from redirect shape — all-loopback redirects mean `coding`, otherwise `conversation` — and read, not re-derived, by the gateway, transfer tools and Home. The grant's owner SHALL be able to change it through an owner-authorized mutation answering malformed, unknown and foreign app identifiers indistinguishably; re-registration SHALL preserve the stored choice.
+Every OAuth client SHALL carry a `client_context` of `coding` or `conversation`, set at registration from redirect shape — all-loopback redirects mean `coding`, otherwise `conversation` — and read, not re-derived, by the gateway, transfer tools and Home. The grant's owner SHALL be able to override it for their own grant only, through an owner-authorized mutation answering malformed, unknown and foreign app identifiers indistinguishably; re-registration SHALL preserve the stored choice.
 
 #### Scenario: Registration stores the derived context
 
@@ -204,7 +204,12 @@ Every OAuth client SHALL carry a `client_context` of `coding` or `conversation`,
 #### Scenario: The owner changes an app's context
 
 - **WHEN** the owner of the grant's tenant sets a connected app's context through the authorized route
-- **THEN** the stored context changes, and the gateway's next lookup and the Home app list reflect it
+- **THEN** that grant's stored override changes, and the gateway's next lookup for that grant and the owner's Home app list reflect it
+
+#### Scenario: Another owner's context is unaffected
+
+- **WHEN** two owners hold grants to the same client and one changes the context
+- **THEN** the other owner's app list and gateway lookups keep the registration-derived context
 
 #### Scenario: A non-owner changes an app's context
 

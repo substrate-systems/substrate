@@ -193,10 +193,18 @@ generic partition; see "Generic MCP clients" below.
 To withdraw one, delete its allowlist row. Setting `enabled = false` on the
 client is not a durable off switch, because the next anonymous contact
 re-enables it. Deleting the row for `claude.ai` withdraws every Claude client,
-because claude.ai serves one global client document. While the generic lane is
-enabled a deleted host no longer withdraws its clients by itself: the lane
-admits them like any other unlisted host, so withdraw the lane too or disable
-the client's row.
+because claude.ai serves one global client document.
+
+While the generic lane is enabled a deleted host no longer withdraws its
+clients by itself: the lane admits them like any other unlisted host. There is
+no one-action way to withdraw a single unlisted host while the lane stays
+open -- deleting the allowlist row only removes the platform binding, and
+disabling the client's row is undone by its next `/authorize` contact, which
+re-registers and re-enables it. The one broad withdrawal is closing the lane
+(`exomem_oauth_generic_client_lane`), which cuts every generic and unlisted
+CIMD client at once. A per-host block list is a tracked follow-up in
+`admit-standard-mcp-clients`; until it ships, weigh that cost before enabling
+the lane.
 
 Cached metadata lives 24 hours. When it lapses, the sweep disables the row, and
 token issuance, refresh and MCP calls need unexpired metadata. A self-registered
