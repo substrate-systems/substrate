@@ -140,6 +140,46 @@ or a parallel session. A pinned client's ID is shared by every user of its
 platform, so read the family ID. When one family keeps reusing and its owner
 cannot explain it, revoke that family as described below.
 
+#### Whether an app can still reach the Exomem
+
+An app can reach its owner's cell only while at least one token family under
+its grant is unrevoked and unexpired. Home's "Connected apps" rows now say so:
+"signed in" while a family is live, "signed out since `<date>`" (the day the
+last live family ended, by revocation or expiry) with the remedy "open `<app>`
+and connect Exomem again", and "sign-in unknown" when the state cannot be
+read — an unreadable state is never shown as signed in. A grant stays in the
+list while it is unrevoked, so a signed-out app still offers Disconnect.
+
+#### The sign-out email
+
+When the last live family under a grant ends without the owner's action — a
+replay revocation, the idle window or the session ceiling expiring, or an
+operator family revocation — the OAuth lane of `exomem-reconcile` emails the
+owner once per family: which app (the display name Home shows; a name the app
+declares itself is marked as its own claim), when access ended, that nothing
+the app saves reaches the Exomem until it reconnects, and to open the app and
+connect Exomem again. The email goes through the normal outbox with delivery
+evidence (see "Email delivery" below), and cancels at send time if the owner
+disconnected or reconnected meanwhile or the account is gone.
+
+The rules:
+
+- The grant must have been used within the last 14 days
+  (`exomem_oauth_grant_usage.last_used_at`); a quieter app gets no email.
+- Owner disconnects (`owner_disconnected`), the client's own revocation
+  (`client_revoked`) and account, cell or reviewer lifecycle endings
+  (`lifecycle_deleted`, `cloud_cell_deleted`,
+  `reviewer_credential_revoked`) send nothing.
+- At most one email per grant per 24 hours. A durable marker row per family
+  (`exomem_oauth_app_signout_notices`, migration 0089) makes the notice
+  once-per-family under retries and concurrent sweeps; the sweep detects
+  endings within a 25-hour lookback in batches of 100.
+- Each queued email logs the content-free event `oauth.app_signout.notified`
+  with the tenant ID and `emailKind` `app_signout` — metadata only, no app
+  names. The reconcile result's `oauth.signouts` carries `candidates` and
+  `emailed`, or `null` when that lane failed (logged as
+  `exomem-oauth: app sign-out notice lane failed`).
+
 ### Revoke connected apps
 
 Revoke the narrowest scope that stops the problem. Each step takes effect on the
