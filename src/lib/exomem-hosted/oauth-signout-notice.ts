@@ -19,14 +19,15 @@ import type { ExomemThemeChoice } from "@/lib/exomem/theme";
 
 /** The latest-ended unmarked ending considered per grant each run, per partition. */
 const SIGNOUT_CANDIDATES_PER_SWEEP = 100;
-/** Endings older than this are stale news: the sweep looks back no further. */
-const SIGNOUT_LOOKBACK_HOURS = 25;
 /**
- * At most one sign-out email per grant in this window, enforced on emailed
- * markers. The sweep's prune reads the same window: an ending the cap still
- * suppresses must keep the rows it will be read from once the cap lifts.
+ * Endings older than this are stale news: the sweep looks back no further.
+ * The sweep's prune reads the same window: a family keeps its refresh tokens
+ * for the whole lookback past its ceiling, so an ending the lane can still
+ * read keeps the rows it is read from.
  */
-export const SIGNOUT_CAP_HOURS = 24;
+export const SIGNOUT_LOOKBACK_HOURS = 25;
+/** At most one sign-out email per grant in this window, enforced on emailed markers. */
+const SIGNOUT_CAP_HOURS = 24;
 /**
  * Markers live long enough to answer the send-time recheck and span the cap;
  * past this age the sweep deletes the oldest per run, bounded like the

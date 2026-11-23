@@ -25,7 +25,7 @@ import {
   type OAuthFamilyEndReason,
 } from "./oauth-family-end";
 import { loadOAuthSessionPolicy, type OAuthSessionPolicy } from "./oauth-session-policy";
-import { notifyEndedAppSessions, SIGNOUT_CAP_HOURS } from "./oauth-signout-notice";
+import { notifyEndedAppSessions, SIGNOUT_LOOKBACK_HOURS } from "./oauth-signout-notice";
 
 export type OAuthTokenContext = {
   grantId: string;
@@ -747,33 +747,23 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
       ORDER BY expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
     )
   `;
-  // Rotation lineage stays until its family expires: a leaf token goes first,
-  // its parent on a later run. One hold-out: a family whose ending the
-  // sign-out cap still suppresses — no marker of its own, an emailed marker
-  // on its grant inside the cap — keeps its rows until the notice lane reads
-  // the ending again once the cap lifts. Holding the tokens holds the family:
-  // the family delete below only takes a tokenless one.
+  // Rotation lineage stays until its family expires, and for the whole
+  // sign-out lookback past the ceiling: an ending falls at or before the
+  // ceiling, so every ending the notice lane can still read keeps the tokens
+  // it is read from — however the run that should have emailed it went, the
+  // cap, the candidate queue or a lane failure. A leaf token goes first, its
+  // parent on a later run. Holding the tokens holds the family: the family
+  // delete below only takes a tokenless one.
   await executeExomemSql`
     /* exomem:prune-expired-refresh-tokens */
     DELETE FROM exomem_oauth_refresh_tokens
     WHERE id IN (
       SELECT token.id FROM exomem_oauth_refresh_tokens AS token
       JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
-      WHERE family.expires_at <= now()
+      WHERE family.expires_at <= now() - (${SIGNOUT_LOOKBACK_HOURS} * interval '1 hour')
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_refresh_tokens AS child
           WHERE child.parent_refresh_token_id = token.id
-        )
-        AND (
-          EXISTS (
-            SELECT 1 FROM exomem_oauth_app_signout_notices AS notice
-            WHERE notice.family_id = family.id
-          )
-          OR NOT EXISTS (
-            SELECT 1 FROM exomem_oauth_app_signout_notices AS notice
-            WHERE notice.grant_id = family.grant_id
-              AND notice.emailed_at > now() - (${SIGNOUT_CAP_HOURS} * interval '1 hour')
-          )
         )
       ORDER BY token.expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
     )
