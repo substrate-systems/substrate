@@ -239,34 +239,22 @@ describe("how fresh the gateway's notices are", () => {
     assert.equal(await cache.headerFor(CELL), null);
     assert.equal(loads, 1, "no query inside the 30 seconds");
 
+    // The first request after the copy ages gets the new notice itself.
     mock.timers.tick(1_001);
-    // The refresh starts on this request and lands for the next one; none waits for it.
-    await cache.headerFor(CELL);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(loads, 2);
     assert.equal(decode(await cache.headerFor(CELL)).kind, "maintenance");
-
-    // A cancelled notice stops being sent within the next 30 seconds.
-    list = [];
-    mock.timers.tick(30_001);
-    await cache.headerFor(CELL);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(await cache.headerFor(CELL), null);
-    assert.equal(loads, 3);
+    assert.equal(loads, 2);
   });
 
   it("shares one load between requests that arrive while it runs", async () => {
     let loads = 0;
     let finish: (list: ServiceNotice[]) => void = () => undefined;
-    const clock = { at: T0 };
     const cache = createNoticeCache({
       load: () => {
         loads += 1;
         return new Promise<ServiceNotice[]>((resolve) => (finish = resolve));
       },
-      now: () => clock.at,
+      now: () => T0,
       statusUrl: () => STATUS,
-      coldWaitMs: 1_000,
     });
     const pending = Array.from({ length: 20 }, () => cache.headerFor(CELL));
     finish([notice()]);
@@ -275,24 +263,37 @@ describe("how fresh the gateway's notices are", () => {
     assert.ok(headers.every((header) => header !== null));
   });
 
-  it("does not hold the first request for a slow database", async () => {
-    let finish: (list: ServiceNotice[]) => void = () => undefined;
-    const cache = createNoticeCache({
-      load: () => new Promise<ServiceNotice[]>((resolve) => (finish = resolve)),
-      now: () => T0,
-      statusUrl: () => STATUS,
-      coldWaitMs: 20,
-    });
-    const started = Date.now();
+  it("never sends a resolved or cancelled notice once its copy has aged and been refreshed", async () => {
+    const clock = { at: T0 };
+    let list = [incident(), notice()];
+    const { cache } = cacheOver(() => list, clock);
+    assert.equal(decode(await cache.headerFor(CELL)).kind, "incident");
+
+    list = [];
+    clock.at = T0 + 30_001;
     assert.equal(await cache.headerFor(CELL), null);
-    assert.ok(Date.now() - started < 1_000);
-    // When the load lands, the next request has the notice.
-    finish([notice()]);
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.ok(await cache.headerFor(CELL));
   });
 
-  it("keeps the last notices through a database outage, then stops vouching for them", async () => {
+  it("serves a current notice on the first request after a long quiet spell", async () => {
+    // Sparse traffic: each gap is far longer than the 30 seconds a copy lives.
+    const clock = { at: T0 };
+    let list: ServiceNotice[] = [];
+    const { cache, loads } = cacheOver(() => list, clock);
+    assert.equal(await cache.headerFor(CELL), null);
+
+    list = [incident()];
+    clock.at += 6 * 60_000;
+    assert.equal(decode(await cache.headerFor(CELL)).kind, "incident");
+
+    // Maintenance that became active during the next gap is active in the very first reply.
+    list = [notice({ startsAt: new Date(clock.at + 60_000), endsAt: new Date(clock.at + HOUR) })];
+    clock.at += 6 * 60_000;
+    const after = decode(await cache.headerFor(CELL));
+    assert.equal(after.state, "active");
+    assert.equal(loads(), 3);
+  });
+
+  it("sends no header while the database fails, and recovers on the first try after 30 seconds", async () => {
     const clock = { at: T0 };
     let failing = false;
     let loads = 0;
@@ -309,43 +310,35 @@ describe("how fresh the gateway's notices are", () => {
       });
       assert.ok(await cache.headerFor(CELL));
 
+      // The copy that was good a minute ago is not served: it can no longer vouch for itself.
       failing = true;
       clock.at = T0 + 60_000;
-      await cache.headerFor(CELL);
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.equal(loads, 2);
-      assert.ok(await cache.headerFor(CELL), "a minute-old copy still serves");
-
-      clock.at = T0 + 10 * 60_000;
-      await cache.headerFor(CELL);
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.equal(await cache.headerFor(CELL), null, "ten minutes old is too old to trust");
+      assert.equal(await cache.headerFor(CELL), null);
+      assert.equal(await cache.headerFor(CELL), null);
+      assert.equal(loads, 2, "one failed try, not one per request");
       assert.ok(warnings.mock.callCount() >= 1, "the outage is logged");
+
+      failing = false;
+      clock.at = T0 + 91_000;
+      assert.ok(await cache.headerFor(CELL));
     } finally {
       warnings.mock.restore();
     }
   });
 
-  it("recovers by itself when the database returns", async () => {
-    const clock = { at: T0 };
-    let failing = true;
+  it("gives up on a database that hangs after the load timeout, and sends no header", async () => {
     const warnings = mock.method(console, "warn", () => undefined);
     try {
       const cache = createNoticeCache({
-        load: async () => {
-          if (failing) throw new Error("connection refused");
-          return [notice()];
-        },
-        now: () => clock.at,
+        load: () => new Promise<ServiceNotice[]>(() => undefined),
+        now: () => T0,
         statusUrl: () => STATUS,
-        coldWaitMs: 20,
+        loadTimeoutMs: 20,
       });
+      const started = Date.now();
       assert.equal(await cache.headerFor(CELL), null);
-      failing = false;
-      clock.at = T0 + 31_000;
-      await cache.headerFor(CELL);
-      await new Promise((resolve) => setImmediate(resolve));
-      assert.ok(await cache.headerFor(CELL));
+      assert.ok(Date.now() - started < 1_000);
+      assert.ok(warnings.mock.callCount() >= 1);
     } finally {
       warnings.mock.restore();
     }

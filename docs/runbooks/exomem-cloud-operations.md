@@ -1308,8 +1308,10 @@ expected to be down. `--no-mirror` skips the status page.
   the status page address. A cell shows it only after the Exomem cell release
   that reads the header; older cells ignore it.
 - Substrate sets the header and refuses a caller's own `x-exomem-` header.
-  Each gateway instance asks the database once every 30 seconds, so a notice
-  appears or disappears within 30 seconds.
+  A gateway instance keeps its copy of the notices for 30 seconds. The first
+  request after that waits for one refresh, at most 5 seconds, and carries the
+  result, so a request never carries a notice that changed more than 30 seconds
+  ago. An instance with no traffic asks the database nothing.
 - The status page shows maintenance under scheduled maintenance, with its start
   and end, and an incident under its status line.
 
@@ -1321,8 +1323,8 @@ expected to be down. `--no-mirror` skips the status page.
   `exomem_service_notice_cells`, applied by `scripts/exomem-cloud-grants.sql`
   after each migration run.
 - If the gateway logs `exomem_cloud_gateway_service_notices_unavailable`, it
-  sends no notice and serves every request as before. After 5 minutes without a
-  good lookup it also stops sending the last notice it knew. Check the grants
+  sends no notice and serves every request as before. It tries again once every
+  30 seconds, and requests carry no notice until a lookup works. Check the grants
   and the database connection.
 
 ## Cloud releases

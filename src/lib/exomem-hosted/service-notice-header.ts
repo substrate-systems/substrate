@@ -166,43 +166,38 @@ export type NoticeCacheOptions = {
   now?: () => number;
   statusUrl?: () => string;
   ttlMs?: number;
-  /** How long the first request after start waits for the first load. */
-  coldWaitMs?: number;
   /** A load that takes longer counts as failed, so a hung query cannot stop later loads. */
   loadTimeoutMs?: number;
-  /** Past this age without a successful load the cache says nothing: it can no longer vouch for a notice. */
-  maxStaleMs?: number;
 };
 
 let noticeLoadFailures = 0;
 
 /**
- * A process-local copy of the open notices, refreshed at most once per
- * `ttlMs` by one load, whatever the request rate (D3). A request never waits
- * for a refresh except the first one after start, and then only briefly. A
- * failed refresh keeps the last copy until it is too old to trust.
+ * A process-local copy of the open notices, at most `ttlMs` old when a request
+ * uses it (D3). The first request after the copy ages waits for one load that
+ * every request arriving meanwhile shares, bounded by `loadTimeoutMs`. A load
+ * that fails sends no header, and no request tries again until `ttlMs` has
+ * passed, so a database outage costs one bounded wait per window and never
+ * lets a notice outlive its copy.
  */
 export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
   const now = options.now ?? (() => Date.now());
   const statusUrl = options.statusUrl ?? (() => statusPageUrlOrDefault());
   const ttlMs = options.ttlMs ?? NOTICE_CACHE_TTL_MS;
-  const coldWaitMs = options.coldWaitMs ?? 250;
   const loadTimeoutMs = options.loadTimeoutMs ?? 5_000;
-  const maxStaleMs = options.maxStaleMs ?? 10 * ttlMs;
 
   let notices: ServiceNotice[] | null = null;
   // Encoding costs milliseconds for a long summary, which no request may pay (the 1 ms budget
   // of D3). A header depends only on the notice, its state and the address, so each is encoded
   // once per load: at most two states for each of the 100 open notices.
   let encoded = new Map<string, string>();
-  let loadedAt = 0;
-  let attemptedAt = -Infinity;
+  let loadedAt = -Infinity;
+  let failedAt = -Infinity;
   let attempt = 0;
   let inflight: Promise<void> | null = null;
 
   function refresh(): Promise<void> {
     if (inflight) return inflight;
-    attemptedAt = now();
     const mine = ++attempt;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<never>((_, reject) => {
@@ -218,6 +213,7 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
           loadedAt = now();
         },
         (error: unknown) => {
+          failedAt = now();
           noticeLoadFailures += 1;
           if (loggedOccurrence(noticeLoadFailures)) {
             const code = (error as { code?: unknown } | null)?.code;
@@ -236,28 +232,14 @@ export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
     return inflight;
   }
 
-  async function waitBriefly(pending: Promise<void>): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const gone = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, coldWaitMs);
-    });
-    try {
-      await Promise.race([pending, gone]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   return {
     async headerFor(cellId) {
-      const at = now();
-      if (at - attemptedAt >= ttlMs) {
-        const started = refresh();
-        if (!notices) await waitBriefly(started);
-      } else if (!notices && inflight) {
-        await waitBriefly(inflight);
+      if (now() - loadedAt >= ttlMs) {
+        if (inflight) await inflight;
+        else if (now() - failedAt >= ttlMs) await refresh();
       }
-      if (!notices || at - loadedAt > maxStaleMs) return null;
+      const at = now();
+      if (!notices || at - loadedAt >= ttlMs) return null;
       const current = pickCurrentNotice(notices, cellId, new Date(at));
       if (!current) return null;
       const url = statusUrl();
