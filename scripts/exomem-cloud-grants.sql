@@ -475,6 +475,18 @@ BEGIN
       GRANT SELECT (id, tenant_id, owner_user_id, credential_kind, revoked_at, expires_at, provider)
         ON exomem_marketplace_reviewer_credentials TO exomem_gateway;
     END IF;
+    -- Migration 0088: the gateway resolves an `exs_` service credential
+    -- itself (findCloudServiceCredential), under the same least-privilege
+    -- pattern as the OAuth lookup. The table stores only the secret's
+    -- digest, so the gateway still never sees a secret. owner_user_id on
+    -- exomem_tenants is the account-block predicate's join column.
+    IF to_regclass('exomem_cloud_service_credentials') IS NOT NULL THEN
+      GRANT SELECT (id, tenant_id, principal, secret_digest, revoked_at)
+        ON exomem_cloud_service_credentials TO exomem_gateway;
+      IF to_regclass('exomem_tenants') IS NOT NULL THEN
+        GRANT SELECT (owner_user_id) ON exomem_tenants TO exomem_gateway;
+      END IF;
+    END IF;
   END IF;
 END
 $$;

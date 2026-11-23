@@ -160,6 +160,12 @@ export const exomemErrors = {
       status: 413,
       message: "the request is too large",
     }),
+  serviceCredentialLimit: () =>
+    new ExomemHostedError({
+      code: "SERVICE_CREDENTIAL_LIMIT",
+      status: 409,
+      message: "a principal holds at most two live credentials",
+    }),
 } as const;
 
 export function safeErrorEnvelope(error: unknown, requestId?: string): ExomemHostedErrorEnvelope {

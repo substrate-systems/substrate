@@ -15,6 +15,7 @@ import {
   readCloudArtifactBody,
 } from "./cloud-artifacts";
 import {
+  CLOUD_DISCOVERY_PATH,
   CLOUD_DOWNLOAD_PATH,
   CLOUD_ORIGIN_HEADER,
   CLOUD_UPLOAD_ROUTE_HEADER,
@@ -49,6 +50,11 @@ import {
   type ActiveCloudOAuthAccessToken,
   type ActiveCloudOAuthLogin,
 } from "../lib/exomem-hosted/cloud-oauth";
+import {
+  findCloudServiceCredential,
+  SERVICE_CREDENTIAL_PREFIX,
+  type ActiveCloudServiceCredential,
+} from "../lib/exomem-hosted/cloud-service-credentials";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
 import {
   oauthClientContext,
@@ -95,6 +101,8 @@ const CELL_PORT = 8765;
 const MAX_CLOUD_UPLOAD_BODY_BYTES = 100 * 1024 * 1024 + 1024 * 1024;
 // The cell answers an upload with one small JSON object.
 const MAX_CELL_UPLOAD_ANSWER_BYTES = 64 * 1024;
+// Design D6's authenticated discovery body cap (add-cloud-service-credentials).
+const MAX_CLOUD_DISCOVERY_BYTES = 64 * 1024;
 // The cell's download answer headers the gateway relays, and no others. The
 // gateway sets its own cache-control, so the cell's is never on this list.
 const RELAYED_DOWNLOAD_HEADERS = [
@@ -304,6 +312,20 @@ function errorResponse(status: number, code: string): Response {
   return Response.json({ error: code }, { status, headers: CACHE_HEADERS });
 }
 
+/**
+ * Design D4's mark: access the service-credential lookup resolved rather than
+ * the OAuth one (add-cloud-service-credentials D2). A resolved service
+ * credential skips the IP bucket — its `tenant:principal` identity limit is
+ * the bound — and notes no OAuth app use.
+ */
+function isServiceCredentialAccess(
+  access: ActiveCloudOAuthAccessToken | null
+): access is ActiveCloudServiceCredential {
+  return (
+    access !== null && (access as ActiveCloudServiceCredential).serviceCredential === true
+  );
+}
+
 /** D5: a request the hold could not serve tells the client when to try again. */
 function cellNotReadyRetryLater(upstream: CloudUpstream): Response {
   return Response.json(
@@ -372,6 +394,7 @@ export function buildCloudProtectedResourceMetadata(
 export type CloudGatewayDependencies = {
   config?: ExomemCloudConfig;
   findAccessToken?: typeof findCloudOAuthAccessToken;
+  findServiceCredential?: typeof findCloudServiceCredential;
   findLogin?: typeof findCloudOAuthLogin;
   recordAppUse?: typeof recordCloudAppUse;
   takeRateLimit?: typeof takeExomemRateLimit;
@@ -399,6 +422,7 @@ export async function handleCloudMcpRequest(
 ): Promise<Response> {
   const config = dependencies.config ?? loadExomemCloudConfig();
   const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
+  const findServiceCredential = dependencies.findServiceCredential ?? findCloudServiceCredential;
   const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
 
   // 1. GET is refused before anything else is even parsed.
@@ -413,19 +437,29 @@ export async function handleCloudMcpRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // 3. Bearer parse and token lookup (exact Cloud-resource match). The IP
-  // decision below needs the lookup's answer, so a refusal waits for it.
+  // 3. Bearer parse and credential lookup (exact Cloud-resource match).
+  // Design D2 (add-cloud-service-credentials): the `exs_` prefix selects the
+  // credential kind — a service credential resolves only against its own
+  // table, any other bearer only against OAuth tokens; neither lookup can
+  // ever resolve the other's kind. The IP decision below needs the lookup's
+  // answer, so a refusal waits for it.
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  const access = bearer ? await findAccessToken(digestSecret(bearer), config.mcpUrl) : null;
+  const access = bearer
+    ? bearer.startsWith(SERVICE_CREDENTIAL_PREFIX)
+      ? await findServiceCredential(digestSecret(bearer), config.mcpUrl)
+      : await findAccessToken(digestSecret(bearer), config.mcpUrl)
+    : null;
 
   // 4. IP rate limit, keyed on the ingress-recorded client address. Home's
   // server calls for every owner from a few shared addresses, so a token
   // that the lookup resolved to the first-party client, by its stored row,
-  // skips it; the identity limit below still applies to it. Every other
-  // request, valid or not, takes the IP bucket before it is answered. Skipped
-  // entirely when there is no address to key on (security review finding 6)
-  // — never collapsed into one shared bucket.
-  if (!access?.firstParty) {
+  // skips it; the identity limit below still applies to it. A resolved
+  // service credential skips the bucket too — its `tenant:principal`
+  // identity limit is the bound (D4). Every other request, valid or not —
+  // including an `exs_` bearer the lookup refused — takes the IP bucket
+  // before it is answered. Skipped entirely when there is no address to key
+  // on (security review finding 6) — never collapsed into one shared bucket.
+  if (!access?.firstParty && !isServiceCredentialAccess(access)) {
     const ipKey = trustedIngressClientAddress(request);
     if (ipKey === null) {
       recordIpBucketSkip();
@@ -455,9 +489,16 @@ export async function handleCloudMcpRequest(
   try {
     // 5b. The transfer tools are the control plane's, so they are answered
     // here, before the cell's desired-state gate: a held or stopped cell
-    // still lets its owner see and control an import or an export.
+    // still lets its owner see and control an import or an export. They are
+    // OAuth authority — a service credential is never sent to the control
+    // plane as one (D2), so it only ever proxies.
     let prepared: PreparedBody | undefined;
-    if (config.transferToolsEnabled && bearer && request.method === "POST") {
+    if (
+      config.transferToolsEnabled &&
+      bearer &&
+      !isServiceCredentialAccess(access) &&
+      request.method === "POST"
+    ) {
       const served = await serveTransferTool(
         request,
         access,
@@ -549,8 +590,11 @@ async function proxyToCell(
 
   // The request goes to the cell, so the app reached its Exomem: Home's app row
   // says when. Home's own client is not an app. A lost note only leaves that
-  // line older, or absent.
-  if (!access.firstParty) noteAppUse(access.grantId, recordAppUse);
+  // line older, or absent. A service credential has no grant row for the app
+  // table to name, so it notes nothing (add-cloud-service-credentials D3).
+  if (!access.firstParty && !isServiceCredentialAccess(access)) {
+    noteAppUse(access.grantId, recordAppUse);
+  }
 
   // 7. Derive the per-cell bearer (C4).
   const cellBearer = deriveCloudCellBearer(config.cellTokenKey, access.cellId);
@@ -1008,4 +1052,129 @@ async function relayDownloadFromCell(
     if (value !== null) relayed.set(name, value);
   }
   return new Response(upstream.body, { status: upstream.status, headers: relayed });
+}
+
+/**
+ * Design D6's discovery pass-through (add-cloud-service-credentials): an
+ * authenticated caller — OAuth token or service credential — receives the
+ * bytes its own cell serves at `/.well-known/exomem-cell`, byte for byte.
+ * Every check below runs before the cell is contacted, in the MCP route's
+ * order; the credential selects the cell exactly as it does there, so a
+ * caller can never read another tenant's discovery document.
+ */
+export async function handleCloudDiscoveryRequest(
+  request: Request,
+  dependencies: CloudGatewayDependencies = {}
+): Promise<Response> {
+  const config = dependencies.config ?? loadExomemCloudConfig();
+  const findAccessToken = dependencies.findAccessToken ?? findCloudOAuthAccessToken;
+  const findServiceCredential = dependencies.findServiceCredential ?? findCloudServiceCredential;
+  const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
+
+  if (request.method !== "GET") {
+    return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "GET" } });
+  }
+  if (hasForbiddenGatewayHeaders(request.headers)) {
+    return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
+  }
+
+  // D2's prefix dispatch and the MCP route's IP-bucket rule, unchanged: a
+  // resolved service credential skips it, an unresolved `exs_` takes it.
+  const bearer = parseBearerAuthorization(request.headers.get("authorization"));
+  const access = bearer
+    ? bearer.startsWith(SERVICE_CREDENTIAL_PREFIX)
+      ? await findServiceCredential(digestSecret(bearer), config.mcpUrl)
+      : await findAccessToken(digestSecret(bearer), config.mcpUrl)
+    : null;
+  if (!access?.firstParty && !isServiceCredentialAccess(access)) {
+    const ipKey = trustedIngressClientAddress(request);
+    if (ipKey === null) {
+      recordIpBucketSkip();
+    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+      return errorResponse(429, "RATE_LIMITED");
+    }
+  }
+  if (!access) return unauthorized(config);
+  if (!REQUIRED_CLOUD_SCOPES.every((scope) => access.scopes.includes(scope))) {
+    return errorResponse(403, "INSUFFICIENT_SCOPE");
+  }
+  if (access.cellDesiredState !== "running" && access.cellDesiredState !== "read_only") {
+    return errorResponse(503, "CELL_NOT_READY");
+  }
+  // The same cell_id revalidation the MCP route runs before building a URL.
+  if (!CELL_ID_FORMAT.test(access.cellId)) {
+    console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
+    return errorResponse(500, "CELL_ID_INVALID");
+  }
+  const identityKey = `${access.tenantId}:${access.clientId}`;
+  if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIdentity, identityKey))) {
+    return errorResponse(429, "RATE_LIMITED");
+  }
+  const release = acquireCloudConcurrency(identityKey);
+  if (!release) return errorResponse(429, "RATE_LIMITED");
+  try {
+    return await relayDiscoveryFromCell(request, access, dependencies);
+  } finally {
+    release();
+  }
+}
+
+async function relayDiscoveryFromCell(
+  request: Request,
+  access: ActiveCloudOAuthAccessToken,
+  dependencies: CloudGatewayDependencies
+): Promise<Response> {
+  const fetchCell = dependencies.fetchCell ?? defaultFetchCell;
+  const origin = (dependencies.cellOrigin ?? defaultCellOrigin)(access.cellId);
+  // The cell's discovery document is unauthenticated inside the cluster — the
+  // credential check above is the boundary. No bearer, no proof and none of
+  // the caller's headers reach the cell (D6).
+  let upstream: Response;
+  try {
+    upstream = await fetchCell(new URL(CLOUD_DISCOVERY_PATH, origin).toString(), {
+      method: "GET",
+      headers: new Headers({ "accept-encoding": "identity", "x-request-id": randomUUID() }),
+      redirect: "manual",
+      signal: request.signal,
+      dispatcher: (dependencies.upstream ?? gatewayCloudUpstream()).dispatcher,
+    } as RequestInit);
+  } catch (error) {
+    if (isCellHeadersTimeout(error)) return errorResponse(504, "CELL_TIMEOUT");
+    return errorResponse(503, "CELL_NOT_READY");
+  }
+  if (upstream.status !== 200) {
+    await upstream.body?.cancel().catch(() => undefined);
+    return errorResponse(502, "CELL_ANSWER_INVALID");
+  }
+  const body = await readCellDiscoveryBody(upstream);
+  if (body === null) return errorResponse(502, "CELL_ANSWER_INVALID");
+  const headers = new Headers(CACHE_HEADERS);
+  const contentType = upstream.headers.get("content-type");
+  if (contentType !== null) headers.set("content-type", contentType);
+  return new Response(body, { status: 200, headers });
+}
+
+/** The cell's discovery document under the D6 cap, or null when it is larger. */
+async function readCellDiscoveryBody(
+  upstream: Response
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!upstream.body) return new Uint8Array(0);
+  const reader = upstream.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_CLOUD_DISCOVERY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+    return new Uint8Array(Buffer.concat(chunks));
+  } catch {
+    return null;
+  }
 }
