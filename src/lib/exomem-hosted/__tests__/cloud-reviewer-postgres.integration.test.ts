@@ -124,7 +124,7 @@ async function reviewerFixture(provider: "openai" | "anthropic" = "openai") {
   const clientId = `review-${randomUUID()}`;
   const redirectUri = "https://review.example.test/callback";
   const client = await pool.query(
-    "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256) VALUES ($1, $2, 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $4) RETURNING id",
+    "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256, client_context) VALUES ($1, $2, 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $4, 'conversation') RETURNING id",
     [
       clientId,
       provider === "openai" ? "openai" : "claude",
@@ -266,6 +266,60 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       "UPDATE exomem_marketplace_reviewer_credentials SET revoked_at = now() WHERE id = ANY($1::uuid[])",
       [[hosted.rows[0].id, cloud.rows[0].id]]
     );
+  });
+
+  it("refuses a generic client a reviewer credential redemption even while its lane admits it", async () => {
+    // The lane admits an uncertified client to ask for consent, but a NULL
+    // platform must never pass the reviewer check: to it NULL reads as any
+    // provider. The session creation calls the shared admission rule with
+    // uncertified arms off, which this test pins.
+    const target = await sample();
+    const issued = await issueReviewer({
+      ...target,
+      provider: "openai",
+      usernameDigest: randomBytes(32),
+      passwordHash: "$argon2id$test",
+      fixtureVersion: "sample-v1",
+      fixturePayloadDigest: "a".repeat(64),
+      expiresAt: new Date(Date.now() + 3_600_000),
+      operatorPrincipalDigest: randomBytes(32),
+    });
+    assert.ok(issued);
+    const clientId = `generic-review-${randomUUID()}`;
+    const redirectUri = "https://review.example.test/callback";
+    const client = await pool.query(
+      "INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_context) VALUES ($1, 'generic', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'conversation') RETURNING id",
+      [clientId, JSON.stringify([redirectUri])]
+    );
+    const transactionDigest = randomBytes(32);
+    await pool.query(
+      "INSERT INTO exomem_oauth_authorization_transactions (transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest, state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at) VALUES ($1, $2, $3, $4, ARRAY['exomem.read','exomem.write','offline_access'], $5, '{}'::jsonb, $6, $7, 'challenge', now() + interval '1 day')",
+      [
+        transactionDigest,
+        client.rows[0].id,
+        redirectUri,
+        CLOUD_RESOURCE,
+        randomBytes(32),
+        randomBytes(32),
+        randomBytes(32),
+      ]
+    );
+    await pool.query("UPDATE exomem_oauth_generic_client_lane SET enabled = true");
+    try {
+      assert.equal(
+        await createCloudReviewerOAuthSessionAtomic({
+          credentialId: issued.credentialId,
+          transactionDigest,
+          sessionDigest: randomBytes(32),
+          csrfDigest: randomBytes(32),
+          expiresAt: new Date(Date.now() + 86_400_000),
+        }),
+        null,
+        "an uncertified client must never redeem a reviewer credential"
+      );
+    } finally {
+      await pool.query("UPDATE exomem_oauth_generic_client_lane SET enabled = false");
+    }
   });
 
   it("issues a bounded credential for an existing complimentary sample Cloud tenant without Hosted artifacts", async () => {
@@ -662,7 +716,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     const fixture = await reviewerFixture();
     const tokens = await authorize(fixture);
     const client = await pool.query(
-      "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256) VALUES ($1, 'openai', 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $2) RETURNING id",
+      "INSERT INTO exomem_oauth_clients (client_id, client_platform, admission_mode, enabled, redirect_uris, redirect_uris_digest, oauth_client_config_sha256, client_context) VALUES ($1, 'openai', 'pinned', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'), $2, 'conversation') RETURNING id",
       [
         `family-client-${randomUUID()}`,
         randomBytes(32).toString("hex"),

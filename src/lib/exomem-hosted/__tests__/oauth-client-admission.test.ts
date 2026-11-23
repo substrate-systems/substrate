@@ -74,6 +74,55 @@ describe("operator OAuth client admission", () => {
     assert.equal(isCimdNetworkAddressAllowed("2001:4860:4860::8888"), true);
   });
 
+  it("admits only public addresses for a CIMD host, covering every refused class", () => {
+    // The lane admits CIMD from any host, so every DNS answer the fetch sees is
+    // checked: one private answer refuses the whole fetch.
+    const refused = [
+      // IPv4: this-net, private, loopback, carrier-grade NAT, link-local,
+      // benchmarking, documentation, multicast and reserved.
+      "0.1.2.3",
+      "10.0.0.1",
+      "127.0.0.1",
+      "100.64.0.1",
+      "169.254.0.1",
+      "172.16.0.1",
+      "192.0.0.1",
+      "192.0.2.1",
+      "192.2.0.1",
+      "192.168.0.1",
+      "198.18.0.1",
+      "198.19.0.1",
+      "198.51.100.1",
+      "203.0.113.1",
+      "224.0.0.1",
+      "240.0.0.1",
+      "255.255.255.255",
+      // IPv6: unspecified, loopback, ULA, link-local and site-local, multicast,
+      // IPv4-mapped IPv6, NAT64, 6to4, Teredo and the documentation range.
+      "::",
+      "::1",
+      "fc00::1",
+      "fd00::1",
+      "fe80::1",
+      "feb0::1",
+      "fec0::1",
+      "ff02::1",
+      "::ffff:8.8.8.8",
+      "64:ff9b::1",
+      "64:ff9b:1::1",
+      "2002::1",
+      "2001:0000::1",
+      "2001:0::1",
+      "2001:db8::1",
+    ];
+    for (const address of refused) {
+      assert.equal(isCimdNetworkAddressAllowed(address), false, address);
+    }
+    for (const address of ["8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "2606:4700:4700::1111"]) {
+      assert.equal(isCimdNetworkAddressAllowed(address), true, address);
+    }
+  });
+
   it("rejects unsafe redirects and makes the client fingerprint non-reversible", () => {
     assert.throws(
       () =>

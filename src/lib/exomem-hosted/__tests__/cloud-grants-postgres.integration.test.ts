@@ -893,10 +893,11 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       if (lineage === "generic") {
         await ownerPool!.query(
           `INSERT INTO exomem_oauth_clients (
-           id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+           id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
+           client_context
          ) VALUES (
            $1, $2, 'generic', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
-           'Gateway probe'
+           'Gateway probe', 'coding'
          )`,
           [clientDbId, randomUUID(), JSON.stringify(["http://127.0.0.1/callback"])],
         );
@@ -910,10 +911,10 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
           `INSERT INTO exomem_oauth_clients (
            id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
            metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-           cimd_host, client_platform, oauth_client_config_sha256
+           cimd_host, client_platform, oauth_client_config_sha256, client_context
          ) VALUES (
            $1, $2, 'cimd', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
-           $4, now(), 3600, now() + interval '1 hour', $5, 'claude', $6
+           $4, now(), 3600, now() + interval '1 hour', $5, 'claude', $6, 'conversation'
          )`,
           [
             clientDbId,

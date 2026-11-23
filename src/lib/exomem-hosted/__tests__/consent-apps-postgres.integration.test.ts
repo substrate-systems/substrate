@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { POST as completeRoute } from "../../../app/api/exomem/oauth/authorize/complete/route";
 import { POST as declineRoute } from "../../../app/api/exomem/oauth/authorize/decline/route";
+import { POST as contextRoute } from "../../../app/api/exomem/apps/[id]/context/route";
 import { POST as disconnectRoute } from "../../../app/api/exomem/apps/[id]/disconnect/route";
 import { randomCloudCellId } from "../cloud-admission";
 import { findCloudOAuthAccessToken, recordCloudAppUse } from "../cloud-oauth";
@@ -16,8 +17,10 @@ import { createOAuthContinuation, oauthConsentPath } from "../oauth-continuity";
 import {
   attachExistingOwnerAuthorizationAtomic,
   issueOAuthTokensFromCodeAtomic,
+  registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
+import { oauthClientContext } from "../oauth-client-identity";
 import { listOwnerApps } from "../owner-apps";
 import { digestSecret, generateExternalToken, tokenDigest } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -119,10 +122,10 @@ async function newCimdClient(platform: "claude" | "openai" = "claude"): Promise<
     `INSERT INTO exomem_oauth_clients (
        client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
        metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-       cimd_host, client_platform, oauth_client_config_sha256
+       cimd_host, client_platform, oauth_client_config_sha256, client_context
      ) VALUES (
        $1, 'cimd', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
-       $3, now(), 3600, now() + interval '1 hour', $4, $5, $6
+       $3, now(), 3600, now() + interval '1 hour', $4, $5, $6, 'conversation'
      )`,
     [
       clientId,
@@ -223,6 +226,25 @@ function disconnectRequest(
       "x-exomem-csrf": owner.csrfToken,
       cookie: `exomem_session=${owner.sessionToken}; exomem_csrf=${owner.csrfToken}`,
     },
+  });
+  return [request, { params: Promise.resolve({ id: appId }) }];
+}
+
+function contextRequest(
+  owner: Owner,
+  appId: string,
+  body: Record<string, unknown>
+): [Request, { params: Promise<{ id: string }> }] {
+  const request = new Request(`${ORIGIN}/api/exomem/apps/${appId}/context`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: ORIGIN,
+      host: new URL(ORIGIN).host,
+      "x-exomem-csrf": owner.csrfToken,
+      cookie: `exomem_session=${owner.sessionToken}; exomem_csrf=${owner.csrfToken}`,
+    },
+    body: JSON.stringify(body),
   });
   return [request, { params: Promise.resolve({ id: appId }) }];
 }
@@ -590,6 +612,82 @@ describe(
         assert.equal(untouched.rows[0]!.revoked_at, null);
       });
 
+      it("lets the owner set an app's stored context, which the gateway then reads", async () => {
+        const owner = await newOwner();
+        const client = await newCimdClient();
+        const connection = await connect(owner, client);
+        const listed = await listOwnerApps(owner);
+        assert.equal(listed.apps[0]?.context, "conversation");
+
+        const response = await contextRoute(
+          ...contextRequest(owner, connection.grantId, { context: "coding" })
+        );
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { status: "updated" });
+        const relisted = await listOwnerApps(owner);
+        assert.equal(relisted.apps[0]?.context, "coding");
+        // The gateway's own lookup reads the stored context, not the redirects.
+        const authority = await findCloudOAuthAccessToken(
+          connection.accessDigest,
+          CLOUD_RESOURCE
+        );
+        assert.equal(authority?.client.clientContext, "coding");
+
+        // The stored choice belongs to the client row, so a metadata
+        // re-registration keeps it rather than deriving it again. The fixture
+        // inserted the row directly; the re-registration path only rewrites
+        // rows its own auto-registration wrote.
+        await pool!.query("UPDATE exomem_oauth_clients SET auto_registered = true WHERE client_id = $1", [
+          client.clientId,
+        ]);
+        assert.ok(
+          await registerAdmittedCimdClient(client.clientId, {
+            fetchCimd: async () => ({
+              raw: JSON.stringify({
+                client_id: client.clientId,
+                redirect_uris: [client.redirectUri],
+                token_endpoint_auth_method: "none",
+              }),
+              document: {
+                client_id: client.clientId,
+                redirect_uris: [client.redirectUri],
+                token_endpoint_auth_method: "none" as const,
+              },
+            }),
+          })
+        );
+        assert.equal((await listOwnerApps(owner)).apps[0]?.context, "coding");
+      });
+
+      it("answers 404 for a context change on an id the list cannot show", async () => {
+        const owner = await newOwner();
+        const otherOwner = await newOwner();
+        const client = await newCimdClient();
+        const otherConnection = await connect(otherOwner, client);
+
+        const foreign = await contextRoute(
+          ...contextRequest(owner, otherConnection.grantId, { context: "coding" })
+        );
+        const unknown = await contextRoute(
+          ...contextRequest(owner, randomUUID(), { context: "coding" })
+        );
+        const malformed = await contextRoute(
+          ...contextRequest(owner, "not-an-app-id", { context: "coding" })
+        );
+        const badContext = await contextRoute(
+          ...contextRequest(owner, otherConnection.grantId, { context: "agent" })
+        );
+        assert.equal(foreign.status, 404);
+        assert.equal(unknown.status, 404);
+        assert.equal(malformed.status, 404);
+        assert.notEqual(badContext.status, 200, "an invalid context never writes");
+        const stored = await pool!.query(
+          "SELECT client_context FROM exomem_oauth_clients WHERE client_id = $1",
+          [client.clientId]
+        );
+        assert.equal(stored.rows[0]!.client_context, "conversation");
+      });
+
       it("shows when each app last reached its Exomem, and nothing before its first call", async () => {
         const owner = await newOwner();
         const used = await connect(owner, await newCimdClient());
@@ -666,11 +764,18 @@ describe(
           const clientId = `pinned-${randomUUID()}`;
           await pool!.query(
             `INSERT INTO exomem_oauth_clients (
-               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+               client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
+               client_context
              ) VALUES (
-               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3
+               $1, 'pinned', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3,
+               $4
              )`,
-            [clientId, JSON.stringify([input.redirectUri]), input.clientName ?? null]
+            [
+              clientId,
+              JSON.stringify([input.redirectUri]),
+              input.clientName ?? null,
+              oauthClientContext([input.redirectUri]),
+            ]
           );
           return { clientId, redirectUri: input.redirectUri };
         }
@@ -891,6 +996,7 @@ describe(
             platform: "openai",
             loopback: false,
             redirectHost: new URL(impostor.redirectUri).hostname,
+            vouchedHost: new URL(impostor.clientId).hostname,
           });
         });
       });

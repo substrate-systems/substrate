@@ -1124,9 +1124,9 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       );
       for (let index = counted.rows[0].used; index < 95; index += 1) {
         await pool.query(
-          `INSERT INTO exomem_oauth_clients (client_id, admission_mode, redirect_uris, redirect_uris_digest)
+          `INSERT INTO exomem_oauth_clients (client_id, admission_mode, redirect_uris, redirect_uris_digest, client_context)
            VALUES ($1, 'pinned', '["http://127.0.0.1/cb"]'::jsonb,
-                   digest(convert_to('["http://127.0.0.1/cb"]'::jsonb::text, 'utf8'), 'sha256'))`,
+                   digest(convert_to('["http://127.0.0.1/cb"]'::jsonb::text, 'utf8'), 'sha256'), 'coding')`,
           [`operator-slot-${index}`]
         );
       }

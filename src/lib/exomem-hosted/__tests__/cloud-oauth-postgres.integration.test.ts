@@ -53,10 +53,10 @@ async function createCimdClient(input: {
     `INSERT INTO exomem_oauth_clients (
        client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
        metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-       cimd_host, client_platform, oauth_client_config_sha256
+       cimd_host, client_platform, oauth_client_config_sha256, client_context
      ) VALUES (
        $1, 'cimd', $2, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
-       $4, now(), 3600, $5, $6, 'claude', $7
+       $4, now(), 3600, $5, $6, 'claude', $7, 'conversation'
      )`,
     [
       input.clientId,
@@ -294,10 +294,11 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     );
     const generic = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_oauth_clients (
-         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
+         client_context
        ) VALUES (
          $1, 'generic', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
-         'Example Agent'
+         'Example Agent', 'conversation'
        ) RETURNING id`,
       [randomUUID(), JSON.stringify(["https://agent.example.test/callback"])]
     );

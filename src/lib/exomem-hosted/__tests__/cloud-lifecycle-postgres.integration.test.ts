@@ -170,10 +170,10 @@ async function createCloudOAuthFixture(): Promise<{
     `INSERT INTO exomem_oauth_clients (
        client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
        metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-       cimd_host, client_platform, oauth_client_config_sha256
+       cimd_host, client_platform, oauth_client_config_sha256, client_context
      ) VALUES (
        $1, 'cimd', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
-       $3, now(), 3600, now() + interval '1 hour', $4, 'claude', $5
+       $3, now(), 3600, now() + interval '1 hour', $4, 'claude', $5, 'conversation'
      ) RETURNING id`,
     [clientId, JSON.stringify(redirectUris), randomBytes(32), host, randomBytes(32).toString("hex")]
   );
