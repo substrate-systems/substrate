@@ -17,7 +17,7 @@
 import { loggedOccurrence } from "./logged-occurrence";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError } from "./errors";
-import { emailClock, emailDateTime, emailSameDay } from "../email-templates/exomem-email-time";
+import { emailDateTime, emailTimeSpan } from "../email-templates/exomem-email-time";
 
 // Each kind sends different emails and follows different rules, so the set is
 // fixed by the specification, not by data.
@@ -110,13 +110,10 @@ export function composeNoticeSay(
     lead = `Exomem has a known problem that started ${emailDateTime(notice.startsAt, null)}.`;
   } else {
     const end = notice.endsAt as Date;
-    const until = emailSameDay(notice.startsAt, end, null)
-      ? emailClock(end, null)
-      : emailDateTime(end, null);
     lead =
       state === "scheduled"
-        ? `Exomem maintenance is planned from ${emailDateTime(notice.startsAt, null)} to ${until}.`
-        : `Exomem maintenance is under way until ${until}.`;
+        ? `Exomem maintenance is planned for ${emailTimeSpan(notice.startsAt, end, null)}.`
+        : `Exomem maintenance is under way until ${emailDateTime(end, null)}.`;
   }
   const tail = `More at ${statusUrl}`;
   // The summary gives way first when the sentence is too long.

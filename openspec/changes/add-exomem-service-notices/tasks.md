@@ -2,13 +2,13 @@
 
 ## 1. Notice record and operator route
 
-- [ ] 1.1 Add the migration for `exomem_service_notices`, `exomem_service_notice_cells` and the two outbox kinds; verify on isolated PostgreSQL that every registry kind stores.
-- [ ] 1.2 Add `service-notices.ts` and the admin route (create, list, cancel, resolve); verify operator auth, validation and terminal states.
+- [x] 1.1 Add the migration for `exomem_service_notices`, `exomem_service_notice_cells` and the two outbox kinds; verify on isolated PostgreSQL that every registry kind stores.
+- [x] 1.2 Add `service-notices.ts` and the admin route (create, list, cancel, resolve); verify operator auth, validation and terminal states.
 
 ## 2. Emails
 
-- [ ] 2.1 Add `maintenance_scheduled` and `incident_resolved` to the registry and templates; verify `stillHolds` drops cancelled and started maintenance.
-- [ ] 2.2 Add bounded fan-out to the delivery cron; verify covered owners only, one email per owner per notice across repeats, and a constant query count per batch.
+- [x] 2.1 Add `maintenance_scheduled` and `incident_resolved` to the registry and templates; verify `stillHolds` drops cancelled and started maintenance.
+- [x] 2.2 Add bounded fan-out to the delivery cron; verify covered owners only, one email per owner per notice across repeats, and a constant query count per batch.
 
 ## 3. Gateway notice
 
