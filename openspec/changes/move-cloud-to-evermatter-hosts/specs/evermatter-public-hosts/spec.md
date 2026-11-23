@@ -15,21 +15,20 @@ and its refresh SHALL keep succeeding. No client SHALL have to reconnect because
 - **WHEN** that client refreshes with its stored `resource` value
 - **THEN** the token endpoint issues a new token bound to the same resource
 
-### Requirement: A token works only at the host of its resource
+### Requirement: A token works only for an accepted resource
 
-The gateway SHALL derive the request's resource from the configured set and the request's
-public host and path. It SHALL accept a token only when the token's stored resource equals
-that derived resource.
+The gateway SHALL accept a token only when the token's stored resource is in the configured
+set of accepted resources.
 
-#### Scenario: A token at the other host
+#### Scenario: A token for an unlisted resource
+
+- **WHEN** a token whose stored resource is not in the configured set is presented
+- **THEN** the gateway refuses it with a challenge
+
+#### Scenario: A token at either host
 
 - **WHEN** a token issued for the old resource is presented at the new host
-- **THEN** the gateway refuses it with the new host's challenge
-
-#### Scenario: An unlisted host
-
-- **WHEN** a request arrives on a host whose resource is not in the configured set
-- **THEN** the gateway refuses it without looking up the token
+- **THEN** the gateway accepts it, because both hosts front the same resource server
 
 ### Requirement: New connections get the new host
 

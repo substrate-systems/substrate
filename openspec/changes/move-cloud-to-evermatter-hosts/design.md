@@ -14,7 +14,7 @@ Clients store the MCP URL in their own configuration and send their stored `reso
 **Goals**
 - No connected client is signed out or has to reconnect.
 - New connections use `mcp.evermatter.ai`.
-- RFC 8707 audience binding stays: a token works only at the resource it was issued for.
+- RFC 8707 audience binding stays: a token works only at a resource in the accepted set.
 
 **Non-Goals**
 - Moving the issuer or the product app pages (a later change).
@@ -22,12 +22,12 @@ Clients store the MCP URL in their own configuration and send their stored `reso
 
 ## Decisions
 
-### D1. An accepted-resource set, matched per host
+### D1. An accepted-resource set
 
 A new setting lists the accepted resource URLs, newest first. The first entry is the resource that discovery offers to new clients. `EXOMEM_CLOUD_MCP_URL` stays as the fallback when the list is unset, so the change deploys inert.
 
-- The gateway derives the request's resource from its public host and path, and requires that resource to be in the set. A token lookup compares the stored resource with that derived resource, so a token issued for the old host is refused at the new host and the reverse.
-- The protected-resource metadata and the 401 challenge name the resource of the host that served them.
+- The gateway accepts a token when its stored resource is in the set. Both hosts front the same resource server, and the gateway learns the host only from the client-controlled Host header, so binding a token to its arrival host would add no protection.
+- The protected-resource metadata and the 401 challenge name the resource of the host that served them when that resource is in the set, else the first entry.
 - The authorize and token endpoints accept a `resource` parameter that is in the set. A refresh keeps the resource of its token family.
 
 Rewriting stored resource values was rejected: clients would still send the old resource and call the old URL.
@@ -42,7 +42,7 @@ The product's public pages get their canonical home on `evermatter.ai`. Requests
 
 ## Risks / Trade-offs
 
-- **A wrong host-to-resource mapping refuses valid tokens.** The mapping comes from the configured set only, never from an unchecked Host header. Tests cover a token at its own host, at the other host, and at an unlisted host.
+- **A token outside the set.** Tests cover a token for each listed resource, a token for an unlisted resource, and a refresh with the old resource.
 - **Two hosts to operate.** The second host is ingress and DNS only; the gateway is the same deployment.
 
 ## Migration Plan
