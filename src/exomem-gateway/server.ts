@@ -2,11 +2,12 @@ import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   buildCloudProtectedResourceMetadata,
+  handleCloudDiscoveryRequest,
   handleCloudDownloadRequest,
   handleCloudMcpRequest,
   handleCloudUploadRequest,
 } from "./cloud-handler";
-import { CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./cloud-origin";
+import { CLOUD_DISCOVERY_PATH, CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./cloud-origin";
 import { FAVICON, FAVICON_HEADERS, FAVICON_PATH } from "./favicon";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
@@ -34,6 +35,7 @@ export type GatewayServerOptions = {
   handleCloudMcp?: typeof handleCloudMcpRequest;
   handleCloudUpload?: typeof handleCloudUploadRequest;
   handleCloudDownload?: typeof handleCloudDownloadRequest;
+  handleCloudDiscovery?: typeof handleCloudDiscoveryRequest;
   maxInflight?: number;
   downloadIdleMs?: number;
   downloadTotalMs?: number;
@@ -132,6 +134,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
   const handleCloudUpload = options.handleCloudUpload ?? handleCloudUploadRequest;
   const handleCloudDownload = options.handleCloudDownload ?? handleCloudDownloadRequest;
+  const handleCloudDiscovery = options.handleCloudDiscovery ?? handleCloudDiscoveryRequest;
   // validateGatewayEnvironment requires this at startup; without it the
   // server answers only its probes.
   const cloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH?.trim() || null;
@@ -197,7 +200,12 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
             ? handleCloudUpload
             : cloudMcpPath && path === CLOUD_DOWNLOAD_PATH && request.method === "GET"
               ? handleCloudDownload
-              : null;
+              // D6's discovery route accepts every method here; the handler
+              // itself answers 405, so a non-GET still reaches the route's
+              // own vocabulary instead of a bare 404.
+              : cloudMcpPath && path === CLOUD_DISCOVERY_PATH
+                ? handleCloudDiscovery
+                : null;
       if (!handle) {
         response.writeHead(404, CACHE_HEADERS).end();
         return;

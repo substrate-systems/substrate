@@ -475,6 +475,29 @@ BEGIN
       GRANT SELECT (id, tenant_id, owner_user_id, credential_kind, revoked_at, expires_at, provider)
         ON exomem_marketplace_reviewer_credentials TO exomem_gateway;
     END IF;
+    -- Migration 0088: the gateway resolves an `exs_` service credential
+    -- itself (findCloudServiceCredential), under the same least-privilege
+    -- pattern as the OAuth lookup. The table stores only the secret's
+    -- digest, so the gateway still never sees a secret. owner_user_id on
+    -- exomem_tenants is the account-block predicate's join column.
+    IF to_regclass('exomem_cloud_service_credentials') IS NOT NULL THEN
+      GRANT SELECT (id, tenant_id, principal, secret_digest, revoked_at)
+        ON exomem_cloud_service_credentials TO exomem_gateway;
+      IF to_regclass('exomem_tenants') IS NOT NULL THEN
+        GRANT SELECT (owner_user_id) ON exomem_tenants TO exomem_gateway;
+      END IF;
+    END IF;
+    -- Review B1: migration 0088's shared tenant-access predicate runs
+    -- SECURITY INVOKER, so it reads only the tenant and account-block
+    -- columns the gateway was granted above. EXECUTE is granted anyway so
+    -- the privilege table names the function's caller rather than relying
+    -- on the PUBLIC default. substrate_app's issue path also relies on that
+    -- PUBLIC default, because its schema-wide grant covers tables and
+    -- sequences only; revoking EXECUTE from PUBLIC needs a grant here first.
+    IF to_regprocedure('exomem_cloud_tenant_access_allowed(uuid,uuid)') IS NOT NULL THEN
+      GRANT EXECUTE ON FUNCTION exomem_cloud_tenant_access_allowed(uuid,uuid)
+        TO exomem_gateway;
+    END IF;
   END IF;
 END
 $$;
