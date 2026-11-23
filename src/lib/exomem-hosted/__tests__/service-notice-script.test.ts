@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  closeIssueFor,
   type DescribedNotice,
   issueNumberFor,
   noticeMarker,
@@ -82,5 +83,51 @@ describe("the status issue for a notice", () => {
     ];
     assert.equal(issueNumberFor(issues, NOTICE_ID), 9);
     assert.equal(issueNumberFor(issues, "missing"), null);
+  });
+});
+
+describe("closing the status issue", () => {
+  const incident = { id: NOTICE_ID, kind: "incident" as const };
+  const issue = {
+    number: 42,
+    body: statusIssueFor({ ...incident, summary: "s", startsAt: "t", endsAt: null }, []).body,
+  };
+
+  /** A stand-in `gh` that answers each list by state and records every command. */
+  function fakeGh(lists: { open: unknown[]; closed: unknown[] }) {
+    const commands: string[][] = [];
+    const run = async (args: string[]) => {
+      commands.push(args);
+      if (args[1] === "list")
+        return JSON.stringify(lists[args[args.indexOf("--state") + 1] as "open" | "closed"]);
+      return "";
+    };
+    return { run, commands };
+  }
+
+  it("closes the open issue with the operator's account", async () => {
+    const { run, commands } = fakeGh({ open: [issue], closed: [] });
+    const result = await closeIssueFor(incident, "A bad deploy.", "completed", run);
+    assert.deepEqual(result, { ref: "substrate-systems/exomem-status#42", alreadyClosed: false });
+    const close = commands.find((args) => args[1] === "close");
+    assert.deepEqual(close?.slice(2, 3), ["42"]);
+    assert.ok(close?.includes("A bad deploy."));
+  });
+
+  it("comments on an issue the status monitor already closed, instead of failing", async () => {
+    const { run, commands } = fakeGh({ open: [], closed: [issue] });
+    const result = await closeIssueFor(incident, "A bad deploy.", "completed", run);
+    assert.deepEqual(result, { ref: "substrate-systems/exomem-status#42", alreadyClosed: true });
+    assert.equal(
+      commands.some((args) => args[1] === "close"),
+      false
+    );
+    const comment = commands.find((args) => args[1] === "comment");
+    assert.ok(comment?.includes("A bad deploy."));
+  });
+
+  it("still fails when no issue, open or closed, carries the notice's marker", async () => {
+    const { run } = fakeGh({ open: [], closed: [] });
+    await assert.rejects(closeIssueFor(incident, "A bad deploy.", "completed", run), /marker/);
   });
 });

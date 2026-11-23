@@ -1291,6 +1291,8 @@ expected to be down. `--no-mirror` skips the status page.
    npx tsx scripts/exomem-service-notice.ts resolve <notice-id> --account "Storage was slow for 40 minutes after a disk filled; we cleared it."
    ```
 4. Expect `Resolved notice <id>.` and `Closed status issue`. Covered owners get one email that says the problem is resolved.
+   The status monitor can close an incident issue itself when its check recovers. The command then
+   prints `was already closed; added the comment to it` and still exits 0.
 
 ### Fix a wrong notice
 

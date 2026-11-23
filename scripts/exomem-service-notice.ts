@@ -138,19 +138,21 @@ async function openIssue(issue: StatusIssue): Promise<string> {
   ]);
 }
 
-async function closeIssueFor(
-  notice: DescribedNotice,
-  comment: string,
-  reason: "completed" | "not planned"
-): Promise<string> {
-  const label = notice.kind === "maintenance" ? "maintenance" : "status";
-  const listed = await gh([
+type GhRun = (args: string[]) => Promise<string>;
+
+async function findIssueNumber(
+  run: GhRun,
+  label: string,
+  noticeId: string,
+  state: "open" | "closed"
+): Promise<number | null> {
+  const listed = await run([
     "issue",
     "list",
     "--repo",
     statusRepo(),
     "--state",
-    "open",
+    state,
     "--label",
     label,
     "--limit",
@@ -158,20 +160,40 @@ async function closeIssueFor(
     "--json",
     "number,body",
   ]);
-  const number = issueNumberFor(JSON.parse(listed || "[]"), notice.id);
-  if (number === null) throw new Error(`no open ${label} issue carries this notice's marker`);
-  await gh([
-    "issue",
-    "close",
-    String(number),
-    "--repo",
-    statusRepo(),
-    "--comment",
-    comment,
-    "--reason",
-    reason,
-  ]);
-  return `${statusRepo()}#${number}`;
+  return issueNumberFor(JSON.parse(listed || "[]"), noticeId);
+}
+
+/**
+ * Closes the status issue that mirrors a notice, with the operator's comment. The
+ * status monitor closes an incident issue itself when its check recovers, so a marked
+ * issue that is already closed is not a failure: the comment goes on it instead.
+ */
+export async function closeIssueFor(
+  notice: Pick<DescribedNotice, "id" | "kind">,
+  comment: string,
+  reason: "completed" | "not planned",
+  run: GhRun = gh
+): Promise<{ ref: string; alreadyClosed: boolean }> {
+  const label = notice.kind === "maintenance" ? "maintenance" : "status";
+  const open = await findIssueNumber(run, label, notice.id, "open");
+  if (open !== null) {
+    await run([
+      "issue",
+      "close",
+      String(open),
+      "--repo",
+      statusRepo(),
+      "--comment",
+      comment,
+      "--reason",
+      reason,
+    ]);
+    return { ref: `${statusRepo()}#${open}`, alreadyClosed: false };
+  }
+  const closed = await findIssueNumber(run, label, notice.id, "closed");
+  if (closed === null) throw new Error(`no ${label} issue carries this notice's marker`);
+  await run(["issue", "comment", String(closed), "--repo", statusRepo(), "--body", comment]);
+  return { ref: `${statusRepo()}#${closed}`, alreadyClosed: true };
 }
 
 // --- The command ---
@@ -283,7 +305,11 @@ async function main(): Promise<void> {
         command === "cancel"
           ? await closeIssueFor(notice, "This maintenance is cancelled.", "not planned")
           : await closeIssueFor(notice, values.account as string, "completed");
-      console.log(`Closed status issue ${closed}.`);
+      console.log(
+        closed.alreadyClosed
+          ? `Status issue ${closed.ref} was already closed; added the comment to it.`
+          : `Closed status issue ${closed.ref}.`
+      );
     } catch (error) {
       console.error(
         `The notice is ${command === "cancel" ? "cancelled" : "resolved"}, but its status issue is still open: ${error instanceof Error ? error.message : error}`
