@@ -79,6 +79,7 @@ type AppRow = {
   id: string;
   created_at: string | Date;
   updated_at: string | Date;
+  revoked_at: string | Date | null;
   last_used_at: string | Date | null;
   client_name: string | null;
   admission_mode: string;
@@ -99,7 +100,8 @@ async function ownerAppRows(
   const resource = loadExomemCloudResource().mcpUrl;
   const { rows } = await sql`
     /* exomem:owner-app-grants */
-    SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, app_use.last_used_at,
+    SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at, oauth_grant.revoked_at,
+           app_use.last_used_at,
            client.client_name, client.admission_mode, client.client_platform,
            COALESCE(oauth_grant.client_context_override, client.client_context) AS client_context,
            client.redirect_uris
@@ -160,9 +162,12 @@ export async function listOwnerApps(owner: {
 /**
  * Sets the engagement context of one of the owner's apps, which every reader
  * of `client_context` then follows for that grant. False when the id is not a
- * grant the list could show. The choice sits on the grant, because the client
- * row is shared by every tenant's grant to it; `client_context` on the client
- * stays the registration-derived default.
+ * live grant the list could show: a revoked grant is a disconnect, not an app.
+ * The choice sits on the grant, because the client row is shared by every
+ * tenant's grant to it; `client_context` on the client stays the
+ * registration-derived default. The grant's `updated_at` is its last
+ * authorization stamp, which orders the list and feeds joinedSince and the
+ * retirement sweep, so a preference change must not touch it.
  */
 export async function setOwnerAppContext(input: {
   userId: string;
@@ -177,11 +182,11 @@ export async function setOwnerAppContext(input: {
       tenantId: input.tenantId,
       grantId: input.appId,
     });
-    if (!app) return false;
+    if (!app || app.revoked_at !== null) return false;
     await tx`
       /* exomem:set-owner-app-context */
       UPDATE exomem_oauth_grants AS oauth_grant
-      SET client_context_override = ${input.context}, updated_at = now()
+      SET client_context_override = ${input.context}
       WHERE oauth_grant.id = ${app.id}::uuid
     `;
     return true;

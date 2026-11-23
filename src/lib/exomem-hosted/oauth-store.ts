@@ -165,8 +165,9 @@ export async function registerAdmittedCimdClient(
           client_platform = EXCLUDED.client_platform,
           oauth_client_config_sha256 = EXCLUDED.oauth_client_config_sha256,
           client_name = EXCLUDED.client_name,
-          -- Not client_context: an owner's change on Home survives a metadata
-          -- re-registration, which is not a deliberate context choice.
+          -- Not client_context: a metadata re-registration is not a fresh
+          -- registration, so it keeps the stored default; owner choices sit
+          -- on the grant's override and are untouched either way.
           enabled = true,
           retired_at = NULL,
           authority_version = gen_random_uuid(),

@@ -708,6 +708,43 @@ describe(
         assert.equal(stored.rows[0]!.client_context, "conversation");
       });
 
+      it("leaves the grant's authorization stamp and list order alone, and refuses a revoked grant", async () => {
+        const owner = await newOwner();
+        await connect(owner, await newCimdClient());
+        const second = await connect(owner, await newCimdClient());
+
+        const before = await listOwnerApps(owner);
+        const orderBefore = before.apps.map((app) => app.id);
+        const stampBefore = new Map(before.apps.map((app) => [app.id, app.lastAuthorizedAt]));
+
+        const response = await contextRoute(
+          ...contextRequest(owner, second.grantId, { context: "coding" })
+        );
+        assert.equal(response.status, 200);
+
+        // A preference change is not an authorization: the grant's stamp,
+        // which orders the list and feeds joinedSince and the retirement
+        // sweep, stays exactly as it was.
+        const after = await listOwnerApps(owner);
+        assert.deepEqual(
+          after.apps.map((app) => app.id),
+          orderBefore
+        );
+        for (const app of after.apps) {
+          assert.equal(app.lastAuthorizedAt, stampBefore.get(app.id));
+        }
+
+        // A disconnected app is no live grant; the same indistinguishable 404.
+        const disconnected = await disconnectRoute(
+          ...disconnectRequest(owner, second.grantId)
+        );
+        assert.equal(disconnected.status, 200);
+        const revoked = await contextRoute(
+          ...contextRequest(owner, second.grantId, { context: "conversation" })
+        );
+        assert.equal(revoked.status, 404);
+      });
+
       it("answers 404 for a context change on an id the list cannot show", async () => {
         const owner = await newOwner();
         const otherOwner = await newOwner();

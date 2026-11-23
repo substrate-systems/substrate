@@ -17,7 +17,7 @@ export type OAuthClientIdentity = {
   platform: string | null;
   /** The host of a CIMD client's `client_id` URL: the host that vouched for it; null otherwise. */
   cimdHost: string | null;
-  /** The stored engagement context (`client_context`); owner-editable on Home. */
+  /** The engagement context this lookup resolved: the grant's `client_context_override` when set, else the client row's registration-derived `client_context`. */
   clientContext: OAuthClientContext;
   redirectUris: string[];
 };
@@ -60,9 +60,10 @@ export function isLocalOAuthClient(redirectUris: readonly string[]): boolean {
 /**
  * The context a client's calls run in: a local app is a coding agent, every
  * other client a conversational app. Registration stores the result in
- * `exomem_oauth_clients.client_context`, which is what the gateway and the
- * apps list read; the owner can change the stored value on Home, so this
- * derivation must not run at request time again.
+ * `exomem_oauth_clients.client_context` as the default every grant starts
+ * with; the gateway and the apps list read it under each grant's
+ * `client_context_override`, so this derivation must not run at request time
+ * again.
  */
 export function oauthClientContext(redirectUris: readonly string[]): OAuthClientContext {
   return isLocalOAuthClient(redirectUris) ? "coding" : "conversation";
