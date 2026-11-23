@@ -10,6 +10,7 @@ import { randomCloudCellId } from "../cloud-admission";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { drainExomemEmailOutbox } from "../email-outbox";
 import { fanOutServiceNoticeEmails, SERVICE_NOTICE_FANOUT_BATCH } from "../service-notice-fanout";
+import { createNoticeCache, loadOpenServiceNotices } from "../service-notices";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // Service notices against real PostgreSQL: the operator route, then (in the same
@@ -433,6 +434,98 @@ describe("Exomem service notices on PostgreSQL", { skip: !databaseUrl }, () => {
       assert.equal(sent[0]?.to, owner.email);
       assert.match(sent[0]?.textContent ?? "", /Saving is slow\./);
       assert.equal((await deliver()).sent.length, 0);
+    });
+  });
+
+  describe("the gateway's lookup", () => {
+    beforeEach(async () => {
+      await pool.query("DELETE FROM exomem_service_notices");
+    });
+
+    async function insert(
+      kind: "maintenance" | "incident",
+      summary: string,
+      times: { starts: string; ends?: string; announce?: string },
+      state: { cancelled?: boolean; resolved?: boolean } = {}
+    ): Promise<string> {
+      const { rows } = await pool.query(
+        `INSERT INTO exomem_service_notices (kind, summary, starts_at, ends_at, announce_from, cancelled_at, resolved_at)
+         VALUES ($1, $2, now() + $3::interval, now() + $4::interval, now() + $5::interval,
+                 CASE WHEN $6 THEN now() END, CASE WHEN $7 THEN now() END)
+         RETURNING id`,
+        [
+          kind,
+          summary,
+          times.starts,
+          times.ends ?? null,
+          times.announce ?? null,
+          state.cancelled ?? false,
+          state.resolved ?? false,
+        ]
+      );
+      return String(rows[0].id);
+    }
+
+    it("loads the notices a request could need and leaves out the finished, the cancelled and the far-off", async () => {
+      const wanted = [
+        await insert("maintenance", "announced", {
+          starts: "2 hours",
+          ends: "3 hours",
+          announce: "-1 hour",
+        }),
+        await insert("maintenance", "announces in seconds", {
+          starts: "2 hours",
+          ends: "3 hours",
+          announce: "10 seconds",
+        }),
+        await insert("maintenance", "under way", {
+          starts: "-1 hour",
+          ends: "1 hour",
+          announce: "-3 hours",
+        }),
+        await insert("incident", "active incident", { starts: "-1 hour" }),
+      ];
+      await insert("maintenance", "far off", {
+        starts: "5 days",
+        ends: "5 days 1 hour",
+        announce: "3 days",
+      });
+      await insert(
+        "maintenance",
+        "cancelled",
+        { starts: "2 hours", ends: "3 hours", announce: "-1 hour" },
+        { cancelled: true }
+      );
+      await insert("maintenance", "ended", {
+        starts: "-3 hours",
+        ends: "-1 hour",
+        announce: "-5 hours",
+      });
+      await insert("incident", "resolved", { starts: "-3 hours" }, { resolved: true });
+
+      const loaded = await loadOpenServiceNotices();
+      assert.deepEqual(loaded.map((notice) => notice.id).sort(), wanted.sort());
+    });
+
+    it("turns a notice declared in the database into the header for the cells it names", async () => {
+      const named = await seedTenant();
+      const other = await seedTenant();
+      const notice = await insert("maintenance", "Storage move.", {
+        starts: "2 hours",
+        ends: "3 hours",
+        announce: "-1 hour",
+      });
+      await pool.query(
+        "INSERT INTO exomem_service_notice_cells (notice_id, cell_id) VALUES ($1, $2)",
+        [notice, named.cellId]
+      );
+      const cache = createNoticeCache({ load: loadOpenServiceNotices });
+      const header = await cache.headerFor(named.cellId);
+      assert.ok(header);
+      const body = JSON.parse(Buffer.from(header, "base64url").toString("utf8"));
+      assert.equal(body.state, "scheduled");
+      assert.match(body.say, /Storage move\./);
+      assert.equal(await cache.headerFor(other.cellId), null);
     });
   });
 });

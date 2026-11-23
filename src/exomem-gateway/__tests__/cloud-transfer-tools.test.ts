@@ -164,6 +164,8 @@ function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDe
     recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
     fetchCell: unreachableCell().fetchCell,
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
     ...overrides,
   };
 }

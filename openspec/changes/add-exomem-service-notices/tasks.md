@@ -12,7 +12,7 @@
 
 ## 3. Gateway notice
 
-- [ ] 3.1 Add the cached current-notice lookup and the `x-exomem-service-notice` header; verify cell scoping, priority, encoding limits, the 30-second refresh and the forged-header refusal.
+- [x] 3.1 Add the cached current-notice lookup and the `x-exomem-service-notice` header; verify cell scoping, priority, encoding limits, the 30-second refresh and the forged-header refusal.
 
 ## 4. Operator command and runbook
 
