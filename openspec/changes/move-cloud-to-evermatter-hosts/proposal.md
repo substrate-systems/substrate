@@ -7,7 +7,7 @@ The product Exomem becomes Evermatter, with the product domain `evermatter.ai`. 
 ## What Changes
 
 - The MCP gateway answers on a new host, `mcp.evermatter.ai`, and keeps answering on the old host.
-- The gateway and the OAuth server accept a configured set of resource URLs instead of one. Each token stays bound to the resource it was issued for. A request presents a token only at the host whose resource matches it.
+- The gateway and the OAuth server accept a configured set of resource URLs instead of one. Each token stays bound to the resource it was issued for, and a token whose resource is outside the set is refused.
 - New connections are offered the new resource. Existing connections keep their old resource and keep refreshing.
 - The OAuth issuer stays at its current origin in this change. Moving the issuer and the product app pages to `evermatter.ai` is a later change with its own review.
 - `evermatter.ai` serves the product's public pages (landing, docs, benchmarks, privacy, terms, support). The old public product paths on `substratesystems.io` redirect there permanently. The product app pages (sign-in, setup, home, authorize) stay where they are until the issuer moves.
