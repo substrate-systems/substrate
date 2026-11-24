@@ -17,7 +17,8 @@
 --   | exomem_gateway  | C1 cell_id, tenant_id, desired_state | none on C1-C1d; insert and update the rate-limit buckets |
 --
 --    Outside C1, exomem_gateway also writes each app's last-use time in
---    exomem_oauth_grant_usage (its own block below).
+--    exomem_oauth_grant_usage and reads the operator's service notices (each
+--    its own block below).
 --
 --    "The script revokes substrate_app's schema-wide grants on those four
 --    tables and then applies the exact table. That makes the script the
@@ -373,6 +374,15 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
      AND to_regclass('exomem_oauth_grant_usage') IS NOT NULL THEN
     GRANT SELECT, INSERT, UPDATE ON exomem_oauth_grant_usage TO exomem_gateway;
+  END IF;
+
+  -- The gateway reads the operator's open service notices to set the notice
+  -- header (loadOpenServiceNotices, service-notice-header.ts). Read only: the two
+  -- tables hold the operator's own words, times and cell ids, never tenant data.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
+     AND to_regclass('exomem_service_notices') IS NOT NULL
+     AND to_regclass('exomem_service_notice_cells') IS NOT NULL THEN
+    GRANT SELECT ON exomem_service_notices, exomem_service_notice_cells TO exomem_gateway;
   END IF;
 
   -- 3. Security review finding 3: exomem_gateway also runs

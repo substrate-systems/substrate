@@ -14,4 +14,5 @@
 
 - [x] 3.1 Cover the requirements' scenarios with tests against real PostgreSQL where the code queries it.
 - [x] 3.2 Add the runbook section: issue, rotate, revoke, and the owner-authority caveat until Exomem's service-principal stage.
-- [ ] 3.3 After the gateway image is published and the platform chart runs it, drill issue, rotation and revocation against a disposable Cloud tenant, and record the result.
+- [x] 3.3 After the gateway image is published and the platform chart runs it, drill issue, rotation and revocation against a disposable Cloud tenant, and record the result.
+  Drilled on 2026-11-24 against an empty, operator-owned Cloud tenant (no other users) after the gateway image ran in production. Issue returned the secret once. A second credential for the same principal worked through the gateway while the first was still live, and the list showed both. Revoking the first answered `revoked: true`, after which the first credential was refused at the gateway before any cell contact and the second still passed identity, passage search and erasure-policy reads.

@@ -20,7 +20,12 @@ export const OAUTH_FAMILY_END_REASON = {
   reviewerCredentialRevoked: "reviewer_credential_revoked",
   /** An operator revoked the family or the whole account. */
   operatorRevoked: "operator_revoked",
-  /** A spent refresh token was presented after its reuse window. */
+  /**
+   * A spent refresh token was presented after its reuse window. Nothing
+   * writes it now: since the grace change such a presentation is refused
+   * without revoking. The entry stays because existing families carry it,
+   * and the notice map still has to classify them when the sweep reads them.
+   */
   refreshReplayed: "refresh_replayed",
 } as const;
 

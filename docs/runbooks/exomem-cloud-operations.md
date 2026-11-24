@@ -60,6 +60,7 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED`                                                                                                                                                                                                                                                                                      | Gateway only. `true` serves `observe_transfer` and `transfer_memory` from the control plane. Needs gateway HTTPS egress (chart flag `cloudGateway.transferTools.enabled`). Anything else is off, the rollback.                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS`, `EXOMEM_CLOUD_HOLD_INTERVAL_MS`, `EXOMEM_CLOUD_HOLD_JITTER_MS`, `EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`, `EXOMEM_CLOUD_HOLD_MAX`, `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS`, `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS`, `EXOMEM_CLOUD_UPSTREAM_IDLE_SECONDS` | Gateway only, all required: the gateway does not start without each one. The platform chart renders them from `cloudGateway.hold.*` and `cloudGateway.upstream.*`. See "The gateway hold" below.                                                                                                                                                                                                                                                                                                                                                                                        |
 | `EXOMEM_CLOUD_UPLOAD_ENABLED`, `EXOMEM_CLOUD_UPLOAD_CELL_IDS`                                                                                                                                                                                                                                                              | Gateway only. `true` plus a JSON array of cell IDs serves Cloud upload handoffs for exactly those cells, signed with `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`. Each selected cell needs the matching public key; see Exomem's `cloud-upload-handoff` runbook. The ingress must route `POST /upload` to the gateway. Anything else is off, the rollback. Artifact transport alone never enables uploads.                                                                                                                                                                                      |
+| `EXOMEM_STATUS_PAGE_URL`                                                                                                                                                                                                                                                                                                   | Optional, on the web app and the gateway. The https address of the public status page. The web app's "Status page" links, service-notice emails and the assistant's sentence point to it, and use `https://status.substratesystems.io` when it is unset. A value that is not https or is over 200 characters is ignored, with one `exomem_status_page_url_rejected` warning per process. See "Service notices" below.                                                                                                                                                                   |
 | `OPENAI_APPS_CHALLENGE`                                                                                                                                                                                                                                                                                                    | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                                                                                                                                                                                                                                                                               | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXOMEM_CONNECTOR_SETTINGS_URLS`                                                                                                                                                                                                                                                                                           | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -67,7 +68,7 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`                                                                                                                                                                                                                                                                                     | Optional. Hours before the sweep retires a generic client holding nothing, or a connector with no grant since it registered. Default 24. A value that is not a whole number of at least 1 fails the sweep.                                                                                                                                                                                                                                                                                                                                                                              |
 | `EXOMEM_OAUTH_REFRESH_IDLE_DAYS`                                                                                                                                                                                                                                                                                           | Optional. Days a connected app's refresh token stays valid unused. Every refresh renews it. Default 30, maximum 90. See "Connected-app sessions" below.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `EXOMEM_OAUTH_SESSION_MAX_DAYS`                                                                                                                                                                                                                                                                                            | Optional. Days from sign-in at which a connected app must authorize again, however active it is. Default 365, maximum 730. Applies to new sign-ins only.                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                                                                                                                                                                                                                                                                       | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 60, maximum 300. Unset reads as 60; 0, or a value that is not a whole number, turns it off.                                                                                                                                                                                                                                                                                                                                                                 |
+| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 604800 (7 days), maximum 2592000 (30 days). Unset reads as 604800; 0, or a value that is not a whole number, turns it off.                                     |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -111,34 +112,46 @@ Check for it after a deploy that changes these variables.
 
 Parallel sessions of one app often share one stored refresh token, and a reply
 to a refresh can be lost. Both make a client present a token that Substrate has
-just spent. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` after the spend, such a
-presentation gets a fresh pair in the same family, and Substrate logs
-`exomem_oauth_refresh_reused` with the client ID and the family ID. The
+already spent — sometimes hours or days later, when one process kept a copy
+another process rotated. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` (seven days
+by default) after the spend, such a presentation gets a fresh pair in the same
+family, and Substrate logs `exomem_oauth_refresh_reused` with the client ID,
+the family ID and `spend_age_seconds`, the token's age since its spend. The
 family stays live. This applies only while the family and its grant are
-unrevoked and the family is unexpired.
+unrevoked and the family is unexpired, and the same admission checks as a first
+rotation apply.
 
-After that interval, a spent token is a replay: Substrate revokes the whole
-family with the reason `refresh_replayed`, and the person connects the app
-again. A spent token that another client presents gets no tokens.
+After that interval the presentation is stale: the token is refused with
+`invalid_grant` and the family is NOT revoked — sessions holding the family's
+other tokens keep working. Substrate logs `exomem_oauth_refresh_reuse_stale`
+with the client ID, family ID and spend age, metadata only. A spent token that
+another client presents gets no tokens, and creates no token or grant row.
 
 Know what the reuse interval gives away. The client ID is public and does not
 authenticate the party that presents a token, so anyone who holds a refresh
 token within the interval of its legitimate spend can use it:
 
 - Each reuse starts an independent chain. That chain rotates and renews like any
-  other, up to the session ceiling (365 days by default).
-- Replay detection never revokes that chain. Only revoking the family, or the
-  grant through Disconnect, ends it.
-- The number of reuses of one spent token is not limited inside the interval.
-  Only the per-address token rate limit of 30 requests per minute bounds it.
+  other, up to the session ceiling (365 days by default), and each minted
+  refresh token still expires inside its own idle window.
+- Nothing but revoking the family, or the grant through Disconnect, ends such a
+  chain — a stale presentation refuses only itself.
+- One spent token mints at most 64 children: the one its spend created, plus
+  at most sixty-three reuses. This is a loop guard for a client stuck
+  re-presenting one token, not a bound on a thief — every minted token fans
+  out on its own spend, so only revoking the family or grant ends what a
+  stolen token starts.
 
-A token stolen after the interval is a replay and revokes the family, as before.
-Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to restore strict replay.
+Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to refuse every spent-token
+presentation at once.
 
 One or two `exomem_oauth_refresh_reused` events for a family match a lost reply
-or a parallel session. A pinned client's ID is shared by every user of its
+or a parallel session; a large `spend_age_seconds` matches a session that came
+back after days away. A pinned client's ID is shared by every user of its
 platform, so read the family ID. When one family keeps reusing and its owner
-cannot explain it, revoke that family as described below.
+cannot explain it, revoke that family as described below. The owner ends a
+sign-in themselves in Home: "Connected apps", then "Disconnect" beside the app,
+which revokes the grant and every family under it.
 
 #### Whether an app can still reach the Exomem
 
@@ -200,8 +213,7 @@ not re-sent when the fixed release returns.
 ### Measure refresh-token reuse ages
 
 The reuse window (`EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`) is meant to shrink to
-the longest reuse that clients actually need. Its 7-day default applies once
-the refresh grace change ships; until then the default is 60 s. The token table
+the longest reuse that clients actually need; its default is 7 days. The token table
 already records each reuse: a refresh token's second and later children were
 minted from the already-spent parent. This query reports, per app, how old the
 spent token was at each reuse and how many rotations its session had missed. It
@@ -1289,6 +1301,113 @@ RATE_LIMITED`.
 
 To turn the hold off, set `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS` to `0`. The
 gateway then answers a refused connection with `503 CELL_NOT_READY` at once.
+
+## Service notices
+
+An operator declares planned maintenance or a known incident with one command.
+Substrate does nothing by itself: no notice exists until you declare one. A
+declared notice does four things.
+
+- It emails the owner of each covered Exomem, once.
+- It adds the header `x-exomem-service-notice` to each MCP request that goes to
+  a covered cell, so the person's assistant can tell them.
+- It lists the notice on the public status page.
+- It ends when maintenance ends, when you cancel it, or when you resolve it.
+
+### When to declare
+
+- Declare maintenance for planned work that stops or slows Exomem Cloud, such
+  as a cell release or a storage move. Declare it at least two days ahead.
+  Substrate emails owners 48 hours before the start unless you set
+  `--announce-from`.
+- Declare an incident when you know of a problem that owners can feel. Resolve
+  it when it is over.
+- Declare nothing for a fault that nobody can feel.
+
+### Write the summary
+
+The summary is one line of plain text, at most 280 characters. The email, the
+assistant's sentence and the status issue title all use it. The assistant's text
+is capped at 400 characters in all, so a summary over about 200 characters is
+shortened there. The email and the issue title keep it whole.
+
+1. Say what is affected, in the owner's terms, and what still works.
+2. Say only what you know. Name no cause you have not confirmed and promise no time.
+3. Name no person, tenant or cell.
+
+Example: "Saving is slow. Recall works, and nothing is lost."
+
+### Declare maintenance
+
+Set `EXOMEM_PUBLIC_BASE_URL` and `EXOMEM_ADMIN_TOKEN` in your shell. Sign in to
+`gh` with an account that can write to the status repository.
+
+1. Run `gh auth status`. Expect your account and no error.
+2. To cover the whole fleet, run the command below. Add `--cell <cell-id>` once per cell to cover only some.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts create maintenance --summary "Saving may pause for a few minutes while we move storage." --starts 2026-12-01T02:00:00Z --ends 2026-12-01T02:30:00Z --line website-and-sign-in
+   ```
+3. Read the owner count and the assistant's sentence. Type `y` to confirm.
+4. Expect `Created maintenance notice <id> (scheduled).` and the URL of the status issue.
+
+To see the owner count and the sentence without creating anything, use `preview`
+in place of `create`. `--line` names the status lines that the issue lists as
+expected to be down. `--no-mirror` skips the status page.
+
+### Declare an incident
+
+1. Run the command below. `--line` is the slug of the affected status line, as the status site shows it.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts create incident --summary "Saving is slow. Recall works, and nothing is lost." --line website-and-sign-in
+   ```
+2. Read the owner count and the sentence. Type `y` to confirm.
+3. When the problem is over, run the command below with the notice id from `list`.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts resolve <notice-id> --account "Storage was slow for 40 minutes after a disk filled; we cleared it."
+   ```
+4. Expect `Resolved notice <id>.` and `Closed status issue`. Covered owners get one email that says the problem is resolved.
+   The status monitor can close an incident issue itself when its check recovers. The command then
+   prints `was already closed; added the comment to it` and still exits 0.
+
+### Fix a wrong notice
+
+- To correct a wrong time or wrong cells, cancel the notice and declare a new one.
+  Run `npx tsx scripts/exomem-service-notice.ts cancel <notice-id>`.
+- A cancelled or started maintenance sends no further emails. An email that has
+  already gone cannot be recalled. Tell owners on the status page.
+- `npx tsx scripts/exomem-service-notice.ts list` shows each notice, its state and its id.
+
+### What each person sees
+
+- An owner gets one email for maintenance and one when an incident is resolved.
+  The email states the times in the owner's time zone, your summary and the
+  status page address. The delivery job sends 20 emails a minute, so declare
+  early for a large fleet: a maintenance email not sent by the start is dropped.
+  An incident email goes only to owners whose cell existed when you resolved the
+  incident, so a cell created later gets none.
+- A person's assistant gets an instruction to tell the person once in the
+  conversation, with the times in UTC, your summary and the status page address.
+  A cell shows it only after the Exomem cell release that reads the header;
+  older cells ignore it.
+- Substrate sets the header and refuses a caller's own `x-exomem-` header.
+  A gateway instance keeps its copy of the notices for 30 seconds. The first
+  request after that waits for one refresh, at most 1 second, and carries the
+  result, so a request never carries a notice that changed more than 30 seconds
+  ago. An instance with no traffic asks the database nothing.
+- The status page shows maintenance under scheduled maintenance, with its start
+  and end, and an incident under its status line.
+
+### Configuration and grants
+
+- `EXOMEM_STATUS_REPO` names the status repository for the script. Default
+  `substrate-systems/exomem-status`.
+- `exomem_gateway` has `SELECT` on `exomem_service_notices` and
+  `exomem_service_notice_cells`, applied by `scripts/exomem-cloud-grants.sql`
+  after each migration run.
+- If the gateway logs `exomem_cloud_gateway_service_notices_unavailable`, it
+  sends no notice and serves every request as before. It tries again once every
+  30 seconds, and requests carry no notice until a lookup works. Check the grants
+  and the database connection.
 
 ## Cloud releases
 
