@@ -500,7 +500,7 @@ const STEPS: Step[] = [
       const theme = main.getByRole("button", { name: /^Theme:/ });
       await expect(theme).toBeVisible();
       const control = (await theme.boundingBox())!;
-      const wordmark = (await main.getByRole("img", { name: "Exomem" }).first().boundingBox())!;
+      const wordmark = (await main.getByRole("img", { name: "Evermatter" }).first().boundingBox())!;
       const viewport = page.viewportSize()!;
       expect(control.x).toBeGreaterThanOrEqual(wordmark.x + wordmark.width);
       expect(control.x + control.width).toBeLessThanOrEqual(viewport.width);
@@ -664,7 +664,7 @@ for (const step of STEPS) {
     // hides what overflows its column, so the document's size alone would not show it.
     const main = page.getByRole("main");
     const width = page.viewportSize()!.width;
-    const wordmark = (await main.getByRole("img", { name: "Exomem" }).first().boundingBox())!;
+    const wordmark = (await main.getByRole("img", { name: "Evermatter" }).first().boundingBox())!;
     const title = (await main.getByRole("heading", { level: 1 }).boundingBox())!;
     expect(title.y).toBeGreaterThanOrEqual(wordmark.y + wordmark.height);
     expect(title.x).toBeGreaterThanOrEqual(0);

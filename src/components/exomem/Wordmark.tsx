@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FULL, FULL_ROW, WORD_PATH } from "./dot-e";
+import { FULL, FULL_ROW, WORD_DOT_E_TRANSFORM, WORD_PATH, WORD_VIEWBOX } from "./dot-e";
 import { Dots, useSettled, type MarkProps } from "./Mark";
 import { markNumbers } from "./writing-e";
 import styles from "./Mark.module.css";
@@ -14,7 +14,7 @@ export interface WordmarkProps extends Omit<MarkProps, "size" | "small"> {
   activityKey?: string;
 }
 
-/** The logo: the word Exomem with the Dot E as its capital. Every Mark state works here. */
+/** The logo: the word Evermatter with the Dot E as its capital. Every Mark state works here. */
 export function Wordmark({
   height = 17,
   state = "rest",
@@ -22,7 +22,7 @@ export function Wordmark({
   step,
   value,
   breathe = false,
-  label = "Exomem",
+  label = "Evermatter",
   className,
   activityKey,
 }: WordmarkProps) {
@@ -32,7 +32,7 @@ export function Wordmark({
   return (
     <svg
       className={cx(`${styles.mark} ${styles.wordmark}`, cls && styles[cls], className)}
-      viewBox="2.30 -27.92 139.90 28.40"
+      viewBox={WORD_VIEWBOX}
       height={height}
       role={label ? "img" : undefined}
       aria-label={label || undefined}
@@ -44,7 +44,7 @@ export function Wordmark({
         ["--exo-rest" as keyof React.CSSProperties]: n.rest,
       }}
     >
-      <g transform="translate(-6.642 -32.782) scale(0.7843)">
+      <g transform={WORD_DOT_E_TRANSFORM}>
         <Dots pts={FULL} row={FULL_ROW} r={2.2} />
         {activityKey && (
           <g key={activityKey} className={styles.ripple} aria-hidden="true">
