@@ -355,13 +355,10 @@ describe("the app rows", () => {
     });
     assert.equal(
       appMeta(out, clock, false),
-      "signed out since 9 October · open Claude and connect Evermatter again"
+      "signed out since 9 October · open Claude and connect again"
     );
     const withoutDay = app({ session: { state: "signed_out", since: null } });
-    assert.equal(
-      appMeta(withoutDay, clock, false),
-      "signed out · open Claude and connect Evermatter again"
-    );
+    assert.equal(appMeta(withoutDay, clock, false), "signed out · open Claude and connect again");
   });
 
   it("keeps the self-declared-name marker and access destination on a signed-out row", () => {
@@ -374,7 +371,7 @@ describe("the app rows", () => {
     });
     assert.equal(
       appMeta(out, clock, false),
-      "signed out since 9 October · open My App and connect Evermatter again" +
+      "signed out since 9 October · open My App and connect again" +
         " · name from the app · sends access to app.example.com"
     );
   });

@@ -21,7 +21,7 @@ describe("the app sign-out email", () => {
     assert.equal(email.subject, "Claude can’t reach your Evermatter");
     assert.match(email.textContent, /On 23 November, Claude’s connection to your Evermatter ended/);
     assert.match(email.textContent, /nothing Claude saves reaches your Evermatter/);
-    assert.match(email.textContent, /Open Claude and connect Evermatter again/);
+    assert.match(email.textContent, /Open Claude and connect again/);
     assert.doesNotMatch(email.textContent, /revoked|replay|expired|suspicious/i);
   });
 

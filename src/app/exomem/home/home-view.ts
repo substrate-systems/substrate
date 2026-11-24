@@ -551,7 +551,7 @@ export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
   if (app.session.state === "signed_out") {
     const since = app.session.since === null ? null : dayMonth(app.session.since, clock.timeZone);
     parts.push(since === null ? "signed out" : `signed out since ${since}`);
-    parts.push(`open ${app.displayName} and connect Evermatter again`);
+    parts.push(`open ${app.displayName} and connect again`);
   } else {
     // An app connected within the hour reads "connected just now" or "12 minutes ago",
     // as the board draws a fresh account; a reviewer's row keeps the date.

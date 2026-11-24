@@ -65,14 +65,18 @@ export default function ExomemDocsPage() {
       </p>
       <ol>
         <li>In Claude, open “Settings”, then “Connectors”.</li>
-        <li>If Evermatter is in the list, select it.</li>
+        <li>If Evermatter (or Exomem) is in the list, select it.</li>
         <li>
-          If Evermatter is not in the list, select “Add custom connector”, and paste {theAddress}.
+          If neither Evermatter nor Exomem is in the list, select “Add custom connector”, and paste{" "}
+          {theAddress}.
         </li>
         <li>Select “Connect”.</li>
         <li>Sign in to Evermatter with your email, and approve the connection.</li>
       </ol>
-      <p>Claude now shows Evermatter as connected, and you can use it in any conversation.</p>
+      <p>
+        Claude now shows Evermatter (or Exomem) as connected, and you can use it in any
+        conversation.
+      </p>
 
       <h2>Connect Claude Code</h2>
       <p>
@@ -88,11 +92,11 @@ export default function ExomemDocsPage() {
           Run <code>/plugin install exomem-cloud@exomem</code>.
         </li>
         <li>
-          Run <code>/mcp</code>, select Evermatter, and sign in.
+          Run <code>/mcp</code>, select <code>exomem</code>, and sign in.
         </li>
       </ol>
       <p>
-        <code>/mcp</code> now shows Evermatter as connected.
+        <code>/mcp</code> now shows <code>exomem</code> as connected.
       </p>
 
       <h2>Connect ChatGPT</h2>
@@ -100,7 +104,7 @@ export default function ExomemDocsPage() {
         <li>
           Open{" "}
           <a href={CLIENT_PLATFORM_LISTING_URLS.openai} target="_blank" rel="noreferrer">
-            Evermatter in the ChatGPT plugin directory
+            Evermatter (or Exomem) in the ChatGPT plugin directory
           </a>
           .
         </li>
@@ -108,7 +112,8 @@ export default function ExomemDocsPage() {
         <li>Sign in to Evermatter with your email, and approve the connection.</li>
       </ol>
       <p>
-        ChatGPT now shows Evermatter as connected. Codex uses the same plugin from its directory.
+        ChatGPT now shows Evermatter (or Exomem) as connected. Codex uses the same plugin from its
+        directory.
       </p>
 
       <h2>Connect another app</h2>

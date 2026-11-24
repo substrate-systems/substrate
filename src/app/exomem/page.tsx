@@ -171,7 +171,7 @@ export default function ExomemPage() {
     { desk: "Start with your email; no password", phone: "Start with your email" },
     { desk: "Subscribe; your vault is ready in a minute", phone: "Subscribe; ready in a minute" },
     {
-      desk: "Add Evermatter in Claude’s connectors or ChatGPT’s plugins",
+      desk: "Add it in Claude’s connectors or ChatGPT’s plugins",
       phone: "Add it to Claude or ChatGPT",
     },
   ];

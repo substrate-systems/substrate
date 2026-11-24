@@ -458,7 +458,7 @@ export function renderExomemAppSignoutEmail(input: {
     headline: `${input.appName} is signed out`,
     body: [
       `On ${day}, ${input.appName}’s connection to your Evermatter ended. Until it is connected again, nothing ${input.appName} saves reaches your Evermatter.`,
-      `Open ${input.appName} and connect Evermatter again to pick up where it left off.`,
+      `Open ${input.appName} and connect again to pick up where it left off.`,
     ],
     detail: {
       kind: "facts",

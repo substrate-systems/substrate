@@ -227,7 +227,7 @@ export const chooseCopy = {
  */
 const AT_LISTING: Partial<Record<PluginApp, string>> = {
   openai:
-    "ChatGPT opened in a new tab, at Evermatter’s page in its plugin directory. Press Connect.",
+    "ChatGPT opened in a new tab, at the plugin directory page for Evermatter (or Exomem). Press Connect.",
 };
 
 export const waitingCopy = {
@@ -235,8 +235,8 @@ export const waitingCopy = {
   /** Where the app's connector settings opened. */
   where: {
     claude:
-      "Claude opened in a new tab, at Settings, then Connectors. Find Evermatter and press Connect.",
-    openai: "In ChatGPT, open the plugin directory. Find Evermatter and press Connect.",
+      "Claude opened in a new tab, at Settings, then Connectors. Find Evermatter (or Exomem) and press Connect.",
+    openai: "In ChatGPT, open the plugin directory. Find Evermatter (or Exomem) and press Connect.",
   } satisfies Record<PluginApp, string>,
   atListing: AT_LISTING,
   then: (app: string) => `${app} then opens a page here to confirm.`,
@@ -403,7 +403,7 @@ export const breakCopy = {
  */
 export const unknownAppCopy = {
   title: "Evermatter doesn’t recognise this app",
-  lede: "Remove Evermatter from the app, then add it again. The app then opens a page here to confirm.",
+  lede: "Remove the connection from the app, then add it again. The app then opens a page here to confirm.",
 };
 
 /**
