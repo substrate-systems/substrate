@@ -1,7 +1,7 @@
 {
-  "$comment": "The recall measurements the landing shows, copied from the Exomem benchmark page named in `source`. `sourceBlob` is that page's git blob hash; the weekly drift workflow (scripts/check-exomem-benchmarks.mjs) fails when Exomem main differs. Then re-read the page, update the figures, `source` and `sourceBlob`. The landing reads this file at render.",
-  "source": "https://github.com/substrate-systems/evermatter/blob/b2999e4f6b099666daa1bd8f7f0b23c38bee3e94/docs/benchmarks.md",
-  "sourceBlob": "f90b0f9f0737d62e023e61d11eddaff9b86d7768",
+  "$comment": "The recall measurements the landing shows, copied from the Evermatter benchmark page named in `source`. `sourceBlob` is that page's git blob hash; the weekly drift workflow (scripts/check-exomem-benchmarks.mjs) fails when the product's main differs. Then re-read the page, update the figures, `source` and `sourceBlob`. The landing reads this file at render.",
+  "source": "https://github.com/substrate-systems/evermatter/blob/025765771824ceaecb79655061516d7b7f61112e/docs/benchmarks.md",
+  "sourceBlob": "9dd4e6983ae20831319372fd153f41dfeff3e057",
   "realVault": {
     "section": "Real-vault check: the same lanes on a production vault (2026-07-04)",
     "measuredOn": "2026-07-04",
