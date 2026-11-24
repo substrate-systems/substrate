@@ -22,6 +22,7 @@ import { HOLD_OFF_ENV } from "./upstream-fixture";
 
 const CONFIG: ExomemCloudConfig = {
   mcpUrl: "https://cloud.example.test/mcp/v1",
+  acceptedResources: ["https://cloud.example.test/mcp/v1"],
   mcpPath: "/mcp/v1",
   cellTokenKey: Buffer.alloc(32, 7),
 };

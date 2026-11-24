@@ -12,9 +12,11 @@ function runBeforePaint(
   pathname: string,
   getItem: (key: string) => string | null,
   device: "dark" | "light" = "dark",
-  cookie = ""
+  cookie = "",
+  site: { hostname: string; productHost?: string } = { hostname: "company.example.test" }
 ) {
   const attributes = new Map<string, string>();
+  if (site.productHost) attributes.set("data-exomem-product-host", site.productHost);
   const documentElement = {
     getAttribute: (name: string) => attributes.get(name) ?? null,
     setAttribute: (name: string, value: string) => attributes.set(name, value),
@@ -25,7 +27,7 @@ function runBeforePaint(
   };
   runInNewContext(exomemThemeScript, {
     TextEncoder,
-    location: { pathname },
+    location: { pathname, hostname: site.hostname },
     window,
     document: { documentElement, cookie },
   });
@@ -57,6 +59,19 @@ describe("the theme is applied before first paint", () => {
     });
 
     assert.equal(attributes.get("data-theme"), "dark");
+  });
+
+  it("themes the product site's root pages on the product host, and nothing else there", () => {
+    const product = { hostname: "product.example.test", productHost: "product.example.test" };
+    const themed = (pathname: string, site = product) =>
+      runBeforePaint(pathname, () => null, "light", "", site).get("data-theme");
+    assert.equal(themed("/"), "light");
+    assert.equal(themed("/docs"), "light");
+    // Company pages that also answer on the product host keep the company look.
+    assert.equal(themed("/blog"), undefined);
+    // The same root paths on the company host are company pages.
+    const company = { hostname: "company.example.test", productHost: "product.example.test" };
+    assert.equal(themed("/", company), undefined);
   });
 
   it("leaves the rest of the site untouched", () => {

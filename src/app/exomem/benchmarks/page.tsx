@@ -2,6 +2,7 @@ import Link from "next/link";
 import { siteConfig } from "@/lib/seo";
 import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 export const metadata = buildExomemMetadata({
   title: "How Exomem Benchmarks Memory Systems",
@@ -68,7 +69,7 @@ export default function ExomemBenchmarksPage() {
         url: `${siteConfig.url}/brand/logos/substrate-logo-dark.png`,
       },
     },
-    mainEntityOfPage: `${siteConfig.url}/exomem/benchmarks`,
+    mainEntityOfPage: productPageUrl("/exomem/benchmarks"),
     image: [`${siteConfig.url}/exomem/og`],
     isBasedOn: CONTRACT_URL,
   };

@@ -30,6 +30,7 @@ const NONCE = "ab".repeat(32);
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const CONFIG: ExomemCloudConfig = {
   mcpUrl: RESOURCE,
+  acceptedResources: [RESOURCE],
   mcpPath: "/api/exomem/cloud/mcp/v1",
   cellTokenKey: CELL_TOKEN_KEY,
   artifactSigningKey: privateKey,

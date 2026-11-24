@@ -11,6 +11,7 @@ const RESOURCE = "https://gateway.example.test/mcp";
 
 let exchangeResult: unknown = null;
 let rotateResult: unknown = null;
+let rotatedResource: string | null = null;
 let clientRegistered = true;
 // A connector's cached metadata, and whether fetching it again succeeds.
 let metadataFresh = true;
@@ -72,7 +73,8 @@ before(() => {
       },
       // Rotation needs fresh metadata, as the store's admission predicate does,
       // and spends the refresh token only when it issues.
-      rotateOAuthRefreshTokenAtomic: async () => {
+      rotateOAuthRefreshTokenAtomic: async (input: { resource: string }) => {
+        rotatedResource = input.resource;
         if (!metadataFresh || !refreshLive || refreshSpent || !rotateResult) return null;
         refreshSpent = true;
         return rotateResult;
@@ -448,6 +450,55 @@ describe("POST /api/exomem/oauth/token", () => {
       assert.equal(response.status, 503);
     }
     assert.equal(refetches, REFETCH_FAILURE_LIMIT);
+  });
+
+  // move-cloud-to-evermatter-hosts: once the new host leads the accepted list, an app
+  // connected through the old host still refreshes with the resource it holds.
+  it("refreshes with the old resource while the new host leads the accepted list", async () => {
+    const previous = process.env.EXOMEM_CLOUD_MCP_URLS;
+    process.env.EXOMEM_CLOUD_MCP_URLS = `https://mcp.example.test/mcp, ${RESOURCE}`;
+    metadataFresh = true;
+    refreshLive = true;
+    refreshSpent = false;
+    rotatedResource = null;
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read", "exomem.write"],
+    };
+    try {
+      const { response } = await withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "client-1",
+            resource: RESOURCE,
+          })
+        )
+      );
+      assert.equal(response.status, 200);
+      assert.equal(rotatedResource, RESOURCE);
+
+      process.env.EXOMEM_CLOUD_MCP_URLS = "https://mcp.example.test/mcp";
+      const unlisted = await withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "client-1",
+            resource: "https://elsewhere.example.test/mcp",
+          })
+        )
+      );
+      assert.equal(unlisted.response.status, 400);
+      assert.deepEqual(await unlisted.response.json(), { error: "invalid_request" });
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_CLOUD_MCP_URLS;
+      else process.env.EXOMEM_CLOUD_MCP_URLS = previous;
+    }
   });
 
   it("names an unsupported grant type", async () => {

@@ -36,7 +36,10 @@ export async function resolveCloudOwnerPrincipal(
   if (request.headers.has("authorization")) {
     const bearer = parseBearerAuthorization(request.headers.get("authorization"));
     const token = bearer
-      ? await findCloudOAuthAccessToken(digestSecret(bearer), loadExomemCloudResource(env).mcpUrl)
+      ? await findCloudOAuthAccessToken(
+          digestSecret(bearer),
+          loadExomemCloudResource(env).acceptedResources
+        )
       : null;
     if (!token) throw exomemErrors.accessTokenInvalid();
     if (!token.scopes.includes("exomem.read") || !token.scopes.includes("exomem.write")) {

@@ -7,7 +7,7 @@
 import { loadOwnerBillingAccount } from "./billing-account";
 import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import type { EnvironmentSource } from "./cloud-config";
-import { loadExomemCloudResource } from "./cloud-config";
+import { isAcceptedCloudResource, loadExomemCloudResource } from "./cloud-config";
 import { getOwnerCloudStatus } from "./cloud-status";
 import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, findExomemSessionByDigest } from "./db";
@@ -128,10 +128,13 @@ export async function loadConsentView(
 
 /**
  * Whether the consent page offers the app reviewer's sign-in: only while reviewer
- * access is switched on, and only for a request to Exomem Cloud's own resource.
+ * access is switched on, and only for a request to one of Exomem Cloud's own resources.
  */
 export function reviewerSignInOffered(resource: string, env: EnvironmentSource): boolean {
-  return marketplaceReviewerAccessEnabled(env) && resource === loadExomemCloudResource(env).mcpUrl;
+  return (
+    marketplaceReviewerAccessEnabled(env) &&
+    isAcceptedCloudResource(loadExomemCloudResource(env), resource)
+  );
 }
 
 // Whether the visitor has an Exomem, and in what state, decides what this page

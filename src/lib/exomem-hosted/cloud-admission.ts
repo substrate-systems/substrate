@@ -582,7 +582,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     // whatever resource that transaction actually named. Loaded once,
     // outside the transaction, so a misconfigured Cloud deployment fails
     // this call the same way every other Cloud entry point does.
-    const cloudResource = loadExomemCloudResource().mcpUrl;
+    const acceptedResources = loadExomemCloudResource().acceptedResources;
     return await withExomemTransaction(async (tx: ExomemSql) => {
       if (!(await liveInviteExists(tx, input.inviteDigest)))
         throw new CloudOAuthAdmissionRejected();
@@ -620,7 +620,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         ) AS admitted_host ON true
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
-          AND transaction.resource = ${cloudResource}
+          AND transaction.resource = ANY(${[...acceptedResources]}::text[])
           AND exomem_oauth_client_admitted(
             client.admission_mode, client.enabled, client.metadata_document_digest,
             client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
