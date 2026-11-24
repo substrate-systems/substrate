@@ -15,8 +15,8 @@
 - [x] 2.1 Retire an expired CIMD client in `pruneExpiredOAuthState`, after a grace period well beyond `CIMD_MAX_TTL_SECONDS`
   - Auto-registered clients only. An operator-registered CIMD client stays in the operator's hands. A connector that held a grant waits `EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS` after its metadata expired, default 336 (twice the longest metadata lifetime). One that never held a grant waits `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS` after its last registration, default 24.
   - The sweep no longer resets `metadata_expires_at` to the time of each run, which would have restarted the grace on every run. It disables an expired client once and keeps the expiry the metadata stated.
-- [ ] 2.2 Retire a reviewer bootstrap client on the same transition that consumes or revokes its authority
-  - Not done: retiring the Hosted platform removed every path that creates, consumes or revokes a bootstrap authority, so no such transition exists. Every bootstrap client that will ever exist already exists. Section 5 retires them as an operator step.
+- [x] 2.2 ~~Retire a reviewer bootstrap client on the same transition that consumes or revokes its authority~~
+  - Withdrawn: retiring the Hosted platform removed every path that creates, consumes or revokes a bootstrap authority, so no such transition exists. Every bootstrap client that will ever exist already exists. Section 5 retires them as an operator step.
 - [x] 2.3 Refuse retirement for any client that is enabled or holds a live grant, access token, or refresh token — a query, not an age heuristic
   - The view `exomem_oauth_clients_holding_live_authority`: a grant that is not revoked, an unexpired code, access token or refresh token, or an authorization in progress. The sweep anti-joins it; `exomem_oauth_client_holds_live_authority(client)` reads it for one client. A grant that is not revoked counts even without tokens, because Home lists it as a connected app.
 - [x] 2.4 Confirm the existing `ON CONFLICT (client_id) DO UPDATE` path revives a retired row rather than consuming a second slot
@@ -34,7 +34,8 @@
 
 - [x] 3.1 Report per-partition headroom as content-free operator state
   - `GET /api/exomem/admin/oauth-clients` returns `headroom` with `bound`, `used` and `free` for each partition, read from `exomem_oauth_client_partitions()`.
-- [ ] 3.2 Make `scripts/reviewer_bootstrap.py` in the `exomem` repository read that headroom instead of comparing against its hardcoded `OPERATOR_CLIENT_BOUND`, which `0051` already made stale
+- [x] 3.2 ~~Make `scripts/reviewer_bootstrap.py` in the `exomem` repository read that headroom instead of comparing against its hardcoded `OPERATOR_CLIENT_BOUND`, which `0051` already made stale~~
+  - Withdrawn: the `exomem` repository deleted `scripts/reviewer_bootstrap.py` when it retired the Hosted platform (exomem #1691), so no client compares against `OPERATOR_CLIENT_BOUND`. Operators read headroom from `GET /api/exomem/admin/oauth-clients` (3.1).
 - [x] 3.3 Runbook: retirement rules, grace settings, what a client sees after retirement, and the generic lane's enable condition
   - `docs/runbooks/exomem-cloud-operations.md`, "Client slots and retirement".
 
