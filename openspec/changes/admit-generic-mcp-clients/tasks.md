@@ -35,12 +35,12 @@
 - [x] 4.2 Withdrawing lane state stops admission at every one of those stages, which is the drift guard for the new arm
 - [x] 4.3 Mutation-check 4.2: removing the generic arm from exactly one predicate fails exactly that test and nothing else
   - Removing the arm from each of the 13 sites fails the generic cross-stage case. Removing it from the gateway lookup also fails the gateway-role lookup test, which runs that statement on purpose. An arm that ignored the admission mode fails the host-allowlisted case.
-- [ ] 4.4 A generic client authorizing for an identity with neither invite nor tenant creates no tenant, entitlement, grant or token, and the refusal does not disclose whether the identity is known
-  - No test: the invite check runs before, and apart from, the generic arm, so no defect in this change can make such a test fail. The invite and ownership code paths are unchanged.
+- [x] 4.4 ~~A generic client authorizing for an identity with neither invite nor tenant creates no tenant, entitlement, grant or token, and the refusal does not disclose whether the identity is known~~
+  - Withdrawn. No test: the invite check runs before, and apart from, the generic arm, so no defect in this change can make such a test fail. The invite and ownership code paths are unchanged.
 - [x] 4.5 Certified admission is unchanged with the lane enabled: pinned-digest and host-allowlist clients still require a live cohort for their own platform, and the existing suites pass unmodified
   - No certified lane consults a cohort since `adopt-exomem-cloud-plain-cells` D2. The cross-stage test runs the host-allowlisted client with the generic lane enabled and requires every stage to stop when its host is withdrawn.
-- [ ] 4.6 A generic client is admitted while no cohort is live for any platform, and a certified client in the same state is still refused — the assertion that the lanes are genuinely independent
-  - Not done as written: since `adopt-exomem-cloud-plain-cells` D2 no admission predicate consults a cohort, so a certified client is no longer refused when no cohort is live. Generic admission without a cohort is shown by the gateway grants test, whose schema seeds none.
+- [x] 4.6 ~~A generic client is admitted while no cohort is live for any platform, and a certified client in the same state is still refused — the assertion that the lanes are genuinely independent~~
+  - Withdrawn. Not done as written: since `adopt-exomem-cloud-plain-cells` D2 no admission predicate consults a cohort, so a certified client is no longer refused when no cohort is live. Generic admission without a cohort is shown by the gateway grants test, whose schema seeds none.
 - [x] 4.7 Registration refuses every unsafe redirect shape and writes no row; loopback http is accepted and non-loopback http is not
 - [x] 4.8 The generic partition fills to its bound and refuses further registrations while operator and CIMD partitions still report free slots
 - [x] 4.9 Registration cannot create, enable or rewrite an operator-managed, bootstrap-pinned or auto-registered CIMD client
@@ -55,9 +55,14 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Full CI integration set, unit suite, `tsc --noEmit`, `eslint .`, and `openspec validate --all --strict`
-- [ ] 6.2 Review the diff specifically as a security change: confirm PKCE S256, exact redirect binding, SSRF protection, code single-use and audience binding are all untouched, and that the invite remains the sole path to tenancy
-- [ ] 6.3 Independent review of the consent screen against this widening — with any client able to ask, the consent surface is what a person actually relies on, and it should name the client and scopes plainly
-- [ ] 6.4 Open a PR that states plainly that this reverses the alpha's generic-admission prohibition, and links the design's Risks section
-- [ ] 6.5 Deploy with the lane disabled and confirm from production that metadata advertises no registration endpoint and the route refuses
+- [x] 6.1 Full CI integration set, unit suite, `tsc --noEmit`, `eslint .`, and `openspec validate --all --strict`
+  - #227: `npm test` 967/967, integration 134/134, `tsc --noEmit` clean, ESLint 0 errors, `openspec validate --all --strict` 35/35. #318 repeated the integration set for the widened lane.
+- [x] 6.2 Review the diff specifically as a security change: confirm PKCE S256, exact redirect binding, SSRF protection, code single-use and audience binding are all untouched, and that the invite remains the sole path to tenancy
+  - Independent reviews: #227 (comment 6119779149) and two passes on #318 (comments 7107423520, 7107826957), which confirmed PKCE S256, exact redirect binding, the SSRF guards, single-use codes and audience binding unchanged, and the invite as the sole path to tenancy.
+- [x] 6.3 Independent review of the consent screen against this widening — with any client able to ask, the consent surface is what a person actually relies on, and it should name the client and scopes plainly
+  - The two #318 passes reviewed the consent page against the widening: it names the client and scopes, labels a declared name as the client's own claim, and names the verified host for a CIMD client. No DevTools render was part of either review.
+- [x] 6.4 ~~Open a PR that states plainly that this reverses the alpha's generic-admission prohibition, and links the design's Risks section~~
+  - Withdrawn: the friends alpha and its prohibition ended with `adopt-exomem-cloud-plain-cells`. #227 states the widening plainly, ships the lane disabled, and lists the enabling preconditions instead of linking the design's Risks section.
+- [x] 6.5 Deploy with the lane disabled and confirm from production that metadata advertises no registration endpoint and the route refuses
+  - With the lane disabled, production metadata advertised no `registration_endpoint` until the operator enabled the lane at 2026-11-24 11:00:11Z (checked every 30 s before enabling); task 4.10's test covers the route refusal.
 - [ ] 6.6 Only after the friends alpha is stable, enable the lane and verify one real third-party MCP client — Codex CLI is the intended first — completes registration, authorization, tool discovery and a durable capture
