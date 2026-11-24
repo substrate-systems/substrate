@@ -19,8 +19,9 @@ from fontTools.varLib.instancer import instantiateVariableFont
 INTER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "Inter-var.ttf")
 
 
-def text_path(size, text, x, baseline):
-    """Shape text with HarfBuzz (kerning included) in Inter 400 at its optical size."""
+def text_path(size, text, x, baseline, tracking=0.0):
+    """Shape text with HarfBuzz (kerning included) in Inter 400 at its optical size.
+    `tracking` is CSS letter-spacing in em, added after each glyph."""
     opsz = max(14, min(32, size))
     font = instantiateVariableFont(TTFont(INTER), {"wght": 400, "opsz": opsz})
     upm = font["head"].unitsPerEm
@@ -40,21 +41,25 @@ def text_path(size, text, x, baseline):
         name = order[info.codepoint]
         t = (s, 0, 0, -s, x + (pen_x + pos.x_offset) * s, baseline - pos.y_offset * s)
         gs[name].draw(TransformPen(pen, t))
-        pen_x += pos.x_advance
+        pen_x += pos.x_advance + tracking * upm
     return pen.getCommands()
 
 
 def main(raster_json, wordmark_svg, out_svg):
     src = json.load(open(raster_json))["social/og-image.png"][2]
+    # The inputs are this kit's own fixed files: the archived card (an HTML fragment) and
+    # a lockup SVG. The regexes lift their exact markup unchanged into the new card; a
+    # parser would re-serialise it (namespace prefixes, attribute order).
     band = re.search(r'<svg viewBox="0 0 600 120"[^>]*>(.*?)</svg>', src, re.S).group(1)
     wm = open(wordmark_svg).read()
     vb = re.search(r'viewBox="([^"]+)"', wm).group(1)
     inner = re.search(r"</title>(.*)</svg>", wm, re.S).group(1)
     vx, vy, vw, vh = map(float, vb.split())
-    h = 88.0  # cap height of the logo on the card: the old mark's 89 px, on whole pixels
+    cap = 88.0  # cap height of the logo on the card: the old mark's 89 px, on whole pixels
+    h = cap * vh / -vy  # the viewBox runs from the cap line (vy) to just below the baseline
     w = h * vw / vh
     asc = 1984 / 2048  # Inter ascent: a CSS line box puts the baseline at top + ascent
-    tag = text_path(38, "One memory every assistant shares.", 96, 418 + 38 * asc)
+    tag = text_path(38, "One memory every assistant shares.", 96, 418 + 38 * asc, tracking=-0.01)
     apps = text_path(24, "Claude · ChatGPT · Claude Code · Codex", 96, 478 + 24 * asc)
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
 <title>Evermatter</title>
@@ -67,7 +72,7 @@ def main(raster_json, wordmark_svg, out_svg):
 <path d="{apps}" fill="#858075"/>
 </svg>"""
     open(out_svg, "w").write(svg)
-    print(json.dumps({"logo": [96, 266, round(w, 2), h]}))
+    print(json.dumps({"logo": [96, 266, round(w, 2), round(h, 2)], "baseline": 266 + cap}))
 
 
 if __name__ == "__main__":

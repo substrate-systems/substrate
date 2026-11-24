@@ -41,4 +41,11 @@ Phosphor amber `#FFB000` on warm black `#0A0908`, text `#ECE9E2`. On light (pape
 
 ## How the files were made
 
-The lockups come from the Exomem kit's files. `_render/kitgen.py` outlines the new word from IBM Plex Mono Medium (fonts from Google Fonts, OFL, not committed: put `IBMPlexMono-Medium.ttf`, `IBMPlexSans-Medium.ttf` and `Inter-var.ttf` in a `fonts/` folder beside `_render/`). For each file, it recovers the old word's scale, origin and baseline by fitting the old outline. It draws the new word with the same placement, then rebuilds the viewBox to hug the ink. The same outliner reproduces the Exomem "xomem" path exactly, which proves the placement. `_render/og.py` builds the social card with HarfBuzz-shaped, outlined Inter text.
+The fonts come from Google Fonts (OFL) and are not committed. Put `IBMPlexMono-Medium.ttf` and `Inter-var.ttf` in a `fonts/` folder beside `_render/`. The Python steps need `fonttools` and `uharfbuzz`.
+
+1. Run `python _render/kitgen.py <public/exomem/lockup> <out>`. For each Exomem lockup, it recovers the old word's scale, origin and baseline by fitting the old outline, and asserts that the fit redraws the old word within 0.01 units. It draws the new word with the same placement and rebuilds the viewBox to hug the ink. It prints each file's distance from the cap line and the baseline.
+2. Run `python _render/og.py <exomem-brand-kit/_render/raster.json> <out>/evermatter-wordmark-initial.svg _render/og-image.svg`. It builds the social card with HarfBuzz-shaped, outlined Inter text. The logo's cap height is 88 px, so the baseline falls on a whole pixel (y = 354).
+3. Render the PNGs with sharp (libvips) from the SVGs, flattened on their ground:
+   - `email/wordmark-dark.png` and `-light.png`: the initial wordmark at 1200 dpi, resized to 48 px tall, on `#0A0908` / `#FAF8F4`.
+   - `social/og-image.png`: `_render/og-image.svg` at 72 dpi, 1200 × 630.
+4. Strip the `pHYs` chunk from each PNG. A density tag makes some mail clients size the image from it; the Exomem files carry none.
