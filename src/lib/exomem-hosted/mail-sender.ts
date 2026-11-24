@@ -1,5 +1,8 @@
-/** Exomem mail is sent as Exomem, from its own Brevo-verified address. */
+/**
+ * Cloud mail is sent as Evermatter, from its Brevo sender on the authenticated evermatter.ai
+ * domain. Replies to that address forward to the founder's inbox.
+ */
 export const EXOMEM_SENDER = {
-  senderName: "Exomem",
-  senderEmail: "exomem@substratesystems.io",
+  senderName: "Evermatter",
+  senderEmail: "hello@evermatter.ai",
 } as const;
