@@ -12,7 +12,7 @@ export const metadata = buildExomemMetadata({
 });
 
 const CONTRACT_URL =
-  "https://github.com/Artexis10/exomem/blob/main/docs/benchmark-fairness-contract.md";
+  "https://github.com/substrate-systems/evermatter/blob/main/docs/benchmark-fairness-contract.md";
 
 // Published as a method page, deliberately ahead of results. The comparative
 // programme is mid-rebuild after its own audit rejected the first head-to-head;

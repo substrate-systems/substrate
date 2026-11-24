@@ -16,9 +16,11 @@ export default function ExomemSupportPage() {
         <a href="mailto:founder@substratesystems.io">founder@substratesystems.io</a> with a short
         description and any non-sensitive error or request reference. You can also report a
         reproducible public-client problem in the{" "}
-        <a href="https://github.com/Artexis10/exomem/issues">Evermatter issue tracker</a>. Do not
-        send knowledge content, access tokens, invite links, private connection URLs, or screenshots
-        containing them.
+        <a href="https://github.com/substrate-systems/evermatter/issues">
+          Evermatter issue tracker
+        </a>
+        . Do not send knowledge content, access tokens, invite links, private connection URLs, or
+        screenshots containing them.
       </p>
       <h2>Before writing</h2>
       <p>

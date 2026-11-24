@@ -246,11 +246,11 @@ test("Home shows the account's own values and calls only routes a Cloud account 
   await panel(page, "Connected apps").getByRole("button", { name: "Set up" }).click();
   await expect(page.getByRole("link", { name: "Download Claude ZIP" })).toHaveAttribute(
     "href",
-    "https://raw.githubusercontent.com/Artexis10/exomem/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip"
+    "https://raw.githubusercontent.com/substrate-systems/evermatter/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip"
   );
   await expect(page.getByRole("link", { name: "Download ChatGPT ZIP" })).toHaveAttribute(
     "href",
-    "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip"
+    "https://github.com/substrate-systems/evermatter/releases/latest/download/exomem-cloud-openai.zip"
   );
   await expect(page.getByRole("link", { name: "Open ChatGPT listing" })).toHaveAttribute(
     "href",

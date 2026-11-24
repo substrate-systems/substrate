@@ -92,7 +92,7 @@ The provisioning engine is open source — you can read exactly what it does bef
 Evermatter is an open-source, self-hosted MCP server that gives AI agents (Claude, Codex, Cursor, or any MCP client) durable long-term memory over your own Markdown / Obsidian vault. Your files stay plain markdown on your machine — no import into a proprietary store, no cloud dependency.
 
 - Install: `pip install exomem` (PyPI: https://pypi.org/project/exomem/)
-- Source (AGPL-3.0): https://github.com/Artexis10/exomem
+- Source (AGPL-3.0): https://github.com/substrate-systems/evermatter
 - Product page: https://substratesystems.io/exomem
 
 ### Features
@@ -116,7 +116,7 @@ No. The vault stays plain markdown files you own. Search indexes are local SQLit
 No. The lean install works with keyword/BM25 search out of the box (FTS5 ships inside Python's bundled SQLite). Optional extras add local embedding, CLIP, OCR, and ASR models — GPU accelerates them but is not required.
 
 **How fast is search on a large vault?**
-Measured on a 50,000-note corpus: sub-second hybrid search end-to-end, with the lexical lanes answering in milliseconds from the FTS5 index. Numbers and methodology: https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md
+Measured on a 50,000-note corpus: sub-second hybrid search end-to-end, with the lexical lanes answering in milliseconds from the FTS5 index. Numbers and methodology: https://github.com/substrate-systems/evermatter/blob/main/docs/benchmarks.md
 
 ---
 
@@ -242,7 +242,7 @@ Endstate already reinstalls applications through WinGet and Chocolatey. Integrat
 - Endstate engine (GitHub): https://github.com/Artexis10/endstate
 - Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
 - Evermatter product page: https://substratesystems.io/exomem
-- Evermatter (GitHub): https://github.com/Artexis10/exomem
+- Evermatter (GitHub): https://github.com/substrate-systems/evermatter
 - Evermatter (PyPI): https://pypi.org/project/exomem/
 - Q: https://useq.ai
 - Writing: https://substratesystems.io/blog

@@ -35,7 +35,7 @@ export const metadata = buildExomemMetadata({
   path: "/exomem",
 });
 
-const GITHUB = "https://github.com/Artexis10/exomem";
+const GITHUB = "https://github.com/substrate-systems/evermatter";
 const PYPI = "https://pypi.org/project/exomem/";
 const README = `${GITHUB}#readme`;
 const ASSISTANTS = Object.entries(CLIENT_FAMILY_NAMES)

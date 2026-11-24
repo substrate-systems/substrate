@@ -73,7 +73,7 @@ But "purely text notes" is the whole gap. Basic Memory is **text-only** — no O
 Evermatter is built to be the most capable tool in the "your files stay plain Markdown you own" camp, and against the extract-into-a-store crowd it makes a deliberate bet: **your memory should _be_ your vault, not a derived artifact locked in someone's store.** Concretely:
 
 - **Your data stays plain and portable.** Notes are Markdown files in a vault you own; the search index is a local SQLite sidecar next to them. There's no import into a proprietary store and no cloud dependency for the lean install — FTS5 keyword search ships inside Python's bundled SQLite, so `pip install exomem` works with zero extra services.
-- **Retrieval is measured, not asserted.** Evermatter's hybrid `find()` runs **sub-second end-to-end at 50,000 notes — 864 ms measured on the reference desktop (Ryzen 7 5800X3D / RTX 5080 / 32 GB), hot cache off** — with the keyword/lexical lanes answering in milliseconds from the FTS5 index. The [benchmark methodology](https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md) is published in the repo so you can reproduce it. Most tools in this space don't publish reproducible numbers at scale at all.
+- **Retrieval is measured, not asserted.** Evermatter's hybrid `find()` runs **sub-second end-to-end at 50,000 notes — 864 ms measured on the reference desktop (Ryzen 7 5800X3D / RTX 5080 / 32 GB), hot cache off** — with the keyword/lexical lanes answering in milliseconds from the FTS5 index. The [benchmark methodology](https://github.com/substrate-systems/evermatter/blob/main/docs/benchmarks.md) is published in the repo so you can reproduce it. Most tools in this space don't publish reproducible numbers at scale at all.
 - **It indexes more than text, fully locally.** Optional extras add local embeddings and CLIP image search, plus OCR (Tesseract), PDF/Office extraction, and speech-to-text (faster-whisper) — so screenshots, scans, audio, and video become searchable without anything leaving your machine.
 - **It's built for knowledge that changes.** Typed folders for raw sources, compiled notes, entities, and evidence; a supersession history; and human review queues (audit and attention) that surface stale conclusions, unprocessed sources, and broken links. The server does deterministic work — search, extraction, ranking, file writes — and leaves the reasoning to your client model.
 
@@ -81,7 +81,7 @@ The honest tradeoff runs the other way too: if you want a fully managed memory A
 
 ## Where you can get it
 
-Evermatter is [open source under AGPL-3.0 on GitHub](https://github.com/Artexis10/exomem), installs with `pip install exomem`, and runs against your existing Obsidian or Markdown vault. You can read the [product page](https://substratesystems.io/exomem) for the full feature list, check the [benchmarks](https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md) before you trust the numbers, or just point it at a vault and search.
+Evermatter is [open source under AGPL-3.0 on GitHub](https://github.com/substrate-systems/evermatter), installs with `pip install exomem`, and runs against your existing Obsidian or Markdown vault. You can read the [product page](https://substratesystems.io/exomem) for the full feature list, check the [benchmarks](https://github.com/substrate-systems/evermatter/blob/main/docs/benchmarks.md) before you trust the numbers, or just point it at a vault and search.
 
 ## FAQ
 
@@ -98,7 +98,7 @@ Both keep your memory as plain Markdown files you own, both are MCP-native, and 
 Not with Evermatter's lean install. Keyword/BM25 search runs on SQLite FTS5, which ships inside Python's standard library, so there's no separate database to operate and no cloud dependency. That's a real contrast with the graph-based tools (Zep/Graphiti, cognee), which expect a graph database, and with the managed services, which store your memory in their cloud.
 
 **Is Evermatter really free and open source?**
-Yes — it's AGPL-3.0 licensed and [on GitHub](https://github.com/Artexis10/exomem), self-hosted, with no paid tier and no account required. You run it on your own machine against your own vault.
+Yes — it's AGPL-3.0 licensed and [on GitHub](https://github.com/substrate-systems/evermatter), self-hosted, with no paid tier and no account required. You run it on your own machine against your own vault.
 
 **What about claude-mem?**
 It is the most popular memory tool for Claude Code, but it belongs in a different comparison: it captures and replays session activity rather than storing curated conclusions. I cover that difference in [Evermatter vs claude-mem](/blog/exomem-vs-claude-mem).

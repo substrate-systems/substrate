@@ -81,13 +81,13 @@ If you only want one, the honest test is whether you'd be upset to lose it. If l
 **Evermatter** is one line, and it wires up every agent client on the machine:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/Artexis10/exomem/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/substrate-systems/evermatter/main/scripts/install.sh | sh
 ```
 
 On Windows, use PowerShell:
 
 ```
-irm https://raw.githubusercontent.com/Artexis10/exomem/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/substrate-systems/evermatter/main/scripts/install.ps1 | iex
 ```
 
 Or try it against a bundled sample vault before installing anything:
@@ -100,7 +100,7 @@ That runs fully local and read-only, and finishes in about a second.
 
 ## Where you can get it
 
-Evermatter is on [PyPI](https://pypi.org/project/exomem/) and [GitHub](https://github.com/Artexis10/exomem), AGPL-3.0, and the product page is at [substratesystems.io/exomem](/exomem). The comparison against mem0, Letta, Zep, cognee and Basic Memory — the other tools people weigh this against — is [here](/blog/exomem-vs-mem0-letta-zep).
+Evermatter is on [PyPI](https://pypi.org/project/exomem/) and [GitHub](https://github.com/substrate-systems/evermatter), AGPL-3.0, and the product page is at [substratesystems.io/exomem](/exomem). The comparison against mem0, Letta, Zep, cognee and Basic Memory — the other tools people weigh this against — is [here](/blog/exomem-vs-mem0-letta-zep).
 
 ## FAQ
 

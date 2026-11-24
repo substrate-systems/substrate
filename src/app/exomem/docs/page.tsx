@@ -86,7 +86,7 @@ export default function ExomemDocsPage() {
       </p>
       <ol>
         <li>
-          Run <code>/plugin marketplace add Artexis10/exomem</code>.
+          Run <code>/plugin marketplace add substrate-systems/evermatter</code>.
         </li>
         <li>
           Run <code>/plugin install exomem-cloud@exomem</code>.
