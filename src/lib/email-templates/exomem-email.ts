@@ -321,7 +321,9 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       scheme,
       { dark: exomemEmailWordmarkFile("dark"), light: exomemEmailWordmarkFile("light") },
       {
-        ...EXOMEM_EMAIL_WORDMARK,
+        // HTML size attributes are whole pixels, and Outlook sizes images from them; the style keeps the exact half-pixel size.
+        width: Math.round(EXOMEM_EMAIL_WORDMARK.width),
+        height: Math.round(EXOMEM_EMAIL_WORDMARK.height),
         alt: "Evermatter",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
       },

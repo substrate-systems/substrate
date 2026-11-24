@@ -273,7 +273,7 @@ Home SHALL show the level for each context (chat apps and coding agents) and SHA
 
 ### Requirement: Home's app rows say when each app was last used
 
-Each connected app row SHALL say when the app connected and, once the gateway has recorded a call, on which day the app last reached the Exomem: "used today", "used yesterday" or "used" with the date. Home SHALL count the day in the reader's time zone. A row with no recorded call MUST say nothing about use. An app connected within the last hour SHALL read "connected just now" or "connected 12 minutes ago"; a reviewer's row keeps the date.
+Each connected app row SHALL say when the app connected and, once the gateway has recorded a call, on which day the app last reached the Exomem: "used today", "used yesterday" or "used" with the date. A quiet app reads "not used since" instead. Home SHALL count the day in the reader's time zone. A row with no recorded call MUST say nothing about use. An app connected within the last hour SHALL read "connected just now" or "connected 12 minutes ago"; a reviewer's row keeps the date.
 
 #### Scenario: App used today
 

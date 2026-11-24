@@ -197,7 +197,7 @@ Source: `R28-Emails.dc.html` (template and catalogue), `R12-Lifecycle.dc.html` (
 1. Sender and subject — "Evermatter", or "Alex via Evermatter" when a person sent it; subject ≤ 45 characters.
 2. Preheader — the one fact that matters next.
 3. State band — the web in the account's state: *arrive, live, readonly, kept, fading, gone*. Production: 1200 × 240 PNG, empty alt.
-4. Wordmark — 16 px, never the icon alone.
+4. Wordmark — 24 px tall (the brand kit's 399 × 48 PNG at half size), never the icon alone.
 5. Headline — Plex Mono 24, ≤ 6 words, names the state.
 6. Body — Inter 15/1.6, one or two short paragraphs.
 7. A note *or* facts — never both. A note is a person's own words with their name; facts are label/value rows.

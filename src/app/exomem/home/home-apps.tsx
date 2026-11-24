@@ -72,6 +72,8 @@ type AppsProps = {
   failed: boolean;
   /** Ended: the apps are off until a new subscription, and nothing can be added. */
   ended: boolean;
+  /** The cell serves the apps' calls, so a long silence means something. */
+  served: boolean;
   /**
    * Whether a checkout can start, the banner's own condition: only then do the ended
    * lines name resubscribing (design.md (af)).
@@ -93,6 +95,7 @@ type AppsProps = {
 function AppRow({
   app,
   ended,
+  served,
   checkoutAvailable,
   off,
   onDisconnect,
@@ -103,6 +106,7 @@ function AppRow({
 }: {
   app: HomeApp;
   ended: boolean;
+  served: boolean;
   checkoutAvailable: boolean;
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
@@ -126,7 +130,7 @@ function AppRow({
     }
   }, [off, confirming]);
 
-  let meta = appMeta(app, clock, reviewer);
+  let meta = appMeta(app, clock, reviewer, served);
   if (ended)
     meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
@@ -379,6 +383,7 @@ export function ConnectedApps(props: AppsProps) {
           key={app.id}
           app={app}
           ended={props.ended}
+          served={props.served}
           checkoutAvailable={props.checkoutAvailable}
           off={props.disconnected.has(app.id)}
           onDisconnect={props.onDisconnect}

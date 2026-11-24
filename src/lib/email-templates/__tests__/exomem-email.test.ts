@@ -80,8 +80,21 @@ describe("Exomem emails", () => {
       const png = readFileSync(path.join(process.cwd(), "public", pathname));
       if (wordmarks.includes(image)) {
         // The PNG header holds its width and height at bytes 16 and 20.
-        assert.equal(Number(image.getAttribute("width")), png.readUInt32BE(16) / 2, pathname);
-        assert.equal(Number(image.getAttribute("height")), png.readUInt32BE(20) / 2, pathname);
+        assert.equal(
+          Number(image.getAttribute("width")),
+          Math.round(png.readUInt32BE(16) / 2),
+          pathname
+        );
+        assert.equal(
+          Number(image.getAttribute("height")),
+          Math.round(png.readUInt32BE(20) / 2),
+          pathname
+        );
+        assert.match(
+          image.getAttribute("style") ?? "",
+          new RegExp(`width: ${png.readUInt32BE(16) / 2}px`),
+          pathname
+        );
       }
     }
   });
