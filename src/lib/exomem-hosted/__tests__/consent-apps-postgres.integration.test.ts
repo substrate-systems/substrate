@@ -21,7 +21,7 @@ import {
   registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
-import { listOwnerApps } from "../owner-apps";
+import { disconnectOwnerApp, listOwnerApps, setOwnerAppContext } from "../owner-apps";
 import { digestSecret, generateExternalToken, tokenDigest } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -743,6 +743,49 @@ describe(
           ...contextRequest(owner, second.grantId, { context: "conversation" })
         );
         assert.equal(revoked.status, 404);
+      });
+
+      it("refuses to stamp a context on a grant a disconnect revoked mid-write", async () => {
+        const owner = await newOwner();
+        const client = await newCimdClient();
+        const connection = await connect(owner, client);
+
+        // A disconnect commits on a second connection in the window between
+        // the owner-app read and the write's UPDATE, which the tag names.
+        __setExomemTransactionForTests((callback) =>
+          interactiveTransaction((tx) =>
+            callback(async (strings, ...values) => {
+              if (strings.join("").includes("exomem:set-owner-app-context")) {
+                assert.ok(
+                  await disconnectOwnerApp({
+                    userId: owner.userId,
+                    tenantId: owner.tenantId,
+                    appId: connection.grantId,
+                  })
+                );
+              }
+              return tx(strings, ...values);
+            })
+          )
+        );
+        try {
+          const changed = await setOwnerAppContext({
+            userId: owner.userId,
+            tenantId: owner.tenantId,
+            appId: connection.grantId,
+            context: "coding",
+          });
+          assert.equal(changed, false);
+        } finally {
+          __setExomemTransactionForTests(interactiveTransaction);
+        }
+
+        const stored = await pool!.query(
+          "SELECT revoked_at, client_context_override FROM exomem_oauth_grants WHERE id = $1",
+          [connection.grantId]
+        );
+        assert.ok(stored.rows[0]!.revoked_at);
+        assert.equal(stored.rows[0]!.client_context_override, null);
       });
 
       it("answers 404 for a context change on an id the list cannot show", async () => {
