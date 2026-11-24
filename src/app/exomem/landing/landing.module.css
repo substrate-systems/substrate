@@ -34,7 +34,9 @@
 
 .brand {
   display: flex;
-  align-items: center;
+  /* The byline stands on the wordmark's baseline. page.tsx sets this row's height to the
+     wordmark's (HEADER_WORDMARK_HEIGHT), so the logo keeps its 29 px top edge. */
+  align-items: baseline;
   gap: 14px;
 }
 
