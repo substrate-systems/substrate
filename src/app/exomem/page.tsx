@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { breadcrumbJsonLd, siteConfig } from "@/lib/seo";
 import { buildExomemMetadata } from "@/lib/exomem/metadata";
-import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "@/lib/exomem-hosted/cloud-config";
+import {
+  DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS,
+  exomemCloudMcpUrlOrNull,
+} from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { LandingAccountLink, LandingSession } from "./landing/LandingSession";
 import { ThemeToggle } from "@/components/exomem/ThemeToggle";
@@ -172,12 +175,25 @@ export default function ExomemPage() {
   // static, so it reads the flag at build, and a flag change takes a deploy.
   const exportOffered = cloudExportsEnabled();
 
+  // Read at build, as the docs page does: this page is static. Any standards MCP client
+  // connects at this address since the generic client lane opened.
+  const mcpAddress = exomemCloudMcpUrlOrNull();
   const cloudSteps = [
-    { desk: "Start with your email; no password", phone: "Start with your email" },
-    { desk: "Subscribe; your vault is ready in a minute", phone: "Subscribe; ready in a minute" },
+    { id: "email", desk: "Start with your email; no password", phone: "Start with your email" },
     {
-      desk: "Add it in Claude’s connectors or ChatGPT’s plugins",
-      phone: "Add it to Claude or ChatGPT",
+      id: "subscribe",
+      desk: "Subscribe; your vault is ready in a minute",
+      phone: "Subscribe; ready in a minute",
+    },
+    {
+      id: "connect",
+      desk: (
+        <>
+          Add it in Claude’s connectors or ChatGPT’s plugins, or give any MCP client{" "}
+          {mcpAddress ? <code>{mcpAddress}</code> : "the address Home shows"}
+        </>
+      ),
+      phone: "Add it to Claude, ChatGPT or any MCP client",
     },
   ];
 
@@ -385,8 +401,8 @@ export default function ExomemPage() {
                   </span>
                 </div>
                 <ol className={styles.steps}>
-                  {cloudSteps.map(({ desk, phone: onPhone }, index) => (
-                    <li key={desk} className={styles.step}>
+                  {cloudSteps.map(({ id, desk, phone: onPhone }, index) => (
+                    <li key={id} className={styles.step}>
                       <span className={styles.stepNumber}>{index + 1}</span>
                       <Copy desk={desk} phone={onPhone} />
                     </li>

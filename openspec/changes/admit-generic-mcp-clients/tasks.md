@@ -51,7 +51,8 @@
 - [x] 5.1 Runbook section: what the lane widens, how to enable it, how to withdraw it in one action, and what withdrawal does to live grants
   - In `docs/runbooks/exomem-cloud-operations.md`; the hosted alpha runbook was retired.
 - [x] 5.2 State plainly in the runbook that attribution — which software wrote a memory — is not recoverable from admission state once the lane is enabled
-- [ ] 5.3 Update the connect-first landing copy to give the endpoint URL for arbitrary clients, once the lane is enabled
+- [x] 5.3 Update the connect-first landing copy to give the endpoint URL for arbitrary clients, once the lane is enabled
+  - The landing's third Cloud step names any MCP client and shows the address from `exomemCloudMcpUrlOrNull()`, read at build, falling back to "the address Home shows". The lane opened on 2026-11-24.
 
 ## 6. Verification
 
