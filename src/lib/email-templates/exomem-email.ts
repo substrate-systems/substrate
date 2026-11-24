@@ -20,6 +20,7 @@
  * (src/lib/exomem/design-tokens.ts). Server only.
  */
 
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { effectiveExomemTheme, type ExomemThemeChoice } from "@/lib/exomem/theme";
 
 import { exomemTokens, type ExomemTokenMap } from "@/lib/exomem/design-tokens";
@@ -82,7 +83,7 @@ export type ExomemEmailSlots = {
    */
   base: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
-  /** Slot 1: "Exomem", or "<name> via Exomem" when a person sent it. */
+  /** Slot 1: "Evermatter", or "<name> via Evermatter" when a person sent it. */
   sentBy?: { personName: string } | null;
   /** Slot 1: 45 characters or fewer, except named friend invitations (design.md). */
   subject: string;
@@ -122,7 +123,8 @@ export type RenderedExomemEmail = {
 };
 
 const FOOTER = "Evermatter by Substrate Systems";
-const SENDER = "Exomem";
+// The product name every Cloud email is sent as; mail-sender.ts holds it with the address.
+const SENDER = EXOMEM_SENDER.senderName;
 const WORDMARK_URL = "https://substratesystems.io/exomem";
 
 // The board's delivery note: web fonts often don't load in mail, so IBM Plex
@@ -142,7 +144,7 @@ function escapeHtml(value: string): string {
 const MAX_SENDER_NAME = 60;
 
 /**
- * A person's name as a sender display name: "<name> via Exomem". Control and
+ * A person's name as a sender display name: "<name> via Evermatter". Control and
  * format characters (line breaks, bidi overrides) and the characters that
  * delimit an address header are dropped, whitespace collapses, and the name
  * is cut to 60 characters. An empty result sends as "Exomem".

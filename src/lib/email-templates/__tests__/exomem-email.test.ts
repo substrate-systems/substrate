@@ -76,14 +76,14 @@ describe("Exomem emails", () => {
   });
 
   it("sends as the person only under a clean display name", () => {
-    assert.equal(exomemSenderName("Alex"), "Alex via Exomem");
+    assert.equal(exomemSenderName("Alex"), "Alex via Evermatter");
     assert.equal(
       exomemSenderName("Alex\r\nBcc: victim@example.com"),
-      "Alex Bcc victim example.com via Exomem"
+      "Alex Bcc victim example.com via Evermatter"
     );
-    assert.equal(exomemSenderName("support@bank.example"), "support bank.example via Exomem");
-    assert.equal(exomemSenderName("‮​ "), "Exomem");
-    assert.equal([...exomemSenderName("x".repeat(200))].length, 60 + " via Exomem".length);
+    assert.equal(exomemSenderName("support@bank.example"), "support bank.example via Evermatter");
+    assert.equal(exomemSenderName("‮​ "), "Evermatter");
+    assert.equal([...exomemSenderName("x".repeat(200))].length, 60 + " via Evermatter".length);
   });
 
   it("says 'connected' only when an app is connected", () => {

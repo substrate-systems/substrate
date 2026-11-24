@@ -58,7 +58,7 @@ const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Format checks. A name is shown to the invitee and, for the inviter, used
-// as the email sender ("Alex via Exomem"), so it carries no control or
+// as the email sender ("Alex via Evermatter"), so it carries no control or
 // invisible formatting characters and nothing that reads as an address or
 // breaks a quoted header (< > " @ \). A note is shown as text only and may
 // keep line breaks.

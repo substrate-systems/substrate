@@ -62,7 +62,7 @@ These came out of review. Breaking one is a bug, not a style choice.
 12. **Aligned or not at all.** Columns line up (fixed label columns on desktop; stacked on phone). Misalignment reads as not premium.
 13. **WCAG 2.1 AA** contrast, focus, targets (≥ 40 px on phone), labels.
 14. **Distribution is the plugin route.** The Claude connector covers Claude, Claude Code, Claude Desktop and Cowork; one OpenAI plugin covers ChatGPT and Codex. Any other MCP client connects with `https://substratesystems.io/api/exomem/mcp/v1`.
-15. Sender is always `exomem@substratesystems.io`. The site lives at `substratesystems.io/exomem`.
+15. Sender is always `hello@evermatter.ai`, named Evermatter (`src/lib/exomem-hosted/mail-sender.ts`). The site lives at `substratesystems.io/exomem`.
 
 ---
 
@@ -194,7 +194,7 @@ Source: `Home-Page.dc.html` (props list every state: `account` owner/reviewer, `
 
 Source: `R28-Emails.dc.html` (template and catalogue), `R12-Lifecycle.dc.html` (`email()` renderer). **One `email()` template, ten slots:**
 
-1. Sender and subject — "Exomem", or "Alex via Exomem" when a person sent it; subject ≤ 45 characters.
+1. Sender and subject — "Evermatter", or "Alex via Evermatter" when a person sent it; subject ≤ 45 characters.
 2. Preheader — the one fact that matters next.
 3. State band — the web in the account's state: *arrive, live, readonly, kept, fading, gone*. Production: 1200 × 240 PNG, empty alt.
 4. Wordmark — 16 px, never the icon alone.

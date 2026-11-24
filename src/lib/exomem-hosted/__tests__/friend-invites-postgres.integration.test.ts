@@ -766,7 +766,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       }
     );
     const friendEmail = sent.find((message) => message.to === email)!;
-    assert.equal(friendEmail.senderName, "Alex Example via Exomem");
+    assert.equal(friendEmail.senderName, "Alex Example via Evermatter");
     assert.equal(friendEmail.subject, "Alex Example invited you to Evermatter");
     assert.match(String(friendEmail.textContent), /Your price: €10 a month, instead of €15/);
     assert.ok(String(friendEmail.textContent).includes(`/exomem/invite#${token}`));
