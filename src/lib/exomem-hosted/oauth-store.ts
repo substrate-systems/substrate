@@ -254,10 +254,9 @@ export async function registerGenericMcpClient(
   const redirectJson = JSON.stringify(registration.redirectUris);
   const provenance = JSON.stringify({ version: 1, mode: "generic" });
   return withExomemTransaction(async (tx) => {
-    // Serialises registrations. Under READ COMMITTED the insert below then counts
-    // every registration committed before it, so a concurrent burst cannot push
-    // the partition past its bound.
-    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-oauth-generic-client-registration'))`;
+    // The partition check locks the generic partition's counter row until this
+    // transaction commits, which serialises registrations: a concurrent burst
+    // cannot push the partition past its bound.
     const { rows } = await tx`
       /* exomem:register-generic-mcp-client */
       INSERT INTO exomem_oauth_clients (
@@ -722,6 +721,12 @@ export type OAuthStatePruneResult = {
    * reported, never silently zero. (notify-owner-of-app-signout)
    */
   signouts: { candidates: number; emailed: number } | null;
+  /**
+   * The drift each partition's recount corrected, for the partitions this run
+   * recounted; `null` when the recount lane failed. A non-zero value means a
+   * write bypassed the counter triggers.
+   */
+  partitionRecounts: Record<string, number> | null;
 };
 
 // Each run deletes at most this many rows of each credential kind.
@@ -815,9 +820,41 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
 }
 
 /**
+ * Recounts each client partition whose counter was last recounted over an hour
+ * ago, one partition per statement. A recount scans its partition while a
+ * registration there waits, so it runs hourly rather than every sweep; the
+ * triggers keep the counters exact between recounts. A partition that a
+ * registration holds is skipped until the next sweep.
+ */
+async function recountDueClientPartitions(): Promise<Record<string, number>> {
+  const { rows: due } = await executeExomemSql`
+    /* exomem:due-oauth-client-partition-recounts */
+    SELECT client_partition FROM exomem_oauth_client_partition_bounds
+    WHERE recounted_at IS NULL OR recounted_at <= now() - interval '1 hour'
+    ORDER BY client_partition
+  `;
+  const recounted: Record<string, number> = {};
+  for (const row of due) {
+    const partition = String(row.client_partition);
+    const { rows } = await executeExomemSql`
+      /* exomem:recount-oauth-client-partition */
+      SELECT exomem_oauth_client_partition_recount(${partition}) AS drift
+    `;
+    const drift = rows[0]?.drift;
+    if (drift === null || drift === undefined) continue;
+    recounted[partition] = Number(drift);
+    if (Number(drift) !== 0) {
+      console.error(`exomem-oauth: client partition ${partition} counter corrected by ${drift}`);
+    }
+  }
+  return recounted;
+}
+
+/**
  * The scheduled OAuth maintenance sweep: delete expired transactions, codes and
  * tokens, disable CIMD clients whose metadata expired, give back the slots
- * of clients that can no longer be used, and tell owners when an app lost its
+ * of clients that can no longer be used, recount the partition counters
+ * hourly, and tell owners when an app lost its
  * last live token family without their action (notify-owner-of-app-signout).
  * Retirement keeps the row and is
  * refused for any client that still holds live authority
@@ -934,7 +971,15 @@ export async function pruneExpiredOAuthState(
       },
     };
   });
-  return { ...retired, signouts };
+  // After the retirement transaction, outside the cohort lock: a recount
+  // holds only its partition's counter row.
+  let partitionRecounts: OAuthStatePruneResult["partitionRecounts"] = null;
+  try {
+    partitionRecounts = await recountDueClientPartitions();
+  } catch {
+    console.error("exomem-oauth: client partition recount lane failed");
+  }
+  return { ...retired, signouts, partitionRecounts };
 }
 
 /** Operator revocation is always fenced to the authoritative owner and tenant. */

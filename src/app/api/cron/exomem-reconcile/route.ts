@@ -179,6 +179,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             retiredAutoRegistered: oauthResult.value.retired.autoRegistered,
             retiredGeneric: oauthResult.value.retired.generic,
             signouts: oauthResult.value.signouts,
+            partitionRecounts: oauthResult.value.partitionRecounts,
           },
         },
       },
