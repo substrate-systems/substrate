@@ -2,11 +2,14 @@
  * The product's own public site (evermatter.ai). `EVERMATTER_SITE_ORIGIN` turns it on.
  * Unset, the product pages live only under /exomem on the company site, as before.
  * Set, the public product pages get their canonical home on that origin and their old
- * company-site paths redirect there. App pages (sign-in, setup, home, authorize) stay on
- * the company site, because the session cookie is host-only and the OAuth issuer lives there.
+ * company-site paths redirect there. App pages (sign-in, setup, home, authorize, operator)
+ * serve on the origin `EXOMEM_PUBLIC_BASE_URL` names, which also gives the OAuth issuer, and
+ * the other host redirects them there. OAuth API routes answer on both hosts.
  *
  * next.config.ts imports this file, so it uses relative imports and no Next runtime APIs.
  */
+
+import { parseExomemPublicBaseUrl } from "../exomem-hosted/public-origin";
 
 const COMPANY_ORIGIN = "https://substratesystems.io";
 
@@ -26,6 +29,14 @@ export function productSiteOrigin(env: Env = process.env): string | null {
   return url.origin;
 }
 
+/** Where the app pages and the OAuth issuer live; the company site while the value is unset. */
+export function productAppOrigin(env: Env = process.env): string {
+  const raw = env.EXOMEM_PUBLIC_BASE_URL?.trim();
+  return raw
+    ? parseExomemPublicBaseUrl(raw, env.NODE_ENV as NodeJS.ProcessEnv["NODE_ENV"])
+    : COMPANY_ORIGIN;
+}
+
 function publicPageOf(path: string): string | null {
   if (path === "/exomem") return "";
   const match = /^\/exomem\/([^/]+)$/.exec(path);
@@ -38,7 +49,7 @@ export function productPageUrl(path: string, env: Env = process.env): string {
   const origin = productSiteOrigin(env);
   const page = origin ? publicPageOf(path) : null;
   if (origin && page !== null) return `${origin}${page || "/"}`;
-  return `${COMPANY_ORIGIN}${path}`;
+  return `${productAppOrigin(env)}${path}`;
 }
 
 function hostPattern(hostname: string): string {
@@ -57,26 +68,29 @@ export function productSiteRoutes(env: Env = process.env): {
   const origin = productSiteOrigin(env);
   if (!origin) return { redirects: [], rewrites: [] };
   const productHost = new URL(origin).hostname;
+  const appOrigin = productAppOrigin(env);
   const product: Has = [{ type: "host", value: hostPattern(productHost) }];
   const productWww: Has = [{ type: "host", value: hostPattern(`www.${productHost}`) }];
   const company: Has = [
     { type: "host", value: `(www\\.)?${hostPattern(new URL(COMPANY_ORIGIN).hostname)}` },
   ];
   const pages = PRODUCT_PUBLIC_PAGES.join("|");
+  // A dotted path is an asset (images, icons, the OG image); it serves on either host.
+  const appPath = "/exomem/:path((?!.*\\.).*)";
+  const appPages = (has: Has): Redirect => ({
+    source: appPath,
+    destination: `${appOrigin}/exomem/:path`,
+    permanent: true,
+    has,
+  });
   return {
     redirects: [
       { source: "/:path*", destination: `${origin}/:path*`, permanent: true, has: productWww },
       // On the product host, the /exomem prefix is redundant for public pages; any other
-      // /exomem page is an app page and goes back to the company site.
+      // /exomem page is an app page and serves only on the app origin.
       { source: "/exomem", destination: "/", permanent: true, has: product },
       { source: `/exomem/:page(${pages})`, destination: "/:page", permanent: true, has: product },
-      // A dotted path is an asset (images, icons, the OG image); it serves on either host.
-      {
-        source: "/exomem/:path((?!.*\\.).*)",
-        destination: `${COMPANY_ORIGIN}/exomem/:path`,
-        permanent: true,
-        has: product,
-      },
+      ...(appOrigin === origin ? [] : [appPages(product)]),
       { source: "/exomem", destination: `${origin}/`, permanent: true, has: company },
       {
         source: `/exomem/:page(${pages})`,
@@ -84,6 +98,7 @@ export function productSiteRoutes(env: Env = process.env): {
         permanent: true,
         has: company,
       },
+      ...(appOrigin === COMPANY_ORIGIN ? [] : [appPages(company)]),
     ],
     rewrites: [
       { source: "/", destination: "/exomem", has: product },

@@ -43,14 +43,30 @@ resource. Each host's protected-resource metadata SHALL name that host's own res
 ### Requirement: Old public product paths redirect to evermatter.ai
 
 A request for a public product page on `substratesystems.io` SHALL get a permanent redirect to
-the same page on `evermatter.ai`. OAuth endpoints and product app pages SHALL NOT redirect.
+the same page on `evermatter.ai`. OAuth API endpoints SHALL NOT redirect.
 
 #### Scenario: A visitor follows an old link
 
 - **WHEN** a browser requests the old product landing page
 - **THEN** it gets a 308 to `https://evermatter.ai/`
 
-#### Scenario: The consent flow stays put
+#### Scenario: A stored token endpoint keeps working
 
-- **WHEN** a client's authorize request reaches the issuer
-- **THEN** the consent page is served on the issuer's origin with no redirect
+- **WHEN** a client posts a refresh to the token endpoint on `substratesystems.io`
+- **THEN** the endpoint answers there with no redirect
+
+### Requirement: App pages serve on the configured public origin
+
+The product app pages (sign-in, setup, home, authorize, operator) SHALL serve on the origin that
+`EXOMEM_PUBLIC_BASE_URL` names. On any other product host they SHALL get a permanent redirect to
+the same path on that origin.
+
+#### Scenario: Sign-in after the switch
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and a browser requests the sign-in page on `substratesystems.io`
+- **THEN** it gets a 308 to the sign-in page on `https://evermatter.ai`
+
+#### Scenario: Sign-in before the switch
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a browser requests the sign-in page on `evermatter.ai`
+- **THEN** it gets a 308 to the sign-in page on `https://substratesystems.io`

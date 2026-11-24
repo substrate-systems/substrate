@@ -10,7 +10,8 @@
 
 ## 2. Public pages on evermatter.ai
 
-- [ ] 2.1 Serve the public product pages on `evermatter.ai` and redirect their old paths with a 308; leave OAuth and app pages unchanged.
+- [ ] 2.1 Serve the public product pages on `evermatter.ai` and redirect their old paths with a 308; leave the OAuth API routes unchanged.
+- [ ] 2.3 Serve the app pages on the `EXOMEM_PUBLIC_BASE_URL` origin and redirect them there from the other host.
 - [ ] 2.2 Move canonicals, the sitemap, structured data and the email wordmark link to `evermatter.ai`.
 
 ## 3. Email
@@ -23,4 +24,5 @@
 - [ ] 4.1 Add DNS, TLS and ingress for `mcp.evermatter.ai`; add `evermatter.ai` and `www.evermatter.ai` to the website project.
 - [ ] 4.2 Configure the accepted-resource set on the web app and the gateway together.
 - [ ] 4.3 Prove an existing connection at the old host and a new connection at the new host; record both.
-- [ ] 4.4 Tell connected users through the service notices.
+- [ ] 4.4 Operator grant: set `EXOMEM_PUBLIC_BASE_URL` to `https://evermatter.ai` on the web app and the gateway together; prove sign-in, a magic link and a new connection on the new host.
+- [ ] 4.5 Tell connected users through the service notices.
