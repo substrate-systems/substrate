@@ -1,11 +1,12 @@
 ## Supersession and evidence status
 
-These task boxes record the original implementation. They do not prove the
-approved replacements in `simplify-hosted-launch-boundaries`, which owns
-artifact-independent service authorization, runtime-only activation, complete
-internal-canary revocation and separate per-host certification. Unfinished host
-runs remain certification evidence, not a prerequisite for ordinary service
-admission. No task is newly completed by reconciling its contract.
+The approved design of `adopt-exomem-cloud-plain-cells`, section "Disposition of
+existing changes", supersedes the remaining tasks of this change. It keeps the
+shipped OAuth authorization server. On 2026-10-11, #222 removed the retired Hosted
+platform: the agent contract import, candidates, cohorts, promotion and the v1
+lifecycle. Checked boxes record the original implementation, including the parts
+that #222 later removed. The spec delta states only the contract that the live
+code keeps. The remaining verification tasks in section 8 are withdrawn.
 
 ## 1. Pin Protocol, Security, And Data Contracts
 
@@ -69,10 +70,14 @@ admission. No task is newly completed by reconciling its contract.
 ## 8. Verify The Real Cross-Client Product Journey
 
 - [x] 8.1 Add an end-to-end harness sharing the Exomem plugin acceptance fixture/run identity and asserting exact database plus fake/real provider resource counts.
-- [ ] 8.2 Prove a clean invited identity completes one uninterrupted authorization, observes safe preparing behavior, then reaches seeded content, citation, governed capture, and fresh-chat recall from the real Claude client without configuration or Exomem-specific prompting.
-- [ ] 8.3 Prove the same journey from the real OpenAI client and prove separately authorizing both clients attaches their token families to one tenant/cell/volume with no repeated login during valid refresh continuity.
-- [ ] 8.4 Run duplicate/concurrent callback, expired/replayed invite, capacity exhaustion, delayed/terminal provisioning, stale discovery, cell mismatch, refresh replay, revocation, suspension/resume, deletion, restart, and concurrent two-tenant sentinel tests within recorded latency/resource budgets.
-- [ ] 8.5 Run migrations from the prior production schema, focused and full tests, lint/typecheck/build, strict OpenSpec validation, and the deployed smoke checks; complete an independent security review and verifier pass before promoting the MCP contract.
+- [x] 8.2 ~~Prove a clean invited identity completes one uninterrupted authorization, observes safe preparing behavior, then reaches seeded content, citation, governed capture, and fresh-chat recall from the real Claude client without configuration or Exomem-specific prompting.~~
+  - Withdrawn: the `adopt-exomem-cloud-plain-cells` disposition supersedes the remaining tasks of this change. #222 removed the pending client packages and the certification path that this journey was to prove.
+- [x] 8.3 ~~Prove the same journey from the real OpenAI client and prove separately authorizing both clients attaches their token families to one tenant/cell/volume with no repeated login during valid refresh continuity.~~
+  - Withdrawn: the `adopt-exomem-cloud-plain-cells` disposition supersedes the remaining tasks of this change. #222 removed the Hosted platform that this cross-client run targeted.
+- [x] 8.4 ~~Run duplicate/concurrent callback, expired/replayed invite, capacity exhaustion, delayed/terminal provisioning, stale discovery, cell mismatch, refresh replay, revocation, suspension/resume, deletion, restart, and concurrent two-tenant sentinel tests within recorded latency/resource budgets.~~
+  - Withdrawn: the `adopt-exomem-cloud-plain-cells` disposition supersedes the remaining tasks of this change. #222 removed the provisioning operations, discovery contracts and cell release checks that this matrix exercised.
+- [x] 8.5 ~~Run migrations from the prior production schema, focused and full tests, lint/typecheck/build, strict OpenSpec validation, and the deployed smoke checks; complete an independent security review and verifier pass before promoting the MCP contract.~~
+  - Withdrawn: the `adopt-exomem-cloud-plain-cells` disposition supersedes the remaining tasks of this change. #222 removed the MCP contract promotion that this gate guarded.
 
 ## 9. Keep Connected Clients Signed In Across Restarts
 
