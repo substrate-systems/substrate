@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync, verify } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync, verify } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { beforeEach, describe, it, mock } from "node:test";
@@ -1034,13 +1034,12 @@ describe("Exomem Cloud gateway handler", () => {
         { sentinel: "SENTINEL-ALPHA", bearer: "x".repeat(43), cellId: "aaaaaaaaaaaaaaaa" },
         { sentinel: "SENTINEL-BRAVO", bearer: "y".repeat(43), cellId: "bbbbbbbbbbbbbbbb" },
       ];
-      // Each cell answers with its own tenant's sentinel, slowly enough that all six calls overlap.
       const cells = new Map<string, StandInCell>();
-      for (const { sentinel, cellId } of tenants) {
-        const chunks = ['{"answer":"', `${sentinel}"}`];
-        cells.set(cellId, await startStandInCell({ kind: "ok", chunks, chunkDelayMs: 20 }));
-      }
-      const warn = mock.method(console, "warn", () => undefined);
+      const logged: string[] = [];
+      const consoles = (["warn", "error", "info", "log"] as const).map((level) =>
+        mock.method(console, level, (...args: unknown[]) => logged.push(JSON.stringify(args)))
+      );
+      const recorded: string[] = [];
       // One set of dependencies serves both tenants, as the running gateway's does.
       const deps = baseDeps({
         findAccessToken: async (digest) => {
@@ -1055,14 +1054,20 @@ describe("Exomem Cloud gateway handler", () => {
             cellId: t.cellId,
           };
         },
-        // The one log line a healthy call can cause; its error text names the grant, so the tenant.
+        // A failed record logs a line; its error text names the grant, so the tenant.
         recordAppUse: async (grantId) => {
+          recorded.push(grantId);
           throw Object.assign(new Error(grantId), { code: "42501" });
         },
         cellOrigin: (cellId) => `http://127.0.0.1:${cells.get(cellId)!.port}`,
       });
       const bodyOf = (sentinel: string, n: number) => `{"note":"${sentinel}-${n}"}`;
       try {
+        // Each cell answers with its own tenant's sentinel, slowly enough that all six calls overlap.
+        for (const { sentinel, cellId } of tenants) {
+          const chunks = ['{"answer":"', `${sentinel}"}`];
+          cells.set(cellId, await startStandInCell({ kind: "ok", chunks, chunkDelayMs: 20 }));
+        }
         await Promise.all(
           [1, 2, 3].flatMap((n) =>
             tenants.map(async ({ sentinel, bearer }) => {
@@ -1082,8 +1087,11 @@ describe("Exomem Cloud gateway handler", () => {
             received.map((r) => r.body).sort(),
             [1, 2, 3].map((n) => bodyOf(sentinel, n))
           );
+          // Contract C4, written out here so a bug in deriveCloudCellBearer cannot excuse itself.
+          const bearer = createHmac("sha256", TEST_TOKEN_KEY)
+            .update(`exomem-cloud-cell-token-v1:${cellId}`)
+            .digest("base64url");
           for (const request of received) {
-            const bearer = deriveCloudCellBearer(TEST_TOKEN_KEY, cellId);
             assert.equal(request.headers.authorization, `Bearer ${bearer}`);
             assert.ok(
               !JSON.stringify(request).includes(other.sentinel),
@@ -1091,15 +1099,25 @@ describe("Exomem Cloud gateway handler", () => {
             );
           }
         }
-        const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments)).join("\n");
-        assert.match(
-          logged,
-          /exomem_cloud_gateway_app_use_unrecorded/,
+        const [alphaAuth, bravoAuth] = tenants.map(
+          ({ cellId }) => cells.get(cellId)!.requests[0]!.headers.authorization
+        );
+        assert.notEqual(alphaAuth, bravoAuth, "both cells were given one bearer");
+        // Three calls per tenant fall in one app-use window, so each grant records once.
+        assert.deepEqual(
+          recorded.sort(),
+          tenants.map((t) => `grant-${t.sentinel}`)
+        );
+        assert.ok(
+          logged.some((line) => line.includes("exomem_cloud_gateway_app_use_unrecorded")),
           "the failed records must log"
         );
-        assert.ok(!tenants.some((t) => logged.includes(t.sentinel)), "a log line named a tenant");
+        assert.ok(
+          !logged.some((line) => tenants.some((t) => line.includes(t.sentinel))),
+          "a log line named a tenant"
+        );
       } finally {
-        warn.mock.restore();
+        for (const muted of consoles) muted.mock.restore();
         await Promise.all([...cells.values()].map((cell) => cell.close()));
       }
     });
