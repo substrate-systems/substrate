@@ -107,7 +107,8 @@ export async function readOAuthClientHeadroom(): Promise<OAuthClientHeadroom> {
     const row = raw as { client_partition?: unknown; bound?: unknown; used?: unknown };
     const key = PARTITION_KEYS[row.client_partition as keyof typeof PARTITION_KEYS];
     const bound = Number(row.bound);
-    const used = Number(row.used);
+    // A partition not counted yet reads NULL, which Number() would turn into 0.
+    const used = row.used === null ? NaN : Number(row.used);
     if (!key || !Number.isSafeInteger(bound) || !Number.isSafeInteger(used)) {
       throw new Error("OAUTH_CLIENT_HEADROOM_UNREADABLE");
     }

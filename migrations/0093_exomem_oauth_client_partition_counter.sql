@@ -36,7 +36,8 @@ COMMENT ON FUNCTION exomem_oauth_client_partition_of(text, boolean, text) IS
 -- Applies per-partition changes to the counters. Rows lock in partition-name
 -- order, so two transactions that move clients between the same partitions
 -- cannot deadlock on them. A partition with no bounds row is closed, and a
--- change to it is dropped; the recount sets the row when an operator adds it.
+-- change to it is dropped. A row with no count stays without one until the
+-- recount sets it.
 CREATE FUNCTION exomem_oauth_client_partition_add(p_partitions text[], p_deltas integer[])
 RETURNS void
 LANGUAGE plpgsql
@@ -168,12 +169,14 @@ CREATE TRIGGER exomem_oauth_clients_count_truncated
   AFTER TRUNCATE ON exomem_oauth_clients
   FOR EACH STATEMENT EXECUTE FUNCTION exomem_oauth_clients_count_truncated();
 
--- No CHECK on used: a counter that drifted below zero must not fail the
+-- used NULL means not counted yet: a bounds row that an operator adds has no
+-- count, so its partition admits no new client and the headroom read fails
+-- until the next sweep recounts it, rather than admitting up to the bound on a
+-- count of zero. recounted_at NULL means never recounted, which makes the row
+-- due. No CHECK on used: a counter that drifted below zero must not fail the
 -- registration or retirement that reveals it. The recount corrects it.
--- recounted_at NULL means never recounted, so the next sweep recounts a row
--- that an operator adds.
 ALTER TABLE exomem_oauth_client_partition_bounds
-  ADD COLUMN used integer NOT NULL DEFAULT 0,
+  ADD COLUMN used integer,
   ADD COLUMN recounted_at timestamptz;
 
 UPDATE exomem_oauth_client_partition_bounds AS bounds
@@ -181,6 +184,7 @@ SET used = (
       SELECT count(*)::integer
       FROM exomem_oauth_clients AS client
       WHERE client.retired_at IS NULL
+        AND client.admission_mode <> 'first_party'
         AND exomem_oauth_client_partition_of(
               client.admission_mode, client.auto_registered, client.client_platform
             ) = bounds.client_partition
@@ -198,8 +202,8 @@ $$;
 COMMENT ON FUNCTION exomem_oauth_client_partitions() IS
   'Client population partitions (operator, auto_registered CIMD, generic), '
   'each with its bound and its maintained count of unretired clients from '
-  'exomem_oauth_client_partition_bounds. The admission gates and the operator '
-  'headroom report both read it.';
+  'exomem_oauth_client_partition_bounds, NULL before its first count. The '
+  'admission gates and the operator headroom report both read it.';
 
 -- Whether p_client_id may take a slot in p_partition. A row that already
 -- holds one there needs no new slot. Otherwise the partition's row is locked
@@ -229,6 +233,16 @@ BEGIN
   WHERE client_partition IN (p_partition, current_partition)
   ORDER BY client_partition
   FOR UPDATE;
+  -- Read the row again under the lock: a concurrent registration of the same
+  -- client that committed while this one waited already holds its slot, and
+  -- the partition may now be full because of it.
+  SELECT exomem_oauth_client_partition_of(admission_mode, auto_registered, client_platform)
+  INTO current_partition
+  FROM exomem_oauth_clients
+  WHERE client_id = p_client_id AND retired_at IS NULL;
+  IF current_partition = p_partition THEN
+    RETURN true;
+  END IF;
   SELECT used < bound INTO free
   FROM exomem_oauth_client_partition_bounds
   WHERE client_partition = p_partition;
@@ -288,7 +302,8 @@ COMMENT ON FUNCTION exomem_oauth_generic_client_partition_available() IS
 -- first, then counted in a new statement: a writer whose change is not yet
 -- committed waits on the row and applies its change after the recount, and
 -- every committed change is in the count. Skips a partition whose row a
--- registration holds, returning NULL; otherwise returns the drift corrected.
+-- registration holds, returning NULL; otherwise returns the drift corrected,
+-- counting a row that had no count as zero.
 -- What it prevents: a counter left wrong by a write that bypassed the
 -- triggers (session_replication_role = replica, a restore with triggers
 -- disabled, a bounds row added by hand). It costs one partition scan.
@@ -308,16 +323,20 @@ BEGIN
   IF NOT FOUND THEN
     RETURN NULL;
   END IF;
+  -- The first-party condition changes no result, since such a row has no
+  -- partition. It matches the partial index's predicate, so the count reads
+  -- unretired clients only, which the bounds cap, not every retired row.
   SELECT count(*)::integer INTO exact
   FROM exomem_oauth_clients AS client
   WHERE client.retired_at IS NULL
+    AND client.admission_mode <> 'first_party'
     AND exomem_oauth_client_partition_of(
           client.admission_mode, client.auto_registered, client.client_platform
         ) = p_partition;
   UPDATE exomem_oauth_client_partition_bounds
   SET used = exact, recounted_at = now()
   WHERE client_partition = p_partition;
-  RETURN exact - counted;
+  RETURN exact - coalesce(counted, 0);
 END;
 $$;
 

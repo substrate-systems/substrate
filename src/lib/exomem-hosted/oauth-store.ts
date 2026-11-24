@@ -722,11 +722,12 @@ export type OAuthStatePruneResult = {
    */
   signouts: { candidates: number; emailed: number } | null;
   /**
-   * The drift each partition's recount corrected, for the partitions this run
-   * recounted; `null` when the recount lane failed. A non-zero value means a
-   * write bypassed the counter triggers.
+   * Each partition due for its hourly recount: the drift the recount corrected,
+   * or `null` when a registration held the partition and the recount waits for
+   * the next sweep. The whole value is `null` when the recount lane failed. A
+   * non-zero drift means a write bypassed the counter triggers.
    */
-  partitionRecounts: Record<string, number> | null;
+  partitionRecounts: Record<string, number | null> | null;
 };
 
 // Each run deletes at most this many rows of each credential kind.
@@ -826,14 +827,14 @@ async function deleteExpiredOAuthCredentials(): Promise<void> {
  * triggers keep the counters exact between recounts. A partition that a
  * registration holds is skipped until the next sweep.
  */
-async function recountDueClientPartitions(): Promise<Record<string, number>> {
+async function recountDueClientPartitions(): Promise<Record<string, number | null>> {
   const { rows: due } = await executeExomemSql`
     /* exomem:due-oauth-client-partition-recounts */
     SELECT client_partition FROM exomem_oauth_client_partition_bounds
     WHERE recounted_at IS NULL OR recounted_at <= now() - interval '1 hour'
     ORDER BY client_partition
   `;
-  const recounted: Record<string, number> = {};
+  const recounted: Record<string, number | null> = {};
   for (const row of due) {
     const partition = String(row.client_partition);
     const { rows } = await executeExomemSql`
@@ -841,7 +842,10 @@ async function recountDueClientPartitions(): Promise<Record<string, number>> {
       SELECT exomem_oauth_client_partition_recount(${partition}) AS drift
     `;
     const drift = rows[0]?.drift;
-    if (drift === null || drift === undefined) continue;
+    if (drift === null || drift === undefined) {
+      recounted[partition] = null;
+      continue;
+    }
     recounted[partition] = Number(drift);
     if (Number(drift) !== 0) {
       console.error(`exomem-oauth: client partition ${partition} counter corrected by ${drift}`);

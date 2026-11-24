@@ -577,7 +577,7 @@ Each run does these things:
 - It retires at most 100 clients per partition.
 - Once an hour per partition, it recounts the partition's unretired clients
   exactly and corrects `used`. The response's `partitionRecounts` gives the
-  correction for each partition it recounted. A non-zero correction logs
+  correction for each partition that was due. A non-zero correction logs
   `exomem-oauth: client partition <partition> counter corrected by <n>`, and
   means a write bypassed the counting triggers.
 
@@ -602,8 +602,10 @@ To read the headroom, request `GET /api/exomem/admin/oauth-clients` with the
 operator bearer. The `headroom` object gives `bound`, `used` and `free` for each
 partition. The SQL equivalent is `SELECT * FROM exomem_oauth_client_partitions();`.
 
-A recount scans its partition, about 170 ms at 500,000 clients, while a
-registration in that partition waits. To recount at once, for example after a
+A recount reads every unretired client, about 70–90 ms with 500,000 in each
+self-registering partition, while a registration in that partition waits. A
+bounds row that you add has no count until a recount: its partition admits no
+new client and the headroom read fails until then. To recount at once, for example after a
 restore with triggers disabled or after adding a bounds row by hand, run:
 
 ```sql
@@ -612,6 +614,8 @@ FROM exomem_oauth_client_partition_bounds;
 ```
 
 A `NULL` correction means a registration held that partition; run it again.
+The sweep reports such a partition as `null` in `partitionRecounts` and
+recounts it on its next run.
 
 If the sweep fails, the reconcile job answers `503` and logs
 `exomem-oauth: expired state and client retirement lane failed`. A malformed

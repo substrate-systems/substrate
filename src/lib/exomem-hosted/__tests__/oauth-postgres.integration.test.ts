@@ -1567,217 +1567,217 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
   });
 
   it("admits one of two connectors racing for the last auto-registration slot", async () => {
-      // Connector registrations run concurrently under the shared cohort lock.
-      // The second must see the slot the first took before it commits, or a
-      // burst overshoots the bound. The first registration holds its transaction
-      // open across the second's whole call, or for 500 ms if the second waits.
-      const host = `connector-race-${randomUUID()}.example.test`;
-      const [first, second] = [1, 2].map(() => `https://${host}/oauth/${randomUUID()}/client.json`);
-      const register = (clientId: string) =>
-        registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], "race"),
-        });
-      await pool!.query(
-        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2)",
-        ["openai", host]
-      );
-      const { rows: before } = await pool!.query<{ bound: number }>(
-        "SELECT bound FROM exomem_oauth_client_partition_bounds WHERE client_partition = 'auto_registered'"
-      );
-      let firstHeld!: () => void;
-      const firstIsHeld = new Promise<void>((done) => (firstHeld = done));
-      let secondDone!: () => void;
-      const secondIsDone = new Promise<void>((done) => (secondDone = done));
-      let transactions = 0;
-      __setExomemTransactionForTests(async (callback) => {
-        const holdsOpen = transactions++ === 0;
-        const client = await pool!.connect();
-        try {
-          await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
-          const result = await callback(taggedSql(client));
-          if (holdsOpen) {
-            firstHeld();
-            await Promise.race([secondIsDone, new Promise((wait) => setTimeout(wait, 500))]);
-          }
-          await client.query("COMMIT");
-          return result;
-        } catch (error) {
-          await client.query("ROLLBACK");
-          throw error;
-        } finally {
-          client.release();
-        }
+    // Connector registrations run concurrently under the shared cohort lock.
+    // The second must see the slot the first took before it commits, or a
+    // burst overshoots the bound. The first registration holds its transaction
+    // open across the second's whole call, or for 500 ms if the second waits.
+    const host = `connector-race-${randomUUID()}.example.test`;
+    const [first, second] = [1, 2].map(() => `https://${host}/oauth/${randomUUID()}/client.json`);
+    const register = (clientId: string) =>
+      registerAdmittedCimdClient(clientId, {
+        fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], "race"),
       });
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2)",
+      ["openai", host]
+    );
+    const { rows: before } = await pool!.query<{ bound: number }>(
+      "SELECT bound FROM exomem_oauth_client_partition_bounds WHERE client_partition = 'auto_registered'"
+    );
+    let firstHeld!: () => void;
+    const firstIsHeld = new Promise<void>((done) => (firstHeld = done));
+    let secondDone!: () => void;
+    const secondIsDone = new Promise<void>((done) => (secondDone = done));
+    let transactions = 0;
+    __setExomemTransactionForTests(async (callback) => {
+      const holdsOpen = transactions++ === 0;
+      const client = await pool!.connect();
       try {
-        await pool!.query(
-          `UPDATE exomem_oauth_client_partition_bounds
-         SET bound = (SELECT used + 1 FROM exomem_oauth_client_partitions()
-                      WHERE client_partition = 'auto_registered')
-         WHERE client_partition = 'auto_registered'`
-        );
-        const firstResult = register(first!);
-        await firstIsHeld;
-        const secondResult = register(second!).finally(secondDone);
-        const results = await Promise.all([firstResult, secondResult]);
-        assert.ok(results[0], "the first connector takes the free slot");
-        assert.equal(results[1], null, "the second finds the partition full");
-        const { rows } = await pool!.query<{ bound: number; used: number }>(
-          "SELECT bound, used FROM exomem_oauth_client_partitions() WHERE client_partition = 'auto_registered'"
-        );
-        assert.equal(rows[0]!.used, rows[0]!.bound, "the partition is full, not past full");
+        await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+        const result = await callback(taggedSql(client));
+        if (holdsOpen) {
+          firstHeld();
+          await Promise.race([secondIsDone, new Promise((wait) => setTimeout(wait, 500))]);
+        }
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
       } finally {
-        __setExomemTransactionForTests(interactiveTransaction);
-        await pool!.query(
-          "UPDATE exomem_oauth_client_partition_bounds SET bound = $1 WHERE client_partition = 'auto_registered'",
-          [before[0]!.bound]
-        );
-        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
-          [first, second],
-        ]);
-        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        client.release();
       }
     });
-
-    it("keeps every partition counter exact through concurrent registration, revival, moves, retirement and deletion", async () => {
-      // The check reads a counter that triggers keep. A write path the triggers
-      // miss would leave it wrong: too high refuses people, too low passes the
-      // bound. Every path that changes a partition runs here at once, and each
-      // partition's exact recount must then find nothing to correct.
-      const tag = randomUUID();
-      const listed = `counter-listed-${tag}.example.test`;
-      const unlisted = `counter-unlisted-${tag}.example.test`;
-      const moving = `counter-moving-${tag}.example.test`;
-      const cimdId = (host: string, label: string) => `https://${host}/oauth/${label}/client.json`;
-      const register = (clientId: string, host: string) =>
-        registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], "counter"),
-        });
-      const recountDrift = async () =>
-        (
-          await pool!.query<{ client_partition: string; drift: number | null }>(
-            `SELECT client_partition, exomem_oauth_client_partition_recount(client_partition) AS drift
-           FROM exomem_oauth_client_partition_bounds ORDER BY client_partition`
-          )
-        ).rows;
-      const seedCimd = (clientId: string, host: string, platform: string, retired: boolean) =>
-        pool!.query(
-          `INSERT INTO exomem_oauth_clients (
-           client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
-           client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
-           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance,
-           retired_at
-         ) VALUES (
-           $1, 'cimd', NOT $4::boolean, true, '["https://seed.example.test/callback"]'::jsonb,
-           digest(convert_to('["https://seed.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-           $3, encode(digest(convert_to($1, 'utf8'), 'sha256'), 'hex'), $2,
-           digest(convert_to($1, 'utf8'), 'sha256'), now(), 3600, now() + interval '1 hour',
-           '{}'::jsonb, CASE WHEN $4::boolean THEN now() END
-         )`,
-          [clientId, host, platform, retired]
-        );
-
+    try {
       await pool!.query(
-        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1), ('openai', $2)",
-        [listed, moving]
+        `UPDATE exomem_oauth_client_partition_bounds
+       SET bound = (SELECT used + 1 FROM exomem_oauth_client_partitions()
+                    WHERE client_partition = 'auto_registered')
+       WHERE client_partition = 'auto_registered'`
       );
-      const genericIds: string[] = [];
-      await setGenericLane(true);
-      try {
-        // A retired connector to revive, a listed connector whose host is then
-        // delisted so its re-registration moves it to the generic partition,
-        // idle generic clients for the sweep to retire, and rows to delete.
-        const revived = cimdId(listed, "revived");
-        await seedCimd(revived, listed, "openai", true);
-        const moved = cimdId(moving, "moved");
-        await seedCimd(moved, moving, "openai", false);
-        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [moving]);
-        await pool!.query(
-          `INSERT INTO exomem_oauth_clients (
-           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
-           created_at
-         )
-         SELECT format('counter-idle-%s-%s', $1::text, step), 'generic', true,
-                '["http://127.0.0.1/callback"]'::jsonb,
-                digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-                'Idle', now() - interval '3 days'
-         FROM generate_series(1, 5) AS step`,
-          [tag]
-        );
-        const doomed = [cimdId(listed, "doomed-1"), cimdId(listed, "doomed-2")];
-        for (const clientId of doomed) await seedCimd(clientId, listed, "openai", false);
-        assert.ok(
-          (await recountDrift()).every((row) => row.drift === 0),
-          "the fixture writes went through the triggers"
-        );
+      const firstResult = register(first!);
+      await firstIsHeld;
+      const secondResult = register(second!).finally(secondDone);
+      const results = await Promise.all([firstResult, secondResult]);
+      assert.ok(results[0], "the first connector takes the free slot");
+      assert.equal(results[1], null, "the second finds the partition full");
+      const { rows } = await pool!.query<{ bound: number; used: number }>(
+        "SELECT bound, used FROM exomem_oauth_client_partitions() WHERE client_partition = 'auto_registered'"
+      );
+      assert.equal(rows[0]!.used, rows[0]!.bound, "the partition is full, not past full");
+    } finally {
+      __setExomemTransactionForTests(interactiveTransaction);
+      await pool!.query(
+        "UPDATE exomem_oauth_client_partition_bounds SET bound = $1 WHERE client_partition = 'auto_registered'",
+        [before[0]!.bound]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
+        [first, second],
+      ]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
 
-        const results = await Promise.all([
-          ...[1, 2, 3, 4].map((step) => register(cimdId(listed, `new-${step}`), listed)),
-          ...[1, 2].map((step) => register(cimdId(unlisted, `new-${step}`), unlisted)),
-          register(revived, listed),
-          register(moved, moving),
-          ...[1, 2, 3, 4, 5, 6].map(() =>
-            registerGenericMcpClient(genericRegistration).then((client) => {
-              if (client) genericIds.push(client.clientId);
-              return client;
-            })
-          ),
-          pruneExpiredOAuthState(),
-          pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [doomed]),
-        ]);
-        assert.equal(
-          results.slice(0, 14).filter(Boolean).length,
-          14,
-          "every registration in the workload had a free slot"
-        );
-        const placed = await pool!.query<{
-          client_id: string;
-          partition: string;
-          retired: boolean;
-        }>(
-          `SELECT client_id,
-                exomem_oauth_client_partition_of(admission_mode, auto_registered, client_platform)
-                  AS partition,
-                retired_at IS NOT NULL AS retired
-         FROM exomem_oauth_clients WHERE client_id = ANY($1)`,
-          [[revived, moved]]
-        );
-        assert.deepEqual(
-          Object.fromEntries(
-            placed.rows.map((row) => [row.client_id, [row.partition, row.retired]])
-          ),
-          { [revived]: ["auto_registered", false], [moved]: ["generic", false] },
-          "the revival and the move happened"
-        );
-        assert.equal(
-          await scalar(
-            "SELECT count(*) FROM exomem_oauth_clients WHERE client_id LIKE $1 AND retired_at IS NOT NULL",
-            [`counter-idle-${tag}-%`]
-          ),
-          5,
-          "the sweep retired the idle generic clients"
-        );
+  it("keeps every partition counter exact through concurrent registration, revival, moves, retirement and deletion", async () => {
+    // The check reads a counter that triggers keep. A write path the triggers
+    // miss would leave it wrong: too high refuses people, too low passes the
+    // bound. Every path that changes a partition runs here at once, and each
+    // partition's exact recount must then find nothing to correct.
+    const tag = randomUUID();
+    const listed = `counter-listed-${tag}.example.test`;
+    const unlisted = `counter-unlisted-${tag}.example.test`;
+    const moving = `counter-moving-${tag}.example.test`;
+    const cimdId = (host: string, label: string) => `https://${host}/oauth/${label}/client.json`;
+    const register = (clientId: string, host: string) =>
+      registerAdmittedCimdClient(clientId, {
+        fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], "counter"),
+      });
+    const recountDrift = async () =>
+      (
+        await pool!.query<{ client_partition: string; drift: number | null }>(
+          `SELECT client_partition, exomem_oauth_client_partition_recount(client_partition) AS drift
+         FROM exomem_oauth_client_partition_bounds ORDER BY client_partition`
+        )
+      ).rows;
+    const seedCimd = (clientId: string, host: string, platform: string, retired: boolean) =>
+      pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
+         metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance,
+         retired_at
+       ) VALUES (
+         $1, 'cimd', NOT $4::boolean, true, '["https://seed.example.test/callback"]'::jsonb,
+         digest(convert_to('["https://seed.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+         $3, encode(digest(convert_to($1, 'utf8'), 'sha256'), 'hex'), $2,
+         digest(convert_to($1, 'utf8'), 'sha256'), now(), 3600, now() + interval '1 hour',
+         '{}'::jsonb, CASE WHEN $4::boolean THEN now() END
+       )`,
+        [clientId, host, platform, retired]
+      );
 
-        assert.deepEqual(
-          (await recountDrift()).map((row) => [row.client_partition, row.drift]),
-          [
-            ["auto_registered", 0],
-            ["generic", 0],
-            ["operator", 0],
-          ]
-        );
-      } finally {
-        await setGenericLane(false);
-        await pool!.query(
-          "DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1 OR client_id = ANY($2)",
-          [`%${tag}%`, genericIds]
-        );
-        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = ANY($1)", [
-          [listed, moving],
-        ]);
-      }
-    });
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1), ('openai', $2)",
+      [listed, moving]
+    );
+    const genericIds: string[] = [];
+    await setGenericLane(true);
+    try {
+      // A retired connector to revive, a listed connector whose host is then
+      // delisted so its re-registration moves it to the generic partition,
+      // idle generic clients for the sweep to retire, and rows to delete.
+      const revived = cimdId(listed, "revived");
+      await seedCimd(revived, listed, "openai", true);
+      const moved = cimdId(moving, "moved");
+      await seedCimd(moved, moving, "openai", false);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [moving]);
+      await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name,
+         created_at
+       )
+       SELECT format('counter-idle-%s-%s', $1::text, step), 'generic', true,
+              '["http://127.0.0.1/callback"]'::jsonb,
+              digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+              'Idle', now() - interval '3 days'
+       FROM generate_series(1, 5) AS step`,
+        [tag]
+      );
+      const doomed = [cimdId(listed, "doomed-1"), cimdId(listed, "doomed-2")];
+      for (const clientId of doomed) await seedCimd(clientId, listed, "openai", false);
+      assert.ok(
+        (await recountDrift()).every((row) => row.drift === 0),
+        "the fixture writes went through the triggers"
+      );
 
-    const genericRegistration = {
+      const results = await Promise.all([
+        ...[1, 2, 3, 4].map((step) => register(cimdId(listed, `new-${step}`), listed)),
+        ...[1, 2].map((step) => register(cimdId(unlisted, `new-${step}`), unlisted)),
+        register(revived, listed),
+        register(moved, moving),
+        ...[1, 2, 3, 4, 5, 6].map(() =>
+          registerGenericMcpClient(genericRegistration).then((client) => {
+            if (client) genericIds.push(client.clientId);
+            return client;
+          })
+        ),
+        pruneExpiredOAuthState(),
+        pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [doomed]),
+      ]);
+      assert.equal(
+        results.slice(0, 14).filter(Boolean).length,
+        14,
+        "every registration in the workload had a free slot"
+      );
+      const placed = await pool!.query<{
+        client_id: string;
+        partition: string;
+        retired: boolean;
+      }>(
+        `SELECT client_id,
+              exomem_oauth_client_partition_of(admission_mode, auto_registered, client_platform)
+                AS partition,
+              retired_at IS NOT NULL AS retired
+       FROM exomem_oauth_clients WHERE client_id = ANY($1)`,
+        [[revived, moved]]
+      );
+      assert.deepEqual(
+        Object.fromEntries(
+          placed.rows.map((row) => [row.client_id, [row.partition, row.retired]])
+        ),
+        { [revived]: ["auto_registered", false], [moved]: ["generic", false] },
+        "the revival and the move happened"
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_clients WHERE client_id LIKE $1 AND retired_at IS NOT NULL",
+          [`counter-idle-${tag}-%`]
+        ),
+        5,
+        "the sweep retired the idle generic clients"
+      );
+
+      assert.deepEqual(
+        (await recountDrift()).map((row) => [row.client_partition, row.drift]),
+        [
+          ["auto_registered", 0],
+          ["generic", 0],
+          ["operator", 0],
+        ]
+      );
+    } finally {
+      await setGenericLane(false);
+      await pool!.query(
+        "DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1 OR client_id = ANY($2)",
+        [`%${tag}%`, genericIds]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = ANY($1)", [
+        [listed, moving],
+      ]);
+    }
+  });
+
+  const genericRegistration = {
     redirectUris: ["http://127.0.0.1:43123/callback"],
     clientName: "Local agent",
   };

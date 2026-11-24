@@ -28,4 +28,6 @@ Lock order holds across every writer that changes a partition:
 
 Drift can come only from a write that bypasses the triggers: `session_replication_role = replica`, a restore with triggers disabled, or a bounds row added by hand. `exomem_oauth_client_partition_recount` locks the counter row with `SKIP LOCKED`, then counts in a new statement. A writer that has not committed waits on the row and applies its change after the recount, so the result is exact.
 
-The recount scans its partition (150–175 ms at 500,000), and a registration in that partition waits behind it. The sweep therefore recounts each partition once an hour, not on every run, and reports the drift it corrected.
+The recount reads every unretired client through the partial index `exomem_oauth_clients_unretired_partition_idx`. It took 67–89 ms with 500,000 unretired clients in each of two partitions. Its cost is capped by the bounds, not by the retired rows that accumulate. A registration in the partition waits behind it, so the sweep recounts each partition once an hour, not on every run, and reports the drift it corrected.
+
+A bounds row that an operator adds has no count (`used` is NULL). Its partition admits no new client, and the headroom report refuses to read, until the next sweep recounts it.
