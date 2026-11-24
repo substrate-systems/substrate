@@ -25,7 +25,7 @@ test("shared Exomem links advertise the product with its canonical brand image",
     expect(metadata.title).toContain("Evermatter");
     expect(metadata.site).toBe("Evermatter");
     expect(metadata.description).toBeTruthy();
-    expect(metadata.image).toBe("https://substratesystems.io/exomem/social/og-image.png");
+    expect(metadata.image).toBe("https://substratesystems.io/evermatter/social/og-image.png");
     expect(metadata.twitterImage).toBe(metadata.image);
   }
 });

@@ -12,12 +12,12 @@ export const metadata: Metadata = {
   title: { default: "Evermatter", template: "%s" },
   icons: {
     icon: [
-      { url: "/exomem/icons/favicon.ico", sizes: "any" },
-      { url: "/exomem/icons/favicon.svg", type: "image/svg+xml" },
+      { url: "/evermatter/icons/favicon.ico", sizes: "any" },
+      { url: "/evermatter/icons/favicon.svg", type: "image/svg+xml" },
     ],
-    apple: "/exomem/icons/apple-touch-icon.png",
+    apple: "/evermatter/icons/apple-touch-icon.png",
   },
-  manifest: "/exomem/icons/site.webmanifest",
+  manifest: "/evermatter/icons/site.webmanifest",
 };
 
 export default function ExomemLayout({ children }: { children: ReactNode }) {

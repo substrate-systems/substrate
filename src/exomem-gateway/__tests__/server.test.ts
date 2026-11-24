@@ -86,7 +86,7 @@ describe("standalone Exomem gateway adapter", () => {
     }
   });
 
-  it("serves the Exomem icon at /favicon.ico so clients do not fall back to the parent domain's", async () => {
+  it("serves the Evermatter icon at /favicon.ico so clients do not fall back to the parent domain's", async () => {
     const server = createGatewayServer();
     const baseUrl = await listen(server);
     try {
@@ -94,7 +94,7 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("content-type"), "image/x-icon");
       const brandKit = readFileSync(
-        new URL("../../../public/exomem/icons/favicon.ico", import.meta.url)
+        new URL("../../../public/evermatter/icons/favicon.ico", import.meta.url)
       );
       assert.deepEqual(
         Buffer.from(await response.arrayBuffer()),

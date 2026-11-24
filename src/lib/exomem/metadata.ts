@@ -7,7 +7,7 @@ export function buildExomemMetadata(
 ): Metadata {
   const metadata = buildMetadata({
     ...input,
-    ogImage: input.ogImage ?? "/exomem/social/og-image.png",
+    ogImage: input.ogImage ?? "/evermatter/social/og-image.png",
     standaloneTitle: true,
   });
   const url = productPageUrl(input.path);
