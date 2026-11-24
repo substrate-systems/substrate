@@ -1028,6 +1028,81 @@ describe("Exomem Cloud gateway handler", () => {
         await cell.close();
       }
     });
+
+    it("keeps two tenants' interleaved requests, cell bearers, answers and logs apart", async () => {
+      const tenants = [
+        { sentinel: "SENTINEL-ALPHA", bearer: "x".repeat(43), cellId: "aaaaaaaaaaaaaaaa" },
+        { sentinel: "SENTINEL-BRAVO", bearer: "y".repeat(43), cellId: "bbbbbbbbbbbbbbbb" },
+      ];
+      // Each cell answers with its own tenant's sentinel, slowly enough that all six calls overlap.
+      const cells = new Map<string, StandInCell>();
+      for (const { sentinel, cellId } of tenants) {
+        const chunks = ['{"answer":"', `${sentinel}"}`];
+        cells.set(cellId, await startStandInCell({ kind: "ok", chunks, chunkDelayMs: 20 }));
+      }
+      const warn = mock.method(console, "warn", () => undefined);
+      // One set of dependencies serves both tenants, as the running gateway's does.
+      const deps = baseDeps({
+        findAccessToken: async (digest) => {
+          const t = tenants.find((x) =>
+            createHash("sha256").update(x.bearer).digest().equals(digest)
+          );
+          if (!t) return null;
+          return {
+            ...VALID_ACCESS,
+            tenantId: `tenant-${t.sentinel}`,
+            grantId: `grant-${t.sentinel}`,
+            cellId: t.cellId,
+          };
+        },
+        // The one log line a healthy call can cause; its error text names the grant, so the tenant.
+        recordAppUse: async (grantId) => {
+          throw Object.assign(new Error(grantId), { code: "42501" });
+        },
+        cellOrigin: (cellId) => `http://127.0.0.1:${cells.get(cellId)!.port}`,
+      });
+      const bodyOf = (sentinel: string, n: number) => `{"note":"${sentinel}-${n}"}`;
+      try {
+        await Promise.all(
+          [1, 2, 3].flatMap((n) =>
+            tenants.map(async ({ sentinel, bearer }) => {
+              const response = await handleCloudMcpRequest(
+                postRequest({ bearer, body: bodyOf(sentinel, n) }),
+                deps
+              );
+              assert.equal(response.status, 200);
+              assert.equal(await response.text(), `{"answer":"${sentinel}"}`);
+            })
+          )
+        );
+        for (const { sentinel, cellId } of tenants) {
+          const other = tenants.find((t) => t.cellId !== cellId)!;
+          const received = cells.get(cellId)!.requests;
+          assert.deepEqual(
+            received.map((r) => r.body).sort(),
+            [1, 2, 3].map((n) => bodyOf(sentinel, n))
+          );
+          for (const request of received) {
+            const bearer = deriveCloudCellBearer(TEST_TOKEN_KEY, cellId);
+            assert.equal(request.headers.authorization, `Bearer ${bearer}`);
+            assert.ok(
+              !JSON.stringify(request).includes(other.sentinel),
+              "a cell saw the other tenant"
+            );
+          }
+        }
+        const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments)).join("\n");
+        assert.match(
+          logged,
+          /exomem_cloud_gateway_app_use_unrecorded/,
+          "the failed records must log"
+        );
+        assert.ok(!tenants.some((t) => logged.includes(t.sentinel)), "a log line named a tenant");
+      } finally {
+        warn.mock.restore();
+        await Promise.all([...cells.values()].map((cell) => cell.close()));
+      }
+    });
   });
 });
 
