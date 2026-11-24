@@ -64,7 +64,10 @@
 
 - [x] 5.0 Write the read-only enumeration and the retirement statement into the runbook
   - "Retire spent reviewer bootstrap clients". The statement skips any client that holds live authority.
-- [ ] 5.1 Enumerate the spent operator clients currently on production and show the list before acting
-- [ ] 5.2 Retire them as an explicit, operator-approved step — deliberately not part of the migration, because it changes live capacity rather than preventing future exhaustion
-- [ ] 5.3 Confirm reported operator headroom afterwards, and decide with evidence whether the `0051` bound of 96 should return to 32
+- [x] 5.1 Enumerate the spent operator clients currently on production and show the list before acting
+  - 2026-11-24: 42 spent reviewer bootstrap clients. 39 held no live authority. 3 still held some and stay unretired.
+- [x] 5.2 Retire them as an explicit, operator-approved step — deliberately not part of the migration, because it changes live capacity rather than preventing future exhaustion
+  - 2026-11-24: the operator approved the 39. The runbook statement retired 39 rows in one transaction.
+- [x] 5.3 Confirm reported operator headroom afterwards, and decide with evidence whether the `0051` bound of 96 should return to 32
   - The bound is now a row in `exomem_oauth_client_partition_bounds`, so the decision is one UPDATE.
+  - 2026-11-24: the operator partition reports 11 of 96 used, down from 50, and equals an exact count. The bound stays at 96. Operators register these clients by hand, so no flood needs a cap, and lowering the bound would gain nothing.

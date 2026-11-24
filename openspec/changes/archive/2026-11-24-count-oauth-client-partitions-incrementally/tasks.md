@@ -18,4 +18,5 @@
 ## 4. Operations
 
 - [x] 4.1 Update the operator runbook: the counters, the recount, and when to run it by hand.
-- [ ] 4.2 After the release, confirm that the deployed counters equal an exact count.
+- [x] 4.2 After the release, confirm that the deployed counters equal an exact count.
+  - 2026-11-24: on production, every partition's counter equalled an exact count before and after the operator retirement (operator 50, then 11; auto_registered 4; generic 5).
