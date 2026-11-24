@@ -4,6 +4,7 @@
  */
 
 import { createPrivateKey, type KeyObject } from "node:crypto";
+import { cloudResourceListProblem, listedCloudResources } from "./cloud-resource-list";
 import { loggedOccurrence } from "./logged-occurrence";
 
 export type EnvironmentSource = Record<string, string | undefined>;
@@ -31,8 +32,14 @@ export class ExomemCloudConfigurationError extends Error {
 }
 
 export type ExomemCloudResource = Readonly<{
+  /** The resource that new connections are offered: the first accepted resource. */
   mcpUrl: string;
   mcpPath: string;
+  /**
+   * Every resource a token may be bound to, newest first (move-cloud-to-evermatter-hosts D1).
+   * Each is the same gateway on another public host, so a token for any of them is valid.
+   */
+  acceptedResources: readonly string[];
 }>;
 
 export type ExomemCloudConfig = ExomemCloudResource &
@@ -80,7 +87,70 @@ export function loadExomemCloudResource(env: EnvironmentSource = process.env): E
   const mcpUrl = requiredValue(env, "EXOMEM_CLOUD_MCP_URL", missing);
   const mcpPath = requiredValue(env, "EXOMEM_CLOUD_MCP_PATH", missing);
   if (missing.length) throw new ExomemCloudConfigurationError(missing);
-  return { mcpUrl, mcpPath };
+  return withAcceptedResources(env, mcpUrl, mcpPath);
+}
+
+// Configuration loads on every request, before authentication, so any client can drive this count.
+let unusableResourceListLoads = 0;
+
+/**
+ * `EXOMEM_CLOUD_MCP_URLS` lists the accepted resources, newest first, separated by commas.
+ * Unset, the single `EXOMEM_CLOUD_MCP_URL` is the only one, as before. Each entry must be an
+ * HTTPS URL on the gateway's mount path, and the list must still accept `EXOMEM_CLOUD_MCP_URL`,
+ * so a configuration change can never strand the tokens issued for it.
+ *
+ * The web build and the gateway readiness check refuse an unusable list (cloud-resource-list.ts).
+ * If one is still loaded at runtime, it reads as unset and logs the variable name only, like the
+ * signing key below: the single resource keeps existing connections working, whereas a throw here
+ * would fail every /mcp request and OAuth exchange for every tenant.
+ */
+function withAcceptedResources(
+  env: EnvironmentSource,
+  mcpUrl: string,
+  mcpPath: string
+): ExomemCloudResource {
+  const listed = listedCloudResources(env);
+  if (!listed.length) return { mcpUrl, mcpPath, acceptedResources: [mcpUrl] };
+  const problem = cloudResourceListProblem({
+    EXOMEM_CLOUD_MCP_URLS: env.EXOMEM_CLOUD_MCP_URLS,
+    EXOMEM_CLOUD_MCP_URL: mcpUrl,
+    EXOMEM_CLOUD_MCP_PATH: mcpPath,
+  });
+  if (problem) {
+    unusableResourceListLoads += 1;
+    if (loggedOccurrence(unusableResourceListLoads)) {
+      console.warn({
+        event: "exomem_cloud_resource_list_invalid",
+        variable: "EXOMEM_CLOUD_MCP_URLS",
+        count: unusableResourceListLoads,
+      });
+    }
+    return { mcpUrl, mcpPath, acceptedResources: [mcpUrl] };
+  }
+  return { mcpUrl: listed[0], mcpPath, acceptedResources: listed };
+}
+
+/**
+ * The accepted resource on the request's public host, or the advertised one when the host is
+ * not listed. It only chooses which resource a challenge or metadata document names; it grants
+ * nothing, because a token is valid for any accepted resource.
+ */
+export function cloudResourceForHost(
+  config: Pick<ExomemCloudResource, "acceptedResources" | "mcpUrl" | "mcpPath">,
+  host: string | null | undefined
+): string {
+  // A Host header may carry the default port or a trailing dot; neither changes the host.
+  const name = host?.toLowerCase().replace(/:443$/, "").replace(/\.$/, "");
+  const candidate = name ? `https://${name}${config.mcpPath}` : null;
+  return candidate && config.acceptedResources.includes(candidate) ? candidate : config.mcpUrl;
+}
+
+/** Whether a token or request bound to `resource` belongs to this Cloud. */
+export function isAcceptedCloudResource(
+  config: Pick<ExomemCloudResource, "acceptedResources">,
+  resource: string | null | undefined
+): resource is string {
+  return typeof resource === "string" && config.acceptedResources.includes(resource);
 }
 
 /**
@@ -128,10 +198,10 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   // that a feature selects.
   const featureNeedsKey = transportEnabled || uploadsEnabled;
   const artifactSigningKey = loadArtifactSigningKey(env, featureNeedsKey);
+  const resource = withAcceptedResources(env, mcpUrl, mcpPath);
   if (!featureNeedsKey) {
     return {
-      mcpUrl,
-      mcpPath,
+      ...resource,
       cellTokenKey,
       ...(artifactSigningKey ? { artifactSigningKey } : {}),
       transferToolsEnabled,
@@ -150,8 +220,7 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   // A feature that signs artifact grants or upload routes cannot run without the key.
   if (!artifactSigningKey) throw new ExomemCloudConfigurationError([ARTIFACT_SIGNING_KEY_ENV]);
   return {
-    mcpUrl,
-    mcpPath,
+    ...resource,
     cellTokenKey,
     artifactSigningKey,
     ...(artifactCells ? { artifactCells, artifactAllCells: allCells } : {}),

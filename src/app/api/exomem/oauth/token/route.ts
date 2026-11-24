@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { isAcceptedCloudResource, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import {
   assertGrantOwnsCloudCell,
   CloudPrincipalHasNoCellError,
@@ -186,14 +186,14 @@ function invalidRequest(
 }
 
 // Item 4 / task 3.5 (design D2): exact-resource binding. Codes and refresh
-// tokens are honoured only for the Cloud resource. A misconfigured Cloud
-// deployment never matches, which returns the same invalid_request as any
-// other mismatched resource.
+// tokens are honoured only for an accepted Cloud resource
+// (move-cloud-to-evermatter-hosts D1); the store then binds the exchange to the
+// code's or the family's own resource. A misconfigured Cloud deployment never
+// matches, which returns the same invalid_request as any other mismatched resource.
 function resolveRequestedResource(requested: string | undefined): string | null {
   if (!requested) return null;
   try {
-    const cloudResource = loadExomemCloudResource().mcpUrl;
-    return requested === cloudResource ? cloudResource : null;
+    return isAcceptedCloudResource(loadExomemCloudResource(), requested) ? requested : null;
   } catch {
     return null;
   }

@@ -186,7 +186,7 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
   expiresAt: Date;
 }): Promise<{ sessionId: string } | null> {
   if (!cloudReviewerAccessEnabled()) return null;
-  const resource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   return withExomemTransaction(async (tx) => {
     const locked = await tx`
       SELECT tenant.id FROM exomem_tenants AS tenant
@@ -206,7 +206,7 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
         CROSS JOIN credential
         WHERE transaction.transaction_digest = ${input.transactionDigest}
-          AND transaction.resource = ${resource} AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+          AND transaction.resource = ANY(${[...acceptedResources]}::text[]) AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND transaction.candidate_id IS NULL AND transaction.reviewer_bootstrap_authority_id IS NULL
           AND (transaction.reviewer_credential_id IS NULL OR transaction.reviewer_credential_id = credential.id)
           AND client.enabled = true

@@ -7,6 +7,7 @@ import {
   clearExomemTheme,
   followDeviceTheme,
   isExomemPath,
+  onProductHost,
 } from "@/lib/exomem/theme";
 
 /**
@@ -21,7 +22,7 @@ export function ExomemThemeScope() {
   const pathname = usePathname();
   useLayoutEffect(() => {
     const root = document.documentElement;
-    if (!isExomemPath(pathname ?? "")) {
+    if (!isExomemPath(pathname ?? "", onProductHost(root, window.location.hostname))) {
       clearExomemTheme(root);
       return;
     }

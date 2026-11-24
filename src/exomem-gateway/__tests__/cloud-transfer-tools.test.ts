@@ -44,6 +44,7 @@ const CAPABILITY_MARKERS = [
 
 const CONFIG: ExomemCloudConfig = {
   mcpUrl: MCP_URL,
+  acceptedResources: [MCP_URL],
   mcpPath: "/api/exomem/cloud/mcp/v1",
   cellTokenKey: Buffer.alloc(32, 7),
   transferToolsEnabled: true,

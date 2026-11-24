@@ -16,6 +16,7 @@ import { proofFigures } from "./landing/proof";
 import recallBenchmarks from "./landing/recall-benchmarks.json";
 import responsive from "./landing/responsive.module.css";
 import styles from "./landing/landing.module.css";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 const HERO_TEXT =
   "Evermatter (formerly Exomem) is the knowledge base all your assistants share. Claude, ChatGPT, Claude Code, Codex and every session you connect read from it and add to it. When something changes, it keeps what was true, why it changed and what replaced it, as plain Markdown you own.";
@@ -49,7 +50,7 @@ const softwareJsonLd = {
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Windows, macOS, Linux",
   description: `Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at ${proof.scaleNotes} notes, measured, with local OCR, ASR, and image indexing.`,
-  url: `${siteConfig.url}/exomem`,
+  url: productPageUrl("/exomem"),
   downloadUrl: PYPI,
   installUrl: PYPI,
   offers: {

@@ -25,6 +25,7 @@ import { effectiveExomemTheme, type ExomemThemeChoice } from "@/lib/exomem/theme
 
 import { exomemTokens, type ExomemTokenMap } from "@/lib/exomem/design-tokens";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 /** The account's state, as the web in slot 3 shows it (R28 "The band follows the account"). */
 export const EXOMEM_EMAIL_BANDS = ["arrive", "live", "readonly", "kept", "fading", "gone"] as const;
@@ -125,7 +126,8 @@ export type RenderedExomemEmail = {
 const FOOTER = "Evermatter by Substrate Systems";
 // The product name every Cloud email is sent as; mail-sender.ts holds it with the address.
 const SENDER = EXOMEM_SENDER.senderName;
-const WORDMARK_URL = "https://substratesystems.io/exomem";
+// Computed per email, not at import, so the configured origin is read when the email renders.
+const wordmarkUrl = (): string => productPageUrl("/exomem");
 
 // The board's delivery note: web fonts often don't load in mail, so IBM Plex
 // Mono falls back to Menlo or Consolas, and Inter to Helvetica or Arial.
@@ -147,7 +149,7 @@ const MAX_SENDER_NAME = 60;
  * A person's name as a sender display name: "<name> via Evermatter". Control and
  * format characters (line breaks, bidi overrides) and the characters that
  * delimit an address header are dropped, whitespace collapses, and the name
- * is cut to 60 characters. An empty result sends as "Exomem".
+ * is cut to 60 characters. An empty result sends as the product name alone.
  */
 export function exomemSenderName(personName: string | null | undefined): string {
   // A format check on one header field, not a reading of what the name means.
@@ -323,7 +325,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
         alt: "Exomem",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
       },
-      WORDMARK_URL,
+      wordmarkUrl(),
       automatic
     ),
     "line-height: 0; font-size: 0;"
@@ -422,7 +424,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       alt: "",
       style: "display: block; border: 0; width: 100%; max-width: 600px; height: auto;",
     },
-    slots.action?.url ?? WORDMARK_URL,
+    slots.action?.url ?? wordmarkUrl(),
     automatic
   );
 

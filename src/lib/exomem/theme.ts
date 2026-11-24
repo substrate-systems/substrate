@@ -1,4 +1,5 @@
 import { browserCookie, csrfCookie, postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import { isProductRootPath } from "./product-pages";
 import { exomemThemeCookieName, themeBindingFromCsrfToken } from "./theme-binding";
 
 export type ExomemTheme = "dark" | "light";
@@ -119,8 +120,22 @@ function applyStoredTheme(root: HTMLElement): ExomemTheme {
   return effective;
 }
 
-export function isExomemPath(pathname: string): boolean {
-  return pathname === "/exomem" || pathname.indexOf("/exomem/") === 0;
+/**
+ * Whether a page wears the Exomem theme: every /exomem page, and on the product site
+ * (`onProductHost`) its root pages too, which serve there without the prefix.
+ */
+export function isExomemPath(pathname: string, onProductHost = false): boolean {
+  return (
+    pathname === "/exomem" ||
+    pathname.indexOf("/exomem/") === 0 ||
+    (onProductHost && isProductRootPath(pathname))
+  );
+}
+
+/** The layout names the product site's host on <html> when the product site is on. */
+export function onProductHost(root: HTMLElement, hostname: string): boolean {
+  const host = root.getAttribute("data-exomem-product-host");
+  return Boolean(host) && host === hostname;
 }
 
 type ThemeSaveState = { status: "idle" | "saving" | "saved" | "failed"; error: string | null };

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { isAcceptedCloudResource, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import {
   createCloudReviewerOAuthSessionAtomic,
   createCloudReviewerWebSessionAtomic,
@@ -103,7 +103,7 @@ async function signInForApp(request: Request, body: ReviewerCredentialBody): Pro
   if (!continuation || !transaction || !transactionDigest) return authenticationFailed();
   const nonce = oauthFormNonceFromRequest(request);
   if (
-    continuation.resource !== loadExomemCloudResource().mcpUrl ||
+    !isAcceptedCloudResource(loadExomemCloudResource(), continuation.resource) ||
     !nonce ||
     typeof body.nonce !== "string" ||
     !constantTimeSecretEqual(nonce, body.nonce) ||
