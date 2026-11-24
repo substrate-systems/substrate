@@ -5,7 +5,7 @@ import AccessLogClient from "./access-log-client";
 import home from "../home/home.module.css";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Exomem access log",
+  title: "Evermatter access log",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

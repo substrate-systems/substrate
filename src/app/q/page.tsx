@@ -151,7 +151,7 @@ export default function QPage() {
               href="/exomem"
               className="text-fg-primary underline underline-offset-4 hover:text-white"
             >
-              Exomem
+              Evermatter
             </Link>{" "}
             — durable, MCP-native memory for AI agents over a Markdown vault you own. Open source.
           </p>

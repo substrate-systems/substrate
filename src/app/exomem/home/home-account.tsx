@@ -207,7 +207,7 @@ export function YourData({
       {deletion && (
         <div className={styles.row}>
           <div className={styles.rowText}>
-            <span className={styles.rowTitle}>Delete Exomem</span>
+            <span className={styles.rowTitle}>Delete Evermatter</span>
             <span className={styles.rowBody}>
               {deletion === "reviewer"
                 ? "Not on a reviewer account. We delete it when the review ends."

@@ -4,9 +4,9 @@ import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildExomemMetadata({
-  title: "How Exomem Benchmarks Memory Systems",
+  title: "How Evermatter Benchmarks Memory Systems",
   description:
-    "The fairness rules Exomem commits to before publishing any comparative benchmark number: competitor-authored configuration, guest posture on the competitor's own harness, per-knob provenance, and independent adversarial review before publication.",
+    "The fairness rules Evermatter commits to before publishing any comparative benchmark number: competitor-authored configuration, guest posture on the competitor's own harness, per-knob provenance, and independent adversarial review before publication.",
   path: "/exomem/benchmarks",
   ogImage: "/exomem/og",
 });
@@ -24,7 +24,7 @@ const rules: { title: string; body: string }[] = [
   },
   {
     title: "We run as a guest, on their harness",
-    body: "Head-to-head rows come from the competitor's own benchmark suite, with Exomem entered as a guest provider. We author only our own integration — the same posture any vendor takes on someone else's public suite.",
+    body: "Head-to-head rows come from the competitor's own benchmark suite, with Evermatter entered as a guest provider. We author only our own integration — the same posture any vendor takes on someone else's public suite.",
   },
   {
     title: "One reader, one judge, one ledger",
@@ -56,9 +56,9 @@ export default function ExomemBenchmarksPage() {
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "TechArticle",
-    headline: "How Exomem benchmarks memory systems",
+    headline: "How Evermatter benchmarks memory systems",
     description:
-      "The fairness rules Exomem commits to before publishing any comparative benchmark number.",
+      "The fairness rules Evermatter commits to before publishing any comparative benchmark number.",
     author: { "@type": "Organization", name: siteConfig.name, url: siteConfig.url },
     publisher: {
       "@type": "Organization",
@@ -90,7 +90,7 @@ export default function ExomemBenchmarksPage() {
           the natural outcome of knowing one of them properly.
         </p>
         <p>
-          This page is the set of rules Exomem commits to <em>before</em> publishing any
+          This page is the set of rules Evermatter commits to <em>before</em> publishing any
           comparative number. It is deliberately published ahead of results, because rules
           announced after the fact are worth very little.
         </p>
@@ -113,16 +113,16 @@ export default function ExomemBenchmarksPage() {
             advantage no real deployment would have.
           </li>
           <li>
-            Knowledge time was never transmitted to either system, provenance and abstention
-            were authored by the shared answerer rather than by the products, and the run
-            profile de-tuned Exomem&rsquo;s own defaults.
+            Knowledge time was never transmitted to either system, provenance and abstention were
+            authored by the shared answerer rather than by the products, and the run profile
+            de-tuned Evermatter&rsquo;s own defaults.
           </li>
         </ul>
         <p>
-          Findings about Exomem alone survived that review — the product defects it exposed
-          were real, and were fixed. The comparisons did not survive, and no replacement has
-          been published yet. This contract exists so that the defect class that produced
-          them is structurally impossible rather than merely discouraged.
+          Findings about Evermatter alone survived that review — the product defects it exposed were
+          real, and were fixed. The comparisons did not survive, and no replacement has been
+          published yet. This contract exists so that the defect class that produced them is
+          structurally impossible rather than merely discouraged.
         </p>
 
         <h2>The one-line rule</h2>
@@ -164,7 +164,7 @@ export default function ExomemBenchmarksPage() {
           </a>
         </p>
         <p>
-          Exomem itself is an open-source, MCP-native memory server over a Markdown vault you
+          Evermatter itself is an open-source, MCP-native memory server over a Markdown vault you
           own — see <Link href="/exomem">the product page</Link>, or the honest comparisons
           with{" "}
           <Link href="/blog/exomem-vs-mem0-letta-zep">mem0, Letta, Zep and Basic Memory</Link>{" "}

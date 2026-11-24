@@ -31,6 +31,6 @@ test.describe("reduced motion", () => {
 
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect.poll(() => runningAnimations(page)).toBe(0);
-    await expect(page.getByRole("heading", { name: "The Exomem design system" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "The Evermatter design system" })).toBeVisible();
   });
 });

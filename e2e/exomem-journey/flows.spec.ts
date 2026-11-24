@@ -442,7 +442,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const)
     });
     // Wait for the visible mark's finite completion animations, not a guessed wall-clock delay.
     await page
-      .getByRole("img", { name: "Exomem", exact: true })
+      .getByRole("img", { name: "Evermatter", exact: true })
       .last()
       .evaluate(async (element) => {
         const finite = element

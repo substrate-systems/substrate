@@ -4,7 +4,7 @@ import { exomemTokens } from "@/lib/exomem/design-tokens";
 import { DesignSystemShowcase } from "./showcase";
 
 export const metadata: Metadata = {
-  title: "Exomem design system",
+  title: "Evermatter design system",
   robots: { index: false, follow: false },
 };
 

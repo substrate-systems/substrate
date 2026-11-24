@@ -11,6 +11,6 @@ export function buildExomemMetadata(
   });
   return {
     ...metadata,
-    openGraph: { ...metadata.openGraph, siteName: "Exomem" },
+    openGraph: { ...metadata.openGraph, siteName: "Evermatter" },
   };
 }

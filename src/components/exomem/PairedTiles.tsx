@@ -69,7 +69,7 @@ export function PairedTiles({ state, app, onMotionComplete }: PairedTilesProps) 
           size={42}
           state={state === "connecting" ? "working" : state === "connected" ? "done" : "off"}
           tile={state === "idle" ? "idle" : state === "stopped" ? "stopped" : undefined}
-          label="Exomem"
+          label="Evermatter"
         />
       </div>
     </div>

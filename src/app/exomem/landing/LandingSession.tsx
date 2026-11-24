@@ -78,7 +78,7 @@ export function LandingAccountLink(
   const href = authenticated === true ? "/exomem/home" : "/exomem/sign-in";
   if (props.kind === "navigation") {
     const label =
-      authenticated === true ? "Home" : authenticated === false ? "Sign in" : "Open Exomem";
+      authenticated === true ? "Home" : authenticated === false ? "Sign in" : "Open Evermatter";
     return (
       <Link href={href} className={props.className}>
         {label}
@@ -90,7 +90,7 @@ export function LandingAccountLink(
       ? "Go to Home"
       : authenticated === false
         ? "Start with your email"
-        : "Open Exomem";
+        : "Open Evermatter";
   return (
     <ButtonLink href={href} variant="primary" size="landing">
       {label} →

@@ -60,7 +60,7 @@ test("a stopped cell's received log survives erasure through a fresh restricted 
   expect(code.length).toBeGreaterThan(40);
 
   await page.goto(`/exomem/delete#${await createDeletionLink(owner)}`);
-  await page.getByRole("button", { name: "Permanently delete my Exomem" }).click();
+  await page.getByRole("button", { name: "Permanently delete my Evermatter" }).click();
   await expect(page.getByRole("status")).toHaveText(
     "Your shared Substrate identity and any other product remain untouched."
   );

@@ -33,7 +33,7 @@ export function DeleteDialog({
     <Modal
       open={step !== null}
       onClose={onClose}
-      title={sent ? "Check your email" : "Delete your Exomem?"}
+      title={sent ? "Check your email" : "Delete your Evermatter?"}
       width={400}
       placement="top"
       phoneFullWidth
@@ -41,7 +41,7 @@ export function DeleteDialog({
       {sent ? (
         <>
           <p className={styles.dialogText}>
-            {`Nothing is deleted until you open the link.${lasts} Ignore it and your Exomem stays.`}
+            {`Nothing is deleted until you open the link.${lasts} Ignore it and your Evermatter stays.`}
           </p>
           <Button size="dialog" onClick={onClose}>
             Done

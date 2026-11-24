@@ -669,7 +669,7 @@ for (const step of STEPS) {
     expect(title.y).toBeGreaterThanOrEqual(wordmark.y + wordmark.height);
     expect(title.x).toBeGreaterThanOrEqual(0);
     expect(title.x + title.width).toBeLessThanOrEqual(width);
-    const footer = main.getByText(/^exomem · request from /);
+    const footer = main.getByText(/^evermatter · request from /);
     if (await footer.isVisible()) {
       const foot = (await footer.boundingBox())!;
       expect(foot.x).toBeGreaterThanOrEqual(0);

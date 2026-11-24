@@ -52,7 +52,7 @@ const CLOUD_PLUGINS: CloudPlugin[] = [
       "https://raw.githubusercontent.com/Artexis10/exomem/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip",
     guide: "https://support.claude.com/en/articles/13837440-use-plugins-in-claude",
     instructions:
-      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your Exomem account.",
+      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your Evermatter account.",
   },
   {
     name: CLIENT_PLATFORM_NAMES.openai,

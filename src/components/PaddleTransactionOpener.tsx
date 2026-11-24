@@ -230,7 +230,7 @@ export function PaddleTransactionOpener({
   if (validationFailed || paddleFailed) {
     const message = paddleFailed
       ? "Checkout couldn't open. Reload it when you're ready to try again."
-      : "We couldn't reconnect to checkout. Your Exomem account is safe.";
+      : "We couldn't reconnect to checkout. Your Evermatter account is safe.";
     if (FailureView) {
       return (
         <section aria-live="polite">

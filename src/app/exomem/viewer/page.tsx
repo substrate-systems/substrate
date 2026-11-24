@@ -5,7 +5,7 @@ import ViewerClient from "./viewer-client";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Your knowledge · Exomem",
+  title: "Your knowledge · Evermatter",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

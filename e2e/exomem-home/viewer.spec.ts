@@ -222,12 +222,12 @@ test("a partial view keeps unknown totals and holds its real data while out of r
   await expect(page.getByText("Unknown", { exact: true })).toHaveCount(2);
   await setCell(owner, { viewerMap: { available: false } });
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await expect(page.getByText(/Can’t reach Exomem. Showing the view from/)).toBeVisible();
+  await expect(page.getByText(/Can’t reach Evermatter. Showing the view from/)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "First observation", exact: true }).first()
   ).toBeVisible();
   await setCell(owner, { viewerMap: graph });
   await page.getByRole("button", { name: "Try now", exact: true }).click();
   await expect(page.getByText("2 shown of 2 notes", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Can’t reach Exomem. Showing the view from/)).toHaveCount(0);
+  await expect(page.getByText(/Can’t reach Evermatter. Showing the view from/)).toHaveCount(0);
 });

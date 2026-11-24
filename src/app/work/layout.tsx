@@ -4,7 +4,7 @@ import { personJsonLd } from "@/lib/structured-data";
 export const metadata = buildMetadata({
   title: "Hugo Ander Kivi — LLM governance & systems engineering",
   description:
-    "Hugo Ander Kivi: contract-based LLM governance for AI-augmented teams, plus the systems behind Q, Endstate, and Exomem. Selected work and writing.",
+    "Hugo Ander Kivi: contract-based LLM governance for AI-augmented teams, plus the systems behind Q, Endstate, and Evermatter. Selected work and writing.",
   path: "/work",
   ogImage: `/api/og?title=${encodeURIComponent("Hugo Ander Kivi")}`,
   ogType: "profile",

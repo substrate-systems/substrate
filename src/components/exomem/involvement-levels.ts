@@ -25,7 +25,8 @@ export const INVOLVEMENT_LEVELS: readonly InvolvementLevel[] = [
   {
     key: "off",
     label: "Off",
-    description: "Exomem stays connected but waits. It searches or saves only when you ask it to.",
+    description:
+      "Evermatter stays connected but waits. It searches or saves only when you ask it to.",
     block: INSTRUCTION_BLOCKS.off,
   },
   {

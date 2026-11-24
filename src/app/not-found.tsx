@@ -30,7 +30,7 @@ export default function NotFound() {
             href="/exomem"
             className="text-fg-secondary transition-colors duration-default hover:text-fg-primary"
           >
-            Exomem
+            Evermatter
           </Link>
           <Link
             href="/blog"

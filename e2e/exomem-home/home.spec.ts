@@ -401,7 +401,7 @@ test("a link to the Your data section scrolls there once Home has loaded, and on
 test("a level set on Home reaches the cell and is still set after a reload", async ({ page }) => {
   const owner = await createOwner();
   await openHome(page, owner);
-  const chat = page.getByRole("group", { name: "How much Exomem joins in for chat apps" });
+  const chat = page.getByRole("group", { name: "How much Evermatter joins in for chat apps" });
 
   await chat.getByRole("button", { name: "Light" }).click();
 
@@ -416,7 +416,9 @@ test("in forced colours the level in use still stands out from its track", async
   await page.emulateMedia({ forcedColors: "active" });
   await openHome(page, owner);
   // The group is the track: an unmarked segment shows its colour through a transparent fill.
-  const coding = page.getByRole("group", { name: "How much Exomem joins in for coding agents" });
+  const coding = page.getByRole("group", {
+    name: "How much Evermatter joins in for coding agents",
+  });
   const selected = coding.getByRole("button", { name: "Balanced" });
 
   await expect(selected).toHaveAttribute("aria-pressed", "true");
@@ -431,7 +433,9 @@ test("a level changed elsewhere meets a conflict, and Home shows the level in us
 }) => {
   const owner = await createOwner();
   await openHome(page, owner);
-  const coding = page.getByRole("group", { name: "How much Exomem joins in for coding agents" });
+  const coding = page.getByRole("group", {
+    name: "How much Evermatter joins in for coding agents",
+  });
   await expect(coding.getByRole("button", { name: "Balanced" })).toHaveAttribute(
     "aria-pressed",
     "true"
@@ -537,7 +541,7 @@ test("a confirmation email that cannot be sent deletes nothing, and Home says so
   await openHome(page, owner);
 
   await panel(page, "Your data").getByRole("button", { name: "Delete…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Delete your Exomem?" });
+  const dialog = page.getByRole("dialog", { name: "Delete your Evermatter?" });
   await dialog.getByRole("button", { name: "Email me a confirmation link" }).click();
 
   await expect(dialog.getByRole("alert")).toHaveText("That didn’t finish. Try again in a minute.");

@@ -14,7 +14,7 @@ export const siteConfig = {
   titleSuffix: "· Substrate",
   defaultTitle: "Substrate — durable software infrastructure & systems",
   defaultDescription:
-    "Substrate builds durable, self-hostable software infrastructure — Endstate for new-PC setup and Exomem agent memory. Solo-built, no lock-in, no telemetry.",
+    "Substrate builds durable, self-hostable software infrastructure — Endstate for new-PC setup and Evermatter agent memory. Solo-built, no lock-in, no telemetry.",
   defaultOgImage: "/api/og",
   locale: "en_US",
   twitterCard: "summary_large_image" as const,

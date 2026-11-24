@@ -112,7 +112,7 @@ describe("which Home the owner sees", () => {
     const unread: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
     assert.deepEqual(homeMode(unread, account(), "known"), { kind: "home", variant: "unread" });
     assert.deepEqual(statusCopy("unread", false, null, clock), {
-      headline: "Can’t reach Exomem.",
+      headline: "Can’t reach Evermatter.",
       statusLine: null,
     });
   });
@@ -139,7 +139,7 @@ describe("which Home the owner sees", () => {
     assert.deepEqual(homeMode(READY, null, "loading"), { kind: "loading" });
     assert.deepEqual(homeMode(READY, null, "failed"), { kind: "home", variant: "unknown" });
     const unknown = statusCopy("unknown", false, null, clock);
-    assert.equal(unknown.headline, "Your Exomem");
+    assert.equal(unknown.headline, "Your Evermatter");
     assert.deepEqual(planView("unknown", null, null, clock), {
       name: "Plan",
       meta: "not available right now",
@@ -355,12 +355,12 @@ describe("the app rows", () => {
     });
     assert.equal(
       appMeta(out, clock, false),
-      "signed out since 9 October · open Claude and connect Exomem again"
+      "signed out since 9 October · open Claude and connect Evermatter again"
     );
     const withoutDay = app({ session: { state: "signed_out", since: null } });
     assert.equal(
       appMeta(withoutDay, clock, false),
-      "signed out · open Claude and connect Exomem again"
+      "signed out · open Claude and connect Evermatter again"
     );
   });
 
@@ -374,7 +374,7 @@ describe("the app rows", () => {
     });
     assert.equal(
       appMeta(out, clock, false),
-      "signed out since 9 October · open My App and connect Exomem again" +
+      "signed out since 9 October · open My App and connect Evermatter again" +
         " · name from the app · sends access to app.example.com"
     );
   });
@@ -405,25 +405,28 @@ describe("notices and the account banner", () => {
       []
     );
     const filling = notices("on", account(), disk(8_500_000_000), true, false, false);
-    assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works.");
+    assert.equal(filling[0]?.text, "Your Evermatter is 85% full. Everything works.");
     assert.deepEqual(filling[0]?.actions, []);
     // A disk with room left never reads as 100% full.
     const nearly = notices("on", account(), disk(9_996_000_000), true, false, false);
-    assert.equal(nearly[0]?.text, "Your Exomem is 99% full. Everything works.");
+    assert.equal(nearly[0]?.text, "Your Evermatter is 99% full. Everything works.");
     const full = notices("on", account(), disk(10_000_000_000), true, false, false);
     assert.equal(full[0]?.attention, true);
-    assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
+    assert.match(full[0]?.text ?? "", /^Your Evermatter is full \(10 GB\)\./);
     assert.deepEqual(full[0]?.actions, []);
   });
 
   it("asks for storage in words only beside the action that adds it", () => {
     const filling = notices("on", account(), disk(8_500_000_000), true, false, true);
-    assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works. Add storage now.");
+    assert.equal(
+      filling[0]?.text,
+      "Your Evermatter is 85% full. Everything works. Add storage now."
+    );
     assert.deepEqual(filling[0]?.actions, ["storage"]);
     const full = notices("on", account(), disk(10_000_000_000), true, false, true);
     assert.equal(
       full[0]?.text,
-      "Your Exomem is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
+      "Your Evermatter is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
     );
   });
 
@@ -724,7 +727,7 @@ describe("involvement levels", () => {
     const view = levelsView({ state: "unavailable", reason: "CELL_STOPPED" });
     assert.deepEqual(view, {
       state: "unavailable",
-      text: "Levels can’t be read while your Exomem is stopped.",
+      text: "Levels can’t be read while your Evermatter is stopped.",
     });
     assert.deepEqual(levelsView({ state: "unavailable", reason: "CELL_NOT_READY" }), {
       state: "unavailable",

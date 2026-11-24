@@ -38,7 +38,7 @@ describe("approved Fable landing contract", () => {
     );
     assert.match(landing, /id: "q", name: "Q", principle: principles\[0\]/);
     assert.match(landing, /id: "endstate", name: "Endstate", principle: principles\[1\]/);
-    assert.match(landing, /id: "exomem", name: "Exomem", principle: principles\[2\]/);
+    assert.match(landing, /id: "exomem", name: "Evermatter", principle: principles\[2\]/);
     assert.match(landing, /href: "https:\/\/useq\.ai", external: true/);
     assert.match(landing, /href: "\/endstate", external: false/);
     assert.match(landing, /href: "\/exomem", external: false/);
@@ -112,7 +112,7 @@ describe("approved Fable landing contract", () => {
       "Photography",
       "Q",
       "Endstate",
-      "Exomem",
+      "Evermatter",
       "GitHub",
       "LinkedIn",
     ]) {

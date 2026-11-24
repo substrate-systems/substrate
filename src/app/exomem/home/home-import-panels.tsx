@@ -167,7 +167,7 @@ export function ImportLimits({
         <Notice>
           Your vault had {byteSize(vault.bytes)} free when it was measured{" "}
           {ago(vault.observedAt, now)}, and this folder adds {byteSize(forecast.plaintextBytes)}.
-          Exomem may stop the import while it stages the files. Add storage first, or choose a
+          Evermatter may stop the import while it stages the files. Add storage first, or choose a
           smaller folder.
         </Notice>
       )}
