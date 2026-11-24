@@ -664,7 +664,9 @@ for (const theme of ["dark", "light"] as const) {
     expect(moving).toEqual([]);
 
     await page.goto(`/exomem/delete#${await createDeletionLink(owner)}`);
-    await expect(page.getByRole("button", { name: "Permanently delete my Evermatter" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Permanently delete my Evermatter" })
+    ).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
   });
 }
