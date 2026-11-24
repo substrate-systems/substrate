@@ -217,6 +217,8 @@ list enumerated first.
 
 - The CIMD grace period. It is configuration with a 14-day default; the access log can
   show how long real connectors stay away, and the setting can follow it.
-- The launch bounds assume at most 1,000 accounts. Cloud capacity comes from cellctl's
-  per-node slots, and no planned account count is recorded; if launch capacity can exceed
-  1,000 accounts, raise the bounds with one UPDATE before it does.
+- Resolved 2026-11-24: Exomem Cloud plans for 10,000 tenants (`openspec/project.md`). The
+  launch bounds still assume at most 1,000 accounts, 50 clients each. Before the account
+  count passes 1,000, raise both self-registering bounds to 500,000 with one UPDATE, after a
+  measurement on generated data shows that registration's partition count stays inside its
+  latency budget at that size.
