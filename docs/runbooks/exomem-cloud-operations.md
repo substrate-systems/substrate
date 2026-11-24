@@ -516,9 +516,11 @@ instead.
 
 Each client takes one slot in one of three partitions: operator, auto-registered
 CIMD connectors, and generic clients. Each partition's bound is a row in
-`exomem_oauth_client_partition_bounds`. The function
-`exomem_oauth_client_partitions()` reads those rows, counts each partition, and
-admission reads it. The first-party Home client takes no slot. An
+`exomem_oauth_client_partition_bounds`, beside `used`, its count of unretired
+clients. Database triggers keep `used` current on every write to the clients
+table, so admission reads one row at any population. The function
+`exomem_oauth_client_partitions()` returns each partition's `bound` and `used`.
+The first-party Home client takes no slot. An
 auto-registered CIMD client with no platform is one only the generic lane can
 admit, so it counts in `generic`, not `auto_registered`.
 
@@ -533,8 +535,8 @@ that a registration flood can add before the sweep retires them. Each
 self-registering bound is 50 clients for each of 1,000 accounts, because a heavy
 user runs 15 to 25 apps or more at peak. The load target is 10,000 tenants
 (`openspec/project.md`), so raise both self-registering bounds to 500,000 before
-the account count passes 1,000. First measure registration's partition count at
-500,000 generated rows against its latency budget.
+the account count passes 1,000. Migration 0093 made the partition check cost the
+same at any population: under 1 ms at 500,000 clients per partition.
 
 To change a bound:
 
@@ -573,6 +575,11 @@ Each run does these things:
   `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`: the client registered before the
   grace began, and no grant of it was created, renewed or revoked since.
 - It retires at most 100 clients per partition.
+- Once an hour per partition, it recounts the partition's unretired clients
+  exactly and corrects `used`. The response's `partitionRecounts` gives the
+  correction for each partition that was due. A non-zero correction logs
+  `exomem-oauth: client partition <partition> counter corrected by <n>`, and
+  means a write bypassed the counting triggers.
 
 The sweep never retires a client in the view
 `exomem_oauth_clients_holding_live_authority`: a client that holds a grant that
@@ -594,6 +601,21 @@ for example by removing and adding the server again, and then connect again.
 To read the headroom, request `GET /api/exomem/admin/oauth-clients` with the
 operator bearer. The `headroom` object gives `bound`, `used` and `free` for each
 partition. The SQL equivalent is `SELECT * FROM exomem_oauth_client_partitions();`.
+
+A recount reads every unretired client, about 70–90 ms with 500,000 in each
+self-registering partition, while a registration in that partition waits. A
+bounds row that you add has no count until a recount: its partition admits no
+new client and the headroom read fails until then. To recount at once, for example after a
+restore with triggers disabled or after adding a bounds row by hand, run:
+
+```sql
+SELECT client_partition, exomem_oauth_client_partition_recount(client_partition) AS corrected
+FROM exomem_oauth_client_partition_bounds;
+```
+
+A `NULL` correction means a registration held that partition; run it again.
+The sweep reports such a partition as `null` in `partitionRecounts` and
+recounts it on its next run.
 
 If the sweep fails, the reconcile job answers `503` and logs
 `exomem-oauth: expired state and client retirement lane failed`. A malformed
