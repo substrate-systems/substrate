@@ -559,7 +559,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
 
   await panel(page, "Your data").getByRole("button", { name: "Delete…" }).click();
   await page
-    .getByRole("dialog", { name: "Delete your Exomem?" })
+    .getByRole("dialog", { name: "Delete your Evermatter?" })
     .getByRole("button", { name: "Email me a confirmation link" })
     .click();
 
@@ -576,7 +576,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
   expect(new URL(page.url()).hash).toBe("");
   expect(await tenantStatus(owner)).toBe("active");
 
-  await page.getByRole("button", { name: "Permanently delete my Exomem" }).click();
+  await page.getByRole("button", { name: "Permanently delete my Evermatter" }).click();
 
   await expect(page.getByRole("status")).toHaveText(
     "Your shared Substrate identity and any other product remain untouched."
@@ -664,7 +664,7 @@ for (const theme of ["dark", "light"] as const) {
     expect(moving).toEqual([]);
 
     await page.goto(`/exomem/delete#${await createDeletionLink(owner)}`);
-    await expect(page.getByRole("button", { name: "Permanently delete my Exomem" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Permanently delete my Evermatter" })).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
   });
 }
