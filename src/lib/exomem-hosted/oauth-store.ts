@@ -37,7 +37,24 @@ export type OAuthTokenContext = {
   refreshInserted?: boolean;
   /** Rotation only: a spent token came back from its own client inside the reuse interval. */
   refreshReused?: boolean;
+  /** Rotation reuse only: seconds between the presented token's spend and this reuse. */
+  refreshReusedSpendAgeSeconds?: number;
 };
+
+/** What one refresh-token presentation did. */
+export type OAuthRefreshRotation =
+  | ({ kind: "issued" } & OAuthTokenContext)
+  | {
+      /**
+       * The presented token was spent by its own client beyond the reuse
+       * interval: refused, and deliberately not a family revocation, so the
+       * sessions holding the family's other tokens keep working.
+       */
+      kind: "stale";
+      familyId: string;
+      /** Seconds between the presented token's spend and its refused reuse. */
+      spendAgeSeconds: number;
+    };
 
 export type ApprovedOAuthClient = {
   id: string;
@@ -47,6 +64,12 @@ export type ApprovedOAuthClient = {
 };
 
 const MAX_PENDING_OAUTH_AUTHORIZATIONS = 2_000;
+// A loop guard for a client stuck re-presenting one spent token: parallel
+// sessions sharing a stored credential legitimately reuse one spend dozens of
+// times, and past the bound the extra presentations refuse like any other. It
+// does not bound a thief — every minted token can fan out again, so only
+// revoking the family or the grant ends what a stolen token starts.
+const MAX_SPENT_TOKEN_REPLACEMENTS = 64;
 
 async function withCohortLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
@@ -274,12 +297,17 @@ export async function registerGenericMcpClient(
  * Otherwise `lapsed` when the connector's metadata document has expired, and
  * `fresh` when it has not, for example because another request fetched it
  * after this rotation was refused. A caller must hold a live refresh token to
- * cause a fetch.
+ * cause a fetch. Live here means what the rotation's grace rule means:
+ * unconsumed, or spent inside the reuse interval — a shared client whose
+ * metadata lapses must still refetch for a same-client spent token, or every
+ * parallel session holding it is signed out instead.
  */
 export async function refreshCimdMetadataState(input: {
   refreshDigest: Buffer;
   clientId: string;
+  sessionPolicy?: OAuthSessionPolicy;
 }): Promise<"not_eligible" | "fresh" | "lapsed"> {
+  const { refreshReuseSeconds } = input.sessionPolicy ?? loadOAuthSessionPolicy();
   const { rows } = await executeExomemSql`
     /* exomem:refresh-cimd-metadata-state */
     SELECT client.metadata_expires_at <= now() AS lapsed
@@ -288,7 +316,11 @@ export async function refreshCimdMetadataState(input: {
     JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = family.client_id
     WHERE token.refresh_digest = ${input.refreshDigest}
-      AND token.consumed_at IS NULL AND token.expires_at > now()
+      AND token.expires_at > now()
+      AND (
+        token.consumed_at IS NULL
+        OR token.consumed_at > exomem_oauth_refresh_reuse_opens_at(${refreshReuseSeconds}::int)
+      )
       AND family.revoked_at IS NULL AND family.expires_at > now()
       AND oauth_grant.revoked_at IS NULL
       AND client.client_id = ${input.clientId}
@@ -1183,13 +1215,18 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
  * Each rotation renews the refresh token's idle window, up to the family's
  * ceiling.
  *
- * A spent token presented again is one of two things, decided by the reuse
- * interval. Its own client inside the interval is a lost reply or a second
- * session on the same stored credential: it gets another pair in the same
- * family, as a sibling of the first replacement, and nothing is revoked. After
- * the interval, a consumed digest revokes its family. The replay branch runs in
- * the same statement as the attempted rotation, and no earlier token material
- * is kept, so a reused token gets a new pair, never the earlier one back.
+ * A spent token presented again by its own client inside the reuse interval is
+ * a lost reply or a parallel session on the same stored credential: it gets
+ * another pair in the same family, as a sibling of the first replacement, and
+ * nothing is revoked. After the interval the presentation is stale: it is
+ * refused as `stale` and the family stays live, so sessions holding its other
+ * tokens keep working. A spent token mints at most
+ * MAX_SPENT_TOKEN_REPLACEMENTS children — a loop guard for a stuck client,
+ * not a bound on a thief: each child fans out on its own spend, so only a
+ * family or grant revocation ends what a stolen token starts.
+ * A different client's presentation never reaches either branch. No earlier
+ * token material is kept, so a reused token gets a new pair, never the
+ * earlier one back.
  *
  * Every rotation holds the tenant row lock, so two simultaneous presentations
  * of one token run one after the other: the first spends it, the second reuses.
@@ -1202,7 +1239,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
   clientId: string;
   resource: string;
   sessionPolicy?: OAuthSessionPolicy;
-}): Promise<OAuthTokenContext | null> {
+}): Promise<OAuthRefreshRotation | null> {
   const cloudResource = loadExomemCloudResource().mcpUrl;
   const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   const { refreshIdleDays, refreshReuseSeconds } = input.sessionPolicy ?? loadOAuthSessionPolicy();
@@ -1282,9 +1319,10 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     ),
     -- A presentation that waited on the tenant lock can have begun before the one
     -- it waited for, so now() can precede that token's consumed_at. The wall
-    -- clock cannot, and with it a zero interval is off.
+    -- clock cannot, and with it a zero interval is off. The boundary lives in
+    -- exomem_oauth_refresh_reuse_opens_at, shared with the metadata-state read.
     reuse_interval AS (
-      SELECT clock_timestamp() - (${refreshReuseSeconds}::int * interval '1 second') AS opens_at
+      SELECT exomem_oauth_refresh_reuse_opens_at(${refreshReuseSeconds}::int) AS opens_at
     ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token
@@ -1309,23 +1347,39 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND credential.expires_at > now()
         AND credential.revoked_at IS NULL
         AND credential.family_expires_at > now()
+        -- Loop guard only: past the bound this spent token stops minting
+        -- siblings, not because a thief is bounded — only revocation is.
+        AND (
+          SELECT count(*) FROM exomem_oauth_refresh_tokens AS child
+          WHERE child.parent_refresh_token_id = credential.id
+        ) < ${MAX_SPENT_TOKEN_REPLACEMENTS}
     ),
     spent AS (
-      SELECT token_id, family_id, grant_id, client_id, false AS reused FROM consumed
+      SELECT token_id, family_id, grant_id, client_id, false AS reused,
+             NULL::bigint AS spend_age_seconds
+      FROM consumed
       UNION ALL
-      SELECT token_id, family_id, grant_id, client_id, true AS reused FROM reusable
+      SELECT reusable.token_id, reusable.family_id, reusable.grant_id, reusable.client_id,
+             true AS reused,
+             EXTRACT(EPOCH FROM (clock_timestamp() - credential.consumed_at))::bigint
+      FROM reusable
+      JOIN credential ON credential.id = reusable.token_id
     ),
-    replay_revocation AS (
-      UPDATE exomem_oauth_token_families AS family
-      SET revoked_at = now(),
-          revoked_reason = ${OAUTH_FAMILY_END_REASON.refreshReplayed}
+    -- The stale branch of the same predicate the old replay revocation used:
+    -- same client, spent past the interval, live family and grant. Refused,
+    -- never revoked: the family's other tokens keep working.
+    stale AS (
+      SELECT credential.family_id,
+             EXTRACT(EPOCH FROM (clock_timestamp() - credential.consumed_at))::bigint AS spend_age_seconds
       FROM credential
       CROSS JOIN reuse_interval
-      WHERE family.id = credential.family_id
-        AND credential.consumed_at IS NOT NULL
+      JOIN exomem_oauth_grants AS live_grant
+        ON live_grant.id = credential.grant_id
+       AND live_grant.revoked_at IS NULL
+      WHERE credential.consumed_at IS NOT NULL
         AND credential.consumed_at <= reuse_interval.opens_at
-        AND family.revoked_at IS NULL
-      RETURNING family.id
+        AND credential.revoked_at IS NULL
+        AND credential.family_expires_at > now()
     ),
     replacement AS (
       INSERT INTO exomem_oauth_refresh_tokens (
@@ -1365,32 +1419,48 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       RETURNING id
     )
     SELECT spent.grant_id, spent.family_id, client.client_id, oauth_grant.resource, oauth_grant.scopes,
-           spent.reused AS refresh_reused
+           spent.reused AS refresh_reused, spent.spend_age_seconds, false AS stale_refused
     FROM spent
     JOIN replacement ON replacement.family_id = spent.family_id
     JOIN access ON true
     JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = spent.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = spent.client_id
+    UNION ALL
+    SELECT NULL, stale.family_id, NULL, NULL, NULL, NULL, stale.spend_age_seconds, true
+    FROM stale
   `;
     const row = rows[0] as
       | {
+          stale_refused: false;
           grant_id: string;
           family_id: string;
           client_id: string;
           resource: string;
           scopes: string[];
           refresh_reused: boolean;
+          spend_age_seconds: number | null;
         }
+      | { stale_refused: true; family_id: string; spend_age_seconds: number }
       | undefined;
-    return row
-      ? {
-          grantId: row.grant_id,
-          familyId: row.family_id,
-          clientId: row.client_id,
-          resource: row.resource,
-          scopes: row.scopes,
-          refreshReused: row.refresh_reused,
-        }
-      : null;
+    if (!row) return null;
+    if (row.stale_refused) {
+      return {
+        kind: "stale",
+        familyId: row.family_id,
+        spendAgeSeconds: Number(row.spend_age_seconds),
+      };
+    }
+    return {
+      kind: "issued",
+      grantId: row.grant_id,
+      familyId: row.family_id,
+      clientId: row.client_id,
+      resource: row.resource,
+      scopes: row.scopes,
+      refreshReused: row.refresh_reused,
+      ...(row.spend_age_seconds === null
+        ? {}
+        : { refreshReusedSpendAgeSeconds: Number(row.spend_age_seconds) }),
+    };
   });
 }

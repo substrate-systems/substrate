@@ -68,7 +68,7 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`                                                                                                                                                                                                                                                                                     | Optional. Hours before the sweep retires a generic client holding nothing, or a connector with no grant since it registered. Default 24. A value that is not a whole number of at least 1 fails the sweep.                                                                                                                                                                                                                                                                                                                                                                              |
 | `EXOMEM_OAUTH_REFRESH_IDLE_DAYS`                                                                                                                                                                                                                                                                                           | Optional. Days a connected app's refresh token stays valid unused. Every refresh renews it. Default 30, maximum 90. See "Connected-app sessions" below.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `EXOMEM_OAUTH_SESSION_MAX_DAYS`                                                                                                                                                                                                                                                                                            | Optional. Days from sign-in at which a connected app must authorize again, however active it is. Default 365, maximum 730. Applies to new sign-ins only.                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                                                                                                                                                                                                                                                                       | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 60, maximum 300. Unset reads as 60; 0, or a value that is not a whole number, turns it off.                                                                                                                                                                                                                                                                                                                                                                 |
+| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 604800 (7 days), maximum 2592000 (30 days). Unset reads as 604800; 0, or a value that is not a whole number, turns it off.                                     |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -112,34 +112,46 @@ Check for it after a deploy that changes these variables.
 
 Parallel sessions of one app often share one stored refresh token, and a reply
 to a refresh can be lost. Both make a client present a token that Substrate has
-just spent. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` after the spend, such a
-presentation gets a fresh pair in the same family, and Substrate logs
-`exomem_oauth_refresh_reused` with the client ID and the family ID. The
+already spent — sometimes hours or days later, when one process kept a copy
+another process rotated. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` (seven days
+by default) after the spend, such a presentation gets a fresh pair in the same
+family, and Substrate logs `exomem_oauth_refresh_reused` with the client ID,
+the family ID and `spend_age_seconds`, the token's age since its spend. The
 family stays live. This applies only while the family and its grant are
-unrevoked and the family is unexpired.
+unrevoked and the family is unexpired, and the same admission checks as a first
+rotation apply.
 
-After that interval, a spent token is a replay: Substrate revokes the whole
-family with the reason `refresh_replayed`, and the person connects the app
-again. A spent token that another client presents gets no tokens.
+After that interval the presentation is stale: the token is refused with
+`invalid_grant` and the family is NOT revoked — sessions holding the family's
+other tokens keep working. Substrate logs `exomem_oauth_refresh_reuse_stale`
+with the client ID, family ID and spend age, metadata only. A spent token that
+another client presents gets no tokens, and creates no token or grant row.
 
 Know what the reuse interval gives away. The client ID is public and does not
 authenticate the party that presents a token, so anyone who holds a refresh
 token within the interval of its legitimate spend can use it:
 
 - Each reuse starts an independent chain. That chain rotates and renews like any
-  other, up to the session ceiling (365 days by default).
-- Replay detection never revokes that chain. Only revoking the family, or the
-  grant through Disconnect, ends it.
-- The number of reuses of one spent token is not limited inside the interval.
-  Only the per-address token rate limit of 30 requests per minute bounds it.
+  other, up to the session ceiling (365 days by default), and each minted
+  refresh token still expires inside its own idle window.
+- Nothing but revoking the family, or the grant through Disconnect, ends such a
+  chain — a stale presentation refuses only itself.
+- One spent token mints at most 64 children: the one its spend created, plus
+  at most sixty-three reuses. This is a loop guard for a client stuck
+  re-presenting one token, not a bound on a thief — every minted token fans
+  out on its own spend, so only revoking the family or grant ends what a
+  stolen token starts.
 
-A token stolen after the interval is a replay and revokes the family, as before.
-Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to restore strict replay.
+Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to refuse every spent-token
+presentation at once.
 
 One or two `exomem_oauth_refresh_reused` events for a family match a lost reply
-or a parallel session. A pinned client's ID is shared by every user of its
+or a parallel session; a large `spend_age_seconds` matches a session that came
+back after days away. A pinned client's ID is shared by every user of its
 platform, so read the family ID. When one family keeps reusing and its owner
-cannot explain it, revoke that family as described below.
+cannot explain it, revoke that family as described below. The owner ends a
+sign-in themselves in Home: "Connected apps", then "Disconnect" beside the app,
+which revokes the grant and every family under it.
 
 #### Whether an app can still reach the Exomem
 
@@ -201,8 +213,7 @@ not re-sent when the fixed release returns.
 ### Measure refresh-token reuse ages
 
 The reuse window (`EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`) is meant to shrink to
-the longest reuse that clients actually need. Its 7-day default applies once
-the refresh grace change ships; until then the default is 60 s. The token table
+the longest reuse that clients actually need; its default is 7 days. The token table
 already records each reuse: a refresh token's second and later children were
 minted from the already-spent parent. This query reports, per app, how old the
 spent token was at each reuse and how many rotations its session had missed. It

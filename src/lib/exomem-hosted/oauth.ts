@@ -11,7 +11,10 @@ import { redirectUriApproved } from "./oauth-client-admission";
 
 const OAUTH_PATH = "/api/exomem/oauth";
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
-const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
+// One hour: parallel CLI sessions refresh on their own cadence, and revocation
+// still lands at once because every call checks the family and grant.
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+const ACCESS_TOKEN_TTL_MS = ACCESS_TOKEN_TTL_SECONDS * 1000;
 // RFC 7636 section 4.1: code-verifier = 43*128unreserved, and unreserved is
 // ALPHA / DIGIT / "-" / "." / "_" / "~". The S256 challenge is a different
 // grammar: base64url(SHA-256) without padding, always exactly 43 characters.

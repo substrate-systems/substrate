@@ -288,9 +288,11 @@ before(() => {
           return null;
         }
         if (credential.consumed) {
-          family.revoked = true;
-          family.revokedReason = "refresh_replayed";
-          return null;
+          return {
+            kind: "stale",
+            familyId: credential.familyId,
+            spendAgeSeconds: 120,
+          };
         }
         if (!credential.policy) return null;
         credential.consumed = true;
@@ -304,6 +306,7 @@ before(() => {
         );
         revocableCredentialFamilies.set(digestKey(input.accessDigest), credential.familyId);
         return {
+          kind: "issued",
           grantId: "grant-1",
           familyId: credential.familyId,
           clientId: credential.clientId,
@@ -1638,7 +1641,7 @@ describe("Exomem OAuth routes", () => {
     assert.equal(codes.get(tokenKey(code))?.consumed, false);
   });
 
-  it("rotates a refresh token, revokes its family on replay, and leaves policy denial unconsumed", async () => {
+  it("rotates a refresh token, refuses a stale presentation without revoking, and leaves policy denial unconsumed", async () => {
     const { POST } = await import("../token/route");
     const refreshToken = Buffer.alloc(32, 0x71).toString("base64url");
     const policyDeniedToken = Buffer.alloc(32, 0x72).toString("base64url");
@@ -1667,20 +1670,37 @@ describe("Exomem OAuth routes", () => {
       })
     );
     assert.equal(success.status, 200);
+    assert.equal((await success.json()).expires_in, 3600);
     assert.equal(refreshCredentials.get(tokenKey(refreshToken))?.consumed, true);
-    const replay = await POST(
-      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body,
-      })
-    );
-    assert.equal(replay.status, 400);
-    assert.deepEqual(await replay.json(), { error: "invalid_grant" });
+    const warned: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warned.push(args);
+    try {
+      const replay = await POST(
+        new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        })
+      );
+      assert.equal(replay.status, 400);
+      assert.deepEqual(await replay.json(), { error: "invalid_grant" });
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.deepEqual(warned, [
+      [
+        {
+          event: "exomem_oauth_refresh_reuse_stale",
+          client_id: CLIENT_ID,
+          family_id: "rotation-family",
+          spend_age_seconds: 120,
+        },
+      ],
+    ]);
     assert.deepEqual(families.get("rotation-family"), {
       clientId: CLIENT_ID,
-      revoked: true,
-      revokedReason: "refresh_replayed",
+      revoked: false,
     });
     const policyDenied = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
