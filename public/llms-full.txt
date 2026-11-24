@@ -85,11 +85,11 @@ The provisioning engine is open source — you can read exactly what it does bef
 
 ---
 
-## Exomem
+## Evermatter
 
 **Tagline:** External memory for AI agents over a Markdown vault you own.
 
-Exomem is an open-source, self-hosted MCP server that gives AI agents (Claude, Codex, Cursor, or any MCP client) durable long-term memory over your own Markdown / Obsidian vault. Your files stay plain markdown on your machine — no import into a proprietary store, no cloud dependency.
+Evermatter is an open-source, self-hosted MCP server that gives AI agents (Claude, Codex, Cursor, or any MCP client) durable long-term memory over your own Markdown / Obsidian vault. Your files stay plain markdown on your machine — no import into a proprietary store, no cloud dependency.
 
 - Install: `pip install exomem` (PyPI: https://pypi.org/project/exomem/)
 - Source (AGPL-3.0): https://github.com/Artexis10/exomem
@@ -106,7 +106,7 @@ Exomem is an open-source, self-hosted MCP server that gives AI agents (Claude, C
 
 ### FAQ
 
-**Which agents can use Exomem?**
+**Which agents can use Evermatter?**
 Any MCP-capable client: Claude Code, Claude Desktop, Codex, Cursor, custom agents, or scripts via the CLI/REST surfaces.
 
 **Do my notes leave my machine?**
@@ -241,9 +241,9 @@ Endstate already reinstalls applications through WinGet and Chocolatey. Integrat
 - Sponsor an integration: https://substratesystems.io/endstate/sponsor-an-integration
 - Endstate engine (GitHub): https://github.com/Artexis10/endstate
 - Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
-- Exomem product page: https://substratesystems.io/exomem
-- Exomem (GitHub): https://github.com/Artexis10/exomem
-- Exomem (PyPI): https://pypi.org/project/exomem/
+- Evermatter product page: https://substratesystems.io/exomem
+- Evermatter (GitHub): https://github.com/Artexis10/exomem
+- Evermatter (PyPI): https://pypi.org/project/exomem/
 - Q: https://useq.ai
 - Writing: https://substratesystems.io/blog
 - Why Endstate: https://substratesystems.io/endstate/why
