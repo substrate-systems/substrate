@@ -140,6 +140,8 @@ function baseDeps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatew
     findAccessToken: async () => VALID_ACCESS,
     recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
     ...overrides,
   };
 }
@@ -1006,7 +1008,7 @@ describe("Cloud artifact fetch authority", () => {
   const FILE_CALL_BODY = JSON.stringify({
     method: "tools/call",
     params: {
-      name: "preserve_artifacts",
+      name: "save_evidence",
       arguments: {
         scope: "sample",
         category: "review",
@@ -1027,7 +1029,7 @@ describe("Cloud artifact fetch authority", () => {
       id: 1,
       method: "tools/call",
       params: {
-        name: "preserve_artifacts",
+        name: "save_evidence",
         arguments: { scope: "sample", category: "review", files: [file] },
       },
     });
@@ -1061,7 +1063,7 @@ describe("Cloud artifact fetch authority", () => {
     );
     const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
     assert.equal(claims.sub, TEST_CELL_ID);
-    assert.equal(claims.op, "preserve_artifacts");
+    assert.equal(claims.op, "save_evidence");
     assert.deepEqual(claims.handles, [
       createHash("sha256")
         .update(JSON.stringify(["synthetic-file", file.download_url, null, file.file_name]))
@@ -1113,7 +1115,7 @@ describe("Cloud artifact fetch authority", () => {
             },
           },
         }),
-        headers: { "mcp-name": "preserve_artifacts" },
+        headers: { "mcp-name": "save_evidence" },
       }),
       deps
     );
@@ -1204,7 +1206,7 @@ describe("Cloud artifact fetch authority", () => {
     const { privateKey } = generateKeyPairSync("ed25519");
     const body = JSON.stringify({
       method: "tools/call",
-      params: { name: "capture_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
+      params: { name: "save_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
     });
     const variants: Record<string, string>[] = [
       {},
@@ -1677,5 +1679,90 @@ describe("Exomem Cloud authenticated discovery (D6)", () => {
       })
     );
     assert.equal(response.status, 502);
+  });
+});
+
+// add-exomem-service-notices D3: the gateway tells a cell about the operator's current
+// notice in one header, and nobody else can set it.
+describe("Exomem Cloud gateway service notice header", () => {
+  beforeEach(() => resetCloudGatewayConcurrencyForTests());
+  const NOTICE = "eyJ2IjoxfQ";
+
+  async function forward(
+    serviceNoticeHeader: CloudGatewayDependencies["serviceNoticeHeader"],
+    headers: Record<string, string> = {}
+  ) {
+    const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+    try {
+      const response = await handleCloudMcpRequest(
+        postRequest({ bearer: CLIENT_BEARER, headers, body: "{}" }),
+        baseDeps({ serviceNoticeHeader, fetchCell: fetchCellAt(cell.port) })
+      );
+      return { response, received: cell.requests[0]?.headers };
+    } finally {
+      await cell.close();
+    }
+  }
+
+  it("sends the notice for the caller's own cell, and none when the lookup finds none", async () => {
+    const asked: string[] = [];
+    const covered = await forward(async (cellId) => {
+      asked.push(cellId);
+      return NOTICE;
+    });
+    assert.equal(covered.response.status, 200);
+    assert.equal(covered.received?.["x-exomem-service-notice"], NOTICE);
+    // The lookup is keyed by the cell the token resolved to, never by anything the caller sent.
+    assert.deepEqual(asked, [TEST_CELL_ID]);
+
+    const uncovered = await forward(async () => null);
+    assert.equal(uncovered.response.status, 200);
+    assert.equal(uncovered.received?.["x-exomem-service-notice"], undefined);
+  });
+
+  it("still serves the request when the notice lookup fails", async () => {
+    const { response, received } = await forward(async () => {
+      throw new Error("database unavailable");
+    });
+    assert.equal(response.status, 200);
+    assert.equal(received?.["x-exomem-service-notice"], undefined);
+  });
+
+  it("refuses a caller's own notice header before the cell is reached", async () => {
+    const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+    try {
+      const refused = await handleCloudMcpRequest(
+        postRequest({
+          bearer: CLIENT_BEARER,
+          headers: { "x-exomem-service-notice": NOTICE },
+          body: "{}",
+        }),
+        baseDeps({ serviceNoticeHeader: async () => NOTICE, fetchCell: fetchCellAt(cell.port) })
+      );
+      assert.equal(refused.status, 400);
+      assert.deepEqual(await refused.json(), { error: "HOSTED_SELECTOR_REJECTED" });
+      assert.equal(cell.requests.length, 0);
+    } finally {
+      await cell.close();
+    }
+  });
+
+  it("replaces a caller's copy that passed the selector check with its own, or removes it", async () => {
+    const saved = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-exomem-service-notice";
+    try {
+      const forged = { "x-exomem-service-notice": "forged" };
+      assert.equal(
+        (await forward(async () => NOTICE, forged)).received?.["x-exomem-service-notice"],
+        NOTICE
+      );
+      assert.equal(
+        (await forward(async () => null, forged)).received?.["x-exomem-service-notice"],
+        undefined
+      );
+    } finally {
+      if (saved === undefined) delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = saved;
+    }
   });
 });

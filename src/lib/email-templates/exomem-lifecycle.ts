@@ -27,6 +27,7 @@ import {
   emailDaysLeft,
   emailDuration,
   emailSameDay,
+  emailTimeSpan,
   type EmailTimeZone,
 } from "./exomem-email-time";
 
@@ -468,5 +469,69 @@ export function renderExomemAppSignoutEmail(input: {
     },
     action: { label: "Open Home", url: input.homeUrl },
     smallPrint: `One email per app a day, and only for apps you used lately.${claim} Home lists every connected app.`,
+  });
+}
+
+/**
+ * Service notices, declared by the operator. Both emails say only what the
+ * operator declared: the times, the operator's own summary and where to read
+ * more. They claim nothing about data or availability that the summary does not.
+ */
+type ServiceNoticeEmailInput = {
+  /** The operator's summary, quoted as written. */
+  summary: string;
+  statusUrl: string;
+  timeZone: EmailTimeZone;
+  scheme: ExomemEmailScheme | null;
+  themeChoice?: ExomemThemeChoice | null;
+};
+
+const SERVICE_NOTICE_REASON = "You’re getting this because you have an Exomem.";
+
+/** The email before planned maintenance: when it starts and ends, in the reader's zone. */
+export function renderExomemMaintenanceScheduledEmail(
+  input: ServiceNoticeEmailInput & { startsAt: Date; endsAt: Date }
+): RenderedEmail {
+  return renderExomemEmail({
+    base: input.scheme,
+    themeChoice: input.themeChoice,
+    subject: `Exomem maintenance on ${emailDate(input.startsAt, input.timeZone)}`,
+    preheader: `Planned for ${emailTimeSpan(input.startsAt, input.endsAt, input.timeZone)}.`,
+    band: "live",
+    headline: "Planned maintenance",
+    body: ["We have planned maintenance on Exomem.", input.summary],
+    detail: {
+      kind: "facts",
+      rows: [
+        { label: "Starts", value: emailDateTime(input.startsAt, input.timeZone) },
+        { label: "Ends", value: emailDateTime(input.endsAt, input.timeZone) },
+      ],
+    },
+    action: { label: "See the status page", url: input.statusUrl },
+    smallPrint: SERVICE_NOTICE_REASON,
+  });
+}
+
+/** The email after an incident the operator resolved: when it started and ended. */
+export function renderExomemIncidentResolvedEmail(
+  input: ServiceNoticeEmailInput & { startedAt: Date; resolvedAt: Date }
+): RenderedEmail {
+  return renderExomemEmail({
+    base: input.scheme,
+    themeChoice: input.themeChoice,
+    subject: "The Exomem problem is resolved",
+    preheader: `It ran from ${emailTimeSpan(input.startedAt, input.resolvedAt, input.timeZone)}.`,
+    band: "live",
+    headline: "The problem is resolved",
+    body: ["The Exomem problem we reported is resolved.", `We reported: ${input.summary}`],
+    detail: {
+      kind: "facts",
+      rows: [
+        { label: "Started", value: emailDateTime(input.startedAt, input.timeZone) },
+        { label: "Ended", value: emailDateTime(input.resolvedAt, input.timeZone) },
+      ],
+    },
+    action: { label: "See the status page", url: input.statusUrl },
+    smallPrint: SERVICE_NOTICE_REASON,
   });
 }

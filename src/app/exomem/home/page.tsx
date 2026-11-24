@@ -4,7 +4,7 @@ import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { cloudHomeChannelEnabled } from "@/lib/exomem-hosted/cloud-home-mcp";
 import { cloudViewerEnabled } from "@/lib/exomem-hosted/cloud-viewer";
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
-import { statusPageUrl } from "../_journey/status-page";
+import { statusPageUrl } from "@/lib/exomem-hosted/status-page-url";
 import HomeClient from "./home-client";
 import styles from "./home.module.css";
 

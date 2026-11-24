@@ -49,7 +49,7 @@ export default function SignInClient({
 }: {
   existingSessionDestination: "/exomem/home" | null;
   reviewerEnabled: boolean;
-  statusPageUrl: string | null;
+  statusPageUrl: string;
 }) {
   const started = useRef(false);
   const token = useRef<string | null>(null);

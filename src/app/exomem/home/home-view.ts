@@ -463,8 +463,6 @@ export function notices(
   storage: StorageView,
   /** False while the export flag is off; see `banner`. */
   exportOffered: boolean,
-  /** Whether a status page is configured, for the trouble notice's "Status page ↗". */
-  statusPageOffered: boolean,
   /** The same current eligibility that offers storage in Plan and account. */
   canAddStorage: boolean
 ): HomeNotice[] {
@@ -472,7 +470,7 @@ export function notices(
   const reference = account?.supportReference ?? null;
   // The board's trouble notice says saving is slow and recall works. Home cannot tell
   // that state apart, and here the cell does not answer, so it keeps its own words and
-  // adds the board's status page link (design.md (v)).
+  // always adds the board's status page link (design.md (v)).
   if (variant === "trouble") {
     list.push({
       key: "trouble",
@@ -480,10 +478,7 @@ export function notices(
         reference ? ` Support reference: ${reference}.` : ""
       }`,
       attention: false,
-      actions: [
-        ...(reference ? (["copy_reference"] as const) : []),
-        ...(statusPageOffered ? (["status_page"] as const) : []),
-      ],
+      actions: [...(reference ? (["copy_reference"] as const) : []), "status_page" as const],
     });
   }
   // An ended memory is deleted when its kept window closes. Without an export, support

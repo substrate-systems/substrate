@@ -16,3 +16,7 @@ npm run openspec:list
 # Validate specs
 npm run openspec:validate
 ```
+
+## Exomem Cloud load target
+
+Exomem Cloud plans for 10,000 tenants. A plan for a user-facing route, job or query cites this target, the size of the data it touches and a latency budget.
