@@ -2,11 +2,11 @@
 
 ### Requirement: OAuth Authorization Is Client-Bound And Exomem-Owned
 
-The authorization server SHALL implement authorization code with PKCE S256, exact redirect URI binding, short-lived single-use codes, CSRF-safe browser state, resource-indicator/audience binding, explicit read/write scopes, and approved client registration mechanisms. It MUST NOT accept or pass through another provider's access token as an Exomem credential. Ordinary service-client admission SHALL be bounded by approved pinned registrations or an operator-curated allowlist of hosts trusted to serve Client ID Metadata Documents, independently of distributed artifact certification. Generic arbitrary client admission MUST remain disabled during the friends alpha.
+The authorization server SHALL implement the authorization code grant with PKCE S256, exact redirect URI binding apart from the RFC 8252 loopback port rule, short-lived single-use codes, CSRF-safe browser state, resource-indicator binding to an accepted Cloud MCP resource, and explicit read and write scopes. A Cloud grant SHALL carry both `exomem.read` and `exomem.write`: a request that omits the scope receives both, and a request for only one is refused with `invalid_scope`. Clients SHALL be admitted only through an operator registration or a validated Client ID Metadata Document from an operator-allowlisted host. While the operator enables the generic client lane, the server SHALL also admit dynamic registration and a validated Client ID Metadata Document from any HTTPS host; otherwise it SHALL refuse both. Admission SHALL confer no authority over a tenant: an admitted client reaches one only where an unspent invite or an existing ownership entitles the signed-in identity. Client resolution, authorization, consent, owner attachment, invite admission, code exchange, access lookup and refresh SHALL all apply one admission rule, so that no stage admits a client that another stage refuses. The server MUST NOT accept or pass through another provider's access token as an Exomem credential.
 
 #### Scenario: Approved public client authorizes correctly
 
-- **WHEN** an approved client presents an approved pre-registration, validated HTTPS Client ID Metadata Document, or explicitly enabled bounded registration with an exact redirect, resource, scopes, state, and PKCE challenge
+- **WHEN** an approved client presents an exact registered redirect, an accepted resource, both scopes or no scope, a state value and an S256 PKCE challenge
 - **THEN** the server begins one short-lived Exomem authorization transaction bound to those values
 
 #### Scenario: Authorization code is intercepted or replayed
@@ -21,7 +21,7 @@ The authorization server SHALL implement authorization code with PKCE S256, exac
 
 #### Scenario: Client is served by a host outside the allowlist
 
-- **WHEN** an unknown client identifies by an HTTPS Client ID Metadata Document whose host is not on the admitted-host allowlist and which has no approved pinned registration
+- **WHEN** an unknown client presents an HTTPS Client ID Metadata Document URL whose host is not on the operator allowlist, while the generic client lane is disabled
 - **THEN** authorization fails without registering a client, fetching that host's metadata, or disclosing whether any other client is admitted
 
 #### Scenario: Upstream identity service is unavailable after authorization

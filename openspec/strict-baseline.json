@@ -26,7 +26,6 @@
     "too-long change/admit-generic-mcp-clients/exomem-hosted-mcp-oauth :: Dynamic Client Registration Is Bounded And Non-Enumerating",
     "too-long change/admit-generic-mcp-clients/exomem-hosted-mcp-oauth :: Generic Admission Is Disabled Until Deliberately Enabled",
     "too-long change/admit-generic-mcp-clients/exomem-hosted-mcp-oauth :: Generic MCP Clients Are Admitted Without Certification",
-    "too-long change/admit-standard-mcp-clients/exomem-hosted-mcp-oauth :: OAuth Authorization Is Client-Bound And Exomem-Owned",
     "too-long change/adopt-exomem-cloud-plain-cells/exomem-cloud-control-plane :: Admission to Exomem Cloud needs only an invite, an entitlement and capacity",
     "too-long change/adopt-exomem-cloud-plain-cells/exomem-cloud-control-plane :: Cloud OAuth clients are admitted by approved host, not by cohort",
     "too-long change/adopt-exomem-cloud-plain-cells/exomem-cloud-control-plane :: Cloud cell lifecycle is written as desired state",
