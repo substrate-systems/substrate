@@ -5,8 +5,12 @@ import type { ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 /** The one prepared-body cap: artifact inspection, transfer tools and the gateway hold (D5) share it. */
 export const MAX_PREPARED_BODY_BYTES = 1024 * 1024;
 const BODY_READ_MS = 5000;
-/** The tools whose calls carry file handles, and what one grant allows them (also told to clients). */
-export const CLOUD_ARTIFACT_TOOLS = ["capture_source", "preserve_artifacts"] as const;
+/**
+ * The tools whose calls carry file handles, and what one grant allows them (also told to clients).
+ * The grant's `op` is the called tool's name, and the cell accepts only these two (cells from
+ * 0.171.0 renamed `capture_source` and `preserve_artifacts` to them).
+ */
+export const CLOUD_ARTIFACT_TOOLS = ["save_source", "save_evidence"] as const;
 export const CLOUD_ARTIFACT_MAX_FILES = 8;
 export const CLOUD_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 const OPERATIONS: ReadonlySet<string> = new Set(CLOUD_ARTIFACT_TOOLS);

@@ -108,7 +108,7 @@ export default async function ExomemAuthorizePage({
         request={null}
         expiredApp={view.app ? requestApp(view.app) : null}
         requestLife={requestLife()}
-        statusPageUrl={null}
+        statusPageUrl={statusPageUrl()}
       />
     );
   }

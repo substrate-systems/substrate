@@ -104,8 +104,8 @@ export default function HomeClient({
    * Home asks neither and leaves both out (design.md deviation (u)).
    */
   channelOn: boolean;
-  /** "Status page ↗" on the trouble notice; null when none is configured. */
-  statusPageUrl: string | null;
+  /** "Status page ↗" on the trouble notice: always offered, `statusPageUrl()` supplies the address. */
+  statusPageUrl: string;
   storageOffered?: boolean;
   accessLogOffered?: boolean;
   viewerOffered?: boolean;
@@ -656,14 +656,7 @@ export default function HomeClient({
   const canAddStorage =
     storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
   const openStorage = () => setStorageOpen(true);
-  const homeNotices = notices(
-    variant,
-    account,
-    storage,
-    exportOffered,
-    statusPageUrl !== null,
-    canAddStorage
-  );
+  const homeNotices = notices(variant, account, storage, exportOffered, canAddStorage);
   const first = isLive(variant) ? firstNoteLine(facts, clock) : null;
   const accountBanner = banner(variant, account, billing, clock, exportOffered);
   const exportSummary = status?.exportSummary;
@@ -757,7 +750,7 @@ export default function HomeClient({
                               <span>{referenceCopied ? "Copied" : "Copy reference"}</span>
                             </span>
                           </Button>
-                        ) : action === "status_page" && statusPageUrl ? (
+                        ) : action === "status_page" ? (
                           <ButtonLink
                             key={action}
                             size="detail"

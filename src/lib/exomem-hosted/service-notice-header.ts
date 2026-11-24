@@ -13,7 +13,7 @@ import {
   toNotice,
   type ServiceNotice,
 } from "./service-notice-model";
-import { statusPageUrlOrDefault } from "./status-page-url";
+import { statusPageUrl } from "./status-page-url";
 import { emailDateTime, emailTimeSpan } from "../email-templates/exomem-email-time";
 
 export const SAY_MAX_CHARS = 400;
@@ -193,7 +193,7 @@ let noticeLoadFailures = 0;
  */
 export function createNoticeCache(options: NoticeCacheOptions): NoticeCache {
   const now = options.now ?? (() => Date.now());
-  const statusUrl = options.statusUrl ?? (() => statusPageUrlOrDefault());
+  const statusUrl = options.statusUrl ?? (() => statusPageUrl());
   const ttlMs = options.ttlMs ?? NOTICE_CACHE_TTL_MS;
   const loadTimeoutMs = options.loadTimeoutMs ?? NOTICE_LOAD_TIMEOUT_MS;
 

@@ -21,6 +21,6 @@
 
 ## 5. Delivery
 
-- [ ] 5.1 Rebase onto `main` after #320 merges and renumber the migration; pass scoped tests and the full suite.
-- [ ] 5.2 Review the batch independently; resolve findings.
-- [ ] 5.3 Merge and release; verify the admin route and an empty notice list in production without creating a notice.
+- [x] 5.1 Rebase onto `main` after #320 merges and renumber the migration; pass scoped tests and the full suite.
+- [x] 5.2 Review the batch independently; resolve findings.
+- [x] 5.3 Merge and release; verify the admin route and an empty notice list in production without creating a notice. Evidence: #322 merged and deployed (Vercel production deployment succeeded; the admin route answers 401 without a token); the gateway image from 7048f53 runs in production. Unverified: the authenticated empty-list read, which needs an operator production grant; the migration is inferred from the successful production build.

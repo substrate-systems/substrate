@@ -21,7 +21,7 @@ import {
   type ServiceNotice,
 } from "./service-notice-model";
 import { codePoints, composeNoticeSay } from "./service-notice-header";
-import { statusPageUrlOrDefault } from "./status-page-url";
+import { statusPageUrl } from "./status-page-url";
 
 const SUMMARY_MAX_CHARS = 280;
 
@@ -256,7 +256,7 @@ export async function previewServiceNotice(input: NewNotice): Promise<NoticePrev
     say: composeNoticeSay(
       input,
       input.kind === "incident" ? "active" : "scheduled",
-      statusPageUrlOrDefault()
+      statusPageUrl()
     ),
   };
 }
@@ -267,7 +267,7 @@ export function describeNotice(notice: ServiceNotice, at: Date) {
   // Only a current notice has words for the assistant to relay.
   const say =
     state === "scheduled" || state === "active"
-      ? composeNoticeSay(notice, state, statusPageUrlOrDefault())
+      ? composeNoticeSay(notice, state, statusPageUrl())
       : null;
   const iso = (value: Date | null) => (value ? value.toISOString() : null);
   return {
