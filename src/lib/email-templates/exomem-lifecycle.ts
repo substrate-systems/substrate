@@ -33,6 +33,11 @@ import {
 
 type RenderedEmail = RenderedExomemEmail;
 
+/** Slot 1 of the email design contract: a subject holds 45 characters or fewer. */
+const SUBJECT_SLOT_LENGTH = 45;
+/** What the sign-out subject says after the app's name. */
+const SIGNED_OUT_SUBJECT_SUFFIX = " can’t reach your Evermatter";
+
 /** "1,204": a count as the boards write it. */
 function count(value: number): string {
   return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 }).format(value);
@@ -442,17 +447,21 @@ export function renderExomemAppSignoutEmail(input: {
   themeChoice?: ExomemThemeChoice | null;
 }): RenderedEmail {
   const day = emailDate(input.signedOutAt, input.timeZone);
-  // The subject stays within its 45-character slot; a longer self-declared
-  // name still names the app in the headline, body and facts. Truncate by
-  // code points so an astral character never leaves a lone surrogate.
+  // The subject stays within its slot; a longer self-declared name still names
+  // the app in the headline, body and facts. The name gets what the fixed
+  // suffix leaves. Truncate by code points so an astral character never leaves
+  // a lone surrogate.
+  const nameBudget = SUBJECT_SLOT_LENGTH - [...SIGNED_OUT_SUBJECT_SUFFIX].length;
   const namePoints = [...input.appName];
   const subjectName =
-    namePoints.length <= 17 ? input.appName : `${namePoints.slice(0, 16).join("")}…`;
+    namePoints.length <= nameBudget
+      ? input.appName
+      : `${namePoints.slice(0, nameBudget - 1).join("")}…`;
   const claim = input.appNameClaimed ? ` “${input.appName}” is what the app calls itself.` : "";
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: `${subjectName} can’t reach your Evermatter`,
+    subject: `${subjectName}${SIGNED_OUT_SUBJECT_SUFFIX}`,
     preheader: `Since ${day}, nothing it saves gets there. Reconnect to fix it.`,
     band: "readonly",
     headline: `${input.appName} is signed out`,

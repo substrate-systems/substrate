@@ -30,7 +30,7 @@ export const metadata = buildExomemMetadata({
   // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
   // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
   // flagged over-long titles elsewhere.
-  title: "Evermatter — MCP memory server over Markdown knowledge base",
+  title: "Evermatter — MCP memory server for a Markdown knowledge base",
   description: `${PHONE_LEDE_START}.`,
   path: "/exomem",
 });
