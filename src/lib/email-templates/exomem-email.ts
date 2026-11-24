@@ -55,8 +55,8 @@ export function exomemEmailSchemeQuery(scheme: ExomemEmailScheme): string {
   return `(prefers-color-scheme: ${scheme})`;
 }
 
-/** Where the state bands and the wordmark are served, under the public base URL. */
-export const EXOMEM_EMAIL_ASSET_PATH = "/exomem/email";
+/** Where the state bands and the wordmark are served, under the public base URL: the brand kit's email folder. */
+export const EXOMEM_EMAIL_ASSET_PATH = "/evermatter/email";
 
 export function exomemEmailBandFile(band: ExomemEmailBand, scheme: ExomemEmailScheme): string {
   return `band-${band}-${scheme}.png`;
@@ -66,8 +66,8 @@ export function exomemEmailWordmarkFile(scheme: ExomemEmailScheme): string {
   return `wordmark-${scheme}.png`;
 }
 
-/** The wordmark's drawn size in CSS pixels: 16 px tall, the E-initial wordmark's aspect. */
-export const EXOMEM_EMAIL_WORDMARK = { width: 79, height: 16 } as const;
+/** The wordmark's drawn size in CSS pixels: half the kit PNG's 399 × 48 pixels, so it is sharp at 2x. */
+export const EXOMEM_EMAIL_WORDMARK = { width: 199.5, height: 24 } as const;
 
 export type ExomemEmailFact = {
   label: string;
@@ -322,7 +322,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       { dark: exomemEmailWordmarkFile("dark"), light: exomemEmailWordmarkFile("light") },
       {
         ...EXOMEM_EMAIL_WORDMARK,
-        alt: "Exomem",
+        alt: "Evermatter",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
       },
       wordmarkUrl(),
