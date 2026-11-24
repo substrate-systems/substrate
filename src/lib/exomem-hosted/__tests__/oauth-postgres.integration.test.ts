@@ -773,7 +773,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         clientId,
         resource,
       });
-      assert.equal(rotated?.grantId, fixture.grantId);
+      assert.equal(rotated?.kind === "issued" && rotated.grantId, fixture.grantId);
       assert.equal(
         (
           await pool!.query(
@@ -932,9 +932,9 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       2
     );
 
-    // The replay arrives after the reuse interval, so it is a replay and not a retry.
+    // The presentation arrives after the reuse interval, so it is stale and not a retry.
     await pool!.query(
-      "UPDATE exomem_oauth_refresh_tokens SET consumed_at = now() - interval '1 hour' WHERE refresh_digest = $1",
+      "UPDATE exomem_oauth_refresh_tokens SET consumed_at = now() - interval '8 days' WHERE refresh_digest = $1",
       [digest(131)]
     );
     const replay = await rotateOAuthRefreshTokenAtomic({
@@ -945,10 +945,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       clientId,
       resource,
     });
-    assert.equal(replay, null);
+    assert.equal(replay?.kind, "stale");
     assert.equal(
       await scalar(
-        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NULL",
         [offlineResult!.familyId]
       ),
       1
@@ -2657,6 +2657,97 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
     }
   });
+
+  // The incident behind the grace window: one shared auto-registered client
+  // whose metadata lapses daily, with parallel sessions holding copies of one
+  // stored token. A session presenting a token a sibling rotated must still
+  // reach the refetch path — answering invalid_grant there clears its store.
+  it("refetches lapsed CIMD metadata for a spent token inside the reuse interval", async () => {
+    const grace: OAuthSessionPolicy = {
+      refreshIdleDays: 30,
+      sessionMaxDays: 365,
+      refreshReuseSeconds: 604800,
+    };
+    const host = `reuse-refetch-${randomUUID()}.example.test`;
+    const connector = `https://${host}/oauth/client.json`;
+    const fetchCimd = async () => cimdMetadata(connector, [`https://${host}/callback`], "c");
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('claude', $1)",
+      [host]
+    );
+    try {
+      const registered = await registerAdmittedCimdClient(connector, { fetchCimd });
+      assert.ok(registered);
+      const fixture = await seedAuthorizationCode(registered.id, 7501, true);
+      assert.ok(
+        await issueOAuthTokensFromCodeAtomic({
+          codeDigest: fixture.codeDigest,
+          clientId: connector,
+          redirectUri: "https://client.example.test/callback",
+          resource,
+          pkceChallenge: "challenge",
+          refreshDigest: digest(7502),
+          accessDigest: digest(7503),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+          sessionPolicy: grace,
+        })
+      );
+      const rotate = (sequence: number) =>
+        rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(7502),
+          replacementRefreshDigest: digest(sequence),
+          accessDigest: digest(sequence + 1),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+          clientId: connector,
+          resource,
+          sessionPolicy: grace,
+        });
+      assert.equal((await rotate(7504))?.kind, "issued", "the first rotation spends the token");
+
+      // A parallel session kept the stored token and presents it an hour
+      // after the sibling's spend: inside the interval it gets its own pair.
+      await pool!.query(
+        "UPDATE exomem_oauth_refresh_tokens SET consumed_at = now() - interval '1 hour' WHERE refresh_digest = $1",
+        [digest(7502)]
+      );
+      assert.equal((await rotate(7506))?.kind, "issued");
+
+      // A day later the shared client's metadata has lapsed again and the same
+      // session presents the spent token once more. The rotation refuses only
+      // for the metadata, so the route path must refetch and then issue.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
+         SET metadata_fetched_at = metadata_fetched_at - interval '25 hours',
+             metadata_expires_at = metadata_expires_at - interval '25 hours'
+         WHERE client_id = $1`,
+        [connector]
+      );
+      assert.equal(await rotate(7508), null, "rotation still needs fresh metadata");
+      assert.equal(
+        await refreshCimdMetadataState({
+          refreshDigest: digest(7502),
+          clientId: connector,
+          sessionPolicy: grace,
+        }),
+        "lapsed",
+        "a spent token inside the interval is eligible for the refetch"
+      );
+      assert.ok(await registerAdmittedCimdClient(connector, { fetchCimd }));
+      assert.equal(
+        (await rotate(7510))?.kind,
+        "issued",
+        "the token route refetches and then issues instead of answering invalid_grant"
+      );
+    } finally {
+      await pool!.query(
+        `DELETE FROM exomem_oauth_grants
+         WHERE client_id = (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [connector]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [connector]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
   // A connected client stays signed in for as long as it keeps refreshing, and a
   // refresh token spent a moment ago is not yet a stolen one: parallel sessions
   // that share one stored credential, and a client retrying after a lost reply,
@@ -2666,6 +2757,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       refreshIdleDays: 10,
       sessionMaxDays: 30,
       refreshReuseSeconds: 60,
+    };
+    /** The shipped grace: a same-client spent token may come back for a week. */
+    const gracePolicy: OAuthSessionPolicy = {
+      refreshIdleDays: 30,
+      sessionMaxDays: 365,
+      refreshReuseSeconds: 604800,
     };
     const otherClientId = "https://other-client.example.test/metadata.json";
 
@@ -2700,7 +2797,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     ) {
       const replacementRefreshDigest = randomBytes(32);
       const accessDigest = randomBytes(32);
-      const issued = await rotateOAuthRefreshTokenAtomic({
+      const rotation = await rotateOAuthRefreshTokenAtomic({
         refreshDigest,
         replacementRefreshDigest,
         accessDigest,
@@ -2709,7 +2806,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         resource,
         sessionPolicy: options.sessionPolicy ?? policy,
       });
-      return { issued, replacementRefreshDigest, accessDigest };
+      return { rotation, replacementRefreshDigest, accessDigest };
     }
 
     async function daysUntilRefreshExpiry(refreshDigest: Buffer): Promise<number> {
@@ -2755,7 +2852,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         [session.refreshDigest]
       );
       const renewed = await refresh(session.refreshDigest);
-      assert.ok(renewed.issued);
+      assert.equal(renewed.rotation?.kind, "issued");
       const renewedDays = await daysUntilRefreshExpiry(renewed.replacementRefreshDigest);
       assert.ok(Math.abs(renewedDays - 10) < 0.01);
 
@@ -2765,7 +2862,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         [session.familyId]
       );
       const capped = await refresh(renewed.replacementRefreshDigest);
-      assert.ok(capped.issued);
+      assert.equal(capped.rotation?.kind, "issued");
       const { rows } = await pool!.query(
         `SELECT token.expires_at = family.expires_at AS at_ceiling
          FROM exomem_oauth_refresh_tokens AS token
@@ -2779,42 +2876,101 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     it("gives the same client a working pair when it presents a spent token again inside the interval", async () => {
       const session = await signIn(8102);
       const first = await refresh(session.refreshDigest);
-      assert.ok(first.issued);
+      assert.equal(first.rotation?.kind, "issued");
 
       const retry = await refresh(session.refreshDigest);
 
-      assert.equal(retry.issued?.familyId, session.familyId);
-      assert.equal(retry.issued?.refreshReused, true);
+      assert.equal(retry.rotation?.kind, "issued");
+      if (retry.rotation?.kind !== "issued") return;
+      assert.equal(retry.rotation.familyId, session.familyId);
+      assert.equal(retry.rotation.refreshReused, true);
       assert.equal((await familyState(session.familyId)).revoked, false);
       assert.ok(await findCloudOAuthAccessToken(retry.accessDigest, resource));
       // Neither session loses its credential: both replacements rotate.
-      assert.ok((await refresh(first.replacementRefreshDigest)).issued);
-      assert.ok((await refresh(retry.replacementRefreshDigest)).issued);
+      assert.equal((await refresh(first.replacementRefreshDigest)).rotation?.kind, "issued");
+      assert.equal((await refresh(retry.replacementRefreshDigest)).rotation?.kind, "issued");
     });
 
-    it("revokes the family when a spent token is presented after the interval", async () => {
+    it("gives the same client a working pair two hours after the spend, inside the grace", async () => {
+      const session = await signIn(8110, gracePolicy);
+      const first = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
+      assert.equal(first.rotation?.kind, "issued");
+      await spentSecondsAgo(session.refreshDigest, 2 * 3600);
+
+      const retry = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
+
+      assert.equal(retry.rotation?.kind, "issued");
+      if (retry.rotation?.kind !== "issued") return;
+      assert.equal(retry.rotation.familyId, session.familyId);
+      assert.equal(retry.rotation.refreshReused, true);
+      assert.ok(
+        Math.abs((retry.rotation.refreshReusedSpendAgeSeconds ?? 0) - 2 * 3600) < 60
+      );
+      assert.equal((await familyState(session.familyId)).revoked, false);
+      assert.ok(await findCloudOAuthAccessToken(retry.accessDigest, resource));
+    });
+
+    it("refuses a spent token presented after the interval, without revoking the family", async () => {
       const session = await signIn(8103);
       const first = await refresh(session.refreshDigest);
-      assert.ok(first.issued);
+      assert.equal(first.rotation?.kind, "issued");
       await spentSecondsAgo(session.refreshDigest, 120);
 
-      assert.equal((await refresh(session.refreshDigest)).issued, null);
+      const stale = await refresh(session.refreshDigest);
+
+      assert.equal(stale.rotation?.kind, "stale");
+      if (stale.rotation?.kind !== "stale") return;
+      assert.equal(stale.rotation.familyId, session.familyId);
+      assert.ok(Math.abs(stale.rotation.spendAgeSeconds - 120) < 60);
 
       const family = await familyState(session.familyId);
-      assert.equal(family.revoked, true);
-      assert.equal(family.revoked_reason, "refresh_replayed");
-      assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
-      assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
+      assert.equal(family.revoked, false);
+      // Other holders of the family's tokens keep working.
+      assert.equal(
+        (await refresh(first.replacementRefreshDigest)).rotation?.kind,
+        "issued"
+      );
+      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
     });
 
-    it("treats a spent token as replayed at once when the interval is set to 0", async () => {
+    it("refuses a spent token eight days after its spend while other sessions keep working", async () => {
+      const session = await signIn(8111, gracePolicy);
+      const first = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
+      assert.equal(first.rotation?.kind, "issued");
+      await spentSecondsAgo(session.refreshDigest, 8 * 86400);
+
+      const stale = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
+
+      assert.equal(stale.rotation?.kind, "stale");
+      if (stale.rotation?.kind !== "stale") return;
+      assert.equal(stale.rotation.familyId, session.familyId);
+      assert.ok(Math.abs(stale.rotation.spendAgeSeconds - 8 * 86400) < 60);
+
+      const family = await familyState(session.familyId);
+      assert.equal(family.revoked, false);
+      // A session holding the live replacement still refreshes and calls MCP.
+      assert.equal(
+        (await refresh(first.replacementRefreshDigest, { sessionPolicy: gracePolicy }))
+          .rotation?.kind,
+        "issued"
+      );
+      assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
+    });
+
+    it("refuses a spent token at once when the interval is set to 0, without revoking", async () => {
       const off = { ...policy, refreshReuseSeconds: 0 };
       const session = await signIn(8104, off);
-      assert.ok((await refresh(session.refreshDigest, { sessionPolicy: off })).issued);
+      assert.equal(
+        (await refresh(session.refreshDigest, { sessionPolicy: off })).rotation?.kind,
+        "issued"
+      );
 
-      assert.equal((await refresh(session.refreshDigest, { sessionPolicy: off })).issued, null);
+      assert.equal(
+        (await refresh(session.refreshDigest, { sessionPolicy: off })).rotation?.kind,
+        "stale"
+      );
 
-      assert.equal((await familyState(session.familyId)).revoked_reason, "refresh_replayed");
+      assert.equal((await familyState(session.familyId)).revoked, false);
     });
 
     it("gives another client nothing for a token that was just spent", async () => {
@@ -2829,11 +2985,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         [otherClientId, "e".repeat(64)]
       );
       const session = await signIn(8105);
-      assert.ok((await refresh(session.refreshDigest)).issued);
+      assert.equal((await refresh(session.refreshDigest)).rotation?.kind, "issued");
 
       const presented = await refresh(session.refreshDigest, { client: otherClientId });
 
-      assert.equal(presented.issued, null);
+      assert.equal(presented.rotation, null);
       assert.equal(
         await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
           session.familyId,
@@ -2850,15 +3006,49 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         refresh(session.refreshDigest),
       ]);
 
-      assert.ok(one.issued);
-      assert.ok(other.issued);
-      assert.equal([one.issued, other.issued].filter((issued) => issued.refreshReused).length, 1);
+      assert.equal(one.rotation?.kind, "issued");
+      assert.equal(other.rotation?.kind, "issued");
+      assert.equal(
+        [one.rotation, other.rotation].filter(
+          (rotation) => rotation?.kind === "issued" && rotation.refreshReused
+        ).length,
+        1
+      );
       assert.equal((await familyState(session.familyId)).revoked, false);
+    });
+
+    it("bounds the replacements one spent token mints", async () => {
+      const session = await signIn(8112, gracePolicy);
+      const first = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
+      assert.equal(first.rotation?.kind, "issued");
+
+      // The spend minted replacement 1 of 64, so sixty-three reuses succeed.
+      for (let index = 0; index < 63; index += 1) {
+        assert.equal(
+          (await refresh(session.refreshDigest, { sessionPolicy: gracePolicy })).rotation
+            ?.kind,
+          "issued",
+          `reuse ${index + 2}`
+        );
+      }
+
+      const over = await refresh(session.refreshDigest, { sessionPolicy: gracePolicy });
+
+      // Sixty-four children is the loop guard: this reuse is refused like any
+      // other refusal, and it is not a stale presentation either.
+      assert.equal(over.rotation, null);
+      assert.equal((await familyState(session.familyId)).revoked, false);
+      // The first chain still rotates normally.
+      assert.equal(
+        (await refresh(first.replacementRefreshDigest, { sessionPolicy: gracePolicy }))
+          .rotation?.kind,
+        "issued"
+      );
     });
 
     it("refuses a retry once the family ceiling has passed", async () => {
       const session = await signIn(8107);
-      assert.ok((await refresh(session.refreshDigest)).issued);
+      assert.equal((await refresh(session.refreshDigest)).rotation?.kind, "issued");
       await pool!.query(
         `UPDATE exomem_oauth_token_families
          SET created_at = now() - interval '2 days', expires_at = now() - interval '1 day'
@@ -2866,13 +3056,13 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         [session.familyId]
       );
 
-      assert.equal((await refresh(session.refreshDigest)).issued, null);
+      assert.equal((await refresh(session.refreshDigest)).rotation, null);
     });
 
     it("ends access when the owner disconnects the app, retry inside the interval included", async () => {
       const session = await signIn(8108);
       const first = await refresh(session.refreshDigest);
-      assert.ok(first.issued);
+      assert.equal(first.rotation?.kind, "issued");
       assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
 
       assert.equal(
@@ -2884,15 +3074,15 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         true
       );
 
-      assert.equal((await refresh(session.refreshDigest)).issued, null);
-      assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
+      assert.equal((await refresh(session.refreshDigest)).rotation, null);
+      assert.equal((await refresh(first.replacementRefreshDigest)).rotation, null);
       assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
     });
 
     it("ends access when one family is revoked, retry inside the interval included", async () => {
       const session = await signIn(8109);
       const first = await refresh(session.refreshDigest);
-      assert.ok(first.issued);
+      assert.equal(first.rotation?.kind, "issued");
       assert.ok(await findCloudOAuthAccessToken(first.accessDigest, resource));
 
       assert.equal(
@@ -2904,8 +3094,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         true
       );
 
-      assert.equal((await refresh(session.refreshDigest)).issued, null);
-      assert.equal((await refresh(first.replacementRefreshDigest)).issued, null);
+      assert.equal((await refresh(session.refreshDigest)).rotation, null);
+      assert.equal((await refresh(first.replacementRefreshDigest)).rotation, null);
       assert.equal(await findCloudOAuthAccessToken(first.accessDigest, resource), null);
     });
   });

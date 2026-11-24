@@ -5,6 +5,7 @@ import {
   CloudPrincipalHasNoCellError,
 } from "@/lib/exomem-hosted/cloud-oauth";
 import {
+  ACCESS_TOKEN_TTL_SECONDS,
   isPkceVerifier,
   mintOpaqueTokenMaterial,
   OAuthProtocolError,
@@ -237,7 +238,7 @@ function tokenResponse(input: {
     {
       access_token: input.accessToken,
       token_type: "Bearer",
-      expires_in: 15 * 60,
+      expires_in: ACCESS_TOKEN_TTL_SECONDS,
       scope: input.scopes.join(" "),
       ...(input.refreshToken ? { refresh_token: input.refreshToken } : {}),
     },
@@ -336,17 +337,30 @@ export async function POST(request: Request): Promise<NextResponse> {
         });
       // A rotation refused for stale metadata writes nothing, so the same
       // material can be tried again once the connector's metadata is fresh.
-      let issued = await rotate();
-      if (!issued) {
+      let rotation = await rotate();
+      if (!rotation) {
         const refetch = await refetchConnectorMetadata(form.client_id, refreshDigest);
         if (refetch === "unavailable") return connectorMetadataUnavailable(form.client_id);
-        if (refetch === "fresh") issued = await rotate();
+        if (refetch === "fresh") rotation = await rotate();
       }
-      // Rotation also answers null for a refresh token replayed outside the reuse
-      // interval, which revokes the family -- so this line is the operator's only
-      // sight of a replay.
-      if (!issued)
+      // A spent token presented by its own client past the reuse interval is
+      // refused but never revokes the family: a session that returns with a
+      // token rotated while it was away loses only itself. This line, metadata
+      // only, is the operator's sight of how stale the presentation was.
+      if (rotation?.kind === "stale") {
+        console.warn({
+          event: "exomem_oauth_refresh_reuse_stale",
+          client_id: form.client_id,
+          family_id: rotation.familyId,
+          spend_age_seconds: rotation.spendAgeSeconds,
+        });
+        return refusedGrant(form.client_id, "refresh_rotation", {
+          client_id: form.client_id,
+        });
+      }
+      if (!rotation)
         return refusedGrant(form.client_id, "refresh_rotation", { client_id: form.client_id });
+      const issued = rotation;
       if (!(await assertCloudTokenIssuancePermitted(issued.grantId)))
         return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       // A reuse is the operator's only sight of lost replies and of sessions that
@@ -357,6 +371,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           event: "exomem_oauth_refresh_reused",
           client_id: form.client_id,
           family_id: issued.familyId,
+          spend_age_seconds: issued.refreshReusedSpendAgeSeconds,
         });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
