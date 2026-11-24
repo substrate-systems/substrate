@@ -52,12 +52,13 @@
   - Not exploitable as deployed: only `chatgpt.com` is seeded, and OpenAI generates those documents. It was a defence-in-depth gap resting entirely on an allowlisted host's own correctness, and on the assumption that no future host is added carelessly.
 - [x] 5.3 Open a PR whose description states plainly that this widens an admission predicate, and links the design's Risks section — carried by the follow-up PRs that closed the test gaps and the redirect finding, since the implementation had already merged
 - [x] 5.4 ~~After deploy, verify against production that a second, fresh ChatGPT connector — not the one used for promotion evidence — reaches the consent screen, since that is the observation this change exists to make possible~~
-  - Withdrawn: the approved design of `adopt-exomem-cloud-plain-cells` ("Disposition of existing changes") superseded the promotion evidence this task refers to, and #222 deleted promotion. A real ChatGPT connector refreshed against production on 2026-09-30 (plain-cells task notes).
+  - Withdrawn: the approved design of `adopt-exomem-cloud-plain-cells` ("Disposition of existing changes") says "The remaining tasks of … `admit-cimd-clients-by-host` are superseded too", and #222 deleted promotion.
 
 ## 6. Native clients (substrate#188)
 
 - [x] 6.1 Red test: a CIMD document listing only loopback redirects (Claude Code's real document) is refused, and a loopback redirect on any port fails to match a portless registration; then admit loopback in `cimdRedirectsAdmissible` and match portless loopback registrations on any port in `redirectUriApproved`
 - [x] 6.2 Route every approved-redirect check through `redirectUriApproved`: `/authorize`, `validateAuthorizationRequest` and continuation re-validation
 - [x] 6.3 Refusal tests: a cleartext non-loopback redirect (alone or beside loopback), credentials or a fragment, another loopback host, path, query or scheme, and another port for a loopback redirect registered with one (including an explicit `:80`); a PostgreSQL case registers Claude Code's real document and re-validates a continuation on a free port
-- [ ] 6.4 After deploy, Claude Code completes `/mcp` authentication to `https://exomem.substratesystems.io/mcp` with no pinned client; then disable the reviewer-bootstrap clients
+- [x] 6.4 ~~After deploy, Claude Code completes `/mcp` authentication to `https://exomem.substratesystems.io/mcp` with no pinned client; then disable the reviewer-bootstrap clients~~
+  - Withdrawn: the same plain-cells disposition supersedes the remaining tasks of this change. Disabling the reviewer-bootstrap clients is owned by `reclaim-oauth-client-slots` section 5.
 
