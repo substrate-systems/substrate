@@ -534,10 +534,15 @@ export function appGlyph(app: HomeApp): string {
   return app.displayName.trim().charAt(0).toUpperCase() || "+";
 }
 
+// A product display rule, not data: elapsed time rather than calendar days, so an
+// app used on Friday evening does not read quiet on Monday morning.
+const QUIET_AFTER_MS = 3 * 24 * 3_600_000;
+
 /**
  * The row's second line: whether the app can still reach the Exomem, when it
  * connected and when it last reached it. A signed-out app leads with when it
- * lost access and what reconnecting takes. On a reviewer account it says the
+ * lost access and what reconnecting takes. A signed-in app unused for three
+ * days says since when, in case it dropped its login. On a reviewer account it says the
  * app joined during the review; a name the app gave itself shows where
  * access goes.
  */
@@ -558,8 +563,20 @@ export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
     parts.push(app.session.state === "unknown" ? "sign-in unknown" : "signed in");
     parts.push(`connected ${connected}`);
     if (reviewer) parts.push("during review");
-    // An older server sends no lastUsedAt; the row then says nothing about use.
-    if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
+    // No lastUsedAt (an older server, or no use recorded) says nothing about use, never a guess.
+    const lastUsedAt = app.lastUsedAt;
+    if (lastUsedAt) {
+      const quiet =
+        app.session.state === "signed_in" && clock.now - Date.parse(lastUsedAt) >= QUIET_AFTER_MS;
+      // An app can drop its own login without the server ending the sign-in;
+      // a long silence is the only sign of it Home has.
+      if (quiet)
+        parts.push(
+          `not used since ${dayMonth(lastUsedAt, clock.timeZone)}`,
+          "reconnect it in the app if that's unexpected"
+        );
+      else parts.push(`used ${dayWord(lastUsedAt, clock)}`);
+    }
   }
   // A name the app gave itself stays marked in every state — a signed-out
   // row still names where reconnecting sends access.

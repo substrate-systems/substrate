@@ -330,8 +330,38 @@ describe("the app rows", () => {
     const meta = (lastUsedAt: string | null) => appMeta(app({ lastUsedAt }), clock, false);
     assert.equal(meta("2026-10-12T08:00:00Z"), "signed in · connected 5 October · used today");
     assert.equal(meta("2026-10-11T22:00:00Z"), "signed in · connected 5 October · used yesterday");
-    assert.equal(meta("2026-10-08T12:00:00Z"), "signed in · connected 5 October · used 8 October");
+    assert.equal(meta("2026-10-10T12:00:00Z"), "signed in · connected 5 October · used 10 October");
     assert.equal(meta(null), "signed in · connected 5 October");
+  });
+
+  it("says since when a signed-in app has been quiet for three days, counted in hours", () => {
+    const meta = (lastUsedAt: string) => appMeta(app({ lastUsedAt }), clock, false);
+    // Friday evening to Monday morning is three calendar days but not three days of silence.
+    assert.equal(meta("2026-10-09T10:00:01Z"), "signed in · connected 5 October · used 9 October");
+    assert.equal(
+      meta("2026-10-09T10:00:00Z"),
+      "signed in · connected 5 October · not used since 9 October" +
+        " · reconnect it in the app if that's unexpected"
+    );
+  });
+
+  it("calls only a signed-in app quiet", () => {
+    const out = app({
+      lastUsedAt: "2026-10-01T09:00:00Z",
+      session: { state: "signed_out", since: "2026-10-09T15:00:00Z" },
+    });
+    assert.equal(
+      appMeta(out, clock, false),
+      "signed out since 9 October · open Claude and connect Exomem again"
+    );
+    const unknown = app({
+      lastUsedAt: "2026-10-01T09:00:00Z",
+      session: { state: "unknown", since: null },
+    });
+    assert.equal(
+      appMeta(unknown, clock, false),
+      "sign-in unknown · connected 5 October · used 1 October"
+    );
   });
 
   it("counts the day in the reader's zone, not the server's", () => {
