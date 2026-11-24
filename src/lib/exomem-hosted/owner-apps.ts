@@ -236,13 +236,17 @@ export async function setOwnerAppContext(input: {
       grantId: input.appId,
     });
     if (!app || app.revoked_at !== null) return false;
-    await tx`
+    // A disconnect can commit between the read above and this write; the
+    // revoked_at condition keeps it from writing onto the disconnected grant.
+    const updated = await tx`
       /* exomem:set-owner-app-context */
       UPDATE exomem_oauth_grants AS oauth_grant
       SET client_context_override = ${input.context}
       WHERE oauth_grant.id = ${app.id}::uuid
+        AND oauth_grant.revoked_at IS NULL
+      RETURNING oauth_grant.id
     `;
-    return true;
+    return updated.rows.length === 1;
   });
 }
 
