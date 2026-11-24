@@ -192,7 +192,7 @@ function unavailable(tool: ToolName, reason: string): ToolError {
   console.warn({ event: "exomem_cloud_transfer_tool_unavailable", tool, reason });
   return {
     code: "CONTROL_PLANE_UNAVAILABLE",
-    message: "the Exomem control plane did not answer; no change was confirmed",
+    message: "the Evermatter control plane did not answer; no change was confirmed",
     remediation: "retry",
   };
 }
@@ -402,7 +402,7 @@ function relayedError(reply: WebReply): ToolError {
   if (!refusal.success) {
     return {
       code: "CONTROL_PLANE_REFUSED",
-      message: `the Exomem control plane refused the request (HTTP ${reply.status})`,
+      message: `the Evermatter control plane refused the request (HTTP ${reply.status})`,
       remediation: "see_message",
     };
   }

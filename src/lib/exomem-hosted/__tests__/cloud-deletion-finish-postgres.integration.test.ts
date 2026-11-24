@@ -895,7 +895,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     await drainOnce();
     assert.deepEqual(
       sent.filter((email) => email.to === tenant.email).map((email) => email.subject),
-      ["Your Exomem has been deleted"]
+      ["Your Evermatter has been deleted"]
     );
     const ownRow = `deleted:${tenant.tenantId}:%`;
     await pool!.query(

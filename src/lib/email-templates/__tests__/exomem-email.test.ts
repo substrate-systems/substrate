@@ -96,8 +96,8 @@ describe("Exomem emails", () => {
         billing: null,
         timeZone: null,
       }).textContent;
-    assert.match(ready(true), /Exomem is set up and connected\./);
-    assert.match(ready(false), /Welcome\. Exomem is set up\. Ask/);
+    assert.match(ready(true), /Evermatter is set up and connected\./);
+    assert.match(ready(false), /Welcome\. Evermatter is set up\. Ask/);
   });
 
   it("gives the read-only end date when the dunning window is known, and no invented date when not", () => {
@@ -160,8 +160,8 @@ describe("Exomem emails", () => {
         now: NOW,
         timeZone: null,
       });
-    assert.equal(reminder(7).subject, "7 days until your Exomem is deleted");
-    assert.equal(reminder(1).subject, "1 day until your Exomem is deleted");
+    assert.equal(reminder(7).subject, "7 days until your Evermatter is deleted");
+    assert.equal(reminder(1).subject, "1 day until your Evermatter is deleted");
   });
 });
 

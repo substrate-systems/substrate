@@ -252,7 +252,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         callback.redirectUri,
         callback.state,
         "invalid_scope",
-        "Exomem Cloud needs both exomem.read and exomem.write"
+        "Evermatter Cloud needs both exomem.read and exomem.write"
       );
     }
     const authorization = validateAuthorizationRequest({

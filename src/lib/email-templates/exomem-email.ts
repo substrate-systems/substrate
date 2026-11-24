@@ -121,7 +121,7 @@ export type RenderedExomemEmail = {
   senderName: string;
 };
 
-const FOOTER = "Exomem by Substrate Systems";
+const FOOTER = "Evermatter by Substrate Systems";
 const SENDER = "Exomem";
 const WORDMARK_URL = "https://substratesystems.io/exomem";
 

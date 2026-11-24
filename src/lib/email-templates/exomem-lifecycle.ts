@@ -80,11 +80,11 @@ export function renderExomemReadyEmail(input: {
     });
   }
   const welcome = input.recipientName ? `Welcome, ${input.recipientName}.` : "Welcome.";
-  const state = input.connected ? "Exomem is set up and connected." : "Exomem is set up.";
+  const state = input.connected ? "Evermatter is set up and connected." : "Evermatter is set up.";
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: "Your Exomem is ready",
+    subject: "Your Evermatter is ready",
     preheader: friend
       ? `${friend}’s friend price is on your plan.`
       : "Your assistant can recall and save from now on.",
@@ -122,11 +122,11 @@ export function renderExomemPaymentFailedEmail(input: {
     base: input.scheme,
     themeChoice: input.themeChoice,
     subject: "Your payment didn’t go through",
-    preheader: "Exomem is read-only until billing is fixed. Your memory is safe.",
+    preheader: "Evermatter is read-only until billing is fixed. Your memory is safe.",
     band: "readonly",
     headline: "Your payment didn’t go through",
     body: [
-      `Exomem is read-only until it’s fixed: your assistants still recall everything, but nothing new is saved. Paddle will try again. ${ends}`,
+      `Evermatter is read-only until it’s fixed: your assistants still recall everything, but nothing new is saved. Paddle will try again. ${ends}`,
     ],
     action: { label: "Fix billing", url: input.billingUrl },
     smallPrint: "Your memory is safe either way.",
@@ -172,7 +172,7 @@ export function renderExomemSubscriptionEndedEmail(
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: "Your Exomem subscription has ended",
+    subject: "Your Evermatter subscription has ended",
     preheader: input.exportUrl
       ? `Kept, read-only, for ${kept}. Export it any time.`
       : `Kept, read-only, for ${kept}.`,
@@ -199,11 +199,11 @@ export function renderExomemDeletionReminderEmail(
   }
 ): RenderedEmail {
   const left = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
-  const deleted = `On ${emailDate(input.keptUntil, input.timeZone)} your Exomem and everything in it is permanently deleted, backups included.`;
+  const deleted = `On ${emailDate(input.keptUntil, input.timeZone)} your Evermatter and everything in it is permanently deleted, backups included.`;
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: `${left} until your Exomem is deleted`,
+    subject: `${left} until your Evermatter is deleted`,
     preheader: input.exportUrl
       ? "Export it now, or resubscribe to keep it."
       : "Resubscribe to keep it.",
@@ -233,14 +233,14 @@ export function renderExomemDeletedEmail(input: {
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: "Your Exomem has been deleted",
+    subject: "Your Evermatter has been deleted",
     preheader: "Your vault, backups and keys are gone.",
     band: "gone",
     headline: "Deleted, as promised",
     body: [
-      `Your Exomem, its backups and its keys were permanently deleted ${when}. Your Substrate account is still here, and you can start a new Exomem any time.`,
+      `Your Evermatter, its backups and its keys were permanently deleted ${when}. Your Substrate account is still here, and you can start a new Evermatter any time.`,
     ],
-    smallPrint: "Nothing more will be sent about this Exomem.",
+    smallPrint: "Nothing more will be sent about this Evermatter.",
   });
 }
 
@@ -257,7 +257,7 @@ export function renderExomemExportReadyEmail(input: {
   const kept = emailDuration(input.now, input.keptUntil);
   return renderExomemEmail({
     base: null, // Nothing sends this email yet; its sender passes the scheme.
-    subject: "Your Exomem export is ready",
+    subject: "Your Evermatter export is ready",
     preheader: kept
       ? `Your whole vault, as Markdown. Kept for ${kept}.`
       : "Your whole vault, as Markdown.",
@@ -283,7 +283,7 @@ export function renderExomemStorageWarningEmail(input: {
   const limit = gigabytes(input.limitGb);
   return renderExomemEmail({
     base: null, // Nothing sends this email yet; its sender passes the scheme.
-    subject: `Your Exomem is ${percent}% full`,
+    subject: `Your Evermatter is ${percent}% full`,
     preheader: `Everything works. ${free} GB left.`,
     band: "readonly",
     headline: `${percent}% full`,
@@ -303,12 +303,12 @@ export function renderExomemStorageWarningEmail(input: {
 export function renderExomemStorageFullEmail(input: { homeUrl: string }): RenderedEmail {
   return renderExomemEmail({
     base: null, // Nothing sends this email yet; its sender passes the scheme.
-    subject: "Your Exomem is full",
+    subject: "Your Evermatter is full",
     preheader: "Recall works. Saving waits for room.",
     band: "readonly",
     headline: "Saving is paused",
     body: [
-      "Your Exomem is full. Recall still works; new saves wait until there is room. Add storage and they carry on where they stopped.",
+      "Your Evermatter is full. Recall still works; new saves wait until there is room. Add storage and they carry on where they stopped.",
     ],
     action: { label: "Add storage", url: input.homeUrl },
     smallPrint: "Nothing is ever deleted to make space. Paddle shows the price before you pay.",
@@ -330,7 +330,7 @@ export function renderExomemStorageAddedEmail(input: {
     band: "live",
     headline: "More storage added",
     body: [
-      `Your Exomem now has ${limit} GB. Saving carries on. If you turned on Grow automatically, it adds ${gigabytes(input.growStepGb)} GB when it fills, at most once a month, and tells you each time.`,
+      `Your Evermatter now has ${limit} GB. Saving carries on. If you turned on Grow automatically, it adds ${gigabytes(input.growStepGb)} GB when it fills, at most once a month, and tells you each time.`,
     ],
     action: { label: "Open Home", url: input.homeUrl },
     smallPrint: "Paddle sends the receipt. You can remove the extra storage from Home.",
@@ -357,7 +357,7 @@ export function renderExomemConfirmNewEmailEmail(input: {
     band: "arrive",
     headline: "Confirm your new email",
     body: [
-      `Confirm this to send Exomem sign-in links to ${input.newEmail}. We’ll also request an update to your receipt address. Check Home for the verified result.`,
+      `Confirm this to send Evermatter sign-in links to ${input.newEmail}. We’ll also request an update to your receipt address. Check Home for the verified result.`,
     ],
     action: { label: "Confirm this address", url: input.confirmUrl },
     smallPrint: `Works once, until ${left ? `${until} (${left})` : until}. If you didn’t ask for this, ignore it: nothing changes.`,
@@ -384,12 +384,12 @@ export function renderExomemEmailChangingEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Your Exomem email is changing",
+    subject: "Your Evermatter email is changing",
     preheader: "If this wasn’t you, stop it here.",
     band: "kept",
     headline: "Your email is changing",
     body: [
-      `Someone asked to move your Exomem to ${maskEmailAddress(input.newEmail)}. If that was you, there is nothing to do. If not, open Home and stop it; your notes are untouched either way.`,
+      `Someone asked to move your Evermatter to ${maskEmailAddress(input.newEmail)}. If that was you, there is nothing to do. If not, open Home and stop it; your notes are untouched either way.`,
     ],
     action: { label: "Stop the change", url: input.homeUrl },
     smallPrint: "The change only happens once the new address confirms.",
@@ -404,12 +404,12 @@ export function renderExomemVaultImportedEmail(input: {
 }): RenderedEmail {
   return renderExomemEmail({
     base: null, // Nothing sends this email yet; its sender passes the scheme.
-    subject: "Your vault is in Exomem",
+    subject: "Your vault is in Evermatter",
     preheader: "",
     band: "live",
     headline: "Your vault is here",
     body: [
-      "Your notes are now in Exomem, with their folders and links. Your connected apps see them already. The originals are unchanged.",
+      "Your notes are now in Evermatter, with their folders and links. Your connected apps see them already. The originals are unchanged.",
     ],
     detail: {
       kind: "facts",
@@ -447,18 +447,18 @@ export function renderExomemAppSignoutEmail(input: {
   // code points so an astral character never leaves a lone surrogate.
   const namePoints = [...input.appName];
   const subjectName =
-    namePoints.length <= 18 ? input.appName : `${namePoints.slice(0, 17).join("")}…`;
+    namePoints.length <= 17 ? input.appName : `${namePoints.slice(0, 16).join("")}…`;
   const claim = input.appNameClaimed ? ` “${input.appName}” is what the app calls itself.` : "";
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: `${subjectName} can’t reach your Exomem`,
+    subject: `${subjectName} can’t reach your Evermatter`,
     preheader: `Since ${day}, nothing it saves gets there. Reconnect to fix it.`,
     band: "readonly",
     headline: `${input.appName} is signed out`,
     body: [
-      `On ${day}, ${input.appName}’s connection to your Exomem ended. Until it is connected again, nothing ${input.appName} saves reaches your Exomem.`,
-      `Open ${input.appName} and connect Exomem again to pick up where it left off.`,
+      `On ${day}, ${input.appName}’s connection to your Evermatter ended. Until it is connected again, nothing ${input.appName} saves reaches your Evermatter.`,
+      `Open ${input.appName} and connect Evermatter again to pick up where it left off.`,
     ],
     detail: {
       kind: "facts",
@@ -486,7 +486,7 @@ type ServiceNoticeEmailInput = {
   themeChoice?: ExomemThemeChoice | null;
 };
 
-const SERVICE_NOTICE_REASON = "You’re getting this because you have an Exomem.";
+const SERVICE_NOTICE_REASON = "You’re getting this because you have an Evermatter.";
 
 /** The email before planned maintenance: when it starts and ends, in the reader's zone. */
 export function renderExomemMaintenanceScheduledEmail(
@@ -495,11 +495,11 @@ export function renderExomemMaintenanceScheduledEmail(
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: `Exomem maintenance on ${emailDate(input.startsAt, input.timeZone)}`,
+    subject: `Evermatter maintenance on ${emailDate(input.startsAt, input.timeZone)}`,
     preheader: `Planned for ${emailTimeSpan(input.startsAt, input.endsAt, input.timeZone)}.`,
     band: "live",
     headline: "Planned maintenance",
-    body: ["We have planned maintenance on Exomem.", input.summary],
+    body: ["We have planned maintenance on Evermatter.", input.summary],
     detail: {
       kind: "facts",
       rows: [
@@ -519,11 +519,11 @@ export function renderExomemIncidentResolvedEmail(
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
-    subject: "The Exomem problem is resolved",
+    subject: "The Evermatter problem is resolved",
     preheader: `It ran from ${emailTimeSpan(input.startedAt, input.resolvedAt, input.timeZone)}.`,
     band: "live",
     headline: "The problem is resolved",
-    body: ["The Exomem problem we reported is resolved.", `We reported: ${input.summary}`],
+    body: ["The Evermatter problem we reported is resolved.", `We reported: ${input.summary}`],
     detail: {
       kind: "facts",
       rows: [

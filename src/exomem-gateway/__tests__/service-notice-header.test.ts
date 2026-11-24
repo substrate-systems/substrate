@@ -100,7 +100,7 @@ describe("the service notice header", () => {
     assert.equal(body.ends_at, "2026-12-01T13:00:00Z");
     assert.match(
       body.say,
-      /^Tell the user once in this conversation: Exomem maintenance is planned for 1 December, 12:00 to 13:00 UTC\./
+      /^Tell the user once in this conversation: Evermatter maintenance is planned for 1 December, 12:00 to 13:00 UTC\./
     );
     assert.match(body.say, /We are moving storage\./);
     assert.ok(body.say.endsWith(`More at ${STATUS}`));
@@ -115,7 +115,7 @@ describe("the service notice header", () => {
     assert.equal(body.ends_at, null);
     assert.match(
       body.say,
-      /^Tell the user once in this conversation: Exomem has a known problem that started 1 December, 09:00 UTC\./
+      /^Tell the user once in this conversation: Evermatter has a known problem that started 1 December, 09:00 UTC\./
     );
   });
 
@@ -221,7 +221,7 @@ describe("which notice a cell hears", () => {
     assert.equal(after.state, "active");
     assert.match(
       after.say,
-      /^Tell the user once in this conversation: Exomem maintenance is under way until 1 December, 11:00 UTC\./
+      /^Tell the user once in this conversation: Evermatter maintenance is under way until 1 December, 11:00 UTC\./
     );
     assert.equal(loads(), 1);
   });

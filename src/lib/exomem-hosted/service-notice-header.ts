@@ -62,13 +62,13 @@ export function composeNoticeSay(
 ): string {
   let lead: string;
   if (notice.kind === "incident") {
-    lead = `Exomem has a known problem that started ${emailDateTime(notice.startsAt, null)}.`;
+    lead = `Evermatter has a known problem that started ${emailDateTime(notice.startsAt, null)}.`;
   } else {
     const end = notice.endsAt as Date;
     lead =
       state === "scheduled"
-        ? `Exomem maintenance is planned for ${emailTimeSpan(notice.startsAt, end, null)}.`
-        : `Exomem maintenance is under way until ${emailDateTime(end, null)}.`;
+        ? `Evermatter maintenance is planned for ${emailTimeSpan(notice.startsAt, end, null)}.`
+        : `Evermatter maintenance is under way until ${emailDateTime(end, null)}.`;
   }
   const tail = `More at ${statusUrl}`;
   // The summary gives way first when the sentence is too long.

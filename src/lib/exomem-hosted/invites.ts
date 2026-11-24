@@ -619,7 +619,7 @@ function invitationForAnotherAddress(): ExomemHostedError {
 
 const FRIEND_PRICE_REFUSALS: Record<FriendPriceRefusal, string> = {
   not_offered: "this invitation can only keep the current plan",
-  friend_price_taken: "this Exomem already has a friend price from another invitation",
+  friend_price_taken: "this Evermatter already has a friend price from another invitation",
   plan_price_differs: "the friend price does not apply to the current plan's price",
   plan_price_unknown: "the friend price does not apply to the current plan's price",
 };
@@ -636,7 +636,7 @@ function providerUnavailable(error: ExomemBillingError): ExomemHostedError {
   return new ExomemHostedError({
     code: error.code,
     status: 503,
-    message: "Exomem billing is temporarily unavailable",
+    message: "Evermatter billing is temporarily unavailable",
     retryable: true,
   });
 }

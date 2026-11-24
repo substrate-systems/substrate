@@ -767,7 +767,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     );
     const friendEmail = sent.find((message) => message.to === email)!;
     assert.equal(friendEmail.senderName, "Alex Example via Exomem");
-    assert.equal(friendEmail.subject, "Alex Example invited you to Exomem");
+    assert.equal(friendEmail.subject, "Alex Example invited you to Evermatter");
     assert.match(String(friendEmail.textContent), /Your price: €10 a month, instead of €15/);
     assert.ok(String(friendEmail.textContent).includes(`/exomem/invite#${token}`));
     // The friend price came from Paddle's preview with the configured discount.
@@ -1424,7 +1424,9 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     const sent = (await drainedEmails()).filter((message) => message.to === email);
 
     // The invitation email that was still queued is superseded; the waiting email and the reminder go out.
-    const waiting = sent.find((message) => message.subject === "Your Exomem invitation is waiting");
+    const waiting = sent.find(
+      (message) => message.subject === "Your Evermatter invitation is waiting"
+    );
     const reminder = sent.find((message) => message.subject.includes("invitation ends on"));
     assert.equal(sent.length, 2);
     assert.ok(waiting && reminder);
