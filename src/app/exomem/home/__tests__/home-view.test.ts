@@ -401,26 +401,26 @@ describe("notices and the account banner", () => {
 
   it("warns at 80% and marks a full disk without offering an unavailable purchase", () => {
     assert.deepEqual(
-      notices("on", account(), disk(7_900_000_000), true, false, false).map((notice) => notice.key),
+      notices("on", account(), disk(7_900_000_000), true, false).map((notice) => notice.key),
       []
     );
-    const filling = notices("on", account(), disk(8_500_000_000), true, false, false);
+    const filling = notices("on", account(), disk(8_500_000_000), true, false);
     assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works.");
     assert.deepEqual(filling[0]?.actions, []);
     // A disk with room left never reads as 100% full.
-    const nearly = notices("on", account(), disk(9_996_000_000), true, false, false);
+    const nearly = notices("on", account(), disk(9_996_000_000), true, false);
     assert.equal(nearly[0]?.text, "Your Exomem is 99% full. Everything works.");
-    const full = notices("on", account(), disk(10_000_000_000), true, false, false);
+    const full = notices("on", account(), disk(10_000_000_000), true, false);
     assert.equal(full[0]?.attention, true);
     assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
     assert.deepEqual(full[0]?.actions, []);
   });
 
   it("asks for storage in words only beside the action that adds it", () => {
-    const filling = notices("on", account(), disk(8_500_000_000), true, false, true);
+    const filling = notices("on", account(), disk(8_500_000_000), true, true);
     assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works. Add storage now.");
     assert.deepEqual(filling[0]?.actions, ["storage"]);
-    const full = notices("on", account(), disk(10_000_000_000), true, false, true);
+    const full = notices("on", account(), disk(10_000_000_000), true, true);
     assert.equal(
       full[0]?.text,
       "Your Exomem is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
@@ -429,20 +429,20 @@ describe("notices and the account banner", () => {
 
   for (const used of [8_500_000_000, 10_000_000_000]) {
     it(`offers manual storage from the warning at ${used} bytes when purchases are available`, () => {
-      const [warning] = notices("on", account(), disk(used), true, false, true);
+      const [warning] = notices("on", account(), disk(used), true, true);
       assert.deepEqual(warning?.actions, ["storage"]);
     });
   }
 
   it("shows the support reference with a way to copy it when the cell has trouble", () => {
-    const [trouble] = notices("trouble", account(), { state: "unknown" }, true, false, false);
+    const [trouble] = notices("trouble", account(), { state: "unknown" }, true, false);
     assert.match(trouble?.text ?? "", /Support reference: EX-7Q4M\./);
-    assert.deepEqual(trouble?.actions, ["copy_reference"]);
+    assert.deepEqual(trouble?.actions, ["copy_reference", "status_page"]);
   });
 
-  it("links the status page from the trouble notice only when one is configured", () => {
-    const [trouble] = notices("trouble", account(), { state: "unknown" }, true, true, false);
-    assert.deepEqual(trouble?.actions, ["copy_reference", "status_page"]);
+  it("always links the status page from the trouble notice, even without a support reference", () => {
+    const [trouble] = notices("trouble", null, { state: "unknown" }, true, false);
+    assert.deepEqual(trouble?.actions, ["status_page"]);
   });
 
   it("drops a read-only end date it cannot know instead of guessing one", () => {
@@ -534,10 +534,10 @@ describe("notices and the account banner", () => {
       banner("ended", ended, open, clock, false)?.text,
       "Kept until 10 November. Resubscribe to get it all back."
     );
-    const [copy] = notices("ended", ended, { state: "unknown" }, false, false, false);
+    const [copy] = notices("ended", ended, { state: "unknown" }, false, false);
     assert.equal(copy?.text, "For a copy of your memory, write to support and quote EX-7Q4M.");
     assert.deepEqual(copy?.actions, ["support"]);
-    assert.deepEqual(notices("ended", ended, { state: "unknown" }, true, false, false), []);
+    assert.deepEqual(notices("ended", ended, { state: "unknown" }, true, false), []);
   });
 
   it("gives a reviewer the access end date and no billing", () => {

@@ -70,7 +70,7 @@ it("announces every failed reviewer sign-in, not only the first", async () => {
         createElement(StartFlow, {
           context: { kind: "web" },
           reviewerEnabled: true,
-          statusPageUrl: null,
+          statusPageUrl: "https://status.example.test/",
           frame: {},
         })
       )
