@@ -22,10 +22,10 @@ email SHALL send per grant per 24 h.
 - **THEN** it is not an ending for notice purposes and no email is enqueued —
   its liveness on Home still follows its access tokens
 
-#### Scenario: Refresh replay signs the app out
+#### Scenario: A system revocation signs the app out
 
-- **WHEN** a recently used grant's last live family is revoked as
-  `refresh_replayed`
+- **WHEN** a recently used grant's last live family is revoked by an
+  operator, or carries the retired `refresh_replayed` reason
 - **THEN** the sweep enqueues exactly one email to the owner naming the app
   and the day it signed out
 

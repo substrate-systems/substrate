@@ -2,13 +2,13 @@
 
 ## Current contract
 
-The approved `simplify-hosted-launch-boundaries` change supersedes this change's
-combined runtime/artifact promotion gate, artifact-based ordinary client admission
-and continued internal-canary authority after activation. Ordinary approved
-service clients need no certified artifact; signed runtime activation and exact
-per-host certification are independent. The updated delta requirements carry
-this separation. Historical profile/release examples and completed task evidence
-are retained without asserting new implementation or launch completion.
+The approved design of `adopt-exomem-cloud-plain-cells` supersedes the remaining
+tasks of this change and keeps its OAuth authorization server. On 2026-10-11, #222
+removed the agent contract import, candidates, cohorts, promotion and the v1
+lifecycle. The delta now states only the OAuth contract that the live code keeps.
+It no longer modifies `exomem-tenant-control-plane`: `adopt-exomem-cloud-plain-cells`
+and `launch-exomem-cloud-web` own Cloud capacity and lifecycle. The sections below
+are the original proposal.
 
 ## Why
 
