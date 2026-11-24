@@ -32,8 +32,8 @@ set of accepted resources.
 
 ### Requirement: New connections get the new host
 
-Discovery SHALL offer the first resource in the configured set to a client that has no stored
-resource. Each host's protected-resource metadata SHALL name that host's own resource.
+The setup page, and a host outside the configured set, SHALL offer the first resource in the set.
+The protected-resource metadata of each host in the set SHALL name that host's own resource.
 
 #### Scenario: A new client connects
 

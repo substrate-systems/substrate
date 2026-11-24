@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
+import { assertCloudResourceList } from "./src/lib/exomem-hosted/cloud-resource-list";
 import { productSiteRoutes } from "./src/lib/exomem/product-site";
+
+// A bad accepted-resource list fails the build rather than narrowing what the Cloud accepts.
+assertCloudResourceList(process.env);
 
 const productSite = productSiteRoutes();
 

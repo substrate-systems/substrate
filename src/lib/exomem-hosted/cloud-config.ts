@@ -4,6 +4,7 @@
  */
 
 import { createPrivateKey, type KeyObject } from "node:crypto";
+import { cloudResourceListProblem, listedCloudResources } from "./cloud-resource-list";
 import { loggedOccurrence } from "./logged-occurrence";
 
 export type EnvironmentSource = Record<string, string | undefined>;
@@ -98,29 +99,24 @@ let unusableResourceListLoads = 0;
  * HTTPS URL on the gateway's mount path, and the list must still accept `EXOMEM_CLOUD_MCP_URL`,
  * so a configuration change can never strand the tokens issued for it.
  *
- * An unusable list reads as unset and logs the variable name only, like the signing key below:
- * the single resource keeps every existing connection working, whereas a throw here would fail
- * every /mcp request and OAuth exchange for every tenant.
+ * The web build and the gateway readiness check refuse an unusable list (cloud-resource-list.ts).
+ * If one is still loaded at runtime, it reads as unset and logs the variable name only, like the
+ * signing key below: the single resource keeps existing connections working, whereas a throw here
+ * would fail every /mcp request and OAuth exchange for every tenant.
  */
 function withAcceptedResources(
   env: EnvironmentSource,
   mcpUrl: string,
   mcpPath: string
 ): ExomemCloudResource {
-  const listed = (env.EXOMEM_CLOUD_MCP_URLS ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  const listed = listedCloudResources(env);
   if (!listed.length) return { mcpUrl, mcpPath, acceptedResources: [mcpUrl] };
-  const valid = listed.every((entry) => {
-    try {
-      const url = new URL(entry);
-      return url.protocol === "https:" && url.pathname === mcpPath && !url.search && !url.hash;
-    } catch {
-      return false;
-    }
+  const problem = cloudResourceListProblem({
+    EXOMEM_CLOUD_MCP_URLS: env.EXOMEM_CLOUD_MCP_URLS,
+    EXOMEM_CLOUD_MCP_URL: mcpUrl,
+    EXOMEM_CLOUD_MCP_PATH: mcpPath,
   });
-  if (!valid || !listed.includes(mcpUrl) || new Set(listed).size !== listed.length) {
+  if (problem) {
     unusableResourceListLoads += 1;
     if (loggedOccurrence(unusableResourceListLoads)) {
       console.warn({
@@ -143,7 +139,9 @@ export function cloudResourceForHost(
   config: Pick<ExomemCloudResource, "acceptedResources" | "mcpUrl" | "mcpPath">,
   host: string | null | undefined
 ): string {
-  const candidate = host ? `https://${host.toLowerCase()}${config.mcpPath}` : null;
+  // A Host header may carry the default port or a trailing dot; neither changes the host.
+  const name = host?.toLowerCase().replace(/:443$/, "").replace(/\.$/, "");
+  const candidate = name ? `https://${name}${config.mcpPath}` : null;
   return candidate && config.acceptedResources.includes(candidate) ? candidate : config.mcpUrl;
 }
 

@@ -63,7 +63,7 @@ Keeping the issuer and the app pages on `substratesystems.io` was the earlier pl
 
 1. Ship the code with the set unset (inert).
 2. Add DNS, TLS and ingress for `mcp.evermatter.ai`.
-3. Set the accepted-resource set to the new URL first, then the old URL, on the web app and the gateway together.
+3. Set `EXOMEM_CLOUD_MCP_URLS` to the new URL first, then the old URL, with the same list on the web app and the gateway; deploy the web app first. A bad list fails the web build and the gateway readiness check. Change `EXOMEM_CLOUD_MCP_URL` only in the same deploy that removes the old host.
 4. Check that a token from an existing connection still works at the old host, and that a new connection receives the new resource.
 5. Move sign-in: set `EXOMEM_PUBLIC_BASE_URL` to `https://evermatter.ai` on the web app and the gateway together, after `evermatter.ai` serves TLS and the mail links for that host are tested. Rollback: set it back; sessions made on `evermatter.ai` then end and people sign in again on the old host.
 6. Rollback of the resource set: unset the set. Tokens issued for the new resource then stop working, so roll back only before step 3's new connections exist, or keep the new resource listed second.
