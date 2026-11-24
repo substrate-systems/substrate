@@ -66,7 +66,7 @@ Substrate holds no GitHub credential. The public issue never names a tenant or a
 
 ## Scale and latency
 
-No load target is recorded for Exomem Cloud yet. This design assumes up to 10,000 tenants and at most a few current notices at a time.
+The Exomem Cloud load target is 10,000 tenants (`openspec/project.md`). This design meets it with at most a few current notices at a time.
 
 - Gateway: the added cost per forwarded request is one in-memory lookup. The added database work is one query per gateway instance per 30 seconds, whatever the request rate, and none while the instance has no traffic. The one request that finds the copy older than 30 seconds waits for that query, bounded by a 1-second timeout. The budget is under 1 ms at p95 per request on a gateway with steady traffic.
 - Fan-out: 10,000 tenants send in about 50 ticks at a batch of 200. The outbox drains as it does now.
