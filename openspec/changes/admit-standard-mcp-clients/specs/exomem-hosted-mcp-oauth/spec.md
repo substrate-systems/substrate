@@ -188,6 +188,10 @@ The bound on stored OAuth clients SHALL be partitioned so that clients created b
 - **WHEN** an operator registers or updates a client while auto-registered clients are stored
 - **THEN** the operation succeeds on its own partition's bound, independent of how many auto-registered clients exist
 
+#### Scenario: Re-registration moves a client to another partition
+- **WHEN** a live auto-registered client re-registers into a different partition, such as an allowlisted client whose host was delisted while the generic lane is enabled
+- **THEN** the server SHALL admit it only when the target partition has a free slot
+
 ## ADDED Requirements
 
 ### Requirement: An OAuth Client Carries A Stored Context
