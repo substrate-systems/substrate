@@ -124,7 +124,8 @@ export type RenderedExomemEmail = {
 
 const FOOTER = "Exomem by Substrate Systems";
 const SENDER = "Exomem";
-const WORDMARK_URL = productPageUrl("/exomem");
+// Computed per email, not at import, so the configured origin is read when the email renders.
+const wordmarkUrl = (): string => productPageUrl("/exomem");
 
 // The board's delivery note: web fonts often don't load in mail, so IBM Plex
 // Mono falls back to Menlo or Consolas, and Inter to Helvetica or Arial.
@@ -322,7 +323,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
         alt: "Exomem",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
       },
-      WORDMARK_URL,
+      wordmarkUrl(),
       automatic
     ),
     "line-height: 0; font-size: 0;"
@@ -421,7 +422,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       alt: "",
       style: "display: block; border: 0; width: 100%; max-width: 600px; height: auto;",
     },
-    slots.action?.url ?? WORDMARK_URL,
+    slots.action?.url ?? wordmarkUrl(),
     automatic
   );
 

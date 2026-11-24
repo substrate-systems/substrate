@@ -287,6 +287,26 @@ describe("Exomem app sign-out notice PostgreSQL integration", { skip: !databaseU
     assert.deepEqual(markers, [{ ended_reason: "refresh_replayed" }]);
   });
 
+  // Configuring a newer resource must not drop the grants bound to the old one from the notice.
+  it("emails for a grant on the old resource once the accepted list names a newer one", async () => {
+    const owner = await newOwner();
+    const client = await newClient();
+    const grant = await newGrant(owner, client);
+    await markUsed(grant);
+    const family = await newFamily(grant, client, {
+      revokedReason: "refresh_replayed",
+      revokedAgo: "1 hour",
+    });
+    await newRefreshToken(family, { consumedAgo: "1 hour" });
+    process.env.EXOMEM_CLOUD_MCP_URLS = `https://new.example.test/mcp/v1,${CLOUD_RESOURCE}`;
+    try {
+      const sweep = await pruneExpiredOAuthState();
+      assert.deepEqual(sweep.signouts, { candidates: 1, emailed: 1 });
+    } finally {
+      delete process.env.EXOMEM_CLOUD_MCP_URLS;
+    }
+  });
+
   it("emails for an expired family, and for no owner who disconnected or went quiet", async () => {
     const owner = await newOwner();
     const expiredClient = await newClient();

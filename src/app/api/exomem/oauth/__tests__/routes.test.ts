@@ -452,6 +452,25 @@ function confirmation(response: Response): string {
 }
 
 describe("Exomem OAuth routes", () => {
+  // Continuation cookies are host-only, so one set on another host never reaches consent.
+  it("sends an authorize request on another host to the public base origin before any cookie", async () => {
+    const { GET } = await import("../authorize/route");
+    const original = new URL(authorizeRequest().url);
+    const onOldHost = new Request(original, {
+      headers: { "x-forwarded-for": "203.0.113.10", host: "old-host.example.test" },
+    });
+
+    const response = await GET(onOldHost);
+
+    assert.equal(response.status, 307);
+    assert.equal(
+      response.headers.get("location"),
+      `${BASE_URL}${original.pathname}${original.search}`
+    );
+    assert.deepEqual(response.headers.getSetCookie(), []);
+    assert.equal(continuations.size, 0);
+  });
+
   it("rate limits before resolving a client or opening an authorization continuation", async () => {
     const { GET } = await import("../authorize/route");
     rateLimitAllowed = false;

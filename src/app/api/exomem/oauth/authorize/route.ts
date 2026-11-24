@@ -163,11 +163,26 @@ function rateLimited(): NextResponse {
   );
 }
 
+/**
+ * The continuation cookies are host-only and the consent page serves on the public base
+ * origin, so an authorize request that arrives on another host (a client holding metadata
+ * from before sign-in moved) goes to the base origin first. Authorize is a browser
+ * navigation, so the redirect is safe here, unlike on the token endpoint.
+ */
+function onAnotherHost(request: Request, url: URL): NextResponse | null {
+  const base = exomemPublicBaseUrlFromEnv();
+  const host = request.headers.get("host")?.toLowerCase();
+  if (!host || host === new URL(base).host) return null;
+  return NextResponse.redirect(new URL(`${url.pathname}${url.search}`, base), 307);
+}
+
 export async function GET(request: Request): Promise<NextResponse> {
   let callback: { redirectUri: string; state: string | null } | null = null;
   let stage: AuthorizeStage = "ip_rate_limit";
   try {
     const url = new URL(request.url);
+    const moved = onAnotherHost(request, url);
+    if (moved) return moved;
     const ipAllowed = await takeExomemRateLimit(
       EXOMEM_RATE_LIMITS.oauthAuthorizeIp,
       clientAddressKey(request) ?? "unavailable"

@@ -70,7 +70,7 @@ type SignoutCandidate = { family_id: string; grant_id: string };
  * design — can never email the owner about themselves.
  */
 async function listSignoutCandidates(limit: number): Promise<SignoutCandidate[]> {
-  const resource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   const { rows } = await executeExomemSql`
     /* exomem:app-signout-candidates */
     SELECT latest.family_id, latest.grant_id
@@ -164,7 +164,7 @@ async function listSignoutCandidates(limit: number): Promise<SignoutCandidate[]>
           ON app_use.grant_id = oauth_grant.id
            AND app_use.last_used_at > now() - (${SIGNOUT_RECENT_USE_DAYS} * interval '1 day')
         WHERE oauth_grant.id = latest.grant_id AND oauth_grant.revoked_at IS NULL
-          AND oauth_grant.resource = ${resource}
+          AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
         OFFSET 0
       )
     ORDER BY latest.ended_at ASC
@@ -211,7 +211,7 @@ async function claimEndedFamilyNotices(
   tx: Parameters<Parameters<typeof withExomemTransaction>[0]>[0],
   candidates: readonly SignoutCandidate[]
 ): Promise<ClaimedAppSignout[]> {
-  const resource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   const familyIds = candidates.map((candidate) => candidate.family_id);
   const grantIds = candidates.map((candidate) => candidate.grant_id);
   // Tenant locks first, in id order — the codebase's order on every path
@@ -251,7 +251,7 @@ async function claimEndedFamilyNotices(
       ) AS live
       JOIN exomem_oauth_grants AS oauth_grant
         ON oauth_grant.id = picked.grant_id AND oauth_grant.revoked_at IS NULL
-         AND oauth_grant.resource = ${resource}
+         AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
       JOIN exomem_oauth_clients AS client
         ON client.id = oauth_grant.client_id AND client.admission_mode <> 'first_party'
       JOIN exomem_tenants AS tenant

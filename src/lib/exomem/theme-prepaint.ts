@@ -1,3 +1,4 @@
-import { applyExomemTheme, isExomemPath } from "./theme";
+import { applyExomemTheme, isExomemPath, onProductHost } from "./theme";
 
-if (isExomemPath(location.pathname)) applyExomemTheme(document.documentElement);
+const root = document.documentElement;
+if (isExomemPath(location.pathname, onProductHost(root, location.hostname))) applyExomemTheme(root);

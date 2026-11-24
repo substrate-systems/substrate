@@ -10,16 +10,13 @@
  */
 
 import { parseExomemPublicBaseUrl } from "../exomem-hosted/public-origin";
+import { PRODUCT_PUBLIC_PAGES } from "./product-pages";
 
 const COMPANY_ORIGIN = "https://substratesystems.io";
 
-// The public page routes under src/app/exomem (the landing page is the bare path). Kept in
-// code on purpose: it mirrors route files, which only a code change adds.
-export const PRODUCT_PUBLIC_PAGES = ["docs", "benchmarks", "privacy", "terms", "support"] as const;
-
 type Env = Record<string, string | undefined>;
 
-export function productSiteOrigin(env: Env = process.env): string | null {
+function productSiteOrigin(env: Env = process.env): string | null {
   const raw = env.EVERMATTER_SITE_ORIGIN?.trim();
   if (!raw) return null;
   const url = new URL(raw);
@@ -29,8 +26,14 @@ export function productSiteOrigin(env: Env = process.env): string | null {
   return url.origin;
 }
 
+/** The product site's host for the theme rule on <html>, or null while the site is off. */
+export function productSiteHost(env: Env = process.env): string | null {
+  const origin = productSiteOrigin(env);
+  return origin ? new URL(origin).hostname : null;
+}
+
 /** Where the app pages and the OAuth issuer live; the company site while the value is unset. */
-export function productAppOrigin(env: Env = process.env): string {
+function productAppOrigin(env: Env = process.env): string {
   const raw = env.EXOMEM_PUBLIC_BASE_URL?.trim();
   return raw
     ? parseExomemPublicBaseUrl(raw, env.NODE_ENV as NodeJS.ProcessEnv["NODE_ENV"])
@@ -69,6 +72,11 @@ export function productSiteRoutes(env: Env = process.env): {
   if (!origin) return { redirects: [], rewrites: [] };
   const productHost = new URL(origin).hostname;
   const appOrigin = productAppOrigin(env);
+  // The www hosts redirect to their bare host, so an app origin on one would loop every app page.
+  const appHost = new URL(appOrigin).hostname;
+  if (appHost === `www.${productHost}` || appHost === `www.${new URL(COMPANY_ORIGIN).hostname}`) {
+    throw new Error("EXOMEM_PUBLIC_BASE_URL must name a bare host, not a www host");
+  }
   const product: Has = [{ type: "host", value: hostPattern(productHost) }];
   const productWww: Has = [{ type: "host", value: hostPattern(`www.${productHost}`) }];
   const company: Has = [

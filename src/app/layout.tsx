@@ -6,6 +6,7 @@ import { PostHogProvider } from "./providers";
 import { PrivacySafeAnalytics } from "./privacy-safe-analytics";
 import { exomemThemeScript } from "@/lib/exomem/theme-script.generated";
 import { ExomemThemeScope } from "./exomem-theme-scope";
+import { productSiteHost } from "@/lib/exomem/product-site";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -80,9 +81,11 @@ export default function RootLayout({
       lang="en"
       className={`dark ${inter.variable} ${plexMono.variable}`}
       suppressHydrationWarning
+      // The theme rule reads this to theme the product site's root pages (theme.ts).
+      data-exomem-product-host={productSiteHost() ?? undefined}
     >
       <head>
-        {/* Before first paint: on /exomem/** only, apply the stored or device Exomem theme. */}
+        {/* Before first paint: on Exomem pages only, apply the stored or device Exomem theme. */}
         <script dangerouslySetInnerHTML={{ __html: exomemThemeScript }} />
         <script
           type="application/ld+json"
