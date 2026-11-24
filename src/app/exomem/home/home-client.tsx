@@ -54,6 +54,7 @@ import {
   exportView,
   firstNoteLine,
   homeMode,
+  appsServed,
   isLive,
   keepLiveRead,
   levelRefusalText,
@@ -824,6 +825,7 @@ export default function HomeClient({
               apps={apps}
               failed={appsFailed}
               ended={variant === "ended"}
+              served={appsServed(variant)}
               checkoutAvailable={billing?.checkoutAvailable ?? false}
               disconnected={disconnected}
               onDisconnect={onDisconnect}
