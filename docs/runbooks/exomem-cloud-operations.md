@@ -484,6 +484,8 @@ To withdraw the lane in one action:
    UPDATE exomem_oauth_generic_client_lane SET enabled = false, updated_at = now();
    ```
 2. Request the metadata document again.
+3. If the lane stays off, deploy the web app again. The landing page is static,
+   and its connect step tells visitors that any MCP client can connect.
 
 The document has no `registration_endpoint`, and the registration endpoint
 answers `404`. Every generic client stops at every stage at once: authorization,

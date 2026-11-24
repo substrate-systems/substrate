@@ -339,6 +339,15 @@
   color: var(--fg-body);
 }
 
+/* A long address breaks anywhere rather than widening the Cloud card, as the docs page does. */
+.step > :not(.stepNumber) {
+  min-width: 0;
+}
+
+.step code {
+  overflow-wrap: anywhere;
+}
+
 .stepNumber {
   flex: none;
   width: 14px;
