@@ -79,7 +79,7 @@ async function submitAddress(answer: { status: number; body: Record<string, unkn
       createElement(StartFlow, {
         context: { kind: "web" },
         reviewerEnabled: false,
-        statusPageUrl: null,
+        statusPageUrl: "https://status.example.test/",
         frame: {},
       })
     )

@@ -11,12 +11,14 @@ const DEFAULT_STATUS_PAGE_URL = "https://status.substratesystems.io";
 const STATUS_PAGE_URL_MAX_CHARS = 200;
 
 /**
- * The configured address, for "Status page" links that appear only when someone set
- * one. Unset or invalid: no link, and the page does not mention one.
+ * The status page address: the configured one, else the default. Every "Status page" link
+ * and every service notice uses it, so a person who hits an error always has somewhere to look.
  */
-export function statusPageUrl(
-  env: Record<string, string | undefined> = process.env
-): string | null {
+export function statusPageUrl(env: Record<string, string | undefined> = process.env): string {
+  return configuredStatusPageUrl(env) ?? DEFAULT_STATUS_PAGE_URL;
+}
+
+function configuredStatusPageUrl(env: Record<string, string | undefined>): string | null {
   const value = env.EXOMEM_STATUS_PAGE_URL?.trim();
   if (!value) return null;
   if (value.length > STATUS_PAGE_URL_MAX_CHARS) return rejected("too_long");
@@ -40,11 +42,4 @@ function rejected(reason: "too_long" | "not_https"): null {
     });
   }
   return null;
-}
-
-/** The address for service notices, which always point at a status page: the default when none is set. */
-export function statusPageUrlOrDefault(
-  env: Record<string, string | undefined> = process.env
-): string {
-  return statusPageUrl(env) ?? DEFAULT_STATUS_PAGE_URL;
 }
