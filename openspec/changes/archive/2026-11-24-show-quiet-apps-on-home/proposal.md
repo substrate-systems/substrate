@@ -4,9 +4,9 @@ An app can drop its own stored login without the server ending the sign-in. Home
 
 ## What Changes
 
-- A signed-in app row whose last recorded use is three days old or more reads "not used since `<date>`" and "reconnect it in the app if that's unexpected", in place of "used `<date>`".
+- A signed-in app row whose last recorded use is three days old or more reads "not used since `<date>`" and "reconnect it in the app if that’s unexpected", in place of "used `<date>`".
 - Quiet is measured in elapsed time, not calendar days, so a weekend gap does not trigger it.
-- A row without a recorded last use makes no quiet claim. Signed-out and unknown rows keep their copy.
+- Only while the cell serves app calls (running or read-only): a paused or suspended cell records no use. A row without a recorded last use makes no quiet claim. Signed-out and unknown rows keep their copy.
 - Display only: nothing is signed out and no email is sent. The list query is unchanged.
 
 ## Capabilities

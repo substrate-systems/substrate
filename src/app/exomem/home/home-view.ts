@@ -157,6 +157,11 @@ export function isLive(variant: HomeVariant): boolean {
   return variant === "on";
 }
 
+/** The gateway passes an app's calls to a running or read-only cell, and records their use, only then. */
+export function appsServed(variant: HomeVariant): boolean {
+  return variant === "on" || variant === "readonly";
+}
+
 // --- Live activity ---
 
 export type ActivityFacts = {
@@ -542,11 +547,11 @@ const QUIET_AFTER_MS = 3 * 24 * 3_600_000;
  * The row's second line: whether the app can still reach the Exomem, when it
  * connected and when it last reached it. A signed-out app leads with when it
  * lost access and what reconnecting takes. A signed-in app unused for three
- * days says since when, in case it dropped its login. On a reviewer account it says the
+ * days of a serving cell says since when, in case it dropped its login. On a reviewer account it says the
  * app joined during the review; a name the app gave itself shows where
  * access goes.
  */
-export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
+export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean, served: boolean): string {
   const parts: string[] = [];
   if (app.session.state === "signed_out") {
     const since = app.session.since === null ? null : dayMonth(app.session.since, clock.timeZone);
@@ -566,14 +571,17 @@ export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
     // No lastUsedAt (an older server, or no use recorded) says nothing about use, never a guess.
     const lastUsedAt = app.lastUsedAt;
     if (lastUsedAt) {
-      const quiet =
-        app.session.state === "signed_in" && clock.now - Date.parse(lastUsedAt) >= QUIET_AFTER_MS;
       // An app can drop its own login without the server ending the sign-in;
-      // a long silence is the only sign of it Home has.
+      // a long silence is the only sign of it Home has. While the cell serves no
+      // calls, silence says nothing about the app.
+      const quiet =
+        served &&
+        app.session.state === "signed_in" &&
+        clock.now - Date.parse(lastUsedAt) >= QUIET_AFTER_MS;
       if (quiet)
         parts.push(
           `not used since ${dayMonth(lastUsedAt, clock.timeZone)}`,
-          "reconnect it in the app if that's unexpected"
+          "reconnect it in the app if that’s unexpected"
         );
       else parts.push(`used ${dayWord(lastUsedAt, clock)}`);
     }
