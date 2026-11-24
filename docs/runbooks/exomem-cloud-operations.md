@@ -517,7 +517,10 @@ admit, so it counts in `generic`, not `auto_registered`.
 A bound limits two things: the clients connected at the same time, and the rows
 that a registration flood can add before the sweep retires them. Each
 self-registering bound is 50 clients for each of 1,000 accounts, because a heavy
-user runs 15 to 25 apps or more at peak.
+user runs 15 to 25 apps or more at peak. The load target is 10,000 tenants
+(`openspec/project.md`), so raise both self-registering bounds to 500,000 before
+the account count passes 1,000. First measure registration's partition count at
+500,000 generated rows against its latency budget.
 
 To change a bound:
 
