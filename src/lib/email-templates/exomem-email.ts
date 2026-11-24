@@ -62,12 +62,12 @@ export function exomemEmailBandFile(band: ExomemEmailBand, scheme: ExomemEmailSc
   return `band-${band}-${scheme}.png`;
 }
 
-export function exomemEmailWordmarkFile(scheme: ExomemEmailScheme): string {
+function exomemEmailWordmarkFile(scheme: ExomemEmailScheme): string {
   return `wordmark-${scheme}.png`;
 }
 
 /** The wordmark's drawn size in CSS pixels: half the kit PNG's 399 × 48 pixels, so it is sharp at 2x. */
-export const EXOMEM_EMAIL_WORDMARK = { width: 199.5, height: 24 } as const;
+const EXOMEM_EMAIL_WORDMARK = { width: 199.5, height: 24 } as const;
 
 export type ExomemEmailFact = {
   label: string;
