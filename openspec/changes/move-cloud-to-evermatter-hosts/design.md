@@ -44,9 +44,10 @@ The product's public pages get their canonical home on `evermatter.ai`. Requests
 
 ### D4. App pages follow the issuer
 
-The app pages (sign-in, setup, home, authorize, operator) serve on the origin that `EXOMEM_PUBLIC_BASE_URL` names; on any other product host they get a 308 to that origin. That one value already gives the OAuth issuer, the magic-link and Home URLs and the checkout return URL, so setting it to `https://evermatter.ai` moves sign-in, the issuer and every link together. Nothing else depends on the host: the session cookies use path `/` and the current host, and each CSRF and consent check compares the request's Origin with its own Host.
+The app pages (sign-in, setup, home, authorize, operator) serve on the origin that `EXOMEM_PUBLIC_BASE_URL` names; on any other product host they get a 308 to that origin. That one value already gives the OAuth issuer, the magic-link and Home URLs and the checkout return URL, so setting it to `https://evermatter.ai` moves sign-in, the issuer and every link together. The session and continuation cookies are host-only, and each CSRF and consent check compares the request's Origin with its own Host, so a browser flow must finish on one host.
 
-- The OAuth API routes (token, register, revoke, authorize) are not redirected and answer on both hosts. Some clients store the token endpoint and do not follow a redirect on a POST.
+- The token, register and revoke routes are not redirected and answer on both hosts. Some clients store the token endpoint and do not follow a redirect on a POST.
+- The authorize route, a browser navigation, sends a GET on another host to the base origin with a 307 before it sets its continuation cookies; otherwise the consent page on the base origin would never see them.
 - Tokens are opaque and never carry the issuer, so a token from before the switch keeps working.
 - A browser session on the old host does not carry over; the person signs in once on `evermatter.ai`.
 - After the switch, the authorization-server metadata names the new issuer on both hosts. A client that rediscovers goes through the protected-resource metadata, which names the new issuer. A client that re-fetches metadata under the old issuer sees a mismatch and fails that discovery, and recovers through the protected-resource metadata on its next challenge.

@@ -4,7 +4,8 @@
  * Set, the public product pages get their canonical home on that origin and their old
  * company-site paths redirect there. App pages (sign-in, setup, home, authorize, operator)
  * serve on the origin `EXOMEM_PUBLIC_BASE_URL` names, which also gives the OAuth issuer, and
- * the other host redirects them there. OAuth API routes answer on both hosts.
+ * the other host redirects them there. The token, register and revoke routes answer on both
+ * hosts; authorize redirects a GET on another host to the base origin itself (its route.ts).
  *
  * next.config.ts imports this file, so it uses relative imports and no Next runtime APIs.
  */

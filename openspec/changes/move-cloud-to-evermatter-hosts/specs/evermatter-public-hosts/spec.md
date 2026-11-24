@@ -43,7 +43,9 @@ The protected-resource metadata of each host in the set SHALL name that host's o
 ### Requirement: Old public product paths redirect to evermatter.ai
 
 A request for a public product page on `substratesystems.io` SHALL get a permanent redirect to
-the same page on `evermatter.ai`. OAuth API endpoints SHALL NOT redirect.
+the same page on `evermatter.ai`. The token, register and revoke endpoints SHALL NOT redirect.
+A GET to the authorize endpoint on a host other than the public base origin SHALL get a
+temporary redirect to the same path and query on that origin, before it sets any cookie.
 
 #### Scenario: A visitor follows an old link
 
@@ -54,6 +56,11 @@ the same page on `evermatter.ai`. OAuth API endpoints SHALL NOT redirect.
 
 - **WHEN** a client posts a refresh to the token endpoint on `substratesystems.io`
 - **THEN** the endpoint answers there with no redirect
+
+#### Scenario: A client re-authorizes through a stored old-host authorize URL
+
+- **WHEN** the public base origin is `https://evermatter.ai` and a browser opens the authorize endpoint on `substratesystems.io`
+- **THEN** it gets a 307 to the same path and query on `https://evermatter.ai`, with no cookie set, and consent completes there
 
 ### Requirement: App pages serve on the configured public origin
 
