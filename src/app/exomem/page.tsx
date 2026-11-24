@@ -36,6 +36,10 @@ export const metadata = buildExomemMetadata({
   path: "/exomem",
 });
 
+// The header logo's height (the canon's one logo position). The brand row takes the
+// same height, so the byline's descent cannot pull the logo off its 29 px top edge.
+const HEADER_WORDMARK_HEIGHT = 17;
+
 const GITHUB = "https://github.com/Artexis10/exomem";
 const PYPI = "https://pypi.org/project/exomem/";
 const README = `${GITHUB}#readme`;
@@ -225,12 +229,12 @@ export default function ExomemPage() {
 
       <div className={styles.main}>
         <header className={styles.header}>
-          <div className={styles.brand}>
+          <div className={styles.brand} style={{ height: HEADER_WORDMARK_HEIGHT }}>
             <span className={`${styles.wordmark} ${responsive.deskOnly}`}>
-              <Wordmark height={17} />
+              <Wordmark height={HEADER_WORDMARK_HEIGHT} />
             </span>
             <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
-              <Wordmark height={17} />
+              <Wordmark height={HEADER_WORDMARK_HEIGHT} />
             </span>
             <Link href="/" className={`exo-link-ts ${styles.byline} ${responsive.deskOnly}`}>
               by Substrate Systems

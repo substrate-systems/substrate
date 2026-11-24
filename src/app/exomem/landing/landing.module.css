@@ -34,11 +34,9 @@
 
 .brand {
   display: flex;
-  /* The byline stands on the wordmark's baseline. The row keeps the wordmark's height
-     (page.tsx: <Wordmark height={17} />), so the byline's descent cannot pull the logo
-     off its 29 px top edge when the header centres the row. */
+  /* The byline stands on the wordmark's baseline. page.tsx sets this row's height to the
+     wordmark's (HEADER_WORDMARK_HEIGHT), so the logo keeps its 29 px top edge. */
   align-items: baseline;
-  height: 17px;
   gap: 14px;
 }
 
