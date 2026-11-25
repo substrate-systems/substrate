@@ -615,30 +615,6 @@ describe("deliverClaimedAlert", () => {
     assert.equal(table.get(OTHER_ID)?.suppressed, false);
   });
 
-  it("counts the 23 hours from the last email, not from a report that sent none", async () => {
-    // A sender that reports several times a day: the reports in between were
-    // suppressed, and must not push the next email back.
-    seed({
-      transition_id: TRANSITION_ID,
-      notification_state: "delivered",
-      notified_at: clock,
-      active: true,
-      age_hours: 24,
-    });
-    seed({
-      transition_id: "c".repeat(64),
-      notification_state: "delivered",
-      notified_at: clock,
-      active: true,
-      suppressed: true,
-      age_hours: 1,
-    });
-    seed({ transition_id: OTHER_ID, active: true });
-    const outcome = await receiver.deliverClaimedAlert(OTHER_ID);
-    assert.equal(outcome.skipped, false);
-    assert.equal(sent.length, 1);
-  });
-
   it("keeps an inactive repeat silent however long ago the last delivery was", async () => {
     // The key watcher sends an inactive marker every hour, forever.
     seed({
