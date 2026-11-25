@@ -11,7 +11,7 @@ export const metadata = buildExomemMetadata({
 
 export default function ExomemTermsPage() {
   return (
-    <ExomemPublicPage title="Evermatter Cloud terms" eyebrow="Revised 13 October 2026">
+    <ExomemPublicPage title="Evermatter Cloud terms" eyebrow="Revised 25 November 2026">
       <p>
         These terms are an agreement between you and Substrate Systems OÜ (Estonian registry code
         17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Evermatter Cloud (formerly
