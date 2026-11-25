@@ -1,6 +1,8 @@
 import { gatewayCloudUpstream } from "./cloud-upstream";
+import { adoptSettingAliases } from "./env-aliases";
 import { createGatewayServer, drainGatewayServer, validateGatewayEnvironment } from "./server";
 
+adoptSettingAliases();
 validateGatewayEnvironment();
 // The D5 hold and timeout settings: a missing or invalid one stops the start here.
 gatewayCloudUpstream();
