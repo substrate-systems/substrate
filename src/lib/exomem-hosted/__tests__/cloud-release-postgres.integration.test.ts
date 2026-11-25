@@ -480,7 +480,12 @@ describe("Exomem Cloud release control PostgreSQL integration", { skip: !databas
 
     let view = await getCloudRolloutView();
     assert.equal(view.canary_on_target, false);
-    assert.deepEqual(view.cells, { on_target: 1, behind_target: 1, held: 0 });
+    assert.deepEqual(view.cells, {
+      on_target: 1,
+      behind_target: 1,
+      held: 0,
+      pinned_off_fleet: 0,
+    });
 
     await pool!.query("UPDATE exomem_cloud_cells SET observed_image = $1 WHERE cell_id = $2", [
       IMAGE_V2,
@@ -489,6 +494,21 @@ describe("Exomem Cloud release control PostgreSQL integration", { skip: !databas
     view = await getCloudRolloutView();
     assert.equal(view.canary_on_target, true);
     assert.equal(view.release, "v2.0.0");
+  });
+
+  it("counts a running cell pinned off the fleet image, and not one pinned to it", async () => {
+    await resetFleet();
+    await setImageAsAdmin(IMAGE_V1, "v1.0.0");
+    const pinned = await seedCell();
+    await seedCell();
+
+    assert.equal((await getCloudRolloutView()).cells.pinned_off_fleet, 0, "no cell is pinned yet");
+
+    await setCloudCellDesiredImage(pinned.cellId, IMAGE_CANARY);
+    assert.equal((await getCloudRolloutView()).cells.pinned_off_fleet, 1);
+
+    await setCloudCellDesiredImage(pinned.cellId, IMAGE_V1);
+    assert.equal((await getCloudRolloutView()).cells.pinned_off_fleet, 0);
   });
 
   it("keeps the rollout view free of cell and tenant IDs, and its size fixed as the fleet grows", async () => {
@@ -518,7 +538,7 @@ describe("Exomem Cloud release control PostgreSQL integration", { skip: !databas
       paused: true,
       error_code: "PROBE_FAILED",
       canary_on_target: false,
-      cells: { on_target: 0, behind_target: 6, held: 0 },
+      cells: { on_target: 0, behind_target: 6, held: 0, pinned_off_fleet: 0 },
     });
   });
 });

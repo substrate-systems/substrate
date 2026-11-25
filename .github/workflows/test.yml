@@ -48,6 +48,7 @@ jobs:
           src/lib/exomem-hosted/__tests__/migration-upgrade.integration.test.ts
           src/lib/exomem-hosted/__tests__/migration-runner.integration.test.ts
           src/lib/exomem-hosted/__tests__/postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/alert-receiver-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/access-recovery.test.ts
       - name: Hosted Backup version-commit and lifecycle PostgreSQL authority, shared driver
         env:
