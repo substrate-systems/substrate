@@ -18,6 +18,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { createParser } from "eventsource-parser";
 import { z } from "zod";
 import {
   filingRecord,
@@ -36,7 +37,7 @@ import {
 import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
 import { executeExomemSql, withExomemTransaction } from "./db";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
-import { readBoundedJsonRequest } from "./http";
+import { readBoundedBytes, readBoundedJsonRequest } from "./http";
 import { digestSecret, generateExternalToken, SensitiveSecret } from "./security";
 import {
   resolveExomemSession,
@@ -421,6 +422,34 @@ async function mintHomeAccessToken(
   });
 }
 
+/**
+ * The cell's JSON-RPC answer to `requestId`. A Streamable HTTP server answers a POST either as
+ * one JSON message or as an event stream; in a stream it is the `message` event with that id.
+ */
+async function readCellAnswer(
+  response: Response,
+  maxBytes: number,
+  requestId: string
+): Promise<unknown> {
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(
+    await readBoundedBytes(response, maxBytes)
+  );
+  const mediaType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (mediaType !== "text/event-stream") return JSON.parse(text) as unknown;
+  let answer: unknown;
+  const parser = createParser({
+    onEvent: (event) => {
+      if (event.event !== undefined && event.event !== "message") return;
+      const message: unknown = JSON.parse(event.data);
+      if (message && typeof message === "object" && "id" in message && message.id === requestId)
+        answer = message;
+    },
+  });
+  parser.feed(text);
+  parser.reset({ consume: true });
+  return answer;
+}
+
 /** One stateless `tools/call` through the gateway, read through a schema. */
 async function callHomeTool(
   principal: CloudHomePrincipal,
@@ -442,7 +471,8 @@ async function callHomeTool(
       headers: {
         authorization: `Bearer ${token.reveal()}`,
         "content-type": "application/json",
-        accept: "application/json",
+        // A Streamable HTTP server refuses a POST that does not accept both answer formats (406).
+        accept: "application/json, text/event-stream",
         "mcp-protocol-version": MCP_PROTOCOL_VERSION,
         "mcp-method": "tools/call",
         "mcp-name": call.name,
@@ -477,7 +507,7 @@ async function callHomeTool(
       call.name === "viewer_map" || call.name === "read_memory"
         ? 1024 * 1024
         : MAX_CELL_ANSWER_BYTES;
-    body = await readBoundedJsonRequest(response, maxBytes);
+    body = await readCellAnswer(response, maxBytes, requestId);
   } catch {
     body = undefined;
   }

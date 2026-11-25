@@ -5,6 +5,19 @@ export async function readBoundedJsonRequest(
   request: Pick<Request, "headers" | "body">,
   maxBytes: number
 ): Promise<unknown> {
+  const bytes = await readBoundedBytes(request, maxBytes);
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+  } catch {
+    throw exomemErrors.invalidRequest();
+  }
+}
+
+/** The whole body, refused once it passes `maxBytes`. */
+export async function readBoundedBytes(
+  request: Pick<Request, "headers" | "body">,
+  maxBytes: number
+): Promise<Uint8Array> {
   const declaredRaw = request.headers.get("content-length");
   if (declaredRaw) {
     if (!/^\d+$/.test(declaredRaw)) throw exomemErrors.invalidRequest();
@@ -33,9 +46,5 @@ export async function readBoundedJsonRequest(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch {
-    throw exomemErrors.invalidRequest();
-  }
+  return bytes;
 }

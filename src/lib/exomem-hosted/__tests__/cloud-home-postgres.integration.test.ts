@@ -1011,6 +1011,28 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal((refusal.current as { revision: string }).revision, "r2");
     });
 
+    it("reads the cell's answer from an event stream, the way the cell's transport sends it", async () => {
+      const alice = await owner();
+      const cell = fakeCell((call) => {
+        const id = JSON.parse(call.rawBody).id;
+        const reply = {
+          jsonrpc: "2.0",
+          id,
+          result: { isError: false, structuredContent: { revision: "r7", levels: LEVELS }, content: [] },
+        };
+        // A progress notification may come first; only the message with the call's id answers it.
+        const notice = { jsonrpc: "2.0", method: "notifications/message", params: { level: "info" } };
+        return new Response(
+          `event: message\ndata: ${JSON.stringify(notice)}\n\nevent: message\ndata: ${JSON.stringify(reply)}\n\n`,
+          { headers: { "content-type": "text/event-stream; charset=utf-8" } }
+        );
+      });
+
+      const shown = await json(await getLevels(alice, cell.fetchCell));
+      assert.equal(shown.state, "live");
+      assert.equal(shown.revision, "r7");
+    });
+
     it("refuses a level write on a read-only cell before calling the cell, and shows the switch locked", async () => {
       const alice = await owner({ desired: "read_only" });
       const cell = fakeCell(() => ({ revision: "r1", levels: LEVELS }));

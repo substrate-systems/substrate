@@ -175,16 +175,24 @@ export function startFakeCell(options: {
         const bearer = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
         const access = await findCloudOAuthAccessToken(digestSecret(bearer), [options.resource]);
         if (!access) return json(response, 401, { error: "ACCESS_TOKEN_INVALID" });
+        // Like the real cell's Streamable HTTP transport: a POST must accept both answer
+        // formats, and the answer comes back as one event-stream message.
+        const accepts = (request.headers.accept ?? "").toLowerCase();
+        if (!accepts.includes("application/json") || !accepts.includes("text/event-stream")) {
+          return json(response, 406, { error: "NOT_ACCEPTABLE" });
+        }
         const rpc = JSON.parse(await body(request));
         const result = call(cell(access.tenantId), rpc.params.name, rpc.params.arguments ?? {});
-        return json(response, 200, {
+        const message = {
           jsonrpc: "2.0",
           id: rpc.id,
           result:
             "refused" in result
               ? { isError: true, content: [{ type: "text", text: result.refused }] }
               : { isError: false, structuredContent: result.answer, content: [] },
-        });
+        };
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        return response.end(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
       } catch (error) {
         console.error("[fake-cell]", error);
         return json(response, 500, { error: "FAKE_CELL_ERROR" });

@@ -18,7 +18,7 @@ export function newRequestId(): string {
 }
 
 // The reader lives in a module with no Next.js import, so the gateway can bound a web answer with it.
-export { readBoundedJsonRequest } from "./bounded-json";
+export { readBoundedBytes, readBoundedJsonRequest } from "./bounded-json";
 
 export function emitAccessEvent(
   input: Omit<OperationalEvent, "timestamp"> & Record<string, unknown>
