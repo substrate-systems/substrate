@@ -9,7 +9,8 @@
 
 ## 2. Home
 
-- [ ] 2.1 The What's new section and "Got it", inspected in Chrome DevTools at desktop and phone widths in light and dark.
+- [x] 2.1 The What's new section and "Got it", inspected at desktop and phone widths in light and dark.
+  - Evidence: `next dev` against a fresh migrated Postgres 16 and the e2e fake cell, rendered in Playwright Chromium at 1440 and 390 px in both colour schemes with two releases and three notes. The section matches the other Home cards and carries no explanatory text. Chrome DevTools was not available in the session; the inspection used Playwright screenshots.
 
 ## 3. Acceptance
 
