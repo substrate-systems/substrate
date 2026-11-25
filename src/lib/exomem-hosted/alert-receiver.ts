@@ -28,7 +28,7 @@ const KEY_WATCHER_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_KEY_WATCHER_ALERT_TOK
 export const KEY_WATCHER_JOB = "b2-key-watcher";
 /** The release automation (automate-cloud-releases D1) runs in GitHub Actions with
  * its own capability, so it can raise and resolve only its own alerts. It runs on
- * releases, not on a schedule, so no missed-run alert watches it. */
+ * releases and once a day, so no missed-run alert watches it. */
 const CLOUD_DEPLOY_TOKEN_DIGEST_VARIABLE = "EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256";
 const CLOUD_DEPLOY_TOKEN_DIGEST_PREVIOUS_VARIABLE = "EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256_PREVIOUS";
 /** The only job the cloud-deploy capability may report, fixed by the Exomem
@@ -296,11 +296,19 @@ export async function releaseAlertNotification(
  * the *same* state change under a *different* id, which the primary key cannot
  * catch. Comparing against the last delivered state for this (job, alert) does:
  * a genuine flap alternates `active`, a redelivery repeats it.
+ *
+ * An active repeat is news again once the last delivered row is more than 23
+ * hours old: a sender that re-reports a still-active alert daily lands its next
+ * report a little under or over 24 hours later, and an emailed-once alert would
+ * otherwise stay silent for as long as it stays active. A retry arrives within
+ * minutes, so it stays redundant. An inactive repeat is never news; the key
+ * watcher sends one every hour. The comparison runs in SQL so it uses the
+ * database's clock, the one `received_at` was stamped with.
  */
 export async function isRedundantTransition(transition: AlertTransition): Promise<boolean> {
   const { rows } = await executeExomemSql`
     /* exomem:latest-delivered-alert */
-    SELECT active
+    SELECT active, received_at < now() - interval '23 hours' AS stale
     FROM exomem_hosted_alert_transitions
     WHERE job = ${transition.job}
       AND alert = ${transition.alert}
@@ -311,7 +319,8 @@ export async function isRedundantTransition(transition: AlertTransition): Promis
   `;
   const row = rows[0];
   if (!row) return false;
-  return (row.active === true) === transition.active;
+  if ((row.active === true) !== transition.active) return false;
+  return !(transition.active && row.stale === true);
 }
 
 /** Oldest claimable transitions. Ordered oldest-first so alerts are notified in

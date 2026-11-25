@@ -65,6 +65,8 @@ type Row = {
   alert: string;
   active: boolean;
   received_at: number;
+  /** How long ago the database stamped `received_at`; the fake has no wall clock. */
+  age_hours: number;
   notification_state: "pending" | "delivered" | "failed";
   notification_attempts: number;
   claimed_until: number | null;
@@ -112,6 +114,7 @@ function installFakeSql(): void {
         alert,
         active,
         received_at: sequence++,
+        age_hours: 0,
         notification_state: "pending",
         notification_attempts: 0,
         claimed_until: null,
@@ -185,7 +188,9 @@ function installFakeSql(): void {
             row.transition_id !== transitionId
         )
         .sort((left, right) => right.received_at - left.received_at)[0];
-      return Promise.resolve({ rows: match ? [{ active: match.active }] : [] });
+      // The SQL decides staleness against the database clock; this mirrors its 23-hour cut-off.
+      const rows = match ? [{ active: match.active, stale: match.age_hours > 23 }] : [];
+      return Promise.resolve({ rows });
     }
 
     if (marker === "exomem:list-claimable-alerts") {
@@ -228,6 +233,7 @@ function seed(overrides: Partial<Row> & { transition_id: string }): Row {
     alert: "scheduler_missed_run",
     active: true,
     received_at: sequence++,
+    age_hours: 0,
     notification_state: "pending",
     notification_attempts: 0,
     claimed_until: null,
@@ -564,6 +570,52 @@ describe("deliverClaimedAlert", () => {
     assert.equal(outcome.skipped, true);
     assert.equal(sent.length, 0, "a repeated state must not produce a second email");
     assert.equal(table.get(OTHER_ID)?.notification_state, "delivered");
+  });
+
+  it("suppresses an active repeat that arrives inside 23 hours of the last delivery", async () => {
+    seed({
+      transition_id: TRANSITION_ID,
+      notification_state: "delivered",
+      notified_at: clock,
+      active: true,
+      age_hours: 22,
+    });
+    seed({ transition_id: OTHER_ID, active: true });
+    const outcome = await receiver.deliverClaimedAlert(OTHER_ID);
+    assert.equal(outcome.skipped, true);
+    assert.equal(sent.length, 0);
+  });
+
+  it("notifies again when a still-active alert repeats after 23 hours", async () => {
+    // A daily sender re-reports an alert that is still firing; the first email
+    // alone would leave the operator believing it had been fixed.
+    seed({
+      transition_id: TRANSITION_ID,
+      notification_state: "delivered",
+      notified_at: clock,
+      active: true,
+      age_hours: 24,
+    });
+    seed({ transition_id: OTHER_ID, active: true });
+    const outcome = await receiver.deliverClaimedAlert(OTHER_ID);
+    assert.equal(outcome.skipped, false);
+    assert.equal(sent.length, 1);
+    assert.equal(table.get(OTHER_ID)?.notification_state, "delivered");
+  });
+
+  it("keeps an inactive repeat silent however long ago the last delivery was", async () => {
+    // The key watcher sends an inactive marker every hour, forever.
+    seed({
+      transition_id: TRANSITION_ID,
+      notification_state: "delivered",
+      notified_at: clock,
+      active: false,
+      age_hours: 72,
+    });
+    seed({ transition_id: OTHER_ID, active: false });
+    const outcome = await receiver.deliverClaimedAlert(OTHER_ID);
+    assert.equal(outcome.skipped, true);
+    assert.equal(sent.length, 0);
   });
 
   it("still notifies a genuine flap back to a previous state", async () => {
