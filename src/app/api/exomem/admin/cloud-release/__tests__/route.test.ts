@@ -44,7 +44,7 @@ const rolloutView = {
   paused: false,
   error_code: null,
   canary_on_target: true,
-  cells: { on_target: 1, behind_target: 0, held: 0 },
+  cells: { on_target: 1, behind_target: 0, held: 0, pinned_off_fleet: 0 },
 };
 
 let setCloudReleaseImageCalls: string[] = [];

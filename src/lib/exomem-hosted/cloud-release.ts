@@ -384,8 +384,12 @@ export type CloudRolloutView = {
    * False when there is no cell.
    */
   canary_on_target: boolean;
-  /** Running and read-only cells, by whether their observed image is their target; and cells under a hold. */
-  cells: { on_target: number; behind_target: number; held: number };
+  /**
+   * Running and read-only cells, by whether their observed image is their target; cells under a
+   * hold; and running or read-only cells whose own `desired_image` pin differs from the fleet
+   * `cell_image`, so a pin cannot hide a cell behind the fleet.
+   */
+  cells: { on_target: number; behind_target: number; held: number; pinned_off_fleet: number };
 };
 
 /**
@@ -402,7 +406,7 @@ export async function getCloudRolloutView(): Promise<CloudRolloutView> {
     ),
     live AS (
       SELECT cells.cell_id, cells.rollout_priority, cells.desired_state, cells.observed_image,
-             cells.ready, cells.hold_kind,
+             cells.ready, cells.hold_kind, cells.desired_image,
              COALESCE(cells.desired_image, (SELECT cell_image FROM settings)) AS target
       FROM exomem_cloud_cells cells
       WHERE cells.desired_state <> 'deleted'
@@ -422,7 +426,10 @@ export async function getCloudRolloutView(): Promise<CloudRolloutView> {
       (SELECT count(*) FROM live
          WHERE desired_state IN ('running', 'read_only') AND target IS NOT NULL
            AND observed_image IS DISTINCT FROM target) AS behind_target,
-      (SELECT count(*) FROM live WHERE hold_kind IS NOT NULL) AS held
+      (SELECT count(*) FROM live WHERE hold_kind IS NOT NULL) AS held,
+      (SELECT count(*) FROM live
+         WHERE desired_state IN ('running', 'read_only') AND desired_image IS NOT NULL
+           AND desired_image IS DISTINCT FROM (SELECT cell_image FROM settings)) AS pinned_off_fleet
     FROM exomem_cloud_rollout rollout
     WHERE rollout.id = 1
   `;
@@ -438,6 +445,7 @@ export async function getCloudRolloutView(): Promise<CloudRolloutView> {
       on_target: Number(row.on_target),
       behind_target: Number(row.behind_target),
       held: Number(row.held),
+      pinned_off_fleet: Number(row.pinned_off_fleet),
     },
   };
 }
