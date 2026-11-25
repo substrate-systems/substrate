@@ -113,7 +113,7 @@ Export for read-only tenants uses the operator export runbook (Exomem D8) until 
 
 ### D5. The release is one setting
 
-An owner-only admin route sets `exomem_cloud_settings.cell_image`. Every image it accepts, for the setting or for a row, must be exactly `<configured cell repository>@sha256:<64 lowercase hex>`. Anything else is refused as an invalid request. A request that changes several values validates all of them before writing any, and writes them in one transaction, so a partly invalid request changes nothing. The same route can:
+An owner-only admin route sets `exomem_cloud_settings.cell_image`. Every image it accepts, for the setting or for a row, must be exactly `<a configured cell repository>@sha256:<64 lowercase hex>`, where the configured repositories are the current one and, optionally, the one that published releases before the image moved. Anything else is refused as an invalid request. A request that changes several values validates all of them before writing any, and writes them in one transaction, so a partly invalid request changes nothing. The same route can:
 
 - clear a paused `exomem_cloud_rollout`;
 - set or clear a single row's `desired_image`;
