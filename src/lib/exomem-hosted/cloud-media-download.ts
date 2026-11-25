@@ -3,8 +3,8 @@
  * original (add-cloud-media-access). The bytes never pass through this app. The
  * route checks the browser session, picks the cell from the session alone, and
  * answers 302 to the gateway's `/download` with a ticket for exactly this path.
- * The ticket lives long enough for a recording, because a media element sends
- * every later Range request to the address it first followed.
+ * The ticket is short-lived (fifteen minutes unless configured): a link only
+ * downloads, and a ticket in an address works as a bearer for its path until it ends.
  */
 
 import { CLOUD_DOWNLOAD_PATH } from "../../exomem-gateway/cloud-origin";
@@ -37,18 +37,20 @@ const unavailableCell = (reason: string) =>
  * browser's own request metadata says where the request began: this site's own
  * pages (`same-origin`) and a typed address or bookmark (`none`) may ask, and so
  * may a link that the owner follows from another site (a web chat client shows
- * one), which is a cross-site navigation of a document. That request cannot read
- * the answer: it only navigates to the gateway, which serves an attachment under
- * a sandbox policy. Every other cross-site request (an image, a script, a fetch,
- * a frame) is refused. A browser too old to send `Sec-Fetch-Site` still sends
- * `Origin` on a cross-origin request, so that is read when the metadata is absent.
+ * one), which is a navigation of a document from `same-site` or `cross-site`.
+ * That request cannot read the answer: it only navigates to the gateway, which
+ * serves an attachment under a sandbox policy. Every other request from another
+ * origin (an image, a script, a fetch, a frame) is refused. A browser too old to
+ * send `Sec-Fetch-Site` still sends `Origin` on a cross-origin request, so that is
+ * read when the metadata is absent. The four `Sec-Fetch-Site` values are the Fetch
+ * Metadata specification's closed set.
  */
 function assertOwnBrowserRequest(request: Request): void {
   const site = request.headers.get("sec-fetch-site");
   if (site !== null) {
     if (site === "same-origin" || site === "none") return;
     const navigatesToDocument =
-      site === "cross-site" &&
+      (site === "cross-site" || site === "same-site") &&
       request.headers.get("sec-fetch-mode") === "navigate" &&
       request.headers.get("sec-fetch-dest") === "document";
     if (!navigatesToDocument) throw exomemErrors.csrfRejected();

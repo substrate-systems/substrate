@@ -1,4 +1,4 @@
--- Migration 0095 (add-cloud-media-access) — the two storage figures of a cell with a media store.
+-- Migration 0096 (add-cloud-media-access) — the two storage figures of a cell with a media store.
 -- Observed by cellctl from the cell's storage record (add-cloud-media-store task 4.9) and read
 -- by Home. scripts/exomem-cloud-grants.sql gives exomem_cellctl UPDATE on exactly these four.
 --

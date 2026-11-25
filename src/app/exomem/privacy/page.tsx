@@ -175,7 +175,8 @@ export default function ExomemPrivacyPage() {
         they expire automatically, normally within about 40 days. Otherwise we delete the backup
         copies by hand after the deletion completes. Stored originals in the object store are
         handled apart: deletion retires the content keys for them first, so what remains is
-        unreadable. Our systems then delete the stored copies with no manual step. They hide them
+        unreadable without keys that survive only in encrypted database backups until they
+        expire. Our systems then delete the stored copies with no manual step. They hide them
         when the 7-day deletion grace ends, and the object store deletes the hidden copies 14 days
         later, so about 21 days after the deletion they are gone. Until then they remain in the
         store, encrypted. Backups

@@ -8,8 +8,9 @@
  * owner or a deleting account. A browser media element sends every Range
  * request to the address it first followed, so one ticket serves any number of
  * GETs of its path for its whole life, and no other path or route. That life is
- * long enough for a recording and a pause (four hours unless configured), so
- * the signer only names a login family that outlives it.
+ * short (fifteen minutes unless configured), because a link only downloads and a
+ * ticket in an address is a bearer for its path. The signer only names a login
+ * family that outlives the ticket, so the family's own expiry never ends it.
  *
  * The app and the gateway share `EXOMEM_CONTROL_PLANE_KEY`; the MAC below is
  * keyed with it under a label of its own, so no other use of that key (rate
@@ -21,7 +22,7 @@ import { CLOUD_CELL_ID_PATTERN, type EnvironmentSource } from "./cloud-config";
 
 const DOWNLOAD_TICKET_PURPOSE = "download";
 const LIFETIME_SETTING = "EXOMEM_CLOUD_DOWNLOAD_TICKET_LIFETIME_SECONDS";
-const DEFAULT_LIFETIME_SECONDS = 4 * 60 * 60;
+const DEFAULT_LIFETIME_SECONDS = 15 * 60;
 // One minute to one day: below that a ticket is gone before the browser follows it, and a
 // login family (thirty days) must outlive it.
 const MIN_LIFETIME_SECONDS = 60;
@@ -33,7 +34,7 @@ const MAC_BYTES = 32;
 
 /**
  * How long a ticket lives, from `EXOMEM_CLOUD_DOWNLOAD_TICKET_LIFETIME_SECONDS`
- * (default four hours). The app signs with it and the gateway refuses a longer
+ * (default fifteen minutes). The app signs with it and the gateway refuses a longer
  * one, so set it the same on both; a mismatch fails closed at the gateway. An
  * unusable value throws, because a ticket life nobody chose must not be guessed.
  */

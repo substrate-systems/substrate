@@ -42,6 +42,7 @@ import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { verifyDownloadTicket } from "../lib/exomem-hosted/cloud-download-ticket";
 import {
+  CLOUD_CELL_ID_PATTERN,
   cloudResourceForHost,
   loadExomemCloudConfig,
   type ExomemCloudConfig,
@@ -98,12 +99,11 @@ const HEADER_SAFE_VALUE = /^[\x20-\x7e]+$/;
 // its own cache-control, or anything else it chose to add) is dropped. The
 // gateway's own cache-control (CACHE_HEADERS) always wins.
 const RELAYED_RESPONSE_HEADERS = ["content-type", "mcp-session-id", "mcp-protocol-version"];
-// Security review finding 15: the same cell_id shape migration 0056 enforces
-// with its CHECK constraint (`^[a-z2-7]{16}$`) -- validated again here before
-// the value is used in a URL or an HMAC, so a data anomaly this join should
-// never allow can't be turned into a request against an attacker-shaped
-// hostname or a bearer derived from attacker-shaped input.
-const CELL_ID_FORMAT = /^[a-z2-7]{16}$/;
+// Security review finding 15: every use of CLOUD_CELL_ID_PATTERN below -- the cell_id
+// shape migration 0056 enforces with its CHECK constraint -- validates it again before
+// the value is used in a URL or an HMAC, so a data anomaly this join should never allow
+// can't be turned into a request against an attacker-shaped hostname or a bearer derived
+// from attacker-shaped input.
 const CELL_PORT = 8765;
 // The handoff's own byte cap plus the cell's multipart allowance; the cell enforces the ticket's limit.
 const MAX_CLOUD_UPLOAD_BODY_BYTES = 100 * 1024 * 1024 + 1024 * 1024;
@@ -647,7 +647,7 @@ async function proxyToCell(
   // data — it exists so a bug elsewhere can never turn into a request
   // against an attacker-shaped hostname or an HMAC over attacker-shaped
   // input.
-  if (!CELL_ID_FORMAT.test(access.cellId)) {
+  if (!CLOUD_CELL_ID_PATTERN.test(access.cellId)) {
     console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
     return errorResponse(500, "CELL_ID_INVALID");
   }
@@ -892,7 +892,7 @@ export async function handleCloudUploadRequest(
   const login = await currentUploadLogin(route, config, findLogin);
   if (!login) return uploadUnavailable();
   if (login.cellDesiredState !== "running") return errorResponse(503, "CELL_NOT_READY");
-  if (!CELL_ID_FORMAT.test(login.cellId)) {
+  if (!CLOUD_CELL_ID_PATTERN.test(login.cellId)) {
     console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
     return errorResponse(500, "CELL_ID_INVALID");
   }
@@ -1190,7 +1190,7 @@ async function serveDownloadForLogin(
       release();
       return errorResponse(503, "CELL_NOT_READY");
     }
-    if (!CELL_ID_FORMAT.test(login.cellId)) {
+    if (!CLOUD_CELL_ID_PATTERN.test(login.cellId)) {
       release();
       console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
       return errorResponse(500, "CELL_ID_INVALID");
@@ -1330,7 +1330,7 @@ export async function handleCloudDiscoveryRequest(
     return errorResponse(503, "CELL_NOT_READY");
   }
   // The same cell_id revalidation the MCP route runs before building a URL.
-  if (!CELL_ID_FORMAT.test(access.cellId)) {
+  if (!CLOUD_CELL_ID_PATTERN.test(access.cellId)) {
     console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
     return errorResponse(500, "CELL_ID_INVALID");
   }

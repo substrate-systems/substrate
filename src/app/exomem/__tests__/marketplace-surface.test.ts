@@ -64,6 +64,11 @@ describe("Exomem marketplace public surface", () => {
     // promised, and the backups' EU region is not claimed for them.
     assert.match(boundary, /delete the stored copies with no manual step/i);
     assert.doesNotMatch(boundary, /operator-run/i);
+    // The retired keys survive in database backups until those expire, so "unreadable" is conditional.
+    assert.match(
+      boundary,
+      /unreadable without keys that survive only in encrypted database backups until they expire/i
+    );
     assert.match(
       boundary,
       /encrypted backups, held in its EU region, and separately for stored originals/i

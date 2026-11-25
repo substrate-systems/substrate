@@ -2,7 +2,7 @@
 
 ### Requirement: A signed-in owner downloads a stored original through a ticket
 
-A signed-in owner session SHALL obtain a download ticket only for the serving cell that the session resolves to, never one named by the request. The ticket SHALL bind the tenant, cell, owner grant and login family, and exact path with the purpose `download`. It SHALL live for the configured ticket life, 4 hours by default and at most 24 hours, and serve any number of Range requests for that path inside its life. The app SHALL answer 302 to the gateway and SHALL NOT carry the media bytes.
+A signed-in owner session SHALL obtain a download ticket only for the serving cell that the session resolves to, never one named by the request. The ticket SHALL bind the tenant, cell, owner grant and login family, and exact path with the purpose `download`. It SHALL live for the configured ticket life, 15 minutes by default and at most 24 hours, and serve any number of Range requests for that path inside its life. The app SHALL answer 302 to the gateway and SHALL NOT carry the media bytes.
 
 #### Scenario: The owner follows a link to a stored original
 
@@ -21,32 +21,32 @@ A signed-in owner session SHALL obtain a download ticket only for the serving ce
 - **WHEN** the request has no session or belongs to a reviewer session
 - **THEN** the app answers 401 for no session and 403 for a reviewer session, and mints no ticket
 
-### Requirement: The app admits a link from another site only as a navigation
+### Requirement: The app admits a link from another origin only as a navigation
 
-The app SHALL admit a cross-site request to the download route only when its fetch metadata names a navigation to a document. It SHALL refuse every other cross-site request, and SHALL write no grant for a refused request.
+The app SHALL admit a cross-site or same-site request to the download route only when its fetch metadata names a navigation to a document. It SHALL refuse every other request from another origin, and SHALL write no grant for a refused request.
 
 #### Scenario: The owner follows a link from a web client
 
-- **WHEN** the owner follows a link on another site, and the request is a cross-site navigation to a document
+- **WHEN** the owner follows a link on another site or another subdomain, and the request is a navigation to a document
 - **THEN** the app answers 302 with a ticket
 
 #### Scenario: Another site loads the route in the background
 
-- **WHEN** a cross-site request is a fetch, an image, a script or a frame
+- **WHEN** a cross-site or same-site request is a fetch, an image, a script or a frame
 - **THEN** the app answers 403 and mints no ticket
 
 ### Requirement: The ticket lives on the owner's grant, not on the browser session
 
-A ticket SHALL stay valid for its life after the owner signs out or the owner's browser sessions are revoked. Only the end of the owner's grant, a blocked owner, a deleting tenant or a deleted cell SHALL end it earlier. The app SHALL sign a ticket only against a login family that outlives the ticket.
+A ticket SHALL stay valid until it expires after the owner signs out or the owner's browser sessions are revoked. The operator's revocation of the owner's first-party grant, a blocked owner, a deleting tenant or a deleted cell SHALL end it earlier. The app SHALL sign a ticket only against a login family that outlives the ticket.
 
-#### Scenario: The owner signs out while a recording plays
+#### Scenario: The owner signs out while a download starts
 
-- **WHEN** the owner signs out, and a Range request then reaches the gateway with the issued ticket
+- **WHEN** the owner signs out, and a request then reaches the gateway with the issued ticket inside its life
 - **THEN** the gateway answers 206
 
-#### Scenario: The owner revokes the grant
+#### Scenario: The operator revokes the grant
 
-- **WHEN** the owner's grant is revoked
+- **WHEN** an operator revokes the owner's first-party grant
 - **THEN** the gateway refuses the ticket on the next request
 
 ### Requirement: The gateway accepts a download ticket on GET /download only and keeps its per-request checks
@@ -58,9 +58,9 @@ The gateway SHALL accept a ticket on `GET /download` as an alternative to the OA
 - **WHEN** a ticket is expired, minted for another path, altered, or signed with another key
 - **THEN** the gateway answers 401 without a login lookup or a cell request
 
-#### Scenario: The grant ends inside the ticket's life
+#### Scenario: The grant or the account ends inside the ticket's life
 
-- **WHEN** the owner's grant is revoked, the tenant is deleting, or the owner is blocked
+- **WHEN** an operator revokes the owner's first-party grant, the tenant is deleting, the cell is deleted, or the owner is blocked
 - **THEN** the gateway refuses the ticket on the next request
 
 #### Scenario: The ticket is presented to another route

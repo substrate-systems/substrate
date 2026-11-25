@@ -229,14 +229,14 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
     assert.deepEqual(counts.rows[0], { grants: 1, families: 1, tokens: 0 });
   });
 
-  it("gives a ticket a life of hours and only ever names a family that outlives it", async () => {
+  it("gives a ticket fifteen minutes and only ever names a family that outlives it", async () => {
     const a = await owner();
     const first = claimsOf((await link(a)).headers.get("location")!);
-    assert.equal(first.exp - first.iat, 4 * 60 * 60);
+    assert.equal(first.exp - first.iat, 15 * 60);
     const family = (id: string) =>
       pool.query(
         "UPDATE exomem_oauth_token_families SET expires_at = now() + $2::interval WHERE id = $1",
-        [id, "3 hours"]
+        [id, "10 minutes"]
       );
     // Home's access-token mint reuses a family down to its last two minutes; a ticket may not,
     // because the gateway's login lookup ends at the family's own expiry.
@@ -250,13 +250,13 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
     assert.equal(outlives.rows[0].outlives, true);
     // A family with room beyond the ticket is reused, not replaced.
     await pool.query(
-      "UPDATE exomem_oauth_token_families SET expires_at = now() + interval '5 hours' WHERE id = $1",
+      "UPDATE exomem_oauth_token_families SET expires_at = now() + interval '30 minutes' WHERE id = $1",
       [second.family_id]
     );
     assert.equal(claimsOf((await link(a)).headers.get("location")!).family_id, second.family_id);
   });
 
-  it("keeps a ticket alive when the owner signs out, until its grant ends", async () => {
+  it("keeps a ticket alive when the owner signs out, until its grant is revoked", async () => {
     const a = await owner();
     const { follow } = gateway([a]);
     const location = (await link(a)).headers.get("location")!;
@@ -336,6 +336,8 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
       { "sec-fetch-site": "cross-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "image" },
       { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "iframe" },
       { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "video" },
+      { "sec-fetch-site": "same-site", "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" },
+      { "sec-fetch-site": "same-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "iframe" },
     ];
     for (const headers of refused) {
       assert.equal((await link(a, PATH, headers)).status, 403, JSON.stringify(headers));
@@ -363,14 +365,19 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
 
   it("admits a link the owner follows from another site, such as one in a web chat client", async () => {
     const a = await owner();
-    const navigation = {
-      "sec-fetch-site": "cross-site",
-      "sec-fetch-mode": "navigate",
-      "sec-fetch-dest": "document",
-    };
-    const response = await link(a, PATH, navigation);
-    assert.equal(response.status, 302);
-    assert.ok(response.headers.get("location")?.startsWith("https://cloud.example.test/download?"));
+    for (const site of ["cross-site", "same-site"]) {
+      const navigation = {
+        "sec-fetch-site": site,
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-dest": "document",
+      };
+      const response = await link(a, PATH, navigation);
+      assert.equal(response.status, 302, site);
+      assert.ok(
+        response.headers.get("location")?.startsWith("https://cloud.example.test/download?"),
+        site
+      );
+    }
   });
 
   it("refuses a reviewer's session", async () => {

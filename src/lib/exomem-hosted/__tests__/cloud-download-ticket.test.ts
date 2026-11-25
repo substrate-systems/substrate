@@ -15,7 +15,8 @@ const LOGIN = {
 };
 const PATH = "Recordings/standup.mp4";
 const NOW = 1_800_000_000;
-const FOUR_HOURS = 4 * 60 * 60;
+const FIFTEEN_MINUTES = 15 * 60;
+const ONE_HOUR = 60 * 60;
 
 function ticket(options: Parameters<typeof signDownloadTicket>[2] = { now: NOW }): string {
   return signDownloadTicket({ ...LOGIN, path: PATH }, KEY, options);
@@ -26,24 +27,31 @@ describe("download ticket", () => {
     assert.deepEqual(verifyDownloadTicket(ticket(), PATH, KEY, { now: NOW }), LOGIN);
   });
 
-  it("lives four hours unless configured, so a seek late in a recording still works", () => {
-    assert.equal(downloadTicketLifetimeSeconds({}), FOUR_HOURS);
+  it("lives fifteen minutes unless configured, so a ticket in an address is a short bearer", () => {
+    assert.equal(downloadTicketLifetimeSeconds({}), FIFTEEN_MINUTES);
     assert.deepEqual(
-      verifyDownloadTicket(ticket(), PATH, KEY, { now: NOW + FOUR_HOURS - 1 }),
+      verifyDownloadTicket(ticket(), PATH, KEY, { now: NOW + FIFTEEN_MINUTES - 1 }),
       LOGIN
     );
-    assert.equal(verifyDownloadTicket(ticket(), PATH, KEY, { now: NOW + FOUR_HOURS }), null);
+    assert.equal(verifyDownloadTicket(ticket(), PATH, KEY, { now: NOW + FIFTEEN_MINUTES }), null);
   });
 
   it("takes its life from the setting and is capped at both ends by it", () => {
-    const env = { EXOMEM_CLOUD_DOWNLOAD_TICKET_LIFETIME_SECONDS: "900" };
-    assert.equal(downloadTicketLifetimeSeconds(env), 900);
-    const short = ticket({ now: NOW, lifetimeSeconds: 900 });
-    assert.deepEqual(verifyDownloadTicket(short, PATH, KEY, { now: NOW + 899 }), LOGIN);
-    assert.equal(verifyDownloadTicket(short, PATH, KEY, { now: NOW + 900 }), null);
-    // A gateway set to fifteen minutes refuses a ticket signed for four hours.
+    const env = { EXOMEM_CLOUD_DOWNLOAD_TICKET_LIFETIME_SECONDS: String(ONE_HOUR) };
+    assert.equal(downloadTicketLifetimeSeconds(env), ONE_HOUR);
+    const longer = ticket({ now: NOW, lifetimeSeconds: ONE_HOUR });
+    const gateway = { lifetimeSeconds: ONE_HOUR };
+    assert.deepEqual(
+      verifyDownloadTicket(longer, PATH, KEY, { now: NOW + ONE_HOUR - 1, ...gateway }),
+      LOGIN
+    );
     assert.equal(
-      verifyDownloadTicket(ticket(), PATH, KEY, { now: NOW, lifetimeSeconds: 900 }),
+      verifyDownloadTicket(longer, PATH, KEY, { now: NOW + ONE_HOUR, ...gateway }),
+      null
+    );
+    // A gateway left at the default refuses a ticket that the app signed for an hour.
+    assert.equal(
+      verifyDownloadTicket(longer, PATH, KEY, { now: NOW, lifetimeSeconds: FIFTEEN_MINUTES }),
       null
     );
     assert.throws(() => ticket({ now: NOW, lifetimeSeconds: 24 * 60 * 60 + 1 }), RangeError);

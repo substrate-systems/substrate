@@ -1436,7 +1436,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       assert.equal(rows[0]!.can_delete, false, `${role} must not delete export rows`);
     }
 
-    // Migration 0066's whole-volume figures and migration 0095's vault and media figures.
+    // Migration 0066's whole-volume figures and migration 0096's vault and media figures.
     const usage = [
       "filesystem_bytes",
       "media_allowance_bytes",
