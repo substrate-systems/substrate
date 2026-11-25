@@ -12,6 +12,7 @@ import type {
   CloudHomeContext,
   CloudHomeLevel,
   CloudHomeLevelsView,
+  CloudHomeWhatsNewView,
 } from "@/lib/exomem-hosted/cloud-home-mcp";
 import type { CloudExportSummary } from "@/lib/exomem-hosted/cloud-exports";
 import { isExomemMoney } from "@/lib/exomem/money";
@@ -32,6 +33,7 @@ export type HomeBilling = OwnerBillingSummary;
 export type HomeApp = OwnerApp;
 export type HomeLevels = CloudHomeLevelsView;
 export type HomeActivity = CloudHomeActivityView;
+export type HomeWhatsNew = CloudHomeWhatsNewView;
 export type HomeExport = CloudExportSummary;
 export type HomeStorage = CloudStorageObservation;
 export type LevelContext = CloudHomeContext;
@@ -454,6 +456,42 @@ function parseActivity(value: unknown): HomeActivity | null {
 
 export function readActivity(): Promise<HomeActivity | typeof NOT_RELEASED> {
   return readChannel("/api/exomem/cloud/home/live", parseActivity);
+}
+
+function parseWhatsNew(value: unknown): HomeWhatsNew | null {
+  const view = record(value);
+  if (view?.state === "unavailable" && typeof view.reason === "string") {
+    return view as HomeWhatsNew;
+  }
+  if (
+    view?.state === "live" &&
+    typeof view.version === "string" &&
+    Array.isArray(view.releases) &&
+    view.releases.every((release) => {
+      const entry = record(release);
+      return (
+        entry !== null &&
+        typeof entry.version === "string" &&
+        typeof entry.released_on === "string" &&
+        Array.isArray(entry.notes) &&
+        entry.notes.every((note) => typeof note === "string")
+      );
+    })
+  ) {
+    return view as HomeWhatsNew;
+  }
+  return null;
+}
+
+/** Read once when Home loads: the releases do not change while the page is open. */
+export function readWhatsNew(): Promise<HomeWhatsNew | typeof NOT_RELEASED> {
+  return readChannel("/api/exomem/cloud/home/whats-new", parseWhatsNew);
+}
+
+/** Records "Got it" at the version Home showed; false when the server did not take it. */
+export async function dismissWhatsNew(version: string): Promise<boolean> {
+  const { status } = await send("POST", "/api/exomem/cloud/home/whats-new", { version });
+  return status === 200;
 }
 
 // --- Export ---

@@ -8,7 +8,8 @@
  * logged. The gateway's own lookup re-checks revocation, account blocks and
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
- * Home calls only `configure_memory` and the `bootstrap` activity section.
+ * Home calls only `configure_memory` and the `bootstrap` activity and
+ * `whats_new` sections.
  * The viewer reuses the same transport for three fixed read operations.
  * Browser callers never choose a tool, tenant, gateway or cell.
  */
@@ -16,6 +17,13 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
+import {
+  isReleaseVersion,
+  readWhatsNewAnchors,
+  recordWhatsNewDismissal,
+  selectWhatsNew,
+  type WhatsNewRelease,
+} from "./cloud-home-whats-new";
 import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
 import { executeExomemSql, withExomemTransaction } from "./db";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
@@ -89,6 +97,23 @@ const ActivityPayload = z.object({
 // contract states the bare payload. Both carry the same fields.
 const ActivityAnswer = z.union([z.object({ activity: ActivityPayload }), ActivityPayload]);
 
+// The cell's release notes: the running version and the newest 20 releases that
+// have notes, newest first. The strings are text for a person; Home renders them
+// as text only.
+const WhatsNewPayload = z.object({
+  version: z.string(),
+  releases: z
+    .array(
+      z.object({
+        version: z.string(),
+        released_on: z.iso.date(),
+        notes: z.array(z.string()),
+      })
+    )
+    .max(20),
+});
+const WhatsNewAnswer = z.object({ whats_new: WhatsNewPayload });
+
 const JsonRpcAnswer = z.union([
   z.object({
     jsonrpc: z.literal("2.0"),
@@ -129,6 +154,10 @@ export type CloudHomeLevelsView = CloudHomeLiveLevels | CloudHomeUnavailable;
 export type CloudHomeActivityView =
   | ({ state: "live" } & z.infer<typeof ActivityPayload>)
   | CloudHomeUnavailable;
+/** The releases the owner has not dismissed, newest first; none when nothing qualifies. */
+export type CloudHomeWhatsNewView =
+  | { state: "live"; version: string; releases: WhatsNewRelease[] }
+  | CloudHomeUnavailable;
 
 /** The levels refusals the cell reports and Home answers with 409. */
 const LEVEL_REFUSALS = new Set([
@@ -154,6 +183,8 @@ export type CloudHomeDependencies = {
   env?: EnvironmentSource;
 };
 
+type BootstrapSection = "activity" | "whats_new";
+
 type HomeToolCall =
   | {
       name: "configure_memory";
@@ -167,7 +198,7 @@ type HomeToolCall =
           }
         | { action: "clear"; context: CloudHomeContext; expected_revision: string };
     }
-  | { name: "bootstrap"; arguments: { profile: "compact"; section: "activity" } };
+  | { name: "bootstrap"; arguments: { profile: "compact"; section: BootstrapSection } };
 
 // These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
 export type CloudViewerToolCall =
@@ -567,15 +598,22 @@ async function writeCloudHomeLevel(
   return view.state === "live" ? { kind: "written", view } : { kind: "unavailable", view };
 }
 
-async function readCloudHomeActivity(
+/**
+ * One `bootstrap` section of the owner's cell, read through `parse`. An older
+ * image refuses a section it does not know, and an answer `parse` cannot read
+ * is treated the same way: both are CELL_OUTDATED, never an error.
+ */
+async function readBootstrapSection<T>(
   principal: CloudHomePrincipal,
-  dependencies: CloudHomeDependencies = {}
-): Promise<CloudHomeActivityView> {
+  section: BootstrapSection,
+  parse: (value: unknown) => T | null,
+  dependencies: CloudHomeDependencies
+): Promise<{ state: "live"; value: T } | CloudHomeUnavailable> {
   const cell = await servingCell(principal);
   if (cell.state !== "serving") return cell;
   const answer = await callHomeTool(
     principal,
-    { name: "bootstrap", arguments: { profile: "compact", section: "activity" } },
+    { name: "bootstrap", arguments: { profile: "compact", section } },
     dependencies
   );
   if (answer.kind === "refused") {
@@ -587,13 +625,59 @@ async function readCloudHomeActivity(
     return unavailable("CELL_UNREACHABLE");
   }
   if (answer.kind === "unavailable") return answer.view;
-  const parsed = ActivityAnswer.safeParse(answer.value);
-  if (!parsed.success) {
-    logUnavailable("bootstrap", "CELL_OUTDATED", "activity_shape");
+  const value = parse(answer.value);
+  if (value === null) {
+    logUnavailable("bootstrap", "CELL_OUTDATED", `${section}_shape`);
     return unavailable("CELL_OUTDATED");
   }
-  const activity = "activity" in parsed.data ? parsed.data.activity : parsed.data;
-  return { state: "live", ...activity };
+  return { state: "live", value };
+}
+
+async function readCloudHomeActivity(
+  principal: CloudHomePrincipal,
+  dependencies: CloudHomeDependencies = {}
+): Promise<CloudHomeActivityView> {
+  const read = await readBootstrapSection(
+    principal,
+    "activity",
+    (value) => {
+      const parsed = ActivityAnswer.safeParse(value);
+      if (!parsed.success) return null;
+      return "activity" in parsed.data ? parsed.data.activity : parsed.data;
+    },
+    dependencies
+  );
+  return read.state === "live" ? { state: "live", ...read.value } : read;
+}
+
+/**
+ * The releases this owner has not dismissed. The cell read and the owner's
+ * stored dismissal run together, so the notes add no serial wait to Home's load.
+ */
+async function readCloudHomeWhatsNew(
+  principal: CloudHomePrincipal,
+  dependencies: CloudHomeDependencies = {}
+): Promise<CloudHomeWhatsNewView> {
+  const [read, anchors] = await Promise.all([
+    readBootstrapSection(
+      principal,
+      "whats_new",
+      (value) => {
+        const parsed = WhatsNewAnswer.safeParse(value);
+        return parsed.success ? parsed.data.whats_new : null;
+      },
+      dependencies
+    ),
+    readWhatsNewAnchors(principal),
+  ]);
+  if (read.state !== "live") return read;
+  if (!anchors) return unavailable("CELL_NOT_READY");
+  const { version, releases } = read.value;
+  return {
+    state: "live",
+    version,
+    releases: selectWhatsNew({ running: version, releases, ...anchors }),
+  };
 }
 
 const HOME_HEADERS = {
@@ -677,6 +761,35 @@ export async function handleCloudHomeLiveRequest(
     if (!cloudHomeChannelEnabled(dependencies.env)) throw homeChannelOff();
     const session = await resolveExomemSession(request);
     return respond(await readCloudHomeActivity(session, dependencies));
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+const WhatsNewDismissalBody = z.strictObject({ version: z.string().max(32) });
+
+/**
+ * `GET /api/exomem/cloud/home/whats-new` reads the releases the owner has not
+ * dismissed; Home asks once per page load, not on its poll. `POST` records the
+ * dismissal for the session's own tenant.
+ */
+export async function handleCloudHomeWhatsNewRequest(
+  request: Request,
+  dependencies: CloudHomeDependencies = {}
+): Promise<Response> {
+  try {
+    if (!cloudHomeChannelEnabled(dependencies.env)) throw homeChannelOff();
+    const session = await resolveExomemSession(request);
+    if (request.method === "GET") {
+      return respond(await readCloudHomeWhatsNew(session, dependencies));
+    }
+    validateMutationRequest(request, session);
+    const parsed = WhatsNewDismissalBody.safeParse(await readBoundedJsonRequest(request, 1024));
+    if (!parsed.success || !isReleaseVersion(parsed.data.version)) {
+      throw exomemErrors.invalidRequest();
+    }
+    await recordWhatsNewDismissal(session, parsed.data.version);
+    return respond({ success: true });
   } catch (error) {
     return errorResponse(error);
   }

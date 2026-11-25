@@ -2,7 +2,7 @@
 
 ## Load target and latency
 
-The project's load target is 10,000 tenants. Home already makes stateless gateway calls to the owner's own cell for levels and activity. The notes read is one more call of the same kind, issued in parallel with them, so it adds no serial latency to the Home live request. The cell answers it from memory with at most 20 releases. The dismissal is one indexed single-row update by tenant id. Nothing polls the notes.
+The project's load target is 10,000 tenants. Home already makes stateless gateway calls to the owner's own cell for levels and activity. The notes read is one more call of the same kind. It has its own route, `/api/exomem/cloud/home/whats-new`, because Home refreshes the live route every 30 seconds and the releases do not change while a page is open. Home asks for the notes once per page load, in parallel with the levels and activity reads, so the notes add no serial latency and nothing polls them. The cell answers from memory with at most 20 releases. The dismissal is one indexed single-row update by tenant id, on the same route.
 
 ## Decisions
 

@@ -411,6 +411,39 @@ test("a level set on Home reaches the cell and is still set after a reload", asy
   await expect(chat.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
 });
 
+test("What’s new shows the cell's notes until the owner presses Got it, and stays gone after a reload", async ({
+  page,
+}) => {
+  const owner = await createOwner();
+  // The cell is a month old, so a release dated today is news to this owner.
+  await pool.query(
+    "UPDATE exomem_cloud_cells SET created_at = now() - interval '30 days' WHERE cell_id = $1",
+    [owner.cellId]
+  );
+  await setCell(owner, {
+    whatsNew: {
+      version: "1.3.0",
+      releases: [
+        {
+          version: "1.3.0",
+          released_on: new Date().toISOString().slice(0, 10),
+          notes: ["Search finds more of what you saved."],
+        },
+      ],
+    },
+  });
+  await openHome(page, owner);
+  const notes = panel(page, "What’s new");
+  await expect(notes.getByText("Search finds more of what you saved.")).toBeVisible();
+
+  await notes.getByRole("button", { name: "Got it" }).click();
+
+  await expect(notes).toHaveCount(0);
+  await page.reload();
+  await expect(panel(page, "How much Evermatter joins in")).toBeVisible();
+  await expect(notes).toHaveCount(0);
+});
+
 test("in forced colours the level in use still stands out from its track", async ({ page }) => {
   const owner = await createOwner();
   await page.emulateMedia({ forcedColors: "active" });
