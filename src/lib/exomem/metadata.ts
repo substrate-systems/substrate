@@ -7,13 +7,13 @@ export function buildExomemMetadata(
 ): Metadata {
   const metadata = buildMetadata({
     ...input,
-    ogImage: input.ogImage ?? "/exomem/social/og-image.png",
+    ogImage: input.ogImage ?? "/evermatter/social/og-image.png",
     standaloneTitle: true,
   });
   const url = productPageUrl(input.path);
   return {
     ...metadata,
     alternates: { ...metadata.alternates, canonical: url },
-    openGraph: { ...metadata.openGraph, url, siteName: "Exomem" },
+    openGraph: { ...metadata.openGraph, url, siteName: "Evermatter" },
   };
 }

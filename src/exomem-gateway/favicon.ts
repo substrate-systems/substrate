@@ -1,6 +1,6 @@
-// The Exomem brand-kit favicon served as /favicon.ico on the Cloud MCP host, so
-// clients that show a site icon for this server show Exomem's mark instead of the
-// parent domain's. These are the bytes of public/exomem/icons/favicon.ico; the
+// The Evermatter brand-kit favicon served as /favicon.ico on the Cloud MCP host, so
+// clients that show a site icon for this server show Evermatter's mark instead of the
+// parent domain's. These are the bytes of public/evermatter/icons/favicon.ico; the
 // server test fails when that file changes and this copy does not. The image is
 // embedded because the gateway image ships only the bundled script.
 const FAVICON_BASE64 =

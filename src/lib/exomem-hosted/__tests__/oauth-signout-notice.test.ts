@@ -18,10 +18,10 @@ describe("the app sign-out email", () => {
 
   it("names the app, the day, the consequence and the remedy, without blame", () => {
     const email = renderExomemAppSignoutEmail(input);
-    assert.equal(email.subject, "Claude can’t reach your Exomem");
-    assert.match(email.textContent, /On 23 November, Claude’s connection to your Exomem ended/);
-    assert.match(email.textContent, /nothing Claude saves reaches your Exomem/);
-    assert.match(email.textContent, /Open Claude and connect Exomem again/);
+    assert.equal(email.subject, "Claude can’t reach your Evermatter");
+    assert.match(email.textContent, /On 23 November, Claude’s connection to your Evermatter ended/);
+    assert.match(email.textContent, /nothing Claude saves reaches your Evermatter/);
+    assert.match(email.textContent, /Open Claude and connect again/);
     assert.doesNotMatch(email.textContent, /revoked|replay|expired|suspicious/i);
   });
 

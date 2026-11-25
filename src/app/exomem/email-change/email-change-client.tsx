@@ -75,7 +75,7 @@ export default function EmailChangeClient({ action }: { action: "confirm" | "can
             ? "New sign-in links go to your new address. Your notes, sessions and connected apps stay with your account."
             : "This pending change is cancelled. Your account still uses its existing email address."
           : action === "confirm"
-            ? "Use the new address for Exomem sign-in links. Your notes and connected apps stay as they are."
+            ? "Use the new address for Evermatter sign-in links. Your notes and connected apps stay as they are."
             : "Keep your current email address. The pending change will no longer work.";
 
   return (

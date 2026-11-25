@@ -8,9 +8,9 @@ import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildExomemMetadata({
-  title: "Exomem Cloud Documentation",
+  title: "Evermatter Cloud Documentation",
   description:
-    "How to connect Exomem Cloud to Claude, ChatGPT, or any app that supports MCP, what Exomem can read and change, and how to disconnect, export, or delete.",
+    "How to connect Evermatter Cloud to Claude, ChatGPT, or any app that supports MCP, what Evermatter can read and change, and how to disconnect, export, or delete.",
   path: "/exomem/docs",
 });
 
@@ -24,38 +24,38 @@ export default function ExomemDocsPage() {
   const home = <Link href="/exomem/home">Home</Link>;
   const theAddress = address ? <code>{address}</code> : <>the address that {home} shows</>;
   return (
-    <ExomemPublicPage title="Exomem Cloud documentation" eyebrow="Connect and use Exomem">
+    <ExomemPublicPage title="Evermatter Cloud documentation" eyebrow="Connect and use Evermatter">
       <p>
-        Exomem is a knowledge base that your AI assistants share. Your assistant uses it to find
-        what you decided, the sources behind each decision, and what changed since. It can also save
-        new conclusions, sources and evidence, so that your next conversation starts from them.
-        Substrate Systems OÜ runs Exomem Cloud.
+        Evermatter (formerly Exomem) is a knowledge base that your AI assistants share. Your
+        assistant uses it to find what you decided, the sources behind each decision, and what
+        changed since. It can also save new conclusions, sources and evidence, so that your next
+        conversation starts from them. Substrate Systems OÜ runs Evermatter Cloud.
       </p>
       <p>
-        This page tells you how to connect Exomem Cloud to your assistant, what Exomem can read and
-        change, and how to stop.
+        This page tells you how to connect Evermatter Cloud to your assistant, what Evermatter can
+        read and change, and how to stop.
       </p>
 
       <h2>Before you connect</h2>
       <ul>
         <li>
-          You need an Exomem account. Start on the <Link href="/exomem">Exomem page</Link> with your
-          email. Exomem Cloud is a monthly subscription.
+          You need an Evermatter account. Start on the <Link href="/exomem">Evermatter page</Link>{" "}
+          with your email. Evermatter Cloud is a monthly subscription.
         </li>
         <li>
-          You need no API key. When you connect, your app opens an Exomem sign-in page, and you
+          You need no API key. When you connect, your app opens an Evermatter sign-in page, and you
           approve the connection there.
         </li>
         <li>Your app must support remote MCP servers with OAuth sign-in.</li>
         <li>
           On a company workspace, such as Claude Team or Enterprise, an owner or admin may need to
-          allow Exomem first.
+          allow Evermatter first.
         </li>
       </ul>
       {address ? (
-        <p>The Exomem address is {theAddress}. It is the same for every account.</p>
+        <p>The Evermatter address is {theAddress}. It is the same for every account.</p>
       ) : (
-        <p>After you sign in, {home} shows the Exomem address.</p>
+        <p>After you sign in, {home} shows the Evermatter address.</p>
       )}
 
       <h2>Connect Claude</h2>
@@ -65,33 +65,38 @@ export default function ExomemDocsPage() {
       </p>
       <ol>
         <li>In Claude, open “Settings”, then “Connectors”.</li>
-        <li>If Exomem is in the list, select it.</li>
+        <li>If Evermatter (or Exomem) is in the list, select it.</li>
         <li>
-          If Exomem is not in the list, select “Add custom connector”, and paste {theAddress}.
+          If neither Evermatter nor Exomem is in the list, select “Add custom connector”, and paste{" "}
+          {theAddress}.
         </li>
         <li>Select “Connect”.</li>
-        <li>Sign in to Exomem with your email, and approve the connection.</li>
+        <li>Sign in to Evermatter with your email, and approve the connection.</li>
       </ol>
-      <p>Claude now shows Exomem as connected, and you can use it in any conversation.</p>
+      <p>
+        Claude now shows Evermatter (or Exomem) as connected, and you can use it in any
+        conversation.
+      </p>
 
       <h2>Connect Claude Code</h2>
       <p>
-        The Exomem plugin adds the connection, the Exomem skills, and hooks that suggest when to
-        search or save. The hooks run on your device and need Python 3 (<code>python3</code>).
+        The Evermatter plugin adds the connection, the Evermatter skills, and hooks that suggest
+        when to search or save. The hooks run on your device and need Python 3 (<code>python3</code>
+        ).
       </p>
       <ol>
         <li>
-          Run <code>/plugin marketplace add Artexis10/exomem</code>.
+          Run <code>/plugin marketplace add substrate-systems/evermatter</code>.
         </li>
         <li>
           Run <code>/plugin install exomem-cloud@exomem</code>.
         </li>
         <li>
-          Run <code>/mcp</code>, select Exomem, and sign in.
+          Run <code>/mcp</code>, select <code>exomem</code>, and sign in.
         </li>
       </ol>
       <p>
-        <code>/mcp</code> now shows Exomem as connected.
+        <code>/mcp</code> now shows <code>exomem</code> as connected.
       </p>
 
       <h2>Connect ChatGPT</h2>
@@ -99,21 +104,24 @@ export default function ExomemDocsPage() {
         <li>
           Open{" "}
           <a href={CLIENT_PLATFORM_LISTING_URLS.openai} target="_blank" rel="noreferrer">
-            Exomem in the ChatGPT plugin directory
+            Evermatter (or Exomem) in the ChatGPT plugin directory
           </a>
           .
         </li>
         <li>Select “Connect”.</li>
-        <li>Sign in to Exomem with your email, and approve the connection.</li>
+        <li>Sign in to Evermatter with your email, and approve the connection.</li>
       </ol>
-      <p>ChatGPT now shows Exomem as connected. Codex uses the same plugin from its directory.</p>
+      <p>
+        ChatGPT now shows Evermatter (or Exomem) as connected. Codex uses the same plugin from its
+        directory.
+      </p>
 
       <h2>Connect another app</h2>
-      <p>Any app that supports remote MCP servers with OAuth sign-in can use Exomem.</p>
+      <p>Any app that supports remote MCP servers with OAuth sign-in can use Evermatter.</p>
       <ol>
         <li>Open the connector or MCP server settings of your app.</li>
         <li>Add a remote server with {theAddress}.</li>
-        <li>Sign in to Exomem with your email, and approve the connection.</li>
+        <li>Sign in to Evermatter with your email, and approve the connection.</li>
         <li>On {home}, find “Add another app”, and select “Set up”.</li>
         <li>Pick how much the app joins in, and select “Copy”.</li>
         <li>
@@ -122,35 +130,37 @@ export default function ExomemDocsPage() {
         </li>
       </ol>
       <p>
-        Your app now uses Exomem. The instructions tell it when to search Exomem and when to save to
-        it.
+        Your app now uses Evermatter. The instructions tell it when to search Evermatter and when to
+        save to it.
       </p>
 
-      <h2>What Exomem reads and changes</h2>
+      <h2>What Evermatter reads and changes</h2>
       <ul>
         <li>
-          <strong>Reads:</strong> Exomem searches and reads your own knowledge base, and returns the
-          notes and sources that answer the question.
+          <strong>Reads:</strong> Evermatter searches and reads your own knowledge base, and returns
+          the notes and sources that answer the question.
         </li>
         <li>
           <strong>Receives:</strong> when your assistant searches, it sends your question and short
-          parts of the conversation. Exomem keeps only what is saved or imported.
+          parts of the conversation. Evermatter keeps only what is saved or imported.
         </li>
         <li>
-          <strong>Changes:</strong> Exomem saves notes, sources, evidence, plans and corrections
+          <strong>Changes:</strong> Evermatter saves notes, sources, evidence, plans and corrections
           when you ask.{" "}
           {levelsOnHome ? (
             <>
-              Your level on {home}, under “How much Exomem joins in”, decides how much your
+              Your level on {home}, under “How much Evermatter joins in”, decides how much your
               assistant saves without asking: {levels}.
             </>
           ) : (
-            <>Your assistant can also save without asking when its Exomem instructions allow it.</>
+            <>
+              Your assistant can also save without asking when its Evermatter instructions allow it.
+            </>
           )}
         </li>
         <li>
-          <strong>Corrections:</strong> a correction replaces old knowledge in a visible way. Exomem
-          keeps the old version and marks it as replaced.
+          <strong>Corrections:</strong> a correction replaces old knowledge in a visible way.
+          Evermatter keeps the old version and marks it as replaced.
         </li>
         <li>
           <strong>Imports:</strong> you can also add your own documents with “Import documents” on{" "}
@@ -158,15 +168,15 @@ export default function ExomemDocsPage() {
         </li>
       </ul>
       <p>
-        The Exomem service cannot open files on your device or your other connectors, and it does
-        not import your past conversations. In Claude Code, the plugin hooks read the current
-        session and Git details, such as the branch and the names of changed files, on your
-        device. They use them to suggest when to search or save, and keep their state and
-        checkpoints on your device.
+        The Evermatter service cannot open files on your device or your other connectors, and it
+        does not import your past conversations. In Claude Code, the plugin hooks read the current
+        session and Git details, such as the branch and the names of changed files, on your device.
+        They use them to suggest when to search or save, and keep their state and checkpoints on
+        your device.
       </p>
       <p>
-        Your app decides when a tool runs. In Claude, for example, you can set each Exomem tool to
-        ask you first.
+        Your app decides when a tool runs. In Claude, for example, you can set each Evermatter tool
+        to ask you first.
       </p>
 
       <h2>Your data</h2>
@@ -177,9 +187,9 @@ export default function ExomemDocsPage() {
           transit.
         </li>
         <li>
-          Exomem Cloud is not end-to-end encrypted. Our servers see your requests and answers while
-          they serve them. We hold the keys to your storage, so we could deliberately read your
-          content.
+          Evermatter Cloud is not end-to-end encrypted. Our servers see your requests and answers
+          while they serve them. We hold the keys to your storage, so we could deliberately read
+          your content.
         </li>
         <li>We do not use your content to train AI models.</li>
       </ul>
@@ -194,8 +204,8 @@ export default function ExomemDocsPage() {
         <li>Select “Disconnect” again to confirm.</li>
       </ol>
       <p>
-        The app can no longer reach your Exomem. Removing the connector inside the app may not end
-        its access on Exomem’s side. “Disconnect” on Home always does.
+        The app can no longer reach your Evermatter. Removing the connector inside the app may not
+        end its access on Evermatter’s side. “Disconnect” on Home always does.
       </p>
 
       <h2>Export</h2>
@@ -217,13 +227,13 @@ export default function ExomemDocsPage() {
         </p>
       )}
 
-      <h2>Delete your Exomem</h2>
+      <h2>Delete your Evermatter</h2>
       <ol>
-        <li>Sign in to Exomem in your browser.</li>
-        <li>On {home}, under “Your data”, find “Delete Exomem”, and select “Delete…”.</li>
+        <li>Sign in to Evermatter in your browser.</li>
+        <li>On {home}, under “Your data”, find “Delete Evermatter”, and select “Delete…”.</li>
         <li>Select “Email me a confirmation link”.</li>
         <li>Open the link in the email in the same browser.</li>
-        <li>Select “Permanently delete my Exomem”.</li>
+        <li>Select “Permanently delete my Evermatter”.</li>
       </ol>
       <p>
         We delete your knowledge base, its storage and its keys. The privacy policy says what we

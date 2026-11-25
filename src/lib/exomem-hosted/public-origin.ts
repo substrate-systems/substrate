@@ -7,7 +7,7 @@ function invalidPublicBaseUrl(): ExomemHostedError {
   return new ExomemHostedError({
     code: "PUBLIC_BASE_URL_INVALID",
     status: 500,
-    message: "public Exomem URL configuration is invalid",
+    message: "public Evermatter URL configuration is invalid",
   });
 }
 

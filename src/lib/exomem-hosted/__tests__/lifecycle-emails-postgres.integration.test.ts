@@ -383,9 +383,9 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     assert.deepEqual(
       first.sent.map((email) => [email.to, email.subject]).sort(),
       [
-        [admittedAfterDeploy.email, "Your Exomem is ready"],
-        [neverStartedAtDeploy.email, "Your Exomem is ready"],
-        [inHoldAtDeploy.email, "Your Exomem is ready"],
+        [admittedAfterDeploy.email, "Your Evermatter is ready"],
+        [neverStartedAtDeploy.email, "Your Evermatter is ready"],
+        [inHoldAtDeploy.email, "Your Evermatter is ready"],
       ].sort()
     );
     assert.deepEqual(second.sent, []);
@@ -596,9 +596,9 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     assert.deepEqual(
       sent.map((email) => [email.to, email.subject]).sort(),
       [
-        [moved.get(ready.email)!, "Your Exomem is ready"],
+        [moved.get(ready.email)!, "Your Evermatter is ready"],
         [moved.get(pastDue.email)!, "Your payment didn’t go through"],
-        [moved.get(ended.email)!, "Your Exomem subscription has ended"],
+        [moved.get(ended.email)!, "Your Evermatter subscription has ended"],
       ].sort()
     );
     // Each sent row records the address it went to.
@@ -634,7 +634,7 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
 
     assert.deepEqual(
       result.sent.map((email) => email.subject),
-      ["Your Exomem subscription has ended"]
+      ["Your Evermatter subscription has ended"]
     );
     assert.equal(result.deferred, 1);
     const { rows } = await pool.query<{ state: string; on_time: boolean }>(
@@ -684,7 +684,7 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
 
     assert.deepEqual(
       sent.map((email) => [email.to, email.subject]),
-      [[tenant.email, "Your Exomem has been deleted"]]
+      [[tenant.email, "Your Evermatter has been deleted"]]
     );
     assert.match(sent[0]!.textContent, /permanently deleted today\./);
   });

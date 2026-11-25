@@ -1898,7 +1898,7 @@ async function deliverClaim(
     answer = await deps.sendEmail({
       to: email.recipient,
       ...EXOMEM_SENDER,
-      // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
+      // "Evermatter", or "<name> via Evermatter" when a person sent it; the address stays.
       senderName: rendered.senderName,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,

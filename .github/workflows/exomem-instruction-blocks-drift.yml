@@ -30,17 +30,17 @@ jobs:
       - run: npm ci
       - name: Fetch the doc and the tool schemas from Exomem main
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/prominence.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/prominence.md
-          curl -fsSL -o "$RUNNER_TEMP/mcp_cloud_only_tool_schemas.json" https://raw.githubusercontent.com/Artexis10/exomem/main/tests/fixtures/mcp_cloud_only_tool_schemas.json
+          curl -fsSL -o "$RUNNER_TEMP/prominence.md" https://raw.githubusercontent.com/substrate-systems/evermatter/main/docs/prominence.md
+          curl -fsSL -o "$RUNNER_TEMP/mcp_cloud_only_tool_schemas.json" https://raw.githubusercontent.com/substrate-systems/evermatter/main/tests/fixtures/mcp_cloud_only_tool_schemas.json
       - run: node scripts/sync-exomem-instruction-blocks.mjs --check "$RUNNER_TEMP/prominence.md" "$RUNNER_TEMP/mcp_cloud_only_tool_schemas.json"
       - name: Fetch the benchmark doc from Exomem main
         if: ${{ !cancelled() }}
-        run: curl -fsSL -o "$RUNNER_TEMP/benchmarks.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/benchmarks.md
+        run: curl -fsSL -o "$RUNNER_TEMP/benchmarks.md" https://raw.githubusercontent.com/substrate-systems/evermatter/main/docs/benchmarks.md
       - name: Check the landing's recall figures
         if: ${{ !cancelled() }}
         run: node scripts/check-exomem-benchmarks.mjs "$RUNNER_TEMP/benchmarks.md"
       - name: Check the deletion grant fixture
         if: ${{ !cancelled() }}
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/cell-deletion-grants-v1.json" https://raw.githubusercontent.com/Artexis10/exomem/main/infra/contracts/cell-deletion-grants-v1.json
+          curl -fsSL -o "$RUNNER_TEMP/cell-deletion-grants-v1.json" https://raw.githubusercontent.com/substrate-systems/evermatter/main/infra/contracts/cell-deletion-grants-v1.json
           diff -u contracts/cell-deletion-grants-v1.json "$RUNNER_TEMP/cell-deletion-grants-v1.json"

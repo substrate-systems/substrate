@@ -30,7 +30,7 @@ const products = [
   },
   {
     id: "exomem",
-    name: "Exomem",
+    name: "Evermatter",
     principle: principles[2],
     description:
       "Durable memory for AI agents, built on Markdown you own. Carry context across sessions without surrendering the source.",

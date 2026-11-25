@@ -58,7 +58,7 @@ const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Format checks. A name is shown to the invitee and, for the inviter, used
-// as the email sender ("Alex via Exomem"), so it carries no control or
+// as the email sender ("Alex via Evermatter"), so it carries no control or
 // invisible formatting characters and nothing that reads as an address or
 // breaks a quoted header (< > " @ \). A note is shown as text only and may
 // keep line breaks.
@@ -619,7 +619,7 @@ function invitationForAnotherAddress(): ExomemHostedError {
 
 const FRIEND_PRICE_REFUSALS: Record<FriendPriceRefusal, string> = {
   not_offered: "this invitation can only keep the current plan",
-  friend_price_taken: "this Exomem already has a friend price from another invitation",
+  friend_price_taken: "this Evermatter already has a friend price from another invitation",
   plan_price_differs: "the friend price does not apply to the current plan's price",
   plan_price_unknown: "the friend price does not apply to the current plan's price",
 };
@@ -636,7 +636,7 @@ function providerUnavailable(error: ExomemBillingError): ExomemHostedError {
   return new ExomemHostedError({
     code: error.code,
     status: 503,
-    message: "Exomem billing is temporarily unavailable",
+    message: "Evermatter billing is temporarily unavailable",
     retryable: true,
   });
 }

@@ -44,12 +44,16 @@ const workItems = [
     ],
   },
   {
-    name: "Exomem",
+    name: "Evermatter",
     description:
       "External memory for MCP-capable agents over an owned Markdown and Obsidian vault. Agents get durable context; the user keeps the files, provenance, and review loop.",
     links: [
       { label: "Overview →", href: "/exomem", external: false },
-      { label: "Source ↗", href: "https://github.com/Artexis10/exomem", external: true },
+      {
+        label: "Source ↗",
+        href: "https://github.com/substrate-systems/evermatter",
+        external: true,
+      },
       { label: "PyPI ↗", href: "https://pypi.org/project/exomem/", external: true },
     ],
   },

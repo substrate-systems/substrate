@@ -9,7 +9,7 @@ import styles from "./email-preview.module.css";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Exomem emails",
+  title: "Evermatter emails",
   robots: { index: false, follow: false },
 };
 
@@ -33,7 +33,7 @@ export default function EmailPreviewPage() {
     <main className={styles.page}>
       <header className={styles.intro}>
         <div className={styles.eyebrow}>Dev only · rendered {new Date().toISOString()}</div>
-        <h1 className={styles.title}>Exomem emails</h1>
+        <h1 className={styles.title}>Evermatter emails</h1>
       </header>
       {samples.map((sample) => (
         <section key={sample.id} className={styles.sample} aria-labelledby={`email-${sample.id}`}>

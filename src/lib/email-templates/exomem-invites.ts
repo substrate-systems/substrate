@@ -49,8 +49,8 @@ export function renderExomemFriendInvitationEmail(input: {
   // The email contract keeps the name only through 40 Unicode characters.
   const subject =
     [...input.inviterName].length <= 40
-      ? `${input.inviterName} invited you to Exomem`
-      : "You’re invited to Exomem";
+      ? `${input.inviterName} invited you to Evermatter`
+      : "You’re invited to Evermatter";
   return renderExomemEmail({
     base: input.scheme,
     themeChoice: input.themeChoice,
@@ -60,7 +60,7 @@ export function renderExomemFriendInvitationEmail(input: {
     band: "arrive",
     headline: `${input.inviterName} invited you`,
     body: [
-      "Exomem is a knowledge base that every assistant you use shares. It keeps where each thing came from, and what changed.",
+      "Evermatter is a knowledge base that every assistant you use shares. It keeps where each thing came from, and what changed.",
     ],
     detail: noteWithFacts(input.note, input.inviterName, [
       { label: "Your price", struck: usual, value: `${friend} a month` },
@@ -86,12 +86,12 @@ export function renderExomemCoveredInvitationEmail(input: {
     base: input.scheme,
     themeChoice: input.themeChoice,
     sentBy: { personName: input.inviterName },
-    subject: `${input.inviterName} is covering your Exomem`,
+    subject: `${input.inviterName} is covering your Evermatter`,
     preheader: `No checkout. ${input.inviterName} covers it.`,
     band: "arrive",
     headline: `${input.inviterName} invited you`,
     body: [
-      `Exomem is a knowledge base that every assistant you use shares. ${input.inviterName} pays for it, so there is no checkout.`,
+      `Evermatter is a knowledge base that every assistant you use shares. ${input.inviterName} pays for it, so there is no checkout.`,
     ],
     detail: noteWithFacts(input.note, input.inviterName, [
       { label: "Your price", value: `covered by ${input.inviterName}` },
@@ -157,7 +157,7 @@ export function renderExomemInvitationUsedEmail(input: {
     band: "live",
     headline: "Your invitation worked",
     body: [
-      `${input.inviteeName} joined Exomem with your friend price. You don’t need to do anything.`,
+      `${input.inviteeName} joined Evermatter with your friend price. You don’t need to do anything.`,
     ],
     detail: { kind: "facts", rows },
     smallPrint: `We tell you only that the invitation was used. ${input.inviteeName}’s notes are theirs; you never see them.`,

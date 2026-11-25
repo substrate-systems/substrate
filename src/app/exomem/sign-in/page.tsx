@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Sign in to Exomem",
+  title: "Sign in to Evermatter",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

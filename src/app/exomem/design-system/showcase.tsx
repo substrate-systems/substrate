@@ -31,7 +31,8 @@ const LEVELS = [
   {
     value: "off",
     label: "Off",
-    description: "Exomem stays connected but waits. It searches or saves only when you ask it to.",
+    description:
+      "Evermatter stays connected but waits. It searches or saves only when you ask it to.",
   },
   {
     value: "light",
@@ -189,7 +190,7 @@ function Controls() {
       <Group label="SEGMENTED SWITCH · PAGE AND ROW">
         <div className={styles.column}>
           <SegmentedSwitch
-            label="How much your app uses Exomem"
+            label="How much your app uses Evermatter"
             options={LEVELS}
             value={level}
             onChange={setLevel}
@@ -255,8 +256,8 @@ function Containers() {
             Saving is slow right now. Recall works, and nothing is lost. We’re fixing it.
           </Notice>
           <Notice attention action={<Button>Add storage</Button>}>
-            Your Exomem is full (5 GB). Recall works; new saves wait for room. Add storage and they
-            carry on. Nothing is ever deleted to make space.
+            Your Evermatter is full (5 GB). Recall works; new saves wait for room. Add storage and
+            they carry on. Nothing is ever deleted to make space.
           </Notice>
         </div>
       </Group>
@@ -333,8 +334,8 @@ function BrandAndLive() {
       <Group label="WORDMARK · MARK · MARK BREATHING">
         <div className={styles.row}>
           <Wordmark />
-          <Mark size={40} label="Exomem" />
-          <Mark size={34} status="on" label="Exomem, on" />
+          <Mark size={40} label="Evermatter" />
+          <Mark size={34} status="on" label="Evermatter, on" />
         </div>
       </Group>
       <Group label="LIVE LINE · LIVE AND PAUSED">
@@ -401,7 +402,7 @@ export function DesignSystemShowcase({
     <main className={styles.page}>
       <div className={styles.intro}>
         <span className={styles.eyebrow}>Rendered from src/app/exomem/exomem-tokens.css</span>
-        <h1 className={styles.title}>The Exomem design system</h1>
+        <h1 className={styles.title}>The Evermatter design system</h1>
         <p className={styles.lede}>
           Every component in each of its states, dark and light side by side. Compare it with
           docs/exomem-design/reference/boards/R40-Design-System.dc.html.

@@ -50,7 +50,7 @@ export default function DeleteClient() {
     } catch (error) {
       setMessage(
         error instanceof HostedBrowserError && error.status === 401
-          ? "Sign in to Exomem on this device, then request a fresh deletion email."
+          ? "Sign in to Evermatter on this device, then request a fresh deletion email."
           : friendlyHostedError(error)
       );
       setState("error");
@@ -70,7 +70,7 @@ export default function DeleteClient() {
       <section className={`${home.column} ${styles.column}`} aria-labelledby="delete-title">
         <span className={styles.label}>Permanent action</span>
         <h1 className={home.headline} id="delete-title">
-          Delete your Exomem?
+          Delete your Evermatter?
         </h1>
         {state === "pending" ? (
           <>
@@ -96,7 +96,7 @@ export default function DeleteClient() {
                 disabled={state !== "ready" && state !== "deleting"}
                 onClick={() => void confirm()}
               >
-                {state === "deleting" ? "Starting deletion…" : "Permanently delete my Exomem"}
+                {state === "deleting" ? "Starting deletion…" : "Permanently delete my Evermatter"}
               </Button>
             </div>
             <p

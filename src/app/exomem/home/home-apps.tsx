@@ -49,16 +49,16 @@ const CLOUD_PLUGINS: CloudPlugin[] = [
     name: CLIENT_PLATFORM_NAMES.claude,
     // Pin the validated description fix until a containing release replaces the rejected ZIP.
     download:
-      "https://raw.githubusercontent.com/Artexis10/exomem/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip",
+      "https://raw.githubusercontent.com/substrate-systems/evermatter/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip",
     guide: "https://support.claude.com/en/articles/13837440-use-plugins-in-claude",
     instructions:
-      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your Exomem account.",
+      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your account.",
   },
   {
     name: CLIENT_PLATFORM_NAMES.openai,
     listing: CLIENT_PLATFORM_LISTING_URLS.openai,
     download:
-      "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip",
+      "https://github.com/substrate-systems/evermatter/releases/latest/download/exomem-cloud-openai.zip",
     guide: "https://help.openai.com/en/articles/20001256-plugins-in-chatgpt",
     instructions:
       "Open the public listing to connect ChatGPT. To review a newer package, a workspace administrator can create a draft from the ZIP.",

@@ -20,7 +20,7 @@ import { AccessRecovery } from "./recovery";
 const SIGNING_IN = "Signing you in…";
 
 const CONFIRM = {
-  title: "Open your Exomem.",
+  title: "Open your Evermatter.",
   lede: "Continue only if you requested this sign-in link.",
   emailLede:
     "Continue only if you requested this sign-in link. Enter the email address you used to request it.",

@@ -204,7 +204,7 @@ function safeBillingError(error: unknown): ExomemHostedError {
     return new ExomemHostedError({
       code: "EXOMEM_BILLING_UNAVAILABLE",
       status: 503,
-      message: "Exomem billing is temporarily unavailable",
+      message: "Evermatter billing is temporarily unavailable",
       retryable: true,
     });
   }
@@ -213,8 +213,8 @@ function safeBillingError(error: unknown): ExomemHostedError {
     status: error.status,
     message:
       error.code === "EXOMEM_PAID_CHECKOUT_DISABLED"
-        ? "paid Exomem checkout is not enabled"
-        : "Exomem billing is temporarily unavailable",
+        ? "paid Evermatter checkout is not enabled"
+        : "Evermatter billing is temporarily unavailable",
     retryable: error.status >= 500,
   });
 }

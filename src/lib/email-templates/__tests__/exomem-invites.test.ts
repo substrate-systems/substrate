@@ -22,7 +22,7 @@ describe("Exomem invitation emails", () => {
       });
       assert.equal(
         rendered.subject,
-        length === 40 ? `${inviterName} invited you to Exomem` : "You’re invited to Exomem"
+        length === 40 ? `${inviterName} invited you to Evermatter` : "You’re invited to Evermatter"
       );
       assert.ok(rendered.textContent.includes(inviterName));
     });

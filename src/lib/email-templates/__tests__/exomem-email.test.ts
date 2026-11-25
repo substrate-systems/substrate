@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
 import { exomemTokens } from "@/lib/exomem/design-tokens";
@@ -57,6 +59,46 @@ describe("Exomem emails", () => {
     assert.ok(head.includes('<meta name="color-scheme" content="light dark">'));
   });
 
+  it("loads every image from a served file, the wordmark at half the pixels its PNG holds", () => {
+    // A mail client fetches each image from the public URL once, years after sending; a
+    // missing file is a broken header, and a size that disagrees with the PNG is a blurred one.
+    const html = renderExomemReadyEmail({
+      scheme: null,
+      homeUrl: "https://substratesystems.io/exomem/home",
+      recipientName: "Alex",
+      connected: true,
+      billing: null,
+      timeZone: "Europe/Berlin",
+    }).htmlContent;
+    const images = [...new JSDOM(html).window.document.querySelectorAll("img")];
+    const wordmarks = images.filter((image) => /\/wordmark-(dark|light)\.png$/.test(image.src));
+    assert.equal(wordmarks.length, 2, "the dark and the light wordmark");
+    assert.ok(images.length > wordmarks.length, "the state band is in the email too");
+    for (const image of images) {
+      const { pathname } = new URL(image.src);
+      assert.ok(pathname.startsWith("/evermatter/email/"), pathname);
+      const png = readFileSync(path.join(process.cwd(), "public", pathname));
+      if (wordmarks.includes(image)) {
+        // The PNG header holds its width and height at bytes 16 and 20.
+        assert.equal(
+          Number(image.getAttribute("width")),
+          Math.round(png.readUInt32BE(16) / 2),
+          pathname
+        );
+        assert.equal(
+          Number(image.getAttribute("height")),
+          Math.round(png.readUInt32BE(20) / 2),
+          pathname
+        );
+        assert.match(
+          image.getAttribute("style") ?? "",
+          new RegExp(`width: ${png.readUInt32BE(16) / 2}px`),
+          pathname
+        );
+      }
+    }
+  });
+
   it("renders a person's name as text, never as markup", () => {
     const rendered = renderExomemReadyEmail({
       scheme: null,
@@ -76,14 +118,14 @@ describe("Exomem emails", () => {
   });
 
   it("sends as the person only under a clean display name", () => {
-    assert.equal(exomemSenderName("Alex"), "Alex via Exomem");
+    assert.equal(exomemSenderName("Alex"), "Alex via Evermatter");
     assert.equal(
       exomemSenderName("Alex\r\nBcc: victim@example.com"),
-      "Alex Bcc victim example.com via Exomem"
+      "Alex Bcc victim example.com via Evermatter"
     );
-    assert.equal(exomemSenderName("support@bank.example"), "support bank.example via Exomem");
-    assert.equal(exomemSenderName("‮​ "), "Exomem");
-    assert.equal([...exomemSenderName("x".repeat(200))].length, 60 + " via Exomem".length);
+    assert.equal(exomemSenderName("support@bank.example"), "support bank.example via Evermatter");
+    assert.equal(exomemSenderName("‮​ "), "Evermatter");
+    assert.equal([...exomemSenderName("x".repeat(200))].length, 60 + " via Evermatter".length);
   });
 
   it("says 'connected' only when an app is connected", () => {
@@ -96,8 +138,8 @@ describe("Exomem emails", () => {
         billing: null,
         timeZone: null,
       }).textContent;
-    assert.match(ready(true), /Exomem is set up and connected\./);
-    assert.match(ready(false), /Welcome\. Exomem is set up\. Ask/);
+    assert.match(ready(true), /Evermatter is set up and connected\./);
+    assert.match(ready(false), /Welcome\. Evermatter is set up\. Ask/);
   });
 
   it("gives the read-only end date when the dunning window is known, and no invented date when not", () => {
@@ -160,8 +202,8 @@ describe("Exomem emails", () => {
         now: NOW,
         timeZone: null,
       });
-    assert.equal(reminder(7).subject, "7 days until your Exomem is deleted");
-    assert.equal(reminder(1).subject, "1 day until your Exomem is deleted");
+    assert.equal(reminder(7).subject, "7 days until your Evermatter is deleted");
+    assert.equal(reminder(1).subject, "1 day until your Evermatter is deleted");
   });
 });
 

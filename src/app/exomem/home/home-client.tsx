@@ -697,7 +697,7 @@ export default function HomeClient({
             lostAt === null
               ? status_.headline
               : !lostTime || variant === "unread"
-                ? "Can’t reach Exomem."
+                ? "Can’t reach Evermatter."
                 : variant === "on"
                   ? `Your memory, as of ${lostTime}`
                   : `${status_.headline} · as of ${lostTime}`
@@ -722,7 +722,7 @@ export default function HomeClient({
                   </Button>
                 }
               >
-                Can’t reach Exomem. {lostTime ? `Showing what you saw at ${lostTime}. ` : null}
+                Can’t reach Evermatter. {lostTime ? `Showing what you saw at ${lostTime}. ` : null}
                 {statusRetryAt
                   ? `Trying again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))}\u00a0s.`
                   : "Trying again."}
@@ -922,16 +922,16 @@ const NOT_HOME_COPY: Record<
   "loading" | "subscribe" | "preparing" | "deleting" | "deleted",
   { headline: string; line: string | null }
 > = {
-  loading: { headline: "One moment.", line: "Checking your Exomem…" },
+  loading: { headline: "One moment.", line: "Checking your Evermatter…" },
   // The line carries the price when Paddle previews it: subscribeView writes it.
   subscribe: { headline: "Subscribe to finish setting up", line: null },
   preparing: { headline: inviteCopy.accepting.title, line: inviteCopy.accepting.lede },
   deleting: {
-    headline: "Closing your Exomem.",
+    headline: "Closing your Evermatter.",
     line: "Access is now closed while the private vault and its backups are removed.",
   },
   deleted: {
-    headline: "This Exomem has been removed.",
-    line: "Your Exomem Cloud account is gone. Any other Substrate account or product is unaffected.",
+    headline: "This Evermatter has been removed.",
+    line: "Your Evermatter Cloud account is gone. Any other Substrate account or product is unaffected.",
   },
 };

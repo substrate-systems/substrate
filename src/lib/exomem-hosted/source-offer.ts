@@ -1,7 +1,7 @@
 // The AGPL-3.0 section 13 source offer that signed-in Exomem Cloud pages show. The two
 // repositories are the whole service: the memory server and this control plane.
 export const SOURCE_OFFER_LINKS = [
-  { label: "Exomem", href: "https://github.com/Artexis10/exomem" },
+  { label: "Evermatter", href: "https://github.com/Artexis10/exomem" },
   { label: "Substrate", href: "https://github.com/substrate-systems/substrate" },
 ] as const;
 

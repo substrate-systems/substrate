@@ -85,14 +85,14 @@ The provisioning engine is open source — you can read exactly what it does bef
 
 ---
 
-## Exomem
+## Evermatter
 
 **Tagline:** External memory for AI agents over a Markdown vault you own.
 
-Exomem is an open-source, self-hosted MCP server that gives AI agents (Claude, Codex, Cursor, or any MCP client) durable long-term memory over your own Markdown / Obsidian vault. Your files stay plain markdown on your machine — no import into a proprietary store, no cloud dependency.
+Evermatter is an open-source, self-hosted MCP server that gives AI agents (Claude, Codex, Cursor, or any MCP client) durable long-term memory over your own Markdown / Obsidian vault. Your files stay plain markdown on your machine — no import into a proprietary store, no cloud dependency.
 
 - Install: `pip install exomem` (PyPI: https://pypi.org/project/exomem/)
-- Source (AGPL-3.0): https://github.com/Artexis10/exomem
+- Source (AGPL-3.0): https://github.com/substrate-systems/evermatter
 - Product page: https://substratesystems.io/exomem
 
 ### Features
@@ -106,7 +106,7 @@ Exomem is an open-source, self-hosted MCP server that gives AI agents (Claude, C
 
 ### FAQ
 
-**Which agents can use Exomem?**
+**Which agents can use Evermatter?**
 Any MCP-capable client: Claude Code, Claude Desktop, Codex, Cursor, custom agents, or scripts via the CLI/REST surfaces.
 
 **Do my notes leave my machine?**
@@ -116,7 +116,7 @@ No. The vault stays plain markdown files you own. Search indexes are local SQLit
 No. The lean install works with keyword/BM25 search out of the box (FTS5 ships inside Python's bundled SQLite). Optional extras add local embedding, CLIP, OCR, and ASR models — GPU accelerates them but is not required.
 
 **How fast is search on a large vault?**
-Measured on a 50,000-note corpus: sub-second hybrid search end-to-end, with the lexical lanes answering in milliseconds from the FTS5 index. Numbers and methodology: https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md
+Measured on a 50,000-note corpus: sub-second hybrid search end-to-end, with the lexical lanes answering in milliseconds from the FTS5 index. Numbers and methodology: https://github.com/substrate-systems/evermatter/blob/main/docs/benchmarks.md
 
 ---
 
@@ -167,7 +167,7 @@ Full article: https://substratesystems.io/endstate/why
 
 ## Guides
 
-- [Exomem vs claude-mem](https://substratesystems.io/blog/exomem-vs-claude-mem): claude-mem captures and replays session activity from a local SQLite/Chroma store; Exomem stores curated conclusions as Markdown in a vault you own. Both are open source and agent-agnostic — the difference is where the data lives and who curates it.
+- [Evermatter vs claude-mem](https://substratesystems.io/blog/exomem-vs-claude-mem): claude-mem captures and replays session activity from a local SQLite/Chroma store; Evermatter stores curated conclusions as Markdown in a vault you own. Both are open source and agent-agnostic — the difference is where the data lives and who curates it.
 - [How to transfer programs from one computer to another](https://substratesystems.io/blog/transfer-programs-to-another-computer): Why installed programs cannot be copied between Windows PCs, why the paid migration tools are structurally fragile, and what to do instead — capture what is installed plus its settings, then reinstall clean.
 - [The complete guide to setting up a new Windows PC](https://substratesystems.io/blog/new-windows-pc-setup-guide): Reinstall your apps, bring your settings, handle the Store gap, and skip the paid migration tools.
 - [How to restore Windows apps and settings after reinstalling Windows](https://substratesystems.io/blog/restore-windows-apps-and-settings-after-reinstall): Rebuild selected apps and supported settings from an Endstate profile captured before reinstalling Windows.
@@ -241,9 +241,9 @@ Endstate already reinstalls applications through WinGet and Chocolatey. Integrat
 - Sponsor an integration: https://substratesystems.io/endstate/sponsor-an-integration
 - Endstate engine (GitHub): https://github.com/Artexis10/endstate
 - Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
-- Exomem product page: https://substratesystems.io/exomem
-- Exomem (GitHub): https://github.com/Artexis10/exomem
-- Exomem (PyPI): https://pypi.org/project/exomem/
+- Evermatter product page: https://substratesystems.io/exomem
+- Evermatter (GitHub): https://github.com/substrate-systems/evermatter
+- Evermatter (PyPI): https://pypi.org/project/exomem/
 - Q: https://useq.ai
 - Writing: https://substratesystems.io/blog
 - Why Endstate: https://substratesystems.io/endstate/why

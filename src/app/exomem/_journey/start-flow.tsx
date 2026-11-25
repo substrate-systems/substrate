@@ -407,7 +407,7 @@ export function StartFlow({
       {step === "unreachable" ? (
         <>
           <StepHeading
-            title="We can’t reach Exomem"
+            title="We can’t reach Evermatter"
             lede="Your connection or our server stopped answering. Nothing you did is lost."
           />
           <div className={styles.group}>

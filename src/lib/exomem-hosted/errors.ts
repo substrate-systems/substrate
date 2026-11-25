@@ -99,7 +99,7 @@ export const exomemErrors = {
     new ExomemHostedError({
       code: "EXOMEM_SESSION_INVALID",
       status: 401,
-      message: "an Exomem session is required",
+      message: "an Evermatter session is required",
     }),
   csrfRejected: () =>
     new ExomemHostedError({
@@ -146,13 +146,13 @@ export const exomemErrors = {
     new ExomemHostedError({
       code: "CELL_MAPPING_AMBIGUOUS",
       status: 503,
-      message: "the Exomem service mapping is unavailable",
+      message: "the Evermatter service mapping is unavailable",
     }),
   entitlementDenied: () =>
     new ExomemHostedError({
       code: "EXOMEM_ENTITLEMENT_DENIED",
       status: 403,
-      message: "your current Exomem access does not include this action",
+      message: "your current Evermatter access does not include this action",
     }),
   requestTooLarge: () =>
     new ExomemHostedError({

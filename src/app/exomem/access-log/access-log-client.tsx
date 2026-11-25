@@ -115,7 +115,7 @@ export default function AccessLogClient() {
     <>
       <header className={home.header}>
         <span className={home.headerStart}>
-          <a href="/exomem/home" aria-label="Exomem home">
+          <a href="/exomem/home" aria-label="Evermatter home">
             <Wordmark />
           </a>
           <span className={home.nav}>Access log</span>
@@ -140,7 +140,7 @@ export default function AccessLogClient() {
           <Section title="Read a retained log">
             <form className={styles.form} onSubmit={recover}>
               <p className={styles.muted}>
-                Use the recovery code you saved before deleting your Exomem. It grants access to
+                Use the recovery code you saved before deleting your Evermatter. It grants access to
                 that log only.
               </p>
               <TextField
@@ -157,7 +157,7 @@ export default function AccessLogClient() {
               </Button>
               <p className={styles.muted}>
                 If you lost the code, this log cannot be recovered.{" "}
-                <a href="/exomem/start">Sign in</a> to read an active Exomem’s log.
+                <a href="/exomem/start">Sign in</a> to read an active Evermatter’s log.
               </p>
             </form>
           </Section>
@@ -291,8 +291,8 @@ export default function AccessLogClient() {
               <Section title="Keep this log after deletion">
                 <div className={styles.form}>
                   <p className={styles.muted}>
-                    Save a recovery code before deleting your Exomem. Deletion proceeds whether you
-                    save it. We keep no recovery email.
+                    Save a recovery code before deleting your Evermatter. Deletion proceeds whether
+                    you save it. We keep no recovery email.
                   </p>
                   <Button working={busy} onClick={() => void saveRecovery()}>
                     Create recovery code

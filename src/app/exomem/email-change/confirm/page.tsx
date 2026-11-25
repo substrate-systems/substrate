@@ -4,7 +4,7 @@ import EmailChangeClient from "../email-change-client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const metadata: Metadata = {
-  title: "Confirm your new Exomem email",
+  title: "Confirm your new Evermatter email",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

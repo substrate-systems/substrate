@@ -322,13 +322,13 @@ export function CheckoutInline({
             : paying
               ? `Paying${total ? ` ${total}` : ""} with Paddle. Keep this tab open.`
               : phase === "ready_to_connect"
-                ? "Paid. Your Exomem is ready."
+                ? "Paid. Your Evermatter is ready."
                 : paid
                   ? setupSlow && readyEmailAvailable
                     ? `We’ll email ${email} when it’s ready.`
                     : setupSlow
-                      ? "Still switching on your Exomem. You can return here later."
-                      : "Paid. Switching on your Exomem."
+                      ? "Still switching on your Evermatter. You can return here later."
+                      : "Paid. Switching on your Evermatter."
                   : recurring && cadence
                     ? `Then ${recurring} ${cadence}. ${renewal ? `Next on ${renewal}. ` : ""}Cancel any time.`
                     : "Paddle shows your next payment before you pay.";
@@ -364,7 +364,7 @@ export function CheckoutInline({
         <a
           href="/exomem/home"
           className={styles.wordmark}
-          aria-label="Exomem home"
+          aria-label="Evermatter home"
           data-graph-clear
         >
           <Wordmark />
@@ -387,7 +387,7 @@ export function CheckoutInline({
           <p>
             {inviter
               ? `${inviter}’s friend price is applied below. Paddle takes the payment. Cancel any time.`
-              : "Exomem, billed monthly by Paddle. Cancel any time."}{" "}
+              : "Evermatter, billed monthly by Paddle. Cancel any time."}{" "}
             {app ? assistantConnectionStep(app) : "Next, you add it to your assistant."}
           </p>
         </div>
@@ -402,7 +402,7 @@ export function CheckoutInline({
                 <Mark size={27} state={markState} steps={5} step={progressStep} />
               </span>
               <span>
-                Exomem
+                Evermatter
                 {/* Exomem is a monthly subscription (the Terms), as the lede says. */}
                 <span className={styles.productNote}>
                   monthly · one knowledge base for every assistant
@@ -476,7 +476,7 @@ export function CheckoutInline({
                 </li>
               </ul>
               {phase === "ready_to_connect" ? null : (
-                <p className={styles.next}>Next: add Exomem to your assistant</p>
+                <p className={styles.next}>Next: add Evermatter to your assistant</p>
               )}
             </div>
           </div>
@@ -563,7 +563,7 @@ export function CheckoutInline({
                     <h2>
                       <Swap k={phase}>
                         {phase === "ready_to_connect"
-                          ? "Your Exomem is ready"
+                          ? "Your Evermatter is ready"
                           : "Paid. Almost ready."}
                       </Swap>
                     </h2>
@@ -577,7 +577,7 @@ export function CheckoutInline({
                         </li>
                         <li>
                           <span className={styles.stepNow} aria-hidden="true" />
-                          Switching on your Exomem
+                          Switching on your Evermatter
                         </li>
                         <li className={styles.stepNext}>
                           <span className={styles.stepRing} aria-hidden="true" />

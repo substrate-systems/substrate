@@ -3,27 +3,27 @@ import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildExomemMetadata({
-  title: "Exomem Cloud Terms of Service",
+  title: "Evermatter Cloud Terms of Service",
   description:
-    "The agreement between you and Substrate Systems OÜ for an Exomem Cloud subscription. The open-source Exomem software remains governed by the licence in its own repository.",
+    "The agreement between you and Substrate Systems OÜ for an Evermatter Cloud subscription. The open-source Evermatter software remains governed by the licence in its own repository.",
   path: "/exomem/terms",
 });
 
 export default function ExomemTermsPage() {
   return (
-    <ExomemPublicPage title="Exomem Cloud terms" eyebrow="Revised 13 October 2026">
+    <ExomemPublicPage title="Evermatter Cloud terms" eyebrow="Revised 13 October 2026">
       <p>
         These terms are an agreement between you and Substrate Systems OÜ (Estonian registry code
-        17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Exomem Cloud. They apply when
-        you receive an invitation or use the Cloud service. The open-source Exomem software remains
-        governed by the license in its repository.
+        17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Evermatter Cloud (formerly
+        Exomem Cloud). They apply when you receive an invitation or use the Cloud service. The
+        open-source Evermatter software remains governed by the license in its repository.
       </p>
 
       <h2>Eligibility and availability</h2>
       <p>
-        You can start Exomem Cloud with your email address. If admission is paused or Cloud is full,
-        we add you to a waitlist. We email you when a place opens. Joining the waitlist does not
-        create an account or promise a date.
+        You can start Evermatter Cloud with your email address. If admission is paused or Cloud is
+        full, we add you to a waitlist. We email you when a place opens. Joining the waitlist does
+        not create an account or promise a date.
       </p>
       <p>
         You must be at least 18 years old and legally able to enter this agreement. Provide accurate
@@ -34,7 +34,7 @@ export default function ExomemTermsPage() {
 
       <h2>The service</h2>
       <p>
-        Exomem Cloud provides an isolated managed knowledge store through approved MCP clients.
+        Evermatter Cloud provides an isolated managed knowledge store through approved MCP clients.
         Client availability and model behavior are partly controlled by third-party providers such
         as Anthropic and OpenAI and remain subject to their terms. We may change features, limits,
         compatible clients, or infrastructure as the service develops. We do not promise a
@@ -47,24 +47,24 @@ export default function ExomemTermsPage() {
         You retain ownership of the knowledge content you provide. You grant Substrate Systems OÜ a
         limited, non-exclusive permission to host, copy, process, index, transmit to your authorized
         clients, secure, export, and delete that content only as needed to provide and protect
-        Exomem Cloud. You are responsible for having the right to store and process the content you
-        submit. The privacy policy explains the plaintext-in-cell boundary and how service providers
-        handle data.
+        Evermatter Cloud. You are responsible for having the right to store and process the content
+        you submit. The privacy policy explains the plaintext-in-cell boundary and how service
+        providers handle data.
       </p>
 
       <h2>Acceptable use and availability</h2>
       <p>
-        Do not use Exomem Cloud to break the law; infringe privacy, confidentiality, or intellectual
-        property rights; distribute malware; harm or deceive others; probe another tenant; bypass
-        quotas, access, or security controls; interfere with the service; or use automated traffic
-        that creates unreasonable load. We may apply reasonable storage, request, and rate limits.
-        We may suspend access immediately where needed to protect users, data, infrastructure, or
-        third parties, and will give notice where lawful and practicable.
+        Do not use Evermatter Cloud to break the law; infringe privacy, confidentiality, or
+        intellectual property rights; distribute malware; harm or deceive others; probe another
+        tenant; bypass quotas, access, or security controls; interfere with the service; or use
+        automated traffic that creates unreasonable load. We may apply reasonable storage, request,
+        and rate limits. We may suspend access immediately where needed to protect users, data,
+        infrastructure, or third parties, and will give notice where lawful and practicable.
       </p>
 
       <h2>Subscription, export, and deletion</h2>
       <p>
-        Exomem Cloud is a monthly subscription. Paddle sells it as our reseller and merchant of
+        Evermatter Cloud is a monthly subscription. Paddle sells it as our reseller and merchant of
         record, and handles payment, tax and invoices under its own{" "}
         <a href="https://www.paddle.com/legal/buyer-terms">buyer terms</a>. A friend&apos;s
         invitation can include a lower price that lasts while you stay subscribed, and some
@@ -77,18 +77,18 @@ export default function ExomemTermsPage() {
         to a third-party client; manage that information with the client provider.
       </p>
       <p>
-        If you cancel an Exomem Cloud subscription, your data remains available in a read-only state
-        for 30 days after cancellation so you can export it. We will name the exact end date in the
-        cancellation email. If you resubscribe before that date, access is restored; after it, your
-        Cloud cell and its data are deleted.
+        If you cancel an Evermatter Cloud subscription, your data remains available in a read-only
+        state for 30 days after cancellation so you can export it. We will name the exact end date
+        in the cancellation email. If you resubscribe before that date, access is restored; after
+        it, your Cloud cell and its data are deleted.
       </p>
 
       <h2>Intellectual property and feedback</h2>
       <p>
         These terms do not transfer ownership of your content or the open-source rights granted by
-        Exomem&apos;s repository license. Substrate Systems OÜ retains rights in the Cloud service,
-        site, branding, and non-open-source materials. If you send feedback, you allow us to use it
-        without obligation, but it does not give us rights to your knowledge content.
+        Evermatter&apos;s repository license. Substrate Systems OÜ retains rights in the Cloud
+        service, site, branding, and non-open-source materials. If you send feedback, you allow us
+        to use it without obligation, but it does not give us rights to your knowledge content.
       </p>
 
       <h2>Warranty and liability</h2>

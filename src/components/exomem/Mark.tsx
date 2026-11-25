@@ -53,7 +53,7 @@ export interface MarkProps {
   value?: number;
   /** At rest the middle row breathes. Set false for a still logo. */
   breathe?: boolean;
-  /** Accessible name. Defaults to "Exomem". Pass null to hide it from assistive tech. */
+  /** Accessible name, such as "Evermatter". The default null hides the mark from assistive tech. */
   label?: string | null;
   small?: boolean;
   className?: string;
