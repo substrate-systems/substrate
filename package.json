@@ -52,6 +52,7 @@
     "d3-force": "^3.0.0",
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
+    "eventsource-parser": "3.0.6",
     "framer-motion": "^12.23.26",
     "gray-matter": "^4.0.3",
     "ignore": "7.0.6",
