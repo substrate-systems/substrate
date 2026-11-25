@@ -35,8 +35,8 @@
   - Gateway `cloud-handler.ts` uses `access.client.clientContext` for `x-exomem-client-context` and transfer-tool selection; `cloud-oauth.ts`'s token lookup coalesces the grant's override over the client's default; the Home app list does the same in `ownerAppRows`.
 - [x] 4.4 Owner-authorized context change
   - `setOwnerAppContext` resolves the grant through `ownerAppRows`' one ownership rule (owner of the grant's tenant, Cloud resource, non-first-party client, indistinguishable 404s) and writes only that grant's override, so a change never touches another owner's app. `POST /api/exomem/apps/[id]/context`, `setAppContext` in `home-api.ts`, and a segmented "Chat app"/"Coding agent" control on the Home app row. CIMD re-registration preserves the stored choice.
-- [ ] 4.5 Per-host withdrawal for lane-admitted CIMD hosts (follow-up)
-  - With the lane open, the only one-action withdrawal for a single host is closing the whole lane, which also cuts every generic client. A per-host block list is an open follow-up; the runbook says so honestly.
+- [x] 4.5 ~~Per-host withdrawal for lane-admitted CIMD hosts (follow-up)~~
+  - Withdrawn: not part of this change. With the lane open, the only one-action withdrawal for a single host is closing the whole lane, which also cuts every generic client. The operations runbook records that gap. A per-host block list gets its own change when one host needs blocking while the lane stays open.
 
 ## 5. Consent identity
 
