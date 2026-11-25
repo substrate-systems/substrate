@@ -13,9 +13,9 @@
   overflow: hidden;
   --flow-clearance: 84px;
   --gutter: 40px;
-  --edge-gap: 24px;
   box-sizing: border-box;
-  padding: var(--flow-clearance) 0;
+  /* The foot below the step is in the flow and takes its own height (.foot). */
+  padding: var(--flow-clearance) 0 0;
 }
 
 /* Equal flexible space centres the step. Header and origin clearance take priority
@@ -699,17 +699,24 @@
   text-align: left;
 }
 
+/* The page's foot stacks the request's origin above the source offer, so the origin clears
+   the offer however many lines the offer wraps to. It sits in the flow after the lower
+   spacer and holds at least the bottom clearance, so a wrapped origin or offer moves the
+   step up instead of running over it. */
+.foot {
+  order: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: var(--flow-clearance);
+}
+
 /* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
    the light ground, where 80% would not. */
 .footer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--edge-gap);
   display: flex;
-  align-items: flex-end;
   justify-content: center;
-  margin-bottom: 0;
   padding: 0 var(--gutter);
   text-align: center;
   font-family: var(--font-mono-exo);

@@ -1,9 +1,61 @@
-// The AGPL-3.0 section 13 source offer that signed-in Exomem Cloud pages show. The two
-// repositories are the whole service: the memory server and this control plane.
-export const SOURCE_OFFER_LINKS = [
-  { label: "Evermatter", href: "https://github.com/Artexis10/exomem" },
-  { label: "Substrate", href: "https://github.com/substrate-systems/substrate" },
-] as const;
+// The source offer that signed-in Cloud pages show. The two repositories are the whole service:
+// the memory server and this control plane.
+import { compareReleaseVersions, releaseVersion } from "./release-tag";
+
+// The first memory-server release under FSL-1.1-ALv2. Every earlier release stays under
+// AGPL-3.0-or-later. A licence change is a fixed historical point, not configuration.
+export const FIRST_FSL_RELEASE = "v0.202.0";
+
+const FSL = "FSL-1.1-ALv2";
+const AGPL = "AGPL-3.0-or-later";
+const SERVER_REPOSITORY = "https://github.com/substrate-systems/evermatter";
+// The plain statement of the FSL terms, kept with the code from the first FSL release on.
+const LICENCE_STATEMENT = `${SERVER_REPOSITORY}/blob/main/docs/licensing/licence-change.md`;
+const CONTROL_PLANE = {
+  label: `Substrate (${AGPL})`,
+  href: "https://github.com/substrate-systems/substrate",
+};
+
+type ServerLicence = "fsl" | "agpl" | "unknown";
+
+/** Which licence covers the server release a cell runs; unknown when the release is not a tag. */
+function serverLicence(release: string | null | undefined): ServerLicence {
+  const version = typeof release === "string" ? releaseVersion(release) : null;
+  if (version === null) return "unknown";
+  return compareReleaseVersions(version, releaseVersion(FIRST_FSL_RELEASE)!) >= 0 ? "fsl" : "agpl";
+}
+
+const SERVER_LABEL: Record<ServerLicence, string> = {
+  fsl: `Evermatter (${FSL})`,
+  agpl: `Evermatter (${AGPL})`,
+  unknown: `Evermatter (${FSL}; before ${FIRST_FSL_RELEASE}: ${AGPL})`,
+};
+
+/**
+ * The repositories the offer links, with the licence of each. A readable release links its own
+ * tag, which is the corresponding source and carries that release's licence file.
+ */
+export function sourceOfferLinks(release: string | null | undefined) {
+  const tagged = typeof release === "string" && releaseVersion(release) !== null;
+  return [
+    {
+      label: SERVER_LABEL[serverLicence(release)],
+      href: tagged ? `${SERVER_REPOSITORY}/tree/${release}` : SERVER_REPOSITORY,
+    },
+    CONTROL_PLANE,
+  ] as const;
+}
+
+/**
+ * The link to the plain statement of the FSL terms, shown whenever the running code may be under
+ * FSL. The statement says that self-hosting is free, that competing hosted use is not permitted
+ * and that each release becomes Apache-2.0 two years after it is published; the offer links it
+ * instead of printing it, so the offer stays one line of labels.
+ */
+export function sourceOfferLicenceTerms(release: string | null | undefined) {
+  if (serverLicence(release) === "agpl") return null;
+  return { label: `${FSL} terms`, href: LICENCE_STATEMENT } as const;
+}
 
 /**
  * What the offer says about the release this account's cell runs. `undefined` means the page has

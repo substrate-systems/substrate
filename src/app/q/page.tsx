@@ -153,7 +153,8 @@ export default function QPage() {
             >
               Evermatter
             </Link>{" "}
-            — durable, MCP-native memory for AI agents over a Markdown vault you own. Open source.
+            — durable, MCP-native memory for AI agents over a Markdown vault you own. Free to
+            self-host.
           </p>
         </div>
       </section>

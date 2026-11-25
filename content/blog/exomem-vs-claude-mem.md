@@ -3,6 +3,7 @@ title: "Evermatter vs claude-mem: session continuity and durable knowledge are d
 slug: exomem-vs-claude-mem
 description: "claude-mem captures what your agent did and replays it into the next session. Evermatter stores what you concluded, in Markdown you own. An honest comparison of two tools that get filed together and solve different problems."
 published: 2026-07-25
+updated: 2026-11-25
 tags:
   - exomem
   - agent-memory
@@ -41,10 +42,10 @@ One is automatic and about continuity. The other is deliberate and about knowled
 | Cloud                            | Optional sync to cmem.ai                               | None; optional self-hosted REST                          |
 | Clients                          | Claude Code, Codex, Gemini, Copilot, OpenCode and more | Any MCP client, plus CLI and REST                        |
 | Language                         | JavaScript                                             | Python                                                   |
-| Licence                          | Apache-2.0                                             | AGPL-3.0                                                 |
+| Licence                          | Apache-2.0                                             | FSL-1.1-ALv2 (source-available)                          |
 | Price                            | Free                                                   | Free, self-hosted                                        |
 
-Both are open source and both are agent-agnostic, so if you've seen Evermatter described as "the agnostic one", that isn't the difference. The difference is where the data lives and who curates it.
+Both publish their source and both are agent-agnostic, so if you've seen Evermatter described as "the agnostic one", that isn't the difference. The difference is where the data lives and who curates it.
 
 ## Where claude-mem is the better choice
 
@@ -100,7 +101,7 @@ That runs fully local and read-only, and finishes in about a second.
 
 ## Where you can get it
 
-Evermatter is on [PyPI](https://pypi.org/project/exomem/) and [GitHub](https://github.com/substrate-systems/evermatter), AGPL-3.0, and the product page is at [substratesystems.io/exomem](/exomem). The comparison against mem0, Letta, Zep, cognee and Basic Memory — the other tools people weigh this against — is [here](/blog/exomem-vs-mem0-letta-zep).
+Evermatter is on [PyPI](https://pypi.org/project/exomem/) and [GitHub](https://github.com/substrate-systems/evermatter), under FSL-1.1-ALv2, and the product page is at [substratesystems.io/exomem](/exomem). The comparison against mem0, Letta, Zep, cognee and Basic Memory — the other tools people weigh this against — is [here](/blog/exomem-vs-mem0-letta-zep).
 
 ## FAQ
 

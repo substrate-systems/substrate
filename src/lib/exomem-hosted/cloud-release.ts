@@ -17,12 +17,10 @@
 
 import { loadCloudCellImageRepository } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { compareReleaseVersions, releaseVersion } from "./release-tag";
 
 const CELL_IMAGE_SETTINGS_KEY = "cell_image";
 const CELL_IMAGE_DIGEST_HEX = /^[0-9a-f]{64}$/;
-// The release workflow publishes only on tags of this form (vMAJOR.MINOR.PATCH);
-// a format check that also yields the numbers the forward-only rule compares.
-const RELEASE_TAG = /^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/;
 
 /** Who sends a release change: the owner's admin token, or the release automation's deploy token. */
 export type CloudReleasePrincipal = "admin" | "deploy";
@@ -53,19 +51,9 @@ export class CloudReleaseOlderError extends Error {
   }
 }
 
-function releaseVersion(tag: string): [number, number, number] | null {
-  const match = RELEASE_TAG.exec(tag);
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
-}
-
 /** Negative when `a` is older than `b`. Both must be valid tags. */
 function compareReleaseTags(a: string, b: string): number {
-  const left = releaseVersion(a)!;
-  const right = releaseVersion(b)!;
-  for (let index = 0; index < 3; index += 1) {
-    if (left[index] !== right[index]) return left[index] - right[index];
-  }
-  return 0;
+  return compareReleaseVersions(releaseVersion(a)!, releaseVersion(b)!);
 }
 
 function assertValidCloudReleaseTag(tag: string): void {
