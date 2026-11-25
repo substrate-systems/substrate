@@ -38,7 +38,9 @@ export default function ExomemPrivacyPage() {
         <li>
           <strong>Your knowledge store:</strong> Markdown, media, links, metadata, searches, and
           changes you send through an authorized Evermatter client. Search indexes and caches are
-          derived from this content.
+          derived from this content. Stored originals, such as recordings, videos, and large files,
+          may sit in a separate encrypted object store instead of on your cell&apos;s disk (see
+          the security boundary below).
         </li>
         <li>
           <strong>Operations and security data:</strong> timestamps, coarse counts and sizes,
@@ -86,6 +88,19 @@ export default function ExomemPrivacyPage() {
         claim otherwise.
       </p>
       <p>
+        Your cell may keep stored originals, such as recordings, videos, and large files, in a
+        separate object store at Backblaze instead of on the cell&apos;s disk. Your cell encrypts
+        each original before it leaves the cell. Backblaze, and the internal service that carries
+        these files between your cell and the store, see the encrypted bytes, their sizes, and
+        object names made with a secret key, not your content or your file names. The key that
+        decrypts the originals is wrapped under the same per-cell root key that protects your
+        cell&apos;s storage and backups. We can unwrap that root key, so we could deliberately
+        decrypt your stored originals. This is not zero-knowledge, and we make no claim that only
+        you can read them. When you play, download, or export an original, your cell decrypts it.
+        It then reaches you through our edge and gateway like any other response, and an export is
+        a plain ZIP.
+      </p>
+      <p>
         What we have built is that nobody sees your content by accident. The access our operators
         use day to day cannot read your data or its keys, and it cannot open a session inside your
         cell. Reaching your content means deliberately stepping outside that access, with an
@@ -113,7 +128,8 @@ export default function ExomemPrivacyPage() {
         sign-in and account service, including the content that Home shows you when you browse or
         ask your memory there; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
-        region, and for imports and exports until they expire; Cloudflare for DNS and Turnstile bot
+        region, for stored originals where your cell uses the media store, and for imports and
+        exports until they expire; Cloudflare for DNS and Turnstile bot
         protection; Brevo for transactional email; and Paddle as merchant of record. Until 10
         October 2026, Neon also held a frozen copy of the account database from before it moved to
         our own servers; that copy is now deleted. The public site may use privacy-filtered
@@ -157,7 +173,10 @@ export default function ExomemPrivacyPage() {
         rather than merely hiding the account. Encrypted copies in our backups and cluster snapshots
         are not erased at that moment. Where our backup custodian manages an account&apos;s backups,
         they expire automatically, normally within about 40 days. Otherwise we delete the backup
-        copies by hand after the deletion completes. Backups
+        copies by hand after the deletion completes. Stored originals in the object store are
+        handled apart: deletion retires the content keys for them, and we delete the stored copies
+        afterwards, with an operator-run step that waits at least 7 days, so until it runs they
+        remain in the store, encrypted. Backups
         of the account database, which hold your cell&apos;s keys in encrypted form, expire on their
         own retention schedule. Minimal billing, security, deletion-proof, and legal
         records may be retained for the period required to resolve disputes, prevent abuse,

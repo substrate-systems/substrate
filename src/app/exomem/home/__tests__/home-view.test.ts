@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PaddlePricePreview } from "@/lib/paddle";
-import type { HomeAccount, HomeActivity, HomeApp, HomeExport } from "../home-api";
+import {
+  parseStorage,
+  type HomeAccount,
+  type HomeActivity,
+  type HomeApp,
+  type HomeExport,
+} from "../home-api";
 import type { Lifecycle } from "../home-state";
 import {
   activityFacts,
@@ -697,6 +703,86 @@ describe("plan and storage", () => {
     );
     assert.equal(view.state === "known" && view.line, "1.2 of 10.7 GB");
     assert.equal(view.state === "known" && view.measured, "measured 12 Oct, 03:00");
+  });
+
+  const media = {
+    observed_at: "2026-10-12T04:00:00Z",
+    vault: { state: "known", used_bytes: 1_234_000_000, limit_bytes: 10_737_418_240 },
+    media: { state: "known", used_bytes: 35_000_000_000, limit_bytes: 100_000_000_000 },
+  } as const;
+
+  it("shows a media-store cell's vault against the volume and its media against the allowance", () => {
+    const view = storageView(
+      {
+        state: "known",
+        used_bytes: 9_000_000_000,
+        filesystem_bytes: 10_737_418_240,
+        observed_at: "2026-10-12T03:00:00Z",
+        media,
+      },
+      clock
+    );
+    assert.equal(view.state, "split");
+    if (view.state !== "split") return;
+    assert.equal(view.vault.state === "known" && view.vault.line, "1.2 of 10.7 GB");
+    assert.equal(view.media.state === "known" && view.media.line, "35 of 100 GB");
+    assert.equal(view.measured, "measured 12 Oct, 04:00");
+  });
+
+  it("keeps the media figures when Home reads the status response, and drops none of the whole-volume ones", () => {
+    const sent = JSON.parse(
+      JSON.stringify({
+        state: "known",
+        used_bytes: 9_000_000_000,
+        filesystem_bytes: 10_737_418_240,
+        observed_at: "2026-10-12T03:00:00Z",
+        media,
+      })
+    );
+    assert.deepEqual(parseStorage(sent), sent);
+    assert.equal(storageView(parseStorage(sent), clock).state, "split");
+    // A media pair Home cannot read is not shown as one whole disk.
+    assert.equal(parseStorage({ ...sent, media: { ...media, vault: { state: "known" } } }), null);
+    const bare = {
+      state: "known",
+      used_bytes: 9_000_000_000,
+      filesystem_bytes: 10_737_418_240,
+      observed_at: "2026-10-12T03:00:00Z",
+    };
+    assert.deepEqual(parseStorage(bare), bare);
+  });
+
+  it("shows an unreadable figure as unknown beside the one that was read, never as zero", () => {
+    const view = storageView(
+      { state: "unknown", media: { ...media, media: { state: "unknown" } } },
+      clock
+    );
+    assert.equal(view.state, "split");
+    if (view.state !== "split") return;
+    assert.deepEqual(view.media, { state: "unknown" });
+    assert.equal(view.vault.state, "known");
+  });
+
+  it("still warns that the volume is filling from the vault figure of a media-store cell", () => {
+    const view = storageView(
+      {
+        state: "unknown",
+        media: {
+          ...media,
+          vault: { state: "known", used_bytes: 9_000_000_000, limit_bytes: 10_000_000_000 },
+        },
+      },
+      clock
+    );
+    assert.deepEqual(
+      notices("on", account(), view, true, false).map((notice) => notice.key),
+      ["filling"]
+    );
+    const unknownVault = storageView(
+      { state: "unknown", media: { ...media, vault: { state: "unknown" } } },
+      clock
+    );
+    assert.deepEqual(notices("on", account(), unknownVault, true, false), []);
   });
 });
 

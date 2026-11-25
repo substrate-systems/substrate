@@ -1436,7 +1436,16 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       assert.equal(rows[0]!.can_delete, false, `${role} must not delete export rows`);
     }
 
-    const usage = ["filesystem_bytes", "usage_observed_at", "used_bytes"];
+    // Migration 0066's whole-volume figures and migration 0094's vault and media figures.
+    const usage = [
+      "filesystem_bytes",
+      "media_allowance_bytes",
+      "media_usage_observed_at",
+      "media_used_bytes",
+      "usage_observed_at",
+      "used_bytes",
+      "vault_used_bytes",
+    ];
     const cellctlUpdates = await columnPrivileges("exomem_cellctl", "exomem_cloud_cells", "UPDATE");
     assert.deepEqual(cellctlUpdates.filter((column) => usage.includes(column)), usage);
     const appUpdates = await columnPrivileges("substrate_app", "exomem_cloud_cells", "UPDATE");

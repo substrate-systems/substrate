@@ -40,6 +40,7 @@ import {
 } from "./cloud-upstream";
 import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
+import { verifyDownloadTicket } from "../lib/exomem-hosted/cloud-download-ticket";
 import {
   cloudResourceForHost,
   loadExomemCloudConfig,
@@ -68,7 +69,7 @@ import {
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
 import { currentNoticeHeader, NOTICE_HEADER } from "../lib/exomem-hosted/service-notice-header";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";
-import { digestSecret } from "../lib/exomem-hosted/security";
+import { controlPlaneKeyFromEnv, digestSecret } from "../lib/exomem-hosted/security";
 
 const CACHE_HEADERS = { "cache-control": "private, no-store" };
 const FORWARDED_REQUEST_HEADERS = [
@@ -417,6 +418,8 @@ export type CloudGatewayDependencies = {
   serverSlot?: GatewayServerSlot;
   /** The service-notice header value for a cell, or null; a test injects its own. */
   serviceNoticeHeader?: (cellId: string) => Promise<string | null>;
+  /** The key a download ticket's MAC uses; the gateway reads `EXOMEM_CONTROL_PLANE_KEY`. */
+  controlPlaneKey?: Buffer;
 };
 
 type PreparedBody = Awaited<ReturnType<typeof readCloudArtifactBody>>;
@@ -966,8 +969,10 @@ async function readCellUploadAnswer(upstream: Response): Promise<Record<string, 
 
 /**
  * The exact-original download route (add-cloud-media-store). The caller holds
- * its OAuth access token, as on the MCP route. Every check below runs before
- * the cell is contacted; each GET, range requests included, gets its own proof.
+ * its OAuth access token, as on the MCP route, or, from a signed-in browser, a
+ * download ticket that the app minted for this path (add-cloud-media-access).
+ * Every check below runs before the cell is contacted; each GET, range
+ * requests included, gets its own proof.
  */
 export async function handleCloudDownloadRequest(
   request: Request,
@@ -989,6 +994,13 @@ export async function handleCloudDownloadRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
+  // 2a. A browser's ticket is its own credential, resolved by its own branch.
+  const requestUrl = new URL(request.url);
+  const tickets = requestUrl.searchParams.getAll("ticket");
+  if (tickets.length > 0) {
+    return serveTicketDownload(request, requestUrl, tickets, config, dependencies);
+  }
+
   // 2. Token lookup and IP bucket, in the MCP route's order — the shared
   // admission helper (review B4). This route keeps its OAuth-only contract:
   // an `exs_` bearer is refused without touching either lookup, so no service
@@ -1001,8 +1013,7 @@ export async function handleCloudDownloadRequest(
   const { access } = admitted;
 
   // 3. The one query parameter, decoded once; the proof binds exactly this value.
-  const url = new URL(request.url);
-  const paths = url.searchParams.getAll("path");
+  const paths = requestUrl.searchParams.getAll("path");
   if (paths.length !== 1 || paths[0] === "") return errorResponse(400, "PATH_REQUIRED");
   const path = paths[0];
 
@@ -1041,13 +1052,101 @@ export async function handleCloudDownloadRequest(
   }
 }
 
+/**
+ * The ticket branch of the download route. The ticket is the whole credential
+ * and names a tenant, a cell, the owner's Home login and this exact path. It
+ * is checked without the database first; then the login is resolved as it is
+ * now, which is where a revoked grant, a blocked owner or a deleting account
+ * ends it, and the same per-request limits apply as on the OAuth branch.
+ */
+async function serveTicketDownload(
+  request: Request,
+  url: URL,
+  tickets: string[],
+  config: ExomemCloudConfig,
+  dependencies: CloudGatewayDependencies
+): Promise<Response> {
+  const key = config.artifactSigningKey as KeyObject;
+  const findLogin = dependencies.findLogin ?? findCloudOAuthLogin;
+  const takeRateLimit = dependencies.takeRateLimit ?? takeExomemRateLimit;
+
+  // A ticket in the URL plus a bearer is two answers to "who is asking".
+  if (request.headers.has("authorization")) return errorResponse(400, "AMBIGUOUS_CREDENTIAL");
+  const paths = url.searchParams.getAll("path");
+  if (tickets.length !== 1 || paths.length !== 1 || paths[0] === "") {
+    return errorResponse(400, "PATH_REQUIRED");
+  }
+  const path = paths[0];
+
+  const claims = verifyDownloadTicket(
+    tickets[0],
+    path,
+    dependencies.controlPlaneKey ?? controlPlaneKeyFromEnv()
+  );
+  if (!claims) {
+    // An unrecognised credential pays the IP bucket, as an unknown bearer does.
+    const ipKey = trustedIngressClientAddress(request);
+    if (ipKey === null) {
+      recordIpBucketSkip();
+    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+      return errorResponse(429, "RATE_LIMITED");
+    }
+    return errorResponse(401, "DOWNLOAD_TICKET_INVALID");
+  }
+
+  if (!cloudUploadEnabled(config, claims.cellId)) return errorResponse(404, "NOT_FOUND");
+  // Its own identity, so a long download never spends the Home channel's MCP bucket or slots.
+  const identityKey = `${claims.tenantId}:media-download`;
+  if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIdentity, identityKey))) {
+    return errorResponse(429, "RATE_LIMITED");
+  }
+  const release = acquireCloudConcurrency(identityKey);
+  if (!release) return errorResponse(429, "RATE_LIMITED");
+  try {
+    const login = await findLogin(
+      { familyId: claims.familyId, grantId: claims.grantId },
+      config.acceptedResources
+    );
+    // Only the app mints a ticket, and only from the owner's first-party login
+    // of this tenant and cell. Anything else is refused whatever its MAC says.
+    if (
+      !login ||
+      !login.firstParty ||
+      login.tenantId !== claims.tenantId ||
+      login.cellId !== claims.cellId
+    ) {
+      release();
+      return errorResponse(401, "DOWNLOAD_TICKET_INVALID");
+    }
+    if (login.cellDesiredState !== "running" && login.cellDesiredState !== "read_only") {
+      release();
+      return errorResponse(503, "CELL_NOT_READY");
+    }
+    if (!CELL_ID_FORMAT.test(login.cellId)) {
+      release();
+      console.error({ event: "exomem_cloud_gateway_cell_id_invalid" });
+      return errorResponse(500, "CELL_ID_INVALID");
+    }
+    return releaseConcurrencyWhenBodyEnds(
+      await relayDownloadFromCell(request, login, path, key, config, dependencies, {
+        browser: true,
+      }),
+      release
+    );
+  } catch (error) {
+    release();
+    throw error;
+  }
+}
+
 async function relayDownloadFromCell(
   request: Request,
   login: ActiveCloudOAuthLogin,
   path: string,
   key: KeyObject,
   config: ExomemCloudConfig,
-  dependencies: CloudGatewayDependencies
+  dependencies: CloudGatewayDependencies,
+  options: { browser?: boolean } = {}
 ): Promise<Response> {
   const fetchCell = dependencies.fetchCell ?? defaultFetchCell;
   const origin = (dependencies.cellOrigin ?? defaultCellOrigin)(login.cellId);
@@ -1089,6 +1188,12 @@ async function relayDownloadFromCell(
     return errorResponse(502, "CELL_AUTH_MISMATCH");
   }
   const relayed = new Headers({ "cache-control": "no-store" });
+  // A browser renders what it gets: it may not guess a type for the owner's file, and the
+  // ticket in the address it came from never leaves in a Referer.
+  if (options.browser) {
+    relayed.set("x-content-type-options", "nosniff");
+    relayed.set("referrer-policy", "no-referrer");
+  }
   for (const name of RELAYED_DOWNLOAD_HEADERS) {
     const value = upstream.headers.get(name);
     if (value !== null) relayed.set(name, value);

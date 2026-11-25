@@ -197,6 +197,17 @@ BEGIN
     ) THEN
       GRANT UPDATE (used_bytes, filesystem_bytes, usage_observed_at) ON exomem_cloud_cells TO exomem_cellctl;
     END IF;
+    -- Migration 0094: the vault and media storage figures cellctl reads from the cell, an
+    -- observed column group. The grant lives here for the reason 0081's does: the REVOKE above
+    -- runs after every migration.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'
+        AND column_name = 'media_usage_observed_at'
+    ) THEN
+      GRANT UPDATE (vault_used_bytes, media_used_bytes, media_allowance_bytes, media_usage_observed_at)
+        ON exomem_cloud_cells TO exomem_cellctl;
+    END IF;
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
       WHERE table_schema = target_schema AND table_name = 'exomem_cloud_cells'

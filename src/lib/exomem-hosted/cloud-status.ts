@@ -66,7 +66,28 @@ type CloudCellStatusRow = {
  * report, never a plan allowance. Unknown until a Job has reported.
  */
 export type CloudStorageObservation =
-  | { state: "known"; used_bytes: number; filesystem_bytes: number; observed_at: string }
+  | {
+      state: "known";
+      used_bytes: number;
+      filesystem_bytes: number;
+      observed_at: string;
+      media?: CloudMediaStorage;
+    }
+  | { state: "unknown"; media?: CloudMediaStorage };
+
+/**
+ * A cell with a media store reports two figures, each against its own limit: the vault
+ * against the volume, and the stored originals against the allowance (migration 0094).
+ * One that cellctl could not read is unknown, never zero. `media` is absent on a cell
+ * that has no media store, whose storage is the whole-volume figure above.
+ */
+export type CloudMediaStorage = {
+  observed_at: string;
+  vault: CloudMediaFigure;
+  media: CloudMediaFigure;
+};
+export type CloudMediaFigure =
+  | { state: "known"; used_bytes: number; limit_bytes: number }
   | { state: "unknown" };
 
 type CloudCellUsageRow = {
@@ -74,6 +95,10 @@ type CloudCellUsageRow = {
   used_bytes: string | null;
   filesystem_bytes: string | null;
   usage_observed_at: Date | null;
+  vault_used_bytes: string | null;
+  media_used_bytes: string | null;
+  media_allowance_bytes: string | null;
+  media_usage_observed_at: Date | null;
   custody_observation: Record<string, unknown> | null;
   content_keys_retired_at: Date | null;
   last_live_key_destroyed_at: Date | null;
@@ -143,21 +168,47 @@ export function mapCloudCellToLifecycleStatus(
   return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
 }
 
+function mediaFigure(used: string | null, limit: string | null): CloudMediaFigure {
+  if (used === null || limit === null) return { state: "unknown" };
+  const usedBytes = Number(used);
+  const limitBytes = Number(limit);
+  // A size past JSON's exact integer range would be shown rounded; say unknown instead.
+  if (!Number.isSafeInteger(usedBytes) || !Number.isSafeInteger(limitBytes)) {
+    return { state: "unknown" };
+  }
+  return { state: "known", used_bytes: usedBytes, limit_bytes: limitBytes };
+}
+
+/** Migration 0094's CHECK ties every figure to its read time, so no time means no media store. */
+function mapCloudCellToMediaStorage(row: CloudCellUsageRow): CloudMediaStorage | undefined {
+  if (!row.media_usage_observed_at) return undefined;
+  return {
+    observed_at: row.media_usage_observed_at.toISOString(),
+    vault: mediaFigure(row.vault_used_bytes, row.filesystem_bytes),
+    media: mediaFigure(row.media_used_bytes, row.media_allowance_bytes),
+  };
+}
+
 function mapCloudCellToStorage(row: CloudCellUsageRow | undefined): CloudStorageObservation {
   if (!row || row.desired_state === "deleted") return { state: "unknown" };
+  const media = mapCloudCellToMediaStorage(row);
+  const withMedia = <T extends CloudStorageObservation>(storage: T): T =>
+    media ? { ...storage, media } : storage;
   if (row.used_bytes === null || row.filesystem_bytes === null || !row.usage_observed_at) {
-    return { state: "unknown" };
+    return withMedia({ state: "unknown" });
   }
   const used = Number(row.used_bytes);
   const total = Number(row.filesystem_bytes);
   // A size past JSON's exact integer range would be shown rounded; say unknown instead.
-  if (!Number.isSafeInteger(used) || !Number.isSafeInteger(total)) return { state: "unknown" };
-  return {
+  if (!Number.isSafeInteger(used) || !Number.isSafeInteger(total)) {
+    return withMedia({ state: "unknown" });
+  }
+  return withMedia({
     state: "known",
     used_bytes: used,
     filesystem_bytes: total,
     observed_at: row.usage_observed_at.toISOString(),
-  };
+  });
 }
 
 async function readNewestCloudCell(
@@ -167,6 +218,8 @@ async function readNewestCloudCell(
     /* exomem-cloud:home-status */
     SELECT cell.desired_state, cell.observed_state, cell.ready, cell.last_error_code,
            cell.hold_kind, cell.used_bytes, cell.filesystem_bytes, cell.usage_observed_at,
+           cell.vault_used_bytes, cell.media_used_bytes, cell.media_allowance_bytes,
+           cell.media_usage_observed_at,
            cell.custody_observation, cell.content_keys_retired_at, cell.last_live_key_destroyed_at,
            cell.key_retention_sources, cell.keys_expire_at,
            (SELECT history.release_tag FROM exomem_cloud_image_history AS history

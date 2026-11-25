@@ -8,7 +8,13 @@ import { deriveCloudCellBearer } from "../../lib/exomem-hosted/cloud-cell-bearer
 import type { ExomemCloudConfig } from "../../lib/exomem-hosted/cloud-config";
 import type { ActiveCloudOAuthAccessToken } from "../../lib/exomem-hosted/cloud-oauth";
 import {
+  signDownloadTicket,
+  DOWNLOAD_TICKET_MAX_LIFETIME_SECONDS,
+} from "../../lib/exomem-hosted/cloud-download-ticket";
+import {
   handleCloudDownloadRequest,
+  handleCloudMcpRequest,
+  handleCloudUploadRequest,
   resetCloudGatewayConcurrencyForTests,
   type CloudGatewayDependencies,
 } from "../cloud-handler";
@@ -295,5 +301,251 @@ describe("Cloud exact-original download at the gateway", () => {
       if (previousPath === undefined) delete process.env.EXOMEM_CLOUD_MCP_PATH;
       else process.env.EXOMEM_CLOUD_MCP_PATH = previousPath;
     }
+  });
+});
+
+// add-cloud-media-access: the same route for a signed-in browser. The app mints the ticket;
+// the gateway holds the other half of the shared key and the per-request authority.
+describe("Cloud download ticket at the gateway", () => {
+  beforeEach(() => resetCloudGatewayConcurrencyForTests());
+
+  const MAC_KEY = Buffer.alloc(32, 11);
+  // The owner's Home login: first-party, with the tenant and cell the ticket names.
+  const HOME_LOGIN: ActiveCloudOAuthAccessToken = {
+    ...ACCESS,
+    clientId: "exomem-home",
+    firstParty: true,
+    client: { ...ACCESS.client, admissionMode: "first_party" },
+  };
+  const CLAIMS = {
+    tenantId: HOME_LOGIN.tenantId,
+    cellId: CELL,
+    familyId: HOME_LOGIN.familyId,
+    grantId: HOME_LOGIN.grantId,
+  };
+
+  function ticket(options: Parameters<typeof signDownloadTicket>[2] = {}, path = PATH): string {
+    return signDownloadTicket({ ...CLAIMS, path }, MAC_KEY, options);
+  }
+
+  function ticketRequest(
+    token: string,
+    options: { path?: string; headers?: Record<string, string> } = {}
+  ): Request {
+    const query = new URLSearchParams({ path: options.path ?? PATH, ticket: token });
+    return new Request(`http://gateway.invalid/download?${query}`, { headers: options.headers });
+  }
+
+  function ticketDeps(overrides: Partial<CloudGatewayDependencies> = {}) {
+    return deps({
+      controlPlaneKey: MAC_KEY,
+      findAccessToken: async () => assert.fail("a ticket never reaches the bearer lookup"),
+      findLogin: async () => HOME_LOGIN,
+      ...overrides,
+    });
+  }
+
+  it("serves a 206 for a Range request and the same ticket again for the next seek", async () => {
+    const token = ticket();
+    const ranges: Array<string | null> = [];
+    let proofHeader: string | null = null;
+    let url = "";
+    const fetchCell = async (input: string | URL | Request, init?: RequestInit) => {
+      url = String(input);
+      const headers = new Headers(init?.headers);
+      ranges.push(headers.get("range"));
+      proofHeader = headers.get("x-exomem-cloud-origin");
+      assert.equal(
+        headers.get("authorization"),
+        `Bearer ${deriveCloudCellBearer(CELL_TOKEN_KEY, CELL)}`
+      );
+      return new Response("cdef", {
+        status: 206,
+        headers: { "content-range": "bytes 2-5/10", "content-type": "video/mp4" },
+      });
+    };
+    for (const range of ["bytes=2-5", "bytes=6-9"]) {
+      const response = await handleCloudDownloadRequest(
+        ticketRequest(token, { headers: { range } }),
+        ticketDeps({ fetchCell })
+      );
+      assert.equal(response.status, 206);
+      assert.equal(response.headers.get("content-range"), "bytes 2-5/10");
+      assert.equal(response.headers.get("content-type"), "video/mp4");
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(await response.text(), "cdef");
+    }
+    assert.deepEqual(ranges, ["bytes=2-5", "bytes=6-9"]);
+    assert.equal(new URL(url).searchParams.get("ticket"), null, "the ticket stays at the gateway");
+    const proof = await jwtVerify(proofHeader!, publicKey, {
+      issuer: RESOURCE,
+      audience: "exomem-cloud-origin",
+    });
+    assert.equal(proof.payload.purpose, "download");
+    assert.equal(
+      proof.payload.target_sha256,
+      createHash("sha256").update(PATH, "utf8").digest("hex")
+    );
+  });
+
+  it("refuses a ticket that is expired, for another path, forged or the wrong shape before any lookup or cell contact", async () => {
+    const issuedLongAgo = Math.floor(Date.now() / 1000) - DOWNLOAD_TICKET_MAX_LIFETIME_SECONDS - 5;
+    const cases: Array<[string, Request]> = [
+      ["expired", ticketRequest(ticket({ now: issuedLongAgo }))],
+      ["another path", ticketRequest(ticket({}, "Recordings/other.mp4"))],
+      [
+        "wrong key",
+        ticketRequest(signDownloadTicket({ ...CLAIMS, path: PATH }, Buffer.alloc(32, 12))),
+      ],
+      ["tampered", ticketRequest(`${ticket().slice(0, -2)}AA`)],
+      ["not a ticket", ticketRequest("x")],
+    ];
+    for (const [name, request] of cases) {
+      const response = await handleCloudDownloadRequest(
+        request,
+        ticketDeps({
+          findLogin: async () => assert.fail(`${name}: the login was looked up`),
+        })
+      );
+      assert.equal(response.status, 401, name);
+      assert.deepEqual(await response.json(), { error: "DOWNLOAD_TICKET_INVALID" }, name);
+    }
+  });
+
+  it("needs exactly one ticket, one path and no bearer beside it", async () => {
+    const token = ticket();
+    const twoTickets = new Request(
+      `http://gateway.invalid/download?${new URLSearchParams([
+        ["path", PATH],
+        ["ticket", token],
+        ["ticket", token],
+      ])}`
+    );
+    const noPath = new Request(`http://gateway.invalid/download?ticket=${token}`);
+    assert.equal((await handleCloudDownloadRequest(twoTickets, ticketDeps())).status, 400);
+    assert.equal((await handleCloudDownloadRequest(noPath, ticketDeps())).status, 400);
+    const withBearer = await handleCloudDownloadRequest(
+      ticketRequest(token, { headers: { authorization: `Bearer ${"a".repeat(43)}` } }),
+      ticketDeps()
+    );
+    assert.equal(withBearer.status, 400);
+    assert.deepEqual(await withBearer.json(), { error: "AMBIGUOUS_CREDENTIAL" });
+  });
+
+  it("stops at the login: revoked, not first-party, or another tenant or cell", async () => {
+    const cases: Array<
+      [string, Awaited<ReturnType<NonNullable<CloudGatewayDependencies["findLogin"]>>>]
+    > = [
+      ["revoked, blocked or deleting", null],
+      ["a third-party login", { ...HOME_LOGIN, firstParty: false }],
+      ["another tenant", { ...HOME_LOGIN, tenantId: "7a1c1b7e-2a4b-4c55-9d8e-0a1b2c3d4e5f" }],
+      ["another cell", { ...HOME_LOGIN, cellId: "bbbbbbbbbbbbbbbb" }],
+    ];
+    for (const [name, login] of cases) {
+      const response = await handleCloudDownloadRequest(
+        ticketRequest(ticket()),
+        ticketDeps({ findLogin: async () => login })
+      );
+      assert.equal(response.status, 401, name);
+    }
+  });
+
+  it("refuses a cell that is stopped, held for deletion or not selected, without contacting it", async () => {
+    const stopped = await handleCloudDownloadRequest(
+      ticketRequest(ticket()),
+      ticketDeps({ findLogin: async () => ({ ...HOME_LOGIN, cellDesiredState: "stopped" }) })
+    );
+    assert.equal(stopped.status, 503);
+    const unselected = await handleCloudDownloadRequest(
+      ticketRequest(ticket()),
+      ticketDeps({ config: { ...CONFIG, uploadCells: new Set(["bbbbbbbbbbbbbbbb"]) } })
+    );
+    assert.equal(unselected.status, 404);
+    const readOnly = await handleCloudDownloadRequest(
+      ticketRequest(ticket()),
+      ticketDeps({
+        findLogin: async () => ({ ...HOME_LOGIN, cellDesiredState: "read_only" }),
+        fetchCell: async () => new Response("kept", { status: 200 }),
+      })
+    );
+    assert.equal(readOnly.status, 200, "a read-only account can still play its recordings");
+  });
+
+  it("applies the identity rate limit to a ticket and returns the slot when the body ends", async () => {
+    const limited = await handleCloudDownloadRequest(
+      ticketRequest(ticket()),
+      ticketDeps({ takeRateLimit: async () => false })
+    );
+    assert.equal(limited.status, 429);
+    const bodies = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const response = await handleCloudDownloadRequest(
+        ticketRequest(ticket()),
+        ticketDeps({ fetchCell: async () => new Response("ok", { status: 200 }) })
+      );
+      assert.equal(response.status, 200, `attempt ${attempt}`);
+      bodies.push(await response.text());
+    }
+    assert.equal(bodies.length, 6, "sequential downloads never exhaust the per-owner slots");
+  });
+
+  it("is useless at /mcp and /upload", async () => {
+    const token = ticket();
+    const calls: string[] = [];
+    const guarded = ticketDeps({
+      findAccessToken: async () => null,
+      fetchCell: async () => {
+        calls.push("cell");
+        return new Response("no", { status: 200 });
+      },
+    });
+    const mcp = await handleCloudMcpRequest(
+      new Request(`http://gateway.invalid/mcp?ticket=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      guarded
+    );
+    assert.equal(mcp.status, 401);
+    const upload = await handleCloudUploadRequest(
+      new Request(`http://gateway.invalid/upload?ticket=${token}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: "bytes",
+      }),
+      guarded
+    );
+    assert.notEqual(upload.status, 200);
+    assert.deepEqual(calls, []);
+  });
+
+  it("never writes the ticket to a log", async () => {
+    const token = ticket();
+    const lines: string[] = [];
+    const methods = ["log", "info", "warn", "error", "debug"] as const;
+    const originals = methods.map((name) => console[name]);
+    for (const name of methods) {
+      console[name] = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+    }
+    try {
+      await handleCloudDownloadRequest(
+        ticketRequest(token),
+        ticketDeps({ findLogin: async () => null })
+      );
+      await handleCloudDownloadRequest(
+        ticketRequest(token),
+        ticketDeps({
+          fetchCell: async () => {
+            throw new Error(`connect refused for ${token}`);
+          },
+        })
+      );
+    } finally {
+      methods.forEach((name, index) => (console[name] = originals[index]));
+    }
+    assert.equal(lines.filter((line) => line.includes(token)).length, 0);
   });
 });

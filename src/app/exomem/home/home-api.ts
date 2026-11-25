@@ -15,7 +15,11 @@ import type {
 } from "@/lib/exomem-hosted/cloud-home-mcp";
 import type { CloudExportSummary } from "@/lib/exomem-hosted/cloud-exports";
 import { isExomemMoney } from "@/lib/exomem/money";
-import type { CloudStorageObservation } from "@/lib/exomem-hosted/cloud-status";
+import type {
+  CloudMediaFigure,
+  CloudMediaStorage,
+  CloudStorageObservation,
+} from "@/lib/exomem-hosted/cloud-status";
 import { csrfCookie, getPrivateJson, HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
 import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";
 import type { loadExomemEmailChange } from "@/lib/exomem-hosted/email-change";
@@ -121,9 +125,34 @@ export type StatusRead = {
   runningRelease?: string | null;
 };
 
-function parseStorage(value: unknown): HomeStorage | null {
+// A figure against a limit of zero has no share to draw, so it reads as unknown.
+function parseMediaFigure(value: unknown): CloudMediaFigure | null {
+  const figure = record(value);
+  if (figure?.state === "unknown") return { state: "unknown" };
+  if (figure?.state === "known" && typeof figure.used_bytes === "number") {
+    return typeof figure.limit_bytes === "number" && figure.limit_bytes > 0
+      ? (figure as CloudMediaFigure)
+      : { state: "unknown" };
+  }
+  return null;
+}
+
+function parseMediaStorage(value: unknown): CloudMediaStorage | null {
+  const media = record(value);
+  const vault = parseMediaFigure(media?.vault);
+  const stored = parseMediaFigure(media?.media);
+  if (!media || typeof media.observed_at !== "string" || !vault || !stored) return null;
+  return { observed_at: media.observed_at, vault, media: stored };
+}
+
+export function parseStorage(value: unknown): HomeStorage | null {
   const storage = record(value);
-  if (storage?.state === "unknown") return { state: "unknown" };
+  // A cell with a media store reports its two figures; a malformed pair is not read as one disk.
+  const media = storage && "media" in storage ? parseMediaStorage(storage.media) : undefined;
+  if (media === null) return null;
+  const withMedia = <T extends HomeStorage>(parsed: T): T =>
+    media ? { ...parsed, media } : parsed;
+  if (storage?.state === "unknown") return withMedia({ state: "unknown" });
   if (
     storage?.state === "known" &&
     typeof storage.used_bytes === "number" &&
@@ -131,7 +160,12 @@ function parseStorage(value: unknown): HomeStorage | null {
     storage.filesystem_bytes > 0 &&
     typeof storage.observed_at === "string"
   ) {
-    return storage as HomeStorage;
+    return withMedia({
+      state: "known",
+      used_bytes: storage.used_bytes,
+      filesystem_bytes: storage.filesystem_bytes,
+      observed_at: storage.observed_at,
+    });
   }
   return null;
 }
