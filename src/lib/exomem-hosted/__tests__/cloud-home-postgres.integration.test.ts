@@ -1022,8 +1022,9 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         };
         // A progress notification may come first; only the message with the call's id answers it.
         const notice = { jsonrpc: "2.0", method: "notifications/message", params: { level: "info" } };
+        // A resumable server may also send a priming event with no data first.
         return new Response(
-          `event: message\ndata: ${JSON.stringify(notice)}\n\nevent: message\ndata: ${JSON.stringify(reply)}\n\n`,
+          `id: 1\ndata:\n\nevent: message\ndata: ${JSON.stringify(notice)}\n\nevent: message\ndata: ${JSON.stringify(reply)}\n\n`,
           { headers: { "content-type": "text/event-stream; charset=utf-8" } }
         );
       });
