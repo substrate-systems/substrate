@@ -83,7 +83,9 @@ test("an open import remains cancellable when billing stops new uploads", async 
     await expect(
       dialog.getByText("Starting or resuming an upload is unavailable right now.")
     ).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: /^(Choose a folder|Choose files|Choose photos or files)$/ })
+    ).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Resume upload" })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -138,7 +140,10 @@ test("Home encrypts the selected folder, stages it and preserves observed status
     await page.goto("/exomem/home");
     await page.getByRole("button", { name: "Add files…", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toBeVisible();
+    // Desktop shows "Choose a folder"; a touch screen shows one "Choose photos or files".
+    await expect(
+      dialog.getByRole("button", { name: /^(Choose a folder|Choose photos or files)$/ }).first()
+    ).toBeVisible();
     await dialog.getByLabel("Folder to add").setInputFiles(folder);
     const created = page.waitForResponse(
       (response) =>
@@ -303,7 +308,10 @@ test("local ciphertext cleanup failure does not block cancellation or reuse a te
     await page.goto("/exomem/home");
     await page.getByRole("button", { name: "Add files…", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toBeVisible();
+    // Desktop shows "Choose a folder"; a touch screen shows one "Choose photos or files".
+    await expect(
+      dialog.getByRole("button", { name: /^(Choose a folder|Choose photos or files)$/ }).first()
+    ).toBeVisible();
     await dialog.getByLabel("Folder to add").setInputFiles(folder);
     const created = page.waitForResponse(
       (response) =>
