@@ -1,11 +1,11 @@
 ## 1. Selection
 
 - [ ] 1.1 Add a drop zone and a multi-file picker beside the folder picker, for desktop and phone. Verify: component tests for files, a folder and a mix, and a Chrome DevTools pass at desktop and phone widths in both themes.
-- [ ] 1.2 Expand `.zip` files in the browser with `@zip.js/zip.js`, streamed, under `<zip stem>/`. Leave out encrypted and unsupported entries with reasons. Verify: tests with a ZIP64 fixture, an encrypted entry and a `.docx` that stays whole.
+- [x] 1.2 Expand `.zip` files in the browser with `@zip.js/zip.js`, streamed, under `<zip stem>/`. Leave out encrypted and unsupported entries with reasons. Verify: tests with a ZIP64 fixture, an encrypted entry and a `.docx` that stays whole.
 
 ## 2. Filing request and origin
 
-- [ ] 2.1 Write `filing` and `origin` into the series file. Set member `mtime` from `lastModified`. Keep the folder name as the collection name. Remove the hidden-files opt-in from this route. Verify: a test decrypts a built archive with a test key and checks the series file, the member times and the collection name against the selection.
+- [x] 2.1 Write `filing` and `origin` into the series file. Set member `mtime` from `lastModified`. Keep the folder name as the collection name. Remove the hidden-files opt-in from this route. Verify: a test decrypts a built archive with a test key and checks the series file, the member times and the collection name against the selection.
 
 ## 3. Result
 

@@ -2,15 +2,9 @@
 
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
-import { Switch } from "@/components/exomem/Switch";
 import type { ImportForecast } from "@/lib/exomem-hosted/cloud-import-browser";
 import type { ImportProgress } from "@/lib/exomem-hosted/cloud-import-browser-upload";
-import {
-  GITIGNORE_MAX_BYTES,
-  type ImportSelection,
-  type IncludeChoices,
-  type SelectionTotals,
-} from "@/lib/exomem-hosted/cloud-import-selection";
+import type { SelectionTotals } from "@/lib/exomem-hosted/cloud-import-selection";
 import type { HomeStorage } from "./home-api";
 import { ago, byteSize, count } from "./home-format";
 import styles from "./home.module.css";
@@ -34,60 +28,6 @@ function vaultFree(storage: HomeStorage | null) {
 /** The bytes the browser may still store for this site, or null when it cannot say. */
 export function browserFree(room: BrowserRoom): number | null {
   return room ? Math.max(0, room.quota - room.usage) : null;
-}
-
-/** What the selection leaves out and why, each with a way to bring it back in. */
-export function ImportExclusions({
-  hiddenFiles,
-  gitignoredFiles,
-  selection,
-  include,
-  onInclude,
-}: {
-  /** Whether the folder holds any hidden or .gitignore-matched items at all. */
-  hiddenFiles: boolean;
-  gitignoredFiles: boolean;
-  selection: ImportSelection;
-  include: IncludeChoices;
-  onInclude: (next: IncludeChoices) => void;
-}) {
-  const skipped = selection.skippedRules;
-  if (!hiddenFiles && !gitignoredFiles && skipped === 0) return null;
-  return (
-    <>
-      {hiddenFiles && (
-        <Switch
-          label="Include hidden items"
-          description={
-            include.hidden
-              ? "Names that start with a dot are included."
-              : `Left out, because their names start with a dot: ${totals(selection.excluded.hidden)}.`
-          }
-          checked={include.hidden}
-          onChange={(hidden) => onInclude({ ...include, hidden })}
-        />
-      )}
-      {gitignoredFiles && (
-        <Switch
-          label="Include items the folder’s .gitignore excludes"
-          description={
-            include.gitignored
-              ? "Items its .gitignore files exclude are included."
-              : `Left out by the folder’s own .gitignore files: ${totals(selection.excluded.gitignored)}.`
-          }
-          checked={include.gitignored}
-          onChange={(gitignored) => onInclude({ ...include, gitignored })}
-        />
-      )}
-      {skipped > 0 && (
-        <p className={dialog.text}>
-          {skipped === 1 ? "One .gitignore file is" : `${count(skipped)} .gitignore files are`}{" "}
-          larger than {byteSize(GITIGNORE_MAX_BYTES)}, so {skipped === 1 ? "its" : "their"} rules
-          are not applied.
-        </p>
-      )}
-    </>
-  );
 }
 
 /** The selection beside every limit Home can measure before the upload starts. */
@@ -160,22 +100,22 @@ export function ImportLimits({
         <Notice attention>
           The encrypted copy needs {byteSize(forecast.ciphertextBytes)}, and this browser can store{" "}
           {byteSize(browser)} more for this site. Free space on this device, or use a browser with
-          more room, then choose the folder again.
+          more room, then choose the files again.
         </Notice>
       )}
       {vault !== null && vault.bytes < forecast.plaintextBytes && (
         <Notice>
           Your vault had {byteSize(vault.bytes)} free when it was measured{" "}
-          {ago(vault.observedAt, now)}, and this folder adds {byteSize(forecast.plaintextBytes)}.
-          Evermatter may stop the import while it stages the files. Add storage first, or choose a
-          smaller folder.
+          {ago(vault.observedAt, now)}, and this selection adds{" "}
+          {byteSize(forecast.plaintextBytes)}. Evermatter may stop the import while it stages the
+          files. Add storage first, or choose fewer files.
         </Notice>
       )}
     </>
   );
 }
 
-function Meter({ value, total, label }: { value: number; total: number; label: string }) {
+export function Meter({ value, total, label }: { value: number; total: number; label: string }) {
   const fraction = total > 0 ? Math.min(1, value / total) : 0;
   return (
     <div
@@ -286,12 +226,10 @@ export function ImportReference({ importId, code }: { importId: string; code?: s
 /** A staged import beside the vault reading: filing copies it, so it then counts twice. */
 export function StagedImportStorage({
   stagedBytes,
-  stagedFiles,
   storage,
   now,
 }: {
   stagedBytes: number;
-  stagedFiles: number;
   storage: HomeStorage | null;
   now: number;
 }) {
@@ -300,7 +238,7 @@ export function StagedImportStorage({
       <dl className={dialog.totals}>
         <div>
           <dt>Staged originals</dt>
-          <dd>{totals({ files: stagedFiles, bytes: stagedBytes })}</dd>
+          <dd>{byteSize(stagedBytes)}</dd>
         </div>
         <div>
           <dt>Your vault</dt>

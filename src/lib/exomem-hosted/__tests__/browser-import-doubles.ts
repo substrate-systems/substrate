@@ -111,8 +111,18 @@ export function importApiDouble(recipient: string, partBytes = 128) {
   const parts: { url: string; bytes: Uint8Array }[] = [];
   const refusals = new Set<string>();
   let held: Promise<void> | null = null;
+  // The cell's filing view through Home's owner channel; unset, the channel answers 404.
+  let filing: ((importId: string, call: "read" | "wake") => unknown) | null = null;
   const receive: typeof fetch = async (input, init) => {
     const path = String(input);
+    if (path.startsWith("/api/exomem/cloud/home/filing/")) {
+      const id = decodeURIComponent(path.split("/").pop()!);
+      const call = init?.method === "POST" ? "wake" : "read";
+      requests.push({ path, body: { call } });
+      return filing
+        ? Response.json(filing(id, call))
+        : Response.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
+    }
     if (path.startsWith("https://storage.example.test/")) {
       const body = init?.body as Blob;
       const signal = init?.signal;
@@ -184,6 +194,10 @@ export function importApiDouble(recipient: string, partBytes = 128) {
     requests,
     parts,
     receive,
+    /** What Home's filing route answers for each import, to a read or to a wake. */
+    answerFiling(answer: (importId: string, call: "read" | "wake") => unknown) {
+      filing = answer;
+    },
     /** Storage answers this part number's next upload with a server error. */
     refusePartOnce(partNumber: number) {
       refusals.add(String(partNumber));

@@ -8,13 +8,20 @@
  * logged. The gateway's own lookup re-checks revocation, account blocks and
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
- * Home calls only `configure_memory` and the `bootstrap` activity section.
+ * Home calls only `configure_memory`, the `bootstrap` activity section and the
+ * `adoption_studio` filing view of one import's stage.
  * The viewer reuses the same transport for three fixed read operations.
  * Browser callers never choose a tool, tenant, gateway or cell.
  */
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  filingRecord,
+  filingStatusArguments,
+  filingWakeArguments,
+  type FilingView,
+} from "../exomem/cloud-filing-contract";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
 import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
 import { executeExomemSql, withExomemTransaction } from "./db";
@@ -167,7 +174,13 @@ type HomeToolCall =
           }
         | { action: "clear"; context: CloudHomeContext; expected_revision: string };
     }
-  | { name: "bootstrap"; arguments: { profile: "compact"; section: "activity" } };
+  | { name: "bootstrap"; arguments: { profile: "compact"; section: "activity" } }
+  | {
+      name: "adoption_studio";
+      arguments:
+        | ReturnType<typeof filingStatusArguments>
+        | ReturnType<typeof filingWakeArguments>;
+    };
 
 // These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
 export type CloudViewerToolCall =
@@ -185,7 +198,7 @@ export type CloudViewerToolCall =
     }
   | { name: "read_memory"; arguments: { path: string; links: true; include_raw: false } };
 
-type CellAnswer =
+export type CellAnswer =
   | { kind: "result"; value: unknown }
   | { kind: "refused"; code: string }
   | { kind: "unavailable"; view: CloudHomeUnavailable };
@@ -596,6 +609,63 @@ async function readCloudHomeActivity(
   return { state: "live", ...activity };
 }
 
+/**
+ * One import's filing on the cell. An older cell refuses the filing view: its tool schema
+ * rejects the unknown view (an outdated answer) or its status refuses it as an invalid
+ * request. Home then offers the assistant prompt instead.
+ */
+function filingUnavailable({ reason }: CloudHomeUnavailable): FilingView {
+  return reason === "CELL_OUTDATED" ? { state: "not_offered" } : { state: "unavailable", reason };
+}
+
+export function filingFromAnswer(answer: CellAnswer): FilingView {
+  if (answer.kind === "unavailable") return filingUnavailable(answer.view);
+  if (answer.kind === "refused") {
+    // The cell's refusal of a status view it does not know (adoption_run.status).
+    if (answer.code === "IMPORT_REQUEST_INVALID") return { state: "not_offered" };
+    logUnavailable(
+      "adoption_studio",
+      "CELL_UNREACHABLE",
+      ERROR_CODE_FORMAT.test(answer.code) ? answer.code : "refused"
+    );
+    return { state: "unavailable", reason: "CELL_UNREACHABLE" };
+  }
+  const parsed = filingRecord.safeParse(answer.value);
+  // A cell that answers the view runs the filer, so an unexpected record is no older cell.
+  if (!parsed.success) {
+    logUnavailable("adoption_studio", "FILING_UNREADABLE", "filing_shape");
+    return { state: "unavailable", reason: "FILING_UNREADABLE" };
+  }
+  return { state: "live", filing: parsed.data };
+}
+
+/**
+ * Reads one import's filing record, or with `wake` registers the stage under this login first.
+ * The wake makes no filing call in the request and answers the same record. A read-only cell
+ * files nothing, so it is only read.
+ */
+async function cloudHomeFiling(
+  principal: CloudHomePrincipal,
+  importId: string,
+  wake: boolean,
+  dependencies: CloudHomeDependencies = {}
+): Promise<FilingView> {
+  const cell = await servingCell(principal);
+  if (cell.state !== "serving") return filingUnavailable(cell);
+  const answer = await callHomeTool(
+    principal,
+    {
+      name: "adoption_studio",
+      arguments:
+        wake && cell.desiredState === "running"
+          ? filingWakeArguments(importId)
+          : filingStatusArguments(importId),
+    },
+    dependencies
+  );
+  return filingFromAnswer(answer);
+}
+
 const HOME_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
   "referrer-policy": "no-referrer",
@@ -677,6 +747,29 @@ export async function handleCloudHomeLiveRequest(
     if (!cloudHomeChannelEnabled(dependencies.env)) throw homeChannelOff();
     const session = await resolveExomemSession(request);
     return respond(await readCloudHomeActivity(session, dependencies));
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+// C5 names each import with a UUID; only that shape becomes a stage path on the cell.
+const ImportId = z.uuid();
+
+/** `GET` and `POST /api/exomem/cloud/home/filing/<import id>`: one import's filing. */
+export async function handleCloudHomeFilingRequest(
+  request: Request,
+  importId: string,
+  dependencies: CloudHomeDependencies = {}
+): Promise<Response> {
+  try {
+    if (!cloudHomeChannelEnabled(dependencies.env)) throw homeChannelOff();
+    const session = await resolveExomemSession(request);
+    // `POST` wakes the filer for this import under the session's login; `GET` only reads.
+    const wake = request.method === "POST";
+    if (wake) validateMutationRequest(request, session);
+    const parsed = ImportId.safeParse(importId);
+    if (!parsed.success) throw exomemErrors.invalidRequest();
+    return respond(await cloudHomeFiling(session, parsed.data, wake, dependencies));
   } catch (error) {
     return errorResponse(error);
   }

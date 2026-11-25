@@ -6,13 +6,25 @@ import { ImportStop } from "./cloud-import-stop";
 
 export type { UploadPart } from "../exomem/cloud-import-contract";
 
-export type ImportFile = { path: string; file: File };
+/**
+ * What the archive reads from one member: a picked `File`, or a member of a zip that the
+ * browser expands as it reads it.
+ */
+export type ImportBlob = {
+  size: number;
+  /** Milliseconds since the epoch, as `File.lastModified` gives it. */
+  lastModified: number;
+  stream(): ReadableStream<Uint8Array>;
+};
+/** `reserved` marks the series file: a member of the archive, not one of the person's files. */
+export type ImportFile = { path: string; file: ImportBlob; reserved?: true };
 export type EncryptedImport = { ciphertext_sha256: string; ciphertext_bytes: number };
 export type UploadedPart = { part_number: number; etag: string };
 /** How far encryption has got: files packed, plaintext read and ciphertext written. */
 export type EncryptionProgress = { files: number; plaintextBytes: number; ciphertextBytes: number };
 /** The exact sizes one selection produces, before anything is read or written. */
 export type ImportForecast = {
+  /** The person's files; the series file is counted in the bytes, not here. */
   files: number;
   plaintextBytes: number;
   tarBytes: number;
@@ -20,30 +32,22 @@ export type ImportForecast = {
 };
 
 /** The names belong to an archive, never to a server-side filesystem path. */
-export function folderImportFiles(files: File[]): ImportFile[] {
-  if (!files.length) throw new ImportStop("FOLDER_EMPTY");
-  const root = files[0].webkitRelativePath.split("/")[0];
-  const selected = files.map((file) => {
-    const components = file.webkitRelativePath.split("/");
-    if (components.shift() !== root || !components.length) {
-      throw new ImportStop("FOLDER_SHAPE");
-    }
-    return { path: components.join("/"), file };
-  });
+function assertArchivePaths(files: ImportFile[]): void {
+  if (!files.some(({ reserved }) => !reserved)) throw new ImportStop("FOLDER_EMPTY");
   const names = new Set<string>();
-  for (const { path } of selected) {
+  for (const { path } of files) {
     // TAR uses slash-separated relative components; these are path-shape checks only.
     if (path.split("/").some((part) => !part || part === "." || part === "..") || names.has(path)) {
       throw new ImportStop("FOLDER_PATH");
     }
     names.add(path);
   }
-  return selected;
 }
 
 /** The one TAR header the archive and its size forecast both write for a file. */
 function tarEntry({ path, file }: ImportFile) {
-  return { name: path, size: file.size };
+  // USTAR stores whole seconds from the epoch; an earlier time has no field value.
+  return { name: path, size: file.size, mtime: new Date(Math.max(0, file.lastModified)) };
 }
 
 const ZERO_CHUNK = new Uint8Array(1 << 20);
@@ -53,6 +57,7 @@ const ZERO_CHUNK = new Uint8Array(1 << 20);
  * size without reading any file.
  */
 async function tarBytes(files: ImportFile[], signal?: AbortSignal): Promise<number> {
+  assertArchivePaths(files);
   const packer = createTarPacker();
   let bytes = 0;
   const counted = packer.readable.pipeTo(
@@ -103,7 +108,7 @@ export async function forecastImport(
   const archive = await tarBytes(files, signal);
   const stand = recipient ?? (await identityToRecipient(await generateX25519Identity()));
   return {
-    files: files.length,
+    files: files.filter(({ reserved }) => !reserved).length,
     plaintextBytes: files.reduce((total, { file }) => total + file.size, 0),
     tarBytes: archive,
     ciphertextBytes: await ageBytes(archive, stand),
@@ -118,6 +123,7 @@ export async function encryptImportFiles(
   signal?: AbortSignal,
   onProgress: (value: EncryptionProgress) => void = () => {}
 ): Promise<EncryptedImport> {
+  assertArchivePaths(files);
   const encrypter = new Encrypter();
   encrypter.addRecipient(recipient);
   const packer = createTarPacker();
@@ -152,7 +158,7 @@ export async function encryptImportFiles(
             })
           )
           .pipeTo(packer.controller.add(tarEntry(entry)), { signal });
-        measured.files += 1;
+        if (!entry.reserved) measured.files += 1;
         report();
       }
       packer.controller.finalize();

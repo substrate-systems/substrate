@@ -36,6 +36,11 @@ export type FakeCellState = {
   viewerMap?: unknown;
   viewerSearch?: unknown;
   viewerNotes?: Record<string, unknown>;
+  /**
+   * The filing view's record per import ID. Unset, the stand-in is a cell without the
+   * import filer, which refuses the view.
+   */
+  filing?: Record<string, unknown>;
 };
 
 function initialState(): FakeCellState {
@@ -86,6 +91,13 @@ export function startFakeCell(options: {
     if (name === "viewer_map") return state.viewerMap ?? { available: false };
     if (name === "ask_memory") return { result: state.viewerSearch ?? [] };
     if (name === "read_memory") return state.viewerNotes?.[String(args.path)] ?? {};
+    // The filing view's status read and the `file` wake both answer the stage's record.
+    if (name === "adoption_studio") {
+      const importId = String(args.path).split("/")[1];
+      return (
+        state.filing?.[importId] ?? { success: false, error: { code: "IMPORT_REQUEST_INVALID" } }
+      );
+    }
     const inspect = () => ({ revision: String(state.revision), levels: state.levels });
     if (name === "bootstrap") {
       return {

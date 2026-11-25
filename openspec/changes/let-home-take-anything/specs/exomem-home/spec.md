@@ -27,6 +27,15 @@ Home SHALL write the series file with `"filing": "cell"` and an `origin` holding
 - **WHEN** a person types "Notion export" in "Where is this from?" and imports a folder named `Workspace`
 - **THEN** the series file carries the label, the device and browser family and `"filing": "cell"`, and the collection is named `Workspace`
 
+### Requirement: Home names the collection of a selection without one folder
+
+A selection of loose files, or of several folders and zips, SHALL take the person's label from "Where is this from?" as its collection name. Without a label it SHALL carry no collection name.
+
+#### Scenario: Loose photos with a label
+
+- **WHEN** a person labels twelve loose photos "Holiday 2026" and imports them
+- **THEN** the series file names the collection "Holiday 2026"
+
 ### Requirement: Home shows what the cell filed
 
 After the upload, Home SHALL read the cell's filing view and show its state: working with the filed and remaining counts, paused with its reason and next step, done, or unknown. It SHALL show a time left only when the cell reports a rate, labelled "at the measured rate". When filing is done, Home SHALL show the filed count, the skipped duplicates, and each left-out file with its reason.

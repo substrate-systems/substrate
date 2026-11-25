@@ -3,13 +3,17 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
 import { cloudExportReply } from "../../exomem/cloud-export-contract";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
-import { handleCloudHomeLevelsRequest, handleCloudHomeLiveRequest } from "../cloud-home-mcp";
+import {
+  handleCloudHomeFilingRequest,
+  handleCloudHomeLevelsRequest,
+  handleCloudHomeLiveRequest,
+} from "../cloud-home-mcp";
 import { handleCloudViewerRequest } from "../cloud-viewer";
 import { findCloudOAuthAccessToken, resolveApprovedCloudOAuthClient } from "../cloud-oauth";
 import { getOwnerCloudHomeStatus } from "../cloud-status";
@@ -1190,6 +1194,122 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         { env: { ...ENV, EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: undefined } }
       );
       assert.equal(response.status, 404);
+    });
+
+    it("reads one import's filing on the session's own cell; an older cell's refusal offers the assistant prompt", async () => {
+      const alice = await owner();
+      const importId = randomUUID();
+      // The settled record as Home passes it on; the cell's reply adds the agents' text.
+      const shown = {
+        state: "done",
+        as_of: "2026-11-25T10:00:00Z",
+        progress: {
+          total: 40,
+          filed: 37,
+          skipped_duplicates: 1,
+          failed: 0,
+          left_out: 2,
+          remaining: 0,
+        },
+        left_out: {
+          by_reason: { ineligible: 2 },
+          items: [
+            { path: "Takeout/setup.exe", code: "ineligible" },
+            { path: "Takeout/tool.dmg", code: "ineligible" },
+          ],
+          truncated: false,
+        },
+        stop: null,
+        needs: [],
+        rate: null,
+      };
+      const record = {
+        ...shown,
+        person: [{ need: "review_residual", text: "2 files stay staged in _Imports/…" }],
+      };
+      const filing = (cell: ReturnType<typeof fakeCell>, id: string = importId) =>
+        handleCloudHomeFilingRequest(
+          browserRequest(alice, "GET", `/api/exomem/cloud/home/filing/${id}`),
+          id,
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+
+      const current = fakeCell(() => record);
+      const live = await filing(current);
+      assert.equal(live.status, 200);
+      assert.deepEqual(await json(live), { state: "live", filing: shown });
+      assert.equal(current.calls[0]!.tool, "adoption_studio");
+      assert.deepEqual(current.calls[0]!.arguments, {
+        action: "status",
+        path: `_Imports/${importId}`,
+        view: "filing",
+      });
+      assert.equal(current.calls[0]!.routedTenantId, alice.tenantId);
+
+      // An older cell's tool schema rejects the unknown view as invalid params.
+      const older = fakeCell(
+        (call) =>
+          new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(call.rawBody).id, error: { code: -32602 } }),
+            { headers: { "content-type": "application/json" } }
+          )
+      );
+      assert.deepEqual(await json(await filing(older)), { state: "not_offered" });
+
+      // A record of another shape comes from a cell that files by itself: unreadable, not older.
+      // Its log line names the failure only, never a path or label from the record.
+      const warnings: unknown[] = [];
+      const warn = mock.method(console, "warn", (line: unknown) => warnings.push(line));
+      try {
+        const drifted = fakeCell(() => ({ ...record, progress: { filed: "Takeout/setup.exe" } }));
+        assert.deepEqual(await json(await filing(drifted)), {
+          state: "unavailable",
+          reason: "FILING_UNREADABLE",
+        });
+      } finally {
+        warn.mock.restore();
+      }
+      assert.equal(warnings.length, 1);
+      assert.ok(!JSON.stringify(warnings).includes("Takeout"));
+
+      // Only an import ID becomes a stage path; nothing else reaches the cell.
+      const probe = fakeCell(() => record);
+      assert.equal((await filing(probe, "../_Schema")).status, 400);
+      assert.equal(probe.calls.length, 0);
+    });
+
+    it("wakes an import's filer under the session's login with a checked request, and passes on its record", async () => {
+      const alice = await owner();
+      const importId = randomUUID();
+      const record = {
+        state: "working",
+        as_of: "2026-11-25T10:00:00Z",
+        progress: null,
+        left_out: null,
+        stop: null,
+        needs: [],
+        rate: null,
+      };
+      const cell = fakeCell(() => record);
+      const wake = (request: Request) =>
+        handleCloudHomeFilingRequest(request, importId, { fetchCell: cell.fetchCell, env: ENV });
+      const path = `/api/exomem/cloud/home/filing/${importId}`;
+
+      const woken = await wake(browserRequest(alice, "POST", path, {}));
+      assert.equal(woken.status, 200);
+      assert.deepEqual(await json(woken), { state: "live", filing: record });
+      assert.deepEqual(cell.calls[0]!.arguments, {
+        action: "file",
+        path: `_Imports/${importId}`,
+        wait: false,
+      });
+      assert.equal(cell.calls[0]!.routedTenantId, alice.tenantId);
+
+      // A wake without the page's CSRF token never reaches the cell.
+      const forged = browserRequest(alice, "POST", path, {});
+      forged.headers.delete("x-exomem-csrf");
+      assert.equal((await wake(forged)).status, 403);
+      assert.equal(cell.calls.length, 1);
     });
   });
 
