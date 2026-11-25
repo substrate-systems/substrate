@@ -18,8 +18,10 @@ import {
 import {
   browserStorageRoom,
   discardOtherKeptCiphertext,
+  keepImportLabel,
   otherKeptCiphertext,
   storedImportCiphertext,
+  storedImportLabel,
   sweepKeptCiphertext,
 } from "@/lib/exomem-hosted/cloud-import-browser-file";
 import {
@@ -47,6 +49,7 @@ import { friendlyHostedError, HostedBrowserError } from "@/lib/exomem-hosted/hos
 import type { HomeStorage } from "./home-api";
 import { byteSize, count, shortDateTime } from "./home-format";
 import {
+  filingNextRead,
   filingRowText,
   filingWakeDue,
   ImportFiling,
@@ -70,9 +73,8 @@ const BROWSER_CLEANUP_WARNING =
 const NOTHING_EXTRA: IncludeChoices = { gitignored: false };
 // Progress arrives per encrypted chunk; the dialog redraws at this pace instead.
 const PROGRESS_REDRAW_MS = 250;
-// The cell's filing record is one small read; the dialog follows it closely, the row less so.
-const FILING_READ_OPEN_MS = 5_000;
-const FILING_READ_CLOSED_MS = 15_000;
+// With the dialog closed, an accepted upload is followed until it is staged and filing starts.
+const STAGING_READ_CLOSED_MS = 15_000;
 // The label is part of the series file, whose size the preflight measures; it settles first.
 const LABEL_SETTLE_MS = 400;
 
@@ -323,7 +325,7 @@ export function ImportDocuments({
         setReadMessage(friendlyHostedError(error));
         if (discover) return;
       }
-      timer = setTimeout(() => void read(), discover ? FILING_READ_CLOSED_MS : 2500);
+      timer = setTimeout(() => void read(), discover ? STAGING_READ_CLOSED_MS : 2500);
     };
     void read();
     return () => {
@@ -345,6 +347,9 @@ export function ImportDocuments({
     if (!stagedId) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    // A hidden tab reads nothing; a read that came due meanwhile runs when the tab returns.
+    let due = false;
+    const hidden = () => document.visibilityState === "hidden";
     const read = async () => {
       let view: FilingRead["view"] = null;
       try {
@@ -376,19 +381,24 @@ export function ImportDocuments({
       }
       if (controller.signal.aborted) return;
       setFiling({ importId: stagedId, readAt: Date.now(), view });
-      // Done, removed and a cell without the filer change no further.
-      if (
-        view?.state === "not_offered" ||
-        (view?.state === "live" &&
-          (view.filing.state === "done" || view.filing.state === "discarded"))
-      )
-        return;
-      timer = setTimeout(() => void read(), open ? FILING_READ_OPEN_MS : FILING_READ_CLOSED_MS);
+      const next = filingNextRead(view, Boolean(open));
+      if (next !== null) timer = setTimeout(tick, next);
     };
-    void read();
+    const tick = () => {
+      if (hidden()) due = true;
+      else void read();
+    };
+    const returned = () => {
+      if (!due || hidden()) return;
+      due = false;
+      void read();
+    };
+    document.addEventListener("visibilitychange", returned);
+    tick();
     return () => {
       controller.abort();
       clearTimeout(timer);
+      document.removeEventListener("visibilitychange", returned);
     };
   }, [stagedId, open, csrfToken, fail]);
   const filingRead = filing && filing.importId === stagedId ? filing : null;
@@ -409,7 +419,11 @@ export function ImportDocuments({
   const archive = useMemo(
     () =>
       parts && selection && selection.files.length > 0
-        ? importArchive(selection, selectionCollection(parts), uploadOrigin(navigator, settledLabel))
+        ? importArchive(
+            selection,
+            selectionCollection(parts),
+            uploadOrigin(navigator, settledLabel)
+          )
         : null,
     [parts, selection, settledLabel]
   );
@@ -428,6 +442,23 @@ export function ImportDocuments({
   const measuring = canChoose && archive !== null && matches ? archive : null;
 
   const resumingId = awaiting?.import_id ?? null;
+  // An open import declared its archive with the label it was started with; after a reload the
+  // field takes that label back, so the same files chosen again match the declaration.
+  const relabelId = awaiting && !reported ? awaiting.import_id : null;
+  useEffect(() => {
+    if (!relabelId) return;
+    let current = true;
+    void storedImportLabel(account, relabelId)
+      .then((kept) => {
+        if (!current || !kept) return;
+        setLabel((typed) => typed || kept);
+        setSettledLabel((typed) => typed || kept);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [relabelId, account]);
   useEffect(() => {
     if (!measuring) return;
     const controller = new AbortController();
@@ -622,6 +653,8 @@ export function ImportDocuments({
       importId: resumeId,
     });
     setAttemptId(upload.current.id);
+    // Kept as the import starts, so a reload during its encryption finds the label again.
+    void keepImportLabel(account, upload.current.id, settledLabel).catch(() => {});
     if (!resumeId) setOperation(null);
     // Disposal removes the attempt's ciphertext file, which is named by its import ID.
     if (previous && previous.id !== upload.current.id) void previous.dispose().catch(failCleanup);
@@ -722,7 +755,7 @@ export function ImportDocuments({
       : stop?.kind === "paused"
         ? "Upload paused. Open it to resume."
         : stop
-          ? "Upload stopped. Open it to see why and what to do next."
+          ? "Upload stopped. Open it for the next step."
           : awaiting
             ? "An upload is waiting to continue."
             : openImport?.requested_state === "uploaded"

@@ -9,7 +9,8 @@
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
  * Home calls only `configure_memory`, the `bootstrap` activity and `whats_new`
- * sections, and the `adoption_studio` filing view of one import's stage.
+ * sections, and the filing of one import's stage through the cell's public doors
+ * (`inspect_memory` `imports.status`, `manage_memory` `imports.file`).
  * The viewer reuses the same transport for three fixed read operations.
  * Browser callers never choose a tool, tenant, gateway or cell.
  */
@@ -18,8 +19,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   filingRecord,
-  filingStatusArguments,
-  filingWakeArguments,
+  filingStatusCall,
+  filingWakeCall,
   type FilingView,
 } from "../exomem/cloud-filing-contract";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
@@ -205,12 +206,8 @@ type HomeToolCall =
         | { action: "clear"; context: CloudHomeContext; expected_revision: string };
     }
   | { name: "bootstrap"; arguments: { profile: "compact"; section: BootstrapSection } }
-  | {
-      name: "adoption_studio";
-      arguments:
-        | ReturnType<typeof filingStatusArguments>
-        | ReturnType<typeof filingWakeArguments>;
-    };
+  | ReturnType<typeof filingStatusCall>
+  | ReturnType<typeof filingWakeCall>;
 
 // These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
 export type CloudViewerToolCall =
@@ -693,30 +690,42 @@ async function readCloudHomeWhatsNew(
 }
 
 /**
- * One import's filing on the cell. An older cell refuses the filing view: its tool schema
- * rejects the unknown view (an outdated answer) or its status refuses it as an invalid
- * request. Home then offers the assistant prompt instead.
+ * One import's filing on the cell. A cell without the filer refuses the call: a cell from
+ * before the doors refuses the tool (an outdated answer), and a later one without the filing
+ * view refuses the operation or its arguments. Home then offers the assistant prompt instead.
  */
 function filingUnavailable({ reason }: CloudHomeUnavailable): FilingView {
   return reason === "CELL_OUTDATED" ? { state: "not_offered" } : { state: "unavailable", reason };
 }
 
-export function filingFromAnswer(answer: CellAnswer): FilingView {
+// The cell's refusal codes for an operation or view it does not offer: the doors' own two, and
+// the status of `adoption_run` for an unknown view. A closed set of the cell's protocol codes.
+const NOT_OFFERED = new Set(["INVALID_OPERATION", "INVALID_ARGUMENT", "IMPORT_REQUEST_INVALID"]);
+
+// A door answers with its operation's reply under `result`, and refuses with `{error: {code}}`.
+const DoorAnswer = z.object({ result: z.record(z.string(), z.unknown()) });
+const DoorRefusal = z.object({ error: z.object({ code: z.string() }) });
+
+function filingFromAnswer(tool: HomeToolCall["name"], answer: CellAnswer): FilingView {
   if (answer.kind === "unavailable") return filingUnavailable(answer.view);
-  if (answer.kind === "refused") {
-    // The cell's refusal of a status view it does not know (adoption_run.status).
-    if (answer.code === "IMPORT_REQUEST_INVALID") return { state: "not_offered" };
-    logUnavailable(
-      "adoption_studio",
-      "CELL_UNREACHABLE",
-      ERROR_CODE_FORMAT.test(answer.code) ? answer.code : "refused"
-    );
+  let reply: unknown = null;
+  let refused = answer.kind === "refused" ? answer.code : null;
+  if (answer.kind === "result") {
+    const door = DoorAnswer.safeParse(answer.value);
+    reply = door.success ? door.data.result : answer.value;
+    const refusal = DoorRefusal.safeParse(reply);
+    if (refusal.success) refused = refusal.data.error.code;
+  }
+  if (refused !== null) {
+    if (NOT_OFFERED.has(refused)) return { state: "not_offered" };
+    logUnavailable(tool, "CELL_UNREACHABLE", ERROR_CODE_FORMAT.test(refused) ? refused : "refused");
     return { state: "unavailable", reason: "CELL_UNREACHABLE" };
   }
-  const parsed = filingRecord.safeParse(answer.value);
+  const parsed = filingRecord.safeParse(reply);
   // A cell that answers the view runs the filer, so an unexpected record is no older cell.
+  // The log names the failure only: the record holds file paths.
   if (!parsed.success) {
-    logUnavailable("adoption_studio", "FILING_UNREADABLE", "filing_shape");
+    logUnavailable(tool, "FILING_UNREADABLE", "filing_shape");
     return { state: "unavailable", reason: "FILING_UNREADABLE" };
   }
   return { state: "live", filing: parsed.data };
@@ -735,18 +744,9 @@ async function cloudHomeFiling(
 ): Promise<FilingView> {
   const cell = await servingCell(principal);
   if (cell.state !== "serving") return filingUnavailable(cell);
-  const answer = await callHomeTool(
-    principal,
-    {
-      name: "adoption_studio",
-      arguments:
-        wake && cell.desiredState === "running"
-          ? filingWakeArguments(importId)
-          : filingStatusArguments(importId),
-    },
-    dependencies
-  );
-  return filingFromAnswer(answer);
+  const call =
+    wake && cell.desiredState === "running" ? filingWakeCall(importId) : filingStatusCall(importId);
+  return filingFromAnswer(call.name, await callHomeTool(principal, call, dependencies));
 }
 
 const HOME_HEADERS = {

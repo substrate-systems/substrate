@@ -71,7 +71,7 @@ function parent(path: string): string {
  * Marks hidden items and the items the selection's own .gitignore files exclude, with git's
  * precedence: deeper files override shallower ones, and an excluded folder's rules never apply.
  */
-export async function classifyFolder(files: ImportFile[]): Promise<FolderEntry[]> {
+async function classifyFolder(files: ImportFile[]): Promise<FolderEntry[]> {
   const rules = new Map<string, Ignore>();
   for (const { path, file } of files) {
     if (gitignoreFile(path) && file.size <= GITIGNORE_MAX_BYTES)

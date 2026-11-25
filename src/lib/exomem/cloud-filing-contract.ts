@@ -7,8 +7,10 @@ import { z } from "zod";
  *
  * - the reserved series file that travels inside the encrypted archive, with `filing` and
  *   `origin`;
- * - the `adoption_studio` status call with `view: "filing"`, and the `file` call with
- *   `wait: false` that registers a stage under the caller's login and wakes its filer;
+ * - the read of an import's filing (`inspect_memory` `imports.status` with `view: "filing"`),
+ *   and the wake (`manage_memory` `imports.file` with `wait: false`) that registers a stage
+ *   under the caller's login. The cell serves only its public tools, so both go through its
+ *   two doors;
  * - the filing record both calls answer.
  *
  * The record is the contract settled with the cell on 2026-11-25 (the cell change's design.md
@@ -21,13 +23,28 @@ export const SERIES_FILE = ".exomem-series.json";
 
 // The coarse families of the device and browser that uploaded an import. A closed set that
 // the cell's provenance fields record verbatim; anything else is `other`, never free text.
-export const UPLOAD_DEVICE_FAMILIES = ["phone", "tablet", "desktop", "other"] as const;
-export const UPLOAD_BROWSER_FAMILIES = ["chrome", "safari", "firefox", "edge", "other"] as const;
-export type UploadDeviceFamily = (typeof UPLOAD_DEVICE_FAMILIES)[number];
-export type UploadBrowserFamily = (typeof UPLOAD_BROWSER_FAMILIES)[number];
+export type UploadDeviceFamily = "phone" | "tablet" | "desktop" | "other";
+export type UploadBrowserFamily = "chrome" | "safari" | "firefox" | "edge" | "other";
 
 /** The person's own words for where an import came from; bounded so the series file stays small. */
 export const ORIGIN_LABEL_MAX = 120;
+
+// The cell keeps a label only when every character is printable as Python's `isprintable`
+// counts it, and drops the whole label otherwise (import_stage.origin_values). The characters
+// it refuses are invisible in the field: separators and control characters, which Home sends
+// as spaces, and format, surrogate, private-use and unassigned ones, which it leaves out.
+// Format checks on the person's text, not a reading of it.
+const AS_SPACE = /[\p{Z}\p{Cc}]/gu;
+const LEFT_OUT = /\p{C}/gu;
+
+/**
+ * The person's label as Home sends it and the cell keeps it: printable, trimmed and at most
+ * ORIGIN_LABEL_MAX characters; absent when nothing is left.
+ */
+export function originLabel(text: string): string | undefined {
+  const printable = text.replace(AS_SPACE, " ").replace(LEFT_OUT, "").trim();
+  return [...printable].slice(0, ORIGIN_LABEL_MAX).join("").trim() || undefined;
+}
 
 export type UploadOrigin = {
   label?: string;
@@ -36,8 +53,10 @@ export type UploadOrigin = {
 };
 
 /**
- * The series file's content. `label` is the collection name and `paths` lists every member but
- * the series file itself, as the cell's `Series.listing` expects.
+ * The series file's content. `label` is the collection name: only a single folder's or zip's
+ * own name, never the person's label, which is provenance alone (`origin.label`). A reused
+ * label would otherwise join unrelated uploads as versions of one collection. `paths` lists
+ * every member but the series file itself, as the cell's `Series.listing` expects.
  */
 export type ImportSeries = {
   label?: string;
@@ -46,14 +65,26 @@ export type ImportSeries = {
   origin: UploadOrigin;
 };
 
-/** The one status call Home makes for an import's filing; the stage path is built here only. */
-export function filingStatusArguments(importId: string) {
-  return { action: "status", path: `_Imports/${importId}`, view: "filing" } as const;
+/** The read of one import's filing record; the stage path is built here only. */
+export function filingStatusCall(importId: string) {
+  return {
+    name: "inspect_memory",
+    arguments: {
+      operation: "imports.status",
+      arguments: { path: `_Imports/${importId}`, view: "filing" },
+    },
+  } as const;
 }
 
-/** The wake call: registers the stage under the caller's login and returns its filing record. */
-export function filingWakeArguments(importId: string) {
-  return { action: "file", path: `_Imports/${importId}`, wait: false } as const;
+/** The wake: registers the stage under the caller's login and answers its filing record. */
+export function filingWakeCall(importId: string) {
+  return {
+    name: "manage_memory",
+    arguments: {
+      operation: "imports.file",
+      arguments: { path: `_Imports/${importId}`, wait: false },
+    },
+  } as const;
 }
 
 // The cell's codes are tokens of its closed sets (stop codes and left-out reasons, in either
@@ -62,7 +93,7 @@ const Code = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/);
 const Count = z.number().int().nonnegative();
 const Timestamp = z.iso.datetime({ offset: true });
 
-export const FILING_LEFT_OUT_LIMIT = 100;
+const FILING_LEFT_OUT_LIMIT = 100;
 
 const FilingProgress = z.object({
   /** Members the stage holds, not counting the series file; null when the cell does not know. */

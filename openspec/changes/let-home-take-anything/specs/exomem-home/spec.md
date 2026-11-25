@@ -20,21 +20,17 @@ A file whose name ends in `.zip` SHALL be expanded in the browser into a folder 
 
 ### Requirement: Home asks the cell to file an import and states its origin
 
-Home SHALL write the series file with `"filing": "cell"` and an `origin` holding the person's optional label, the device family and the browser family. The device and browser family SHALL each be one value from a fixed set taken from the browser's client hints, else `other`. Each archive member SHALL carry the file's last-modified time. A folder selection SHALL keep the folder's name as the collection name. Home SHALL NOT offer to include hidden files on this route.
+Home SHALL write the series file with `"filing": "cell"` and an `origin` holding the person's optional label, the device family and the browser family. The device and browser family SHALL each be one value from a fixed set taken from the browser's client hints, else `other`. Members SHALL carry each file's last-modified time. A single folder or zip SHALL keep its own name as the collection name; the label SHALL NOT name one. Home SHALL NOT offer to include hidden files on this route.
 
 #### Scenario: A labelled upload
 
 - **WHEN** a person types "Notion export" in "Where is this from?" and imports a folder named `Workspace`
-- **THEN** the series file carries the label, the device and browser family and `"filing": "cell"`, and the collection is named `Workspace`
-
-### Requirement: Home names the collection of a selection without one folder
-
-A selection of loose files, or of several folders and zips, SHALL take the person's label from "Where is this from?" as its collection name. Without a label it SHALL carry no collection name.
+- **THEN** the series file carries the label in its origin, the device and browser family and `"filing": "cell"`, and the collection is named `Workspace`
 
 #### Scenario: Loose photos with a label
 
-- **WHEN** a person labels twelve loose photos "Holiday 2026" and imports them
-- **THEN** the series file names the collection "Holiday 2026"
+- **WHEN** a person types "My phone" in "Where is this from?" and imports twelve loose photos
+- **THEN** the series file carries "My phone" in its origin only and names no collection, so the cell names the collection after the import
 
 ### Requirement: Home shows what the cell filed
 

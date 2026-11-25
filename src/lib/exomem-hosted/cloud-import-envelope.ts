@@ -1,5 +1,5 @@
 import {
-  ORIGIN_LABEL_MAX,
+  originLabel,
   SERIES_FILE,
   type ImportSeries,
   type UploadBrowserFamily,
@@ -51,9 +51,12 @@ function browserFamily(identity: BrowserIdentity): UploadBrowserFamily {
   return "other";
 }
 
-/** The origin the series file states: the person's optional words and the coarse families. */
+/**
+ * The origin the series file states: the person's optional words, as the cell keeps them, and
+ * the coarse families.
+ */
 export function uploadOrigin(identity: BrowserIdentity, label: string): UploadOrigin {
-  const words = label.trim().slice(0, ORIGIN_LABEL_MAX);
+  const words = originLabel(label);
   return {
     ...(words ? { label: words } : {}),
     device_family: deviceFamily(identity),
@@ -63,17 +66,16 @@ export function uploadOrigin(identity: BrowserIdentity, label: string): UploadOr
 
 /**
  * The archive's members: the series file first, then the selection. The series file asks the
- * cell to file the import, names the collection and states the origin. The person's label names
- * a collection only when the selection gives none of its own.
+ * cell to file the import, names the collection of a single folder or zip, and states the
+ * origin. Without such a name the cell names the collection after the import.
  */
 export function importArchive(
   selection: ImportSelection,
   collection: string | null,
   origin: UploadOrigin
 ): ImportFile[] {
-  const name = collection ?? origin.label;
   const series: ImportSeries = {
-    ...(name ? { label: name } : {}),
+    ...(collection ? { label: collection } : {}),
     paths: selection.files.map(({ path }) => path),
     filing: "cell",
     origin,

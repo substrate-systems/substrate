@@ -90,7 +90,14 @@ function staged(api: ReturnType<typeof importApiDouble>) {
   });
 }
 
-async function home(options: { quota?: number; api: ReturnType<typeof importApiDouble> }) {
+async function home(options: {
+  quota?: number;
+  api: ReturnType<typeof importApiDouble>;
+  /** Labels an earlier page kept in this browser, by import ID. */
+  labels?: Record<string, string>;
+  /** The tab starts hidden, as a tab opened in the background does. */
+  hidden?: boolean;
+}) {
   const dom = new JSDOM('<!doctype html><div id="mount"></div>', {
     url: "http://localhost/exomem/home",
   });
@@ -104,6 +111,16 @@ async function home(options: { quota?: number; api: ReturnType<typeof importApiD
     },
   });
   const browser = browserStorageDouble(options.quota);
+  for (const [importId, label] of Object.entries(options.labels ?? {}))
+    browser
+      .files("exomem-import-uploads", "account-SYNTH1")
+      .set(`${importId}.label`, [new TextEncoder().encode(label)]);
+  let visible = !options.hidden;
+  if (options.hidden)
+    Object.defineProperty(dom.window.document, "visibilityState", {
+      configurable: true,
+      get: () => (visible ? "visible" : "hidden"),
+    });
   const originals = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({
     window: dom.window,
@@ -177,7 +194,14 @@ async function home(options: { quota?: number; api: ReturnType<typeof importApiD
   };
   const leftOut = () =>
     [...dom.window.document.querySelectorAll("details li")].map((item) => item.textContent);
-  return { browser, text, button, until, click, choose, type, leftOut };
+  /** The person returns to the tab. */
+  const show = async () => {
+    visible = true;
+    await act(async () =>
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"))
+    );
+  };
+  return { browser, text, button, until, click, choose, type, leftOut, show };
 }
 
 it("closing the dialog keeps the import running, and a pause shows how to resume", async () => {
@@ -216,7 +240,10 @@ it("twelve photos from a phone's picker show twelve files and their total, and a
   const chosen = photos(12);
   await page.choose(chosen, "Files to add");
   const bytes = chosen.reduce((total, file) => total + file.size, 0);
-  await page.until(() => page.text().includes(`12 files · ${(bytes / 1000).toFixed(1)} kB`), "totals");
+  await page.until(
+    () => page.text().includes(`12 files · ${(bytes / 1000).toFixed(1)} kB`),
+    "totals"
+  );
   await page.click("Encrypt and upload");
   await page.until(() => page.text().includes("Checking and staging your files."), "acceptance");
   const [row] = api.rows.values();
@@ -278,15 +305,16 @@ it("a zip and two PDFs: the preflight counts the zip's entries under its folder 
   assert.deepEqual(page.leftOut(), ["notes/private.txtEncrypted in the zip"]);
 });
 
-it("after a reload, an import without its report continues only from the same files chosen again", async () => {
+it("after a reload, an import without its report continues only from the same files chosen again, with its label", async () => {
   const api = importApiDouble(await identityToRecipient(await generateIdentity()));
   const picked = folder("research", 3);
-  // The open import declared the archive this selection makes: its series file and files.
+  // The open import declared the archive this selection makes with its label: its series file
+  // and files. The label is part of the series file, so only the same label matches.
   const parts = await addToSelection([], pickedFromFiles(picked));
   const archive = importArchive(
     selectImportFiles(parts, { gitignored: false }),
     selectionCollection(parts),
-    uploadOrigin({ userAgent: "synthetic" }, "")
+    uploadOrigin({ userAgent: "synthetic" }, "Notion export")
   );
   const importId = crypto.randomUUID();
   api.rows.set(importId, {
@@ -305,9 +333,12 @@ it("after a reload, an import without its report continues only from the same fi
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   });
-  const page = await home({ api });
+  const page = await home({ api, labels: { [importId]: "Notion export" } });
   await page.click("Add files…");
-  await page.until(() => page.text().includes("Choose the same files again"), "the way to continue");
+  await page.until(
+    () => page.text().includes("Choose the same files again"),
+    "the way to continue"
+  );
 
   await page.choose(folder("research", 4), "Folder to add");
   await page.until(
@@ -509,6 +540,69 @@ it("an ended login is registered again by Home, which then shows filing carry on
   assert.ok(!page.text().includes("Filing paused"));
 });
 
+it("a login the wake cannot register again leaves filing paused for the person's sign-in", async () => {
+  const api = importApiDouble(await identityToRecipient(await generateIdentity()));
+  staged(api);
+  api.answerFiling(() => ({
+    state: "live",
+    filing: parked("IMPORT_FILING_LOGIN_ENDED", [{ need: "login" }]),
+  }));
+  const page = await home({ api });
+  await page.click("Add files…");
+  await page.until(() => page.text().includes("Filing waits for your sign-in."), "the next step");
+  assert.match(page.text(), /Filing paused: sign-in ended/);
+  assert.equal(wakes(api), 1);
+});
+
+it("a hidden tab reads no filing until the person returns to it", async () => {
+  const api = importApiDouble(await identityToRecipient(await generateIdentity()));
+  staged(api);
+  api.answerFiling(() => ({ state: "live", filing: working }));
+  const page = await home({ api, hidden: true });
+  const filingReads = () =>
+    api.requests.filter(({ path }) => path.startsWith("/api/exomem/cloud/home/filing/")).length;
+  await page.until(
+    () => api.requests.some(({ path }) => path === "/api/exomem/cloud/imports"),
+    "the read that finds the staged import"
+  );
+  await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+  assert.equal(filingReads(), 0);
+  await page.show();
+  await page.until(() => page.text().includes("Filing · 12 of 40 files filed"), "the row");
+  assert.equal(filingReads(), 1);
+});
+
+it("filing is read again quickly only while the dialog shows it at work, and not at all once nothing on the page changes it", async () => {
+  const { filingNextRead } = await import("../home-import-filing");
+  const live = (filing: unknown) =>
+    ({ state: "live", filing }) as Parameters<typeof filingNextRead>[0];
+  const space = parked("INSUFFICIENT_SPACE", [{ need: "free_space", bytes: null }]);
+  const cases: [string, Parameters<typeof filingNextRead>[0], boolean, number | null][] = [
+    ["working, dialog open", live(working), true, 5_000],
+    ["working, dialog closed", live(working), false, 30_000],
+    ["paused for space, dialog open", live(space), true, 30_000],
+    [
+      "paused for a sign-in",
+      live(parked("IMPORT_FILING_LOGIN_ENDED", [{ need: "login" }])),
+      false,
+      30_000,
+    ],
+    [
+      "paused for support",
+      live(parked("IMPORT_RECOVERY_UNRESOLVED", [{ need: "support" }])),
+      true,
+      null,
+    ],
+    ["paused with no need", live(parked("MUTATION_BUSY", [])), true, null],
+    ["done", live({ ...working, state: "done" }), true, null],
+    ["an older cell", { state: "not_offered" }, true, null],
+    ["unavailable", { state: "unavailable", reason: "CELL_NOT_READY" }, true, 30_000],
+    ["a failed read", null, true, 30_000],
+  ];
+  for (const [name, view, dialogOpen, next] of cases)
+    assert.equal(filingNextRead(view, dialogOpen), next, name);
+});
+
 it("filing finishes without an assistant: the row and the dialog show the filed count and each left-out file's reason", async () => {
   const api = importApiDouble(await identityToRecipient(await generateIdentity()));
   staged(api);
@@ -552,7 +646,9 @@ it("filing finishes without an assistant: the row and the dialog show the filed 
   assert.match(page.text(), /Already in Evermatter2/);
   assert.ok(!page.text().includes("Copy review instructions"));
   // Filing that has finished stops asking the cell, and a finished stage is not woken.
-  const reads = api.requests.filter(({ path }) => path.startsWith("/api/exomem/cloud/home/filing/"));
+  const reads = api.requests.filter(({ path }) =>
+    path.startsWith("/api/exomem/cloud/home/filing/")
+  );
   assert.ok(reads.length <= 2);
   assert.equal(wakes(api), 0);
 });

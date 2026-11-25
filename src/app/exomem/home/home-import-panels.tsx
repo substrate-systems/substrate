@@ -6,14 +6,14 @@ import type { ImportForecast } from "@/lib/exomem-hosted/cloud-import-browser";
 import type { ImportProgress } from "@/lib/exomem-hosted/cloud-import-browser-upload";
 import type { SelectionTotals } from "@/lib/exomem-hosted/cloud-import-selection";
 import type { HomeStorage } from "./home-api";
-import { ago, byteSize, count } from "./home-format";
+import { ago, byteSize, count, filesWord } from "./home-format";
 import styles from "./home.module.css";
 import dialog from "./home-storage.module.css";
 
 export type BrowserRoom = { quota: number; usage: number } | null;
 
 function totals({ files, bytes }: SelectionTotals): string {
-  return `${count(files)} file${files === 1 ? "" : "s"} · ${byteSize(bytes)}`;
+  return `${filesWord(files)} · ${byteSize(bytes)}`;
 }
 
 /** Free bytes in the vault from the last disk reading, or null when none is known. */
@@ -106,9 +106,9 @@ export function ImportLimits({
       {vault !== null && vault.bytes < forecast.plaintextBytes && (
         <Notice>
           Your vault had {byteSize(vault.bytes)} free when it was measured{" "}
-          {ago(vault.observedAt, now)}, and this selection adds{" "}
-          {byteSize(forecast.plaintextBytes)}. Evermatter may stop the import while it stages the
-          files. Add storage first, or choose fewer files.
+          {ago(vault.observedAt, now)}, and this selection adds {byteSize(forecast.plaintextBytes)}.
+          Evermatter may stop the import while it stages the files. Add storage first, or choose
+          fewer files.
         </Notice>
       )}
     </>

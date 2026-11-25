@@ -1400,34 +1400,46 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           { fetchCell: cell.fetchCell, env: ENV }
         );
 
-      const current = fakeCell(() => record);
+      // A door answers with the operation's reply under `result`.
+      const current = fakeCell(() => ({ result: record }));
       const live = await filing(current);
       assert.equal(live.status, 200);
       assert.deepEqual(await json(live), { state: "live", filing: shown });
-      assert.equal(current.calls[0]!.tool, "adoption_studio");
+      // A cell serves only its public tools: the read goes through its read door.
+      assert.equal(current.calls[0]!.tool, "inspect_memory");
       assert.deepEqual(current.calls[0]!.arguments, {
-        action: "status",
-        path: `_Imports/${importId}`,
-        view: "filing",
+        operation: "imports.status",
+        arguments: { path: `_Imports/${importId}`, view: "filing" },
       });
       assert.equal(current.calls[0]!.routedTenantId, alice.tenantId);
 
-      // An older cell's tool schema rejects the unknown view as invalid params.
-      const older = fakeCell(
+      // A cell from before the doors refuses the tool; a later one without the filer refuses
+      // the view. Both offer the assistant prompt.
+      const beforeDoors = fakeCell(
         (call) =>
           new Response(
-            JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(call.rawBody).id, error: { code: -32602 } }),
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: JSON.parse(call.rawBody).id,
+              result: { isError: true, content: [{ type: "text", text: "Unknown tool" }] },
+            }),
             { headers: { "content-type": "application/json" } }
           )
       );
-      assert.deepEqual(await json(await filing(older)), { state: "not_offered" });
+      assert.deepEqual(await json(await filing(beforeDoors)), { state: "not_offered" });
+      const withoutFiler = fakeCell(() => ({
+        error: { code: "IMPORT_REQUEST_INVALID", message: "unknown status view" },
+      }));
+      assert.deepEqual(await json(await filing(withoutFiler)), { state: "not_offered" });
 
       // A record of another shape comes from a cell that files by itself: unreadable, not older.
       // Its log line names the failure only, never a path or label from the record.
       const warnings: unknown[] = [];
       const warn = mock.method(console, "warn", (line: unknown) => warnings.push(line));
       try {
-        const drifted = fakeCell(() => ({ ...record, progress: { filed: "Takeout/setup.exe" } }));
+        const drifted = fakeCell(() => ({
+          result: { ...record, progress: { filed: "Takeout/setup.exe" } },
+        }));
         assert.deepEqual(await json(await filing(drifted)), {
           state: "unavailable",
           reason: "FILING_UNREADABLE",
@@ -1439,7 +1451,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.ok(!JSON.stringify(warnings).includes("Takeout"));
 
       // Only an import ID becomes a stage path; nothing else reaches the cell.
-      const probe = fakeCell(() => record);
+      const probe = fakeCell(() => ({ result: record }));
       assert.equal((await filing(probe, "../_Schema")).status, 400);
       assert.equal(probe.calls.length, 0);
     });
@@ -1456,7 +1468,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         needs: [],
         rate: null,
       };
-      const cell = fakeCell(() => record);
+      const cell = fakeCell(() => ({ result: record }));
       const wake = (request: Request) =>
         handleCloudHomeFilingRequest(request, importId, { fetchCell: cell.fetchCell, env: ENV });
       const path = `/api/exomem/cloud/home/filing/${importId}`;
@@ -1464,10 +1476,10 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       const woken = await wake(browserRequest(alice, "POST", path, {}));
       assert.equal(woken.status, 200);
       assert.deepEqual(await json(woken), { state: "live", filing: record });
+      assert.equal(cell.calls[0]!.tool, "manage_memory");
       assert.deepEqual(cell.calls[0]!.arguments, {
-        action: "file",
-        path: `_Imports/${importId}`,
-        wait: false,
+        operation: "imports.file",
+        arguments: { path: `_Imports/${importId}`, wait: false },
       });
       assert.equal(cell.calls[0]!.routedTenantId, alice.tenantId);
 

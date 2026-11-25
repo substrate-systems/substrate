@@ -5,7 +5,7 @@ import { Button, ButtonLink } from "@/components/exomem/Button";
 import { stagedImportFolder } from "@/lib/exomem/cloud-import-contract";
 import type { FilingRecord, FilingView } from "@/lib/exomem/cloud-filing-contract";
 import type { HomeStorage } from "./home-api";
-import { byteSize, count, hourMinute } from "./home-format";
+import { byteSize, count, filesWord, hourMinute } from "./home-format";
 import { ImportReference, Meter, StagedImportStorage } from "./home-import-panels";
 import local from "./home-import.module.css";
 import dialog from "./home-storage.module.css";
@@ -66,18 +66,41 @@ const UNAVAILABLE_TITLES: Record<Extract<FilingView, { state: "unavailable" }>["
 const LEFT_OUT_SHOWN = 200;
 
 /** A login that ended is registered again at most this often while Home stays open. */
-export const FILING_WAKE_RETRY_MS = 60_000;
+const FILING_WAKE_RETRY_MS = 60_000;
+// The cell's record is one small read: close while the dialog shows filing at work, else slow.
+const FILING_READ_OPEN_MS = 5_000;
+const FILING_READ_MS = 30_000;
 
-function filesWord(value: number): string {
-  return `${count(value)} file${value === 1 ? "" : "s"}`;
-}
-
-export function leftOutReason(code: string): string {
+function leftOutReason(code: string): string {
   return LEFT_OUT_REASONS[code] ?? `Not filed (${code})`;
 }
 
 function needs(filing: FilingRecord, need: string): boolean {
   return filing.needs.some((entry) => entry.need === need);
+}
+
+/**
+ * What a paused import waits for: free space the person adds, a login Home registers again,
+ * or support. Only support needs someone outside the page.
+ */
+function pausedFor(filing: FilingRecord): "free_space" | "login" | "support" {
+  if (needs(filing, "free_space") || filing.stop?.code === "INSUFFICIENT_SPACE")
+    return "free_space";
+  if (needs(filing, "login") || filing.stop?.code === "IMPORT_FILING_LOGIN_ENDED") return "login";
+  return "support";
+}
+
+/**
+ * When Home reads the filing view again, or null when nothing on the page changes it: filing
+ * done or removed, a cell without the filer, or a pause only support can clear.
+ */
+export function filingNextRead(view: FilingView | null, open: boolean): number | null {
+  if (view?.state === "not_offered") return null;
+  if (view?.state !== "live") return FILING_READ_MS;
+  const { filing } = view;
+  if (filing.state === "done" || filing.state === "discarded") return null;
+  if (filing.state === "parked" && pausedFor(filing) === "support") return null;
+  return open && filing.state === "working" ? FILING_READ_OPEN_MS : FILING_READ_MS;
 }
 
 /**
@@ -87,7 +110,9 @@ function needs(filing: FilingRecord, need: string): boolean {
  */
 export function filingWakeDue(filing: FilingRecord, lastWake: number | undefined, now: number) {
   if (filing.state === "unknown") return lastWake === undefined;
-  return needs(filing, "login") && (lastWake === undefined || now - lastWake >= FILING_WAKE_RETRY_MS);
+  return (
+    needs(filing, "login") && (lastWake === undefined || now - lastWake >= FILING_WAKE_RETRY_MS)
+  );
 }
 
 /** "about 9 min": the remaining files at the cell's measured rate, never a promise. */
@@ -254,7 +279,7 @@ export function LeftOutList({
   );
 }
 
-export function ImportReviewHandoff({ importId }: { importId: string }) {
+function ImportReviewHandoff({ importId }: { importId: string }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const folder = stagedImportFolder(importId);
   const instructions =
@@ -308,32 +333,30 @@ export function ImportReviewHandoff({ importId }: { importId: string }) {
 
 /** The parked state's next step, in one line with what stopped filing. */
 function ParkedNext({ filing, importId }: { filing: FilingRecord; importId: string }) {
-  const space = filing.needs.find((entry) => entry.need === "free_space");
-  if (space || filing.stop?.code === "INSUFFICIENT_SPACE") {
-    return (
-      <p className={dialog.text}>
-        {space?.bytes != null ? `Needs ${byteSize(space.bytes)} more free space. ` : ""}
-        Add storage or remove files to continue.
-      </p>
-    );
+  switch (pausedFor(filing)) {
+    case "free_space": {
+      const bytes = filing.needs.find((entry) => entry.need === "free_space")?.bytes;
+      return (
+        <p className={dialog.text}>
+          {bytes != null ? `Needs ${byteSize(bytes)} more free space. ` : ""}
+          Add storage or remove files to continue.
+        </p>
+      );
+    }
+    case "login":
+      return <p className={dialog.text}>Filing waits for your sign-in.</p>;
+    case "support":
+      // Support needs the reference: the import ID and the code that stopped filing.
+      return (
+        <>
+          <p className={dialog.text}>Contact support with the import ID.</p>
+          <ButtonLink size="dialog" href="/exomem/support">
+            Contact support
+          </ButtonLink>
+          {filing.stop && <ImportReference importId={importId} code={filing.stop.code} />}
+        </>
+      );
   }
-  if (needs(filing, "login") || filing.stop?.code === "IMPORT_FILING_LOGIN_ENDED") {
-    return (
-      <p className={dialog.text}>
-        Filing waits for your sign-in. Home reconnects it while this page is open.
-      </p>
-    );
-  }
-  // Support needs the reference: the import ID and the code that stopped filing.
-  return (
-    <>
-      <p className={dialog.text}>Contact support with the import ID.</p>
-      <ButtonLink size="dialog" href="/exomem/support">
-        Contact support
-      </ButtonLink>
-      {filing.stop && <ImportReference importId={importId} code={filing.stop.code} />}
-    </>
-  );
 }
 
 /** The left-out list of a finished import, worded per reason, from the cell's record. */
@@ -446,7 +469,11 @@ export function ImportFiling({
           {filing.state === "parked" && <ParkedNext filing={filing} importId={importId} />}
           {/* Without the stage's size, there is no whole to measure progress against. */}
           {progress?.total != null && progress.remaining !== null && (
-            <Meter value={progress.total - progress.remaining} total={progress.total} label="Filed" />
+            <Meter
+              value={progress.total - progress.remaining}
+              total={progress.total}
+              label="Filed"
+            />
           )}
           <FilingCounts filing={filing} />
         </>

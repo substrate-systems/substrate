@@ -68,7 +68,8 @@ export async function readImportFiling(
       await getPrivateJson(`/api/exomem/cloud/home/filing/${encodeURIComponent(importId)}`, signal)
     );
   } catch (error) {
-    if (error instanceof HostedBrowserError && error.status === 404) return { state: "not_offered" };
+    if (error instanceof HostedBrowserError && error.status === 404)
+      return { state: "not_offered" };
     throw error;
   }
   assertImportAccount(csrfToken);

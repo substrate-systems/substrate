@@ -83,7 +83,11 @@ const cases: [string, BrowserIdentity, string, string][] = [
       userAgent:
         "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/125.0 Mobile Safari/537.36 OPR/82.0",
-      userAgentData: { mobile: true, platform: "Android", brands: [{ brand: "Opera" }, { brand: "Chromium" }] },
+      userAgentData: {
+        mobile: true,
+        platform: "Android",
+        brands: [{ brand: "Opera" }, { brand: "Chromium" }],
+      },
     },
     "phone",
     "other",
@@ -100,9 +104,15 @@ for (const [name, identity, device, browser] of cases) {
   });
 }
 
-test("the person's label is trimmed and bounded, and left out when empty", () => {
+// The cell drops a whole label that holds an unprintable character or is too long
+// (import_stage.origin_values). Home sends only what the cell keeps: invisible characters become
+// spaces or go, and the label stops at 120 characters.
+test("the person's label is sent as the cell keeps it, and left out when nothing is left", () => {
   const identity = { userAgent: "curl/8.0" };
-  assert.equal(uploadOrigin(identity, "  Mum's phone ").label, "Mum's phone");
-  assert.equal(uploadOrigin(identity, "x".repeat(500)).label?.length, 120);
-  assert.equal("label" in uploadOrigin(identity, "   "), false);
+  const sent = (label: string) => uploadOrigin(identity, label).label;
+  assert.equal(sent("  Mum's phone 📷 "), "Mum's phone 📷");
+  assert.equal(sent("Notes\tfrom\u00a0work"), "Notes from work");
+  assert.equal(sent("Zero\u200bwidth"), "Zerowidth");
+  assert.equal(sent("é".repeat(130)), "é".repeat(120));
+  assert.equal(sent(" \u200b "), undefined);
 });

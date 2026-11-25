@@ -266,27 +266,24 @@ test("a built archive decrypts to the series file, each member's time and the fo
   assert.equal(members.get("Workspace/export/page.md")!.mtime, Date.parse("2024-03-05T10:20:30Z"));
 });
 
-test("loose files take the person's label as their collection name, and none without one", async () => {
+test("loose files name no collection: the person's label stays provenance alone", async () => {
   const parts = await addToSelection(
     [],
     [{ kind: "file", file: new File(["pixels"], "IMG_0001.HEIC") }]
   );
   const selection = selectImportFiles(parts, { gitignored: false });
-  const identity = { userAgent: "synthetic" };
-  const series = (label: string) =>
-    new Response(
-      importArchive(selection, selectionCollection(parts), uploadOrigin(identity, label))[0].file.stream()
-    ).json();
-  assert.deepEqual(await series("Photos from my phone"), {
-    label: "Photos from my phone",
+  const series = await new Response(
+    importArchive(
+      selection,
+      selectionCollection(parts),
+      uploadOrigin({ userAgent: "synthetic" }, "My phone")
+    )[0].file.stream()
+  ).json();
+  // A reused label as the collection name would join unrelated uploads as one collection's versions.
+  assert.deepEqual(series, {
     paths: ["IMG_0001.HEIC"],
     filing: "cell",
-    origin: { label: "Photos from my phone", device_family: "other", browser_family: "other" },
-  });
-  assert.deepEqual(await series(""), {
-    paths: ["IMG_0001.HEIC"],
-    filing: "cell",
-    origin: { device_family: "other", browser_family: "other" },
+    origin: { label: "My phone", device_family: "other", browser_family: "other" },
   });
 });
 

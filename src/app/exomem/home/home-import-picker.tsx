@@ -16,7 +16,7 @@ import {
   type LeftOutReason,
   type PickedItem,
 } from "@/lib/exomem-hosted/cloud-import-selection";
-import { byteSize, count } from "./home-format";
+import { byteSize, count, filesWord } from "./home-format";
 import { LeftOutList } from "./home-import-filing";
 import local from "./home-import.module.css";
 import dialog from "./home-storage.module.css";
@@ -31,10 +31,6 @@ const REASONS: Record<LeftOutReason, string> = {
   "zip-link": "Link in the zip",
   "zip-unreadable": "Zip could not be opened",
 };
-
-function filesWord(value: number): string {
-  return `${count(value)} file${value === 1 ? "" : "s"}`;
-}
 
 /** Whether a drag carries files from the device, rather than text or a link. */
 export function carriesFiles(data: DataTransfer | null): boolean {
@@ -239,9 +235,7 @@ export function SelectionSummary({
         ))}
         {loose.length > 0 && (
           <li>
-            <span className={local.partName}>
-              {loose.length === 1 ? loose[0].name : "Files"}
-            </span>
+            <span className={local.partName}>{loose.length === 1 ? loose[0].name : "Files"}</span>
             <span className={local.partTotals}>
               {filesWord(looseTotals.files)} · {byteSize(looseTotals.bytes)}
             </span>
@@ -268,8 +262,7 @@ export function SelectionSummary({
       )}
       {skipped > 0 && (
         <p className={dialog.text}>
-          .gitignore files over {byteSize(GITIGNORE_MAX_BYTES)}, rules not applied:{" "}
-          {count(skipped)}
+          .gitignore files over {byteSize(GITIGNORE_MAX_BYTES)}, rules not applied: {count(skipped)}
         </p>
       )}
       <TextField
