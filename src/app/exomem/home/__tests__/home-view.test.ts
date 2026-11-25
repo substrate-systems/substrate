@@ -20,6 +20,7 @@ import {
   statusCopy,
   storageView,
   subscribeView,
+  whatsNewView,
 } from "../home-view";
 
 // Every case renders in UTC at a fixed moment, so dates read the same on any machine.
@@ -842,5 +843,34 @@ describe("a connected app's name", () => {
       appMeta(app({ displayNameSource: "operator" }), clock, false, true),
       "signed in · connected 5 October"
     );
+  });
+});
+
+describe("what's new", () => {
+  const live = (releases: { version: string; released_on: string; notes: string[] }[]) =>
+    ({ state: "live", version: "1.3.0", releases }) as const;
+
+  it("labels each release by its date, with the year only when it is not this one", () => {
+    const view = whatsNewView(
+      live([
+        { version: "1.3.0", released_on: "2026-10-09", notes: ["Search finds more."] },
+        { version: "1.2.0", released_on: "2025-12-30", notes: ["Faster saves."] },
+      ]),
+      clock
+    );
+    assert.deepEqual(view, {
+      version: "1.3.0",
+      releases: [
+        { key: "1.3.0", label: "9 Oct", notes: ["Search finds more."] },
+        { key: "1.2.0", label: "30 Dec 2025", notes: ["Faster saves."] },
+      ],
+    });
+  });
+
+  it("draws no section before the read, while unreleased, when unavailable, or with no release", () => {
+    assert.equal(whatsNewView(null, clock), null);
+    assert.equal(whatsNewView("not_released", clock), null);
+    assert.equal(whatsNewView({ state: "unavailable", reason: "CELL_OUTDATED" }, clock), null);
+    assert.equal(whatsNewView(live([]), clock), null);
   });
 });

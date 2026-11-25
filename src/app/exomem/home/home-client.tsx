@@ -13,17 +13,20 @@ import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 import {
   billingDestination,
   disconnectApp,
+  dismissWhatsNew,
   type HomeAccount,
   type HomeActivity,
   type HomeApp,
   type HomeBilling,
   type HomeLevels,
+  type HomeWhatsNew,
   NOT_RELEASED,
   readAccount,
   readActivity,
   readApps,
   readLevels,
   readStatus,
+  readWhatsNew,
   requestDeletion,
   requestExportLink,
   setAppContext,
@@ -43,6 +46,7 @@ import { HomeHeader, HomeWeb, StatusBlock } from "./home-chrome";
 import { DeleteDialog, type DeleteStep, SignedOutDialog } from "./home-dialogs";
 import type { Clock } from "./home-format";
 import { InvolvementLevels } from "./home-levels";
+import { WhatsNew } from "./home-whats-new";
 import { createSingleFlight, type Lifecycle, nextStatusPollDelayMs } from "./home-state";
 import {
   type AccountRead,
@@ -61,6 +65,7 @@ import {
   type LiveRead,
   lostRead,
   levelsView,
+  whatsNewView,
   liveLine,
   notices,
   planView,
@@ -127,6 +132,11 @@ export default function HomeClient({
   const [activity, setActivity] = useState<HomeActivity | typeof NOT_RELEASED | null>(
     channelOn ? null : NOT_RELEASED
   );
+  const [whatsNew, setWhatsNew] = useState<HomeWhatsNew | typeof NOT_RELEASED | null>(
+    channelOn ? null : NOT_RELEASED
+  );
+  const [whatsNewBusy, setWhatsNewBusy] = useState(false);
+  const [whatsNewFailed, setWhatsNewFailed] = useState(false);
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
   const [activityPulse, setActivityPulse] = useState<ActivityEvent | null>(null);
@@ -275,6 +285,17 @@ export default function HomeClient({
     }
   }, [channelOn, goToSignIn]);
 
+  // Once per page load, not on the 30 s refresh: the releases do not change while Home is open.
+  const refreshWhatsNew = useCallback(async () => {
+    if (!channelOn) return;
+    try {
+      const next = await readWhatsNew();
+      if (mounted.current) setWhatsNew(next);
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+    }
+  }, [channelOn, goToSignIn]);
+
   const refreshActivity = useCallback(async () => {
     if (!channelOn) return;
     try {
@@ -337,7 +358,7 @@ export default function HomeClient({
     if (!inHome || signedOut) return;
     async function load() {
       lastFullRead.current = Date.now();
-      await Promise.all([refreshApps(), refreshLevels(), refreshActivity()]);
+      await Promise.all([refreshApps(), refreshLevels(), refreshActivity(), refreshWhatsNew()]);
       if (mounted.current) setFirstFullRead(true);
     }
     void load();
@@ -366,11 +387,12 @@ export default function HomeClient({
     refreshApps,
     refreshLevels,
     refreshActivity,
+    refreshWhatsNew,
   ]);
 
   // A link to "Your data" arrives before Home draws that section, so the browser finds no target
-  // at load. Apps, levels and activity then push the section down, so scroll there once, after
-  // their first read, and never again.
+  // at load. Apps, levels, activity and the notes then push the section down, so scroll there
+  // once, after their first read, and never again.
   const anchorHandled = useRef(false);
   useEffect(() => {
     if (!inHome || !firstFullRead || anchorHandled.current) return;
@@ -451,6 +473,20 @@ export default function HomeClient({
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
       return false;
+    }
+  }
+
+  async function onWhatsNewDismiss(version: string) {
+    setWhatsNewBusy(true);
+    setWhatsNewFailed(false);
+    try {
+      if (await dismissWhatsNew(version)) setWhatsNew({ state: "live", version, releases: [] });
+      else setWhatsNewFailed(true);
+    } catch (error) {
+      if (error instanceof SignedOutError) goToSignIn();
+      else setWhatsNewFailed(true);
+    } finally {
+      if (mounted.current) setWhatsNewBusy(false);
     }
   }
 
@@ -664,6 +700,7 @@ export default function HomeClient({
   const exportRow =
     exportSummary && exportSummary !== NOT_RELEASED ? exportView(exportSummary, clock) : null;
   const levelState = levelsView(levels);
+  const whatsNewSection = whatsNewView(whatsNew, clock);
   const codingLevel =
     levels && levels !== NOT_RELEASED && levels.state === "live"
       ? levels.levels.coding.level
@@ -820,6 +857,14 @@ export default function HomeClient({
                   </div>
                 )}
               </div>
+            )}
+            {whatsNewSection && (
+              <WhatsNew
+                view={whatsNewSection}
+                working={whatsNewBusy}
+                failed={whatsNewFailed}
+                onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
+              />
             )}
             <ConnectedApps
               apps={apps}

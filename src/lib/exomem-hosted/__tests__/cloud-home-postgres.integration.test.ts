@@ -13,6 +13,7 @@ import {
   handleCloudHomeFilingRequest,
   handleCloudHomeLevelsRequest,
   handleCloudHomeLiveRequest,
+  handleCloudHomeWhatsNewRequest,
 } from "../cloud-home-mcp";
 import { handleCloudViewerRequest } from "../cloud-viewer";
 import { findCloudOAuthAccessToken, resolveApprovedCloudOAuthClient } from "../cloud-oauth";
@@ -174,6 +175,41 @@ async function putLevel(who: Owner, fetchCell: typeof fetch, body: unknown): Pro
     browserRequest(who, "PUT", "/api/exomem/cloud/home/levels", body),
     { fetchCell, env: ENV }
   );
+}
+
+type CellRelease = { version: string; released_on: string; notes: string[] };
+
+/** A cell that runs `version` and serves `releases` for the `whats_new` section. */
+function whatsNewCell(version: string, releases: CellRelease[]) {
+  return fakeCell(() => ({
+    contract_version: "1",
+    section: "whats_new",
+    whats_new: { version, releases },
+  }));
+}
+
+async function getWhatsNew(who: Owner, fetchCell: typeof fetch): Promise<Record<string, unknown>> {
+  return json(
+    await handleCloudHomeWhatsNewRequest(
+      browserRequest(who, "GET", "/api/exomem/cloud/home/whats-new"),
+      { fetchCell, env: ENV }
+    )
+  );
+}
+
+async function dismissWhatsNew(who: Owner, body: unknown): Promise<Response> {
+  return handleCloudHomeWhatsNewRequest(
+    browserRequest(who, "POST", "/api/exomem/cloud/home/whats-new", body),
+    { env: ENV }
+  );
+}
+
+async function dismissedVersion(who: Owner): Promise<string | null> {
+  const { rows } = await pool.query(
+    "SELECT whats_new_dismissed_version AS version FROM exomem_tenants WHERE id = $1",
+    [who.tenantId]
+  );
+  return rows[0].version;
 }
 
 async function startExport(who: Owner, body: unknown = {}): Promise<Response> {
@@ -1110,6 +1146,131 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(refusedWrite.status, 503);
     });
 
+    it("shows the releases after the owner's dismissal and no later than the version the cell runs", async () => {
+      const alice = await owner();
+      await pool.query(
+        "UPDATE exomem_tenants SET whats_new_dismissed_version = '1.9.0' WHERE id = $1",
+        [alice.tenantId]
+      );
+      const cell = whatsNewCell("1.10.0", [
+        { version: "1.11.0", released_on: "2026-11-27", notes: ["Not running yet."] },
+        {
+          version: "1.10.0",
+          released_on: "2026-11-26",
+          notes: ["Search finds more.", "Faster saves."],
+        },
+        { version: "1.9.0", released_on: "2026-11-20", notes: ["Already dismissed."] },
+      ]);
+      assert.deepEqual(await getWhatsNew(alice, cell.fetchCell), {
+        state: "live",
+        version: "1.10.0",
+        releases: [
+          {
+            version: "1.10.0",
+            released_on: "2026-11-26",
+            notes: ["Search finds more.", "Faster saves."],
+          },
+        ],
+      });
+      assert.equal(cell.calls.length, 1);
+      assert.deepEqual(cell.calls[0]!.arguments, { profile: "compact", section: "whats_new" });
+    });
+
+    it("shows an owner with no dismissal only releases dated after the day the cell was created", async () => {
+      const alice = await owner();
+      // 23:30 UTC: the creation day is the UTC day whatever zone the database session uses.
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET created_at = '2026-11-20T23:30:00Z' WHERE cell_id = $1",
+        [alice.cellId]
+      );
+      const cell = whatsNewCell("1.3.0", [
+        { version: "1.3.0", released_on: "2026-11-21", notes: ["After the cell was made."] },
+        { version: "1.2.0", released_on: "2026-11-20", notes: ["On the day it was made."] },
+        { version: "1.1.0", released_on: "2026-11-19", notes: ["Before the cell."] },
+      ]);
+      const view = await getWhatsNew(alice, cell.fetchCell);
+      assert.deepEqual(
+        (view.releases as CellRelease[]).map((release) => release.version),
+        ["1.3.0"]
+      );
+    });
+
+    it("shows no section, and no error, for an older image or a cell that does not answer", async () => {
+      const alice = await owner();
+      const olderImage = fakeCell((call) =>
+        Response.json({
+          jsonrpc: "2.0",
+          id: JSON.parse(call.rawBody).id,
+          result: { isError: true, content: [{ type: "text", text: "unknown section" }] },
+        })
+      );
+      assert.deepEqual(await getWhatsNew(alice, olderImage.fetchCell), {
+        state: "unavailable",
+        reason: "CELL_OUTDATED",
+      });
+      const silent = (async () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      }) as unknown as typeof fetch;
+      assert.deepEqual(await getWhatsNew(alice, silent), {
+        state: "unavailable",
+        reason: "CELL_UNREACHABLE",
+      });
+    });
+
+    it("records the version Home rendered, keeps the higher one against a stale tab, and touches only the owner's row", async () => {
+      const alice = await owner();
+      const bob = await owner();
+      const cell = whatsNewCell("1.3.0", [
+        { version: "1.3.0", released_on: "2026-11-26", notes: ["A new note."] },
+      ]);
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET created_at = '2026-01-01T00:00:00Z' WHERE cell_id = $1",
+        [alice.cellId]
+      );
+      assert.equal(((await getWhatsNew(alice, cell.fetchCell)).releases as unknown[]).length, 1);
+
+      assert.equal((await dismissWhatsNew(alice, { version: "1.3.0" })).status, 200);
+      assert.equal(await dismissedVersion(alice), "1.3.0");
+      assert.deepEqual((await getWhatsNew(alice, cell.fetchCell)).releases, []);
+      assert.equal(await dismissedVersion(bob), null);
+
+      // A tab that still shows 1.2.0 posts late.
+      assert.equal((await dismissWhatsNew(alice, { version: "1.2.0" })).status, 200);
+      assert.equal(await dismissedVersion(alice), "1.3.0");
+      // 1.10.0 is newer than 1.3.0 by number, though older by text.
+      assert.equal((await dismissWhatsNew(alice, { version: "1.10.0" })).status, 200);
+      assert.equal(await dismissedVersion(alice), "1.10.0");
+
+      // Tabs that post together leave the highest, in whatever order the database sees them.
+      await Promise.all(
+        ["1.4.0", "1.12.0", "1.5.0", "1.11.0"].map((version) => dismissWhatsNew(bob, { version }))
+      );
+      assert.equal(await dismissedVersion(bob), "1.12.0");
+    });
+
+    it("refuses a dismissal that is not a release version or has no CSRF proof, and stores nothing", async () => {
+      const alice = await owner();
+      for (const body of [
+        { version: "v1.3.0" },
+        { version: "1.3" },
+        { version: "1.3.0", extra: 1 },
+      ]) {
+        assert.equal((await dismissWhatsNew(alice, body)).status, 400, JSON.stringify(body));
+      }
+      const withoutProof = new Request("https://app.example.test/api/exomem/cloud/home/whats-new", {
+        method: "POST",
+        headers: {
+          cookie: `exomem_session=${alice.cookie}; exomem_csrf=${alice.csrf}`,
+          origin: "https://app.example.test",
+          host: "app.example.test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ version: "1.3.0" }),
+      });
+      assert.equal((await handleCloudHomeWhatsNewRequest(withoutProof, { env: ENV })).status, 403);
+      assert.equal(await dismissedVersion(alice), null);
+    });
+
     it("keeps the first-party client out of client slots and out of browser authorization", async () => {
       const home = await pool.query(
         "SELECT client_id, enabled FROM exomem_oauth_clients WHERE admission_mode = 'first_party'"
@@ -1194,6 +1355,11 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         { env: { ...ENV, EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: undefined } }
       );
       assert.equal(response.status, 404);
+      const notes = await handleCloudHomeWhatsNewRequest(
+        browserRequest(alice, "GET", "/api/exomem/cloud/home/whats-new"),
+        { env: { ...ENV, EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: undefined } }
+      );
+      assert.equal(notes.status, 404);
     });
 
     it("reads one import's filing on the session's own cell; an older cell's refusal offers the assistant prompt", async () => {

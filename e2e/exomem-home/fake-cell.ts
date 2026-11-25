@@ -33,6 +33,11 @@ export type FakeCellState = {
     at: string;
   }[];
   since: string;
+  /** What `bootstrap` answers for the `whats_new` section. */
+  whatsNew: {
+    version: string;
+    releases: { version: string; released_on: string; notes: string[] }[];
+  };
   viewerMap?: unknown;
   viewerSearch?: unknown;
   viewerNotes?: Record<string, unknown>;
@@ -55,6 +60,7 @@ function initialState(): FakeCellState {
     noteCount: 0,
     events: [],
     since: new Date(Date.now() - 3_600_000).toISOString(),
+    whatsNew: { version: "1.0.0", releases: [] },
   };
 }
 
@@ -99,6 +105,9 @@ export function startFakeCell(options: {
       );
     }
     const inspect = () => ({ revision: String(state.revision), levels: state.levels });
+    if (name === "bootstrap" && args.section === "whats_new") {
+      return { contract_version: "1", section: "whats_new", whats_new: state.whatsNew };
+    }
     if (name === "bootstrap") {
       return {
         since: state.since,

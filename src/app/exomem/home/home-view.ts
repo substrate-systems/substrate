@@ -23,6 +23,7 @@ import type {
   HomeExport,
   HomeLevels,
   HomeStorage,
+  HomeWhatsNew,
   LevelContext,
   LevelKey,
   NOT_RELEASED,
@@ -35,6 +36,7 @@ import {
   dayWord,
   gigabytes,
   hourMinute,
+  releaseDay,
   secondsAgo,
   shortDateTime,
   type Clock,
@@ -679,6 +681,35 @@ export function levelRefusalText(code: string): string {
   if (code === "CLOUD_CELL_READ_ONLY") return "Levels can’t change while Evermatter is read-only.";
   if (code === "PREFERENCE_OPERATOR_OVERRIDE") return "An operator setting fixes these levels.";
   return "That didn’t finish. Try again in a minute.";
+}
+
+// --- What's new ---
+
+export type WhatsNewSectionView = {
+  /** The running version Home rendered: what "Got it" records. */
+  version: string;
+  releases: { key: string; label: string; notes: string[] }[];
+};
+
+/**
+ * The section's content. Null when Home shows no section: before the read, when
+ * the cell serves no notes, or when no release qualifies. The notes are the
+ * cell's own text; Home adds only each release's date.
+ */
+export function whatsNewView(
+  whatsNew: HomeWhatsNew | typeof NOT_RELEASED | null,
+  clock: Clock
+): WhatsNewSectionView | null {
+  if (whatsNew === null || whatsNew === "not_released" || whatsNew.state !== "live") return null;
+  if (whatsNew.releases.length === 0) return null;
+  return {
+    version: whatsNew.version,
+    releases: whatsNew.releases.map((release) => ({
+      key: release.version,
+      label: releaseDay(release.released_on, clock),
+      notes: release.notes,
+    })),
+  };
 }
 
 // --- Plan and account ---
