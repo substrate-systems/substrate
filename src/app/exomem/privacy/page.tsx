@@ -17,7 +17,7 @@ export default function ExomemPrivacyPage() {
   // page is static, so it reads the flag at build, and a flag change takes a deploy.
   const exportOffered = cloudExportsEnabled();
   return (
-    <ExomemPublicPage title="Evermatter Cloud privacy" eyebrow="Revised 20 November 2026">
+    <ExomemPublicPage title="Evermatter Cloud privacy" eyebrow="Revised 25 November 2026">
       <p>
         This policy covers the Evermatter Cloud service (formerly Exomem Cloud) and its public
         product, account, OAuth, and support pages. The data controller is Substrate Systems OÜ
