@@ -86,7 +86,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     // D5: every value is parsed and validated before anything is written,
     // and applyCloudReleaseChanges writes them in one transaction, so a
     // partly invalid request changes nothing. Security review finding 10: an
-    // image that isn't <configured repository>@sha256:<64 lowercase hex> is a
+    // image that isn't <a configured repository>@sha256:<64 lowercase hex> is a
     // 400 invalid_request, not an internal error.
     const changes: CloudReleaseChanges = {};
     if (hasCellImage) {

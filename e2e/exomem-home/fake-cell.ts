@@ -33,7 +33,7 @@ export type FakeCellState = {
     at: string;
   }[];
   since: string;
-  /** What `bootstrap` answers for the `whats_new` section. */
+  /** What `read_instructions` answers for the `whats_new` section. */
   whatsNew: {
     version: string;
     releases: { version: string; released_on: string; notes: string[] }[];
@@ -93,91 +93,64 @@ export function startFakeCell(options: {
     return state;
   };
 
-  // The tools a current cell serves (evermatter's public surface since its #2677): the typed
-  // tools, the two doors and the three that keep their own spelling. A cell refuses any other
-  // name as an unknown tool, so a Home call by an internal command name fails here as it does live.
-  const PUBLIC_TOOLS = new Set([
-    "add_observation",
-    "add_plan_item",
-    "add_record",
-    "cancel_uploads",
-    "create_note",
-    "decide_review_item",
-    "download_files",
-    "edit_note",
-    "edit_plan_item",
-    "edit_record",
-    "list_review_items",
-    "query_plan_items",
-    "query_records",
-    "read_instructions",
-    "read_page",
-    "save_episode",
-    "save_evidence",
-    "save_source",
-    "search_memory",
-    "supersede_note",
-    "upload_files",
-    "inspect_memory",
-    "manage_memory",
-    "activate_context",
-    "observe_transfer",
-    "transfer_memory",
-  ]);
-  // Home's level, activity, what's-new and viewer calls still use internal command names, which
-  // a current cell also refuses. They pass here only until those calls move to the doors; that
-  // move deletes this list.
-  const NOT_YET_ON_THE_DOORS = new Set([
-    "configure_memory",
-    "bootstrap",
-    "viewer_map",
-    "ask_memory",
-    "read_memory",
-  ]);
-
-  function call(state: FakeCellState, name: string, args: Record<string, unknown>): unknown {
-    if (name === "viewer_map") return state.viewerMap ?? { available: false };
-    if (name === "ask_memory") return { result: state.viewerSearch ?? [] };
-    if (name === "read_memory") return state.viewerNotes?.[String(args.path)] ?? {};
-    // The filing view's read and the wake both answer the stage's record; a stage without
-    // one is refused as a cell without the filer refuses the view.
-    const operation = `${name} ${String(args.operation)}`;
+  // Like the real cell, the fake answers only the tool names it serves and refuses any
+  // other name, so a call by a name the cell does not list fails here too. The
+  // viewer's three reads still use command names; they move to public tools separately.
+  function call(
+    state: FakeCellState,
+    name: string,
+    args: Record<string, unknown>
+  ): { refused: string } | { answer: unknown } {
+    if (name === "viewer_map") return { answer: state.viewerMap ?? { available: false } };
+    if (name === "ask_memory") return { answer: { result: state.viewerSearch ?? [] } };
+    if (name === "read_memory") return { answer: state.viewerNotes?.[String(args.path)] ?? {} };
+    // The filing view's read and the wake both answer the stage's record, unwrapped as a
+    // real cell's door answers; a stage without one is refused as a cell without the filer
+    // refuses the view.
     if (
-      operation === "inspect_memory imports.status" ||
-      operation === "manage_memory imports.file"
+      (name === "inspect_memory" && args.operation === "imports.status") ||
+      (name === "manage_memory" && args.operation === "imports.file")
     ) {
       const fields = (args.arguments ?? {}) as Record<string, unknown>;
       const importId = String(fields.path).split("/")[1];
-      // A door answers under `result` and refuses with `{error: {code}}`, as a current cell does.
       const record = state.filing?.[importId];
-      return record ? { result: record } : { error: { code: "IMPORT_REQUEST_INVALID" } };
+      return { answer: record ?? { error: { code: "IMPORT_REQUEST_INVALID" } } };
     }
     const inspect = () => ({ revision: String(state.revision), levels: state.levels });
-    if (name === "bootstrap" && args.section === "whats_new") {
-      return { contract_version: "1", section: "whats_new", whats_new: state.whatsNew };
+    if (name === "read_instructions" && args.section === "whats_new") {
+      return { answer: { contract_version: "1", section: "whats_new", whats_new: state.whatsNew } };
     }
-    if (name === "bootstrap") {
+    if (name === "read_instructions" && args.section === "activity") {
       return {
-        since: state.since,
-        as_of: new Date().toISOString(),
-        note_count: state.noteCount,
-        events: state.events,
+        answer: {
+          since: state.since,
+          as_of: new Date().toISOString(),
+          note_count: state.noteCount,
+          events: state.events,
+        },
       };
     }
-    if (args.action === "inspect") return inspect();
-    if (state.operator) {
-      return { success: false, error: { code: "PREFERENCE_OPERATOR_OVERRIDE" } };
+    if (name === "inspect_memory" && args.operation === "settings.inspect") {
+      return { answer: inspect() };
     }
-    if (args.expected_revision !== String(state.revision)) {
-      return { success: false, error: { code: "PREFERENCE_CONFLICT" } };
+    if (
+      name !== "manage_memory" ||
+      (args.operation !== "settings.set" && args.operation !== "settings.clear")
+    ) {
+      return { refused: `Unknown tool: '${name}'.` };
     }
-    const context = args.context as "coding" | "conversation";
+    const write = args.arguments as Record<string, unknown>;
+    if (state.operator) return { answer: { error: { code: "PREFERENCE_OPERATOR_OVERRIDE" } } };
+    if (write.expected_revision !== String(state.revision)) {
+      return { answer: { error: { code: "PREFERENCE_CONFLICT" } } };
+    }
+    const context = write.context as "coding" | "conversation";
     state.levels[context] =
-      args.action === "clear"
+      args.operation === "settings.clear"
         ? { level: context === "coding" ? "balanced" : "maximal", source: "default" }
-        : { level: args.prominence as Level, source: "preference:context" };
+        : { level: write.prominence as Level, source: "preference:context" };
     state.revision += 1;
-    return inspect();
+    return { answer: inspect() };
   }
 
   // Test control: GET or POST /__control/<tenant id> reads or patches that tenant's cell.
@@ -203,22 +176,14 @@ export function startFakeCell(options: {
         const access = await findCloudOAuthAccessToken(digestSecret(bearer), [options.resource]);
         if (!access) return json(response, 401, { error: "ACCESS_TOKEN_INVALID" });
         const rpc = JSON.parse(await body(request));
-        const name = String(rpc.params.name);
-        if (!PUBLIC_TOOLS.has(name) && !NOT_YET_ON_THE_DOORS.has(name)) {
-          return json(response, 200, {
-            jsonrpc: "2.0",
-            id: rpc.id,
-            result: {
-              isError: true,
-              content: [{ type: "text", text: `Unknown tool: '${name}'.` }],
-            },
-          });
-        }
-        const result = call(cell(access.tenantId), name, rpc.params.arguments ?? {});
+        const result = call(cell(access.tenantId), rpc.params.name, rpc.params.arguments ?? {});
         return json(response, 200, {
           jsonrpc: "2.0",
           id: rpc.id,
-          result: { isError: false, structuredContent: result, content: [] },
+          result:
+            "refused" in result
+              ? { isError: true, content: [{ type: "text", text: result.refused }] }
+              : { isError: false, structuredContent: result.answer, content: [] },
         });
       } catch (error) {
         console.error("[fake-cell]", error);

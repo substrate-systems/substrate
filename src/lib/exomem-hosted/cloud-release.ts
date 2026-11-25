@@ -15,7 +15,7 @@
  * history does not hold, with a release tag no older than the current one's.
  */
 
-import { loadCloudCellImageRepository } from "./cloud-config";
+import { loadCloudCellImageRepositories } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { compareReleaseVersions, releaseVersion } from "./release-tag";
 
@@ -63,14 +63,14 @@ function assertValidCloudReleaseTag(tag: string): void {
 export class InvalidCloudCellImageError extends Error {
   constructor(readonly image: string) {
     super(
-      "Exomem Cloud cell image must be exactly <configured cell repository>@sha256:<64 lowercase hex>"
+      "Exomem Cloud cell image must be exactly <a configured cell repository>@sha256:<64 lowercase hex>"
     );
     this.name = "InvalidCloudCellImageError";
   }
 }
 
 export type CloudCellImageValidationDependencies = {
-  loadRepository?: typeof loadCloudCellImageRepository;
+  loadRepositories?: typeof loadCloudCellImageRepositories;
 };
 
 /**
@@ -86,9 +86,11 @@ export function assertValidCloudCellImage(
   image: string,
   dependencies: CloudCellImageValidationDependencies = {}
 ): void {
-  const repository = (dependencies.loadRepository ?? loadCloudCellImageRepository)();
-  const prefix = `${repository}@sha256:`;
-  const digest = image.startsWith(prefix) ? image.slice(prefix.length) : null;
+  const repositories = (dependencies.loadRepositories ?? loadCloudCellImageRepositories)();
+  const prefix = repositories
+    .map((repository) => `${repository}@sha256:`)
+    .find((candidate) => image.startsWith(candidate));
+  const digest = prefix ? image.slice(prefix.length) : null;
   if (!digest || !CELL_IMAGE_DIGEST_HEX.test(digest)) {
     throw new InvalidCloudCellImageError(image);
   }
@@ -354,14 +356,16 @@ export async function getCloudOperatorView(): Promise<CloudOperatorView> {
       observedImage: row.observed_image === null ? null : String(row.observed_image),
       ready: Boolean(row.ready),
       lastErrorCode: row.last_error_code === null ? null : String(row.last_error_code),
-      observedAt: row.observed_at === null ? null : new Date(row.observed_at as string).toISOString(),
+      observedAt:
+        row.observed_at === null ? null : new Date(row.observed_at as string).toISOString(),
       node: row.node === null ? null : String(row.node),
     })),
     capacity: capacityResult.rows.map((row) => ({
       node: String(row.node),
       cellSlots: Number(row.cell_slots),
       attachmentsUsed: Number(row.attachments_used),
-      observedAt: row.observed_at === null ? null : new Date(row.observed_at as string).toISOString(),
+      observedAt:
+        row.observed_at === null ? null : new Date(row.observed_at as string).toISOString(),
     })),
   };
 }

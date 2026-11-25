@@ -962,10 +962,14 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       const alice = await owner();
       let stored = { revision: "r1", conversation: "balanced" };
       const cell = fakeCell((call) => {
-        const args = call.arguments as Record<string, string>;
-        if (args.action === "set") {
+        const { operation, arguments: args } = call.arguments as {
+          operation: string;
+          arguments: Record<string, string>;
+        };
+        if (operation === "settings.set") {
           if (args.expected_revision !== stored.revision) {
-            return { success: false, error: { code: "PREFERENCE_CONFLICT" } };
+            // The public door's refusal envelope carries no `success` field.
+            return { error: { code: "PREFERENCE_CONFLICT", message: "Preference changed." } };
           }
           stored = { revision: "r2", conversation: args.prominence! };
         }
@@ -990,11 +994,10 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         level: "light",
         source: "preference:context",
       });
+      assert.equal(cell.calls[0]!.tool, "manage_memory");
       assert.deepEqual(cell.calls[0]!.arguments, {
-        action: "set",
-        prominence: "light",
-        expected_revision: "r1",
-        context: "conversation",
+        operation: "settings.set",
+        arguments: { prominence: "light", expected_revision: "r1", context: "conversation" },
       });
 
       const stale = await putLevel(alice, cell.fetchCell, {
@@ -1023,7 +1026,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(refused.status, 409);
       assert.equal(((await json(refused)).error as { code: string }).code, "CLOUD_CELL_READ_ONLY");
       assert.equal(
-        cell.calls.some((call) => call.arguments.action !== "inspect"),
+        cell.calls.some((call) => call.tool !== "inspect_memory"),
         false,
         "a read-only cell receives no level write"
       );
@@ -1032,8 +1035,8 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
     it("shows an operator override as locked and passes its refusal on as 409", async () => {
       const alice = await owner();
       const cell = fakeCell((call) =>
-        call.arguments.action === "set"
-          ? { success: false, error: { code: "PREFERENCE_OPERATOR_OVERRIDE" } }
+        call.tool === "manage_memory"
+          ? { error: { code: "PREFERENCE_OPERATOR_OVERRIDE" } }
           : {
               revision: "r1",
               levels: {
@@ -1107,13 +1110,14 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           { client: "codex", action: "recalled", items: 1, at: "2026-10-12T08:58:00Z" },
         ],
       });
+      assert.equal(cell.calls[0]!.tool, "read_instructions");
       assert.deepEqual(cell.calls[0]!.arguments, { profile: "compact", section: "activity" });
     });
 
     it("reports an older image as outdated and an unanswered call as unreachable, never as empty", async () => {
       const alice = await owner();
       const olderImage = fakeCell((call) =>
-        call.tool === "bootstrap"
+        call.tool === "read_instructions"
           ? Response.json({
               jsonrpc: "2.0",
               id: JSON.parse(call.rawBody).id,
@@ -1173,6 +1177,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         ],
       });
       assert.equal(cell.calls.length, 1);
+      assert.equal(cell.calls[0]!.tool, "read_instructions");
       assert.deepEqual(cell.calls[0]!.arguments, { profile: "compact", section: "whats_new" });
     });
 

@@ -301,10 +301,7 @@ export function loadCloudDeletionGrantSigningKey(
   return loadEd25519SigningKey(env, CLOUD_DELETION_GRANT_SIGNING_KEY_ENV);
 }
 
-function loadEd25519SigningKey(
-  env: EnvironmentSource,
-  variable: string
-): KeyObject | undefined {
+function loadEd25519SigningKey(env: EnvironmentSource, variable: string): KeyObject | undefined {
   const pem = env[variable]?.trim();
   if (!pem) return undefined;
   try {
@@ -349,12 +346,24 @@ function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
  * many other callers (the gateway, OAuth routes, status) to carry a value
  * that has nothing to do with them.
  */
-export function loadCloudCellImageRepository(env: EnvironmentSource = process.env): string {
+function loadCloudCellImageRepository(env: EnvironmentSource = process.env): string {
   const repository = env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY?.trim();
   if (!repository) {
     throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY"]);
   }
   return repository;
+}
+
+/**
+ * The repositories a cell image may come from: the current one, and the
+ * optional `EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS` that published the
+ * releases before the image moved, so a rollback to one of them stays
+ * possible. Published images are never renamed, so an old release keeps the
+ * repository it was published under.
+ */
+export function loadCloudCellImageRepositories(env: EnvironmentSource = process.env): string[] {
+  const previous = env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS?.trim();
+  return [loadCloudCellImageRepository(env), ...(previous ? [previous] : [])];
 }
 
 /** The cell controller's default for `EXOMEM_EXPORT_TTL_HOURS`. */
