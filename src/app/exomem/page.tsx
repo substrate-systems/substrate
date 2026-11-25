@@ -8,6 +8,7 @@ import {
 } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { LandingAccountLink, LandingSession } from "./landing/LandingSession";
+import { McpAddressCode } from "@/components/exomem/mcp-address";
 import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 import { Wordmark } from "@/components/exomem/Wordmark";
 import { CLIENT_FAMILY_NAMES } from "@/lib/exomem-hosted/client-platforms";
@@ -178,22 +179,6 @@ export default function ExomemPage() {
   // Read at build, as the docs page does: this page is static. Any standards MCP client
   // connects at this address since the generic client lane opened.
   const mcpAddress = exomemCloudMcpUrlOrNull();
-  // A narrow card wraps the address after "//" or before its path, not inside the host.
-  const hostAt = mcpAddress ? mcpAddress.indexOf("//") + 2 : 0;
-  const pathAt = mcpAddress && hostAt > 1 ? mcpAddress.indexOf("/", hostAt) : -1;
-  const mcpAddressCode =
-    mcpAddress &&
-    (pathAt > 0 ? (
-      <code>
-        {mcpAddress.slice(0, hostAt)}
-        <wbr />
-        {mcpAddress.slice(hostAt, pathAt)}
-        <wbr />
-        {mcpAddress.slice(pathAt)}
-      </code>
-    ) : (
-      <code>{mcpAddress}</code>
-    ));
   const cloudSteps = [
     { id: "email", desk: "Start with your email; no password", phone: "Start with your email" },
     {
@@ -206,7 +191,7 @@ export default function ExomemPage() {
       desk: (
         <>
           Add it in Claude’s connectors or ChatGPT’s plugins, or give any MCP client{" "}
-          {mcpAddressCode || "the address Home shows"}
+          {mcpAddress ? <McpAddressCode address={mcpAddress} /> : "the address Home shows"}
         </>
       ),
       phone: "Add it to Claude, ChatGPT or any MCP client",
