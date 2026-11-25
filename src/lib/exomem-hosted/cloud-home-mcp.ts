@@ -8,8 +8,9 @@
  * logged. The gateway's own lookup re-checks revocation, account blocks and
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
- * Home calls only `configure_memory` and the `bootstrap` activity and
- * `whats_new` sections.
+ * Home calls only the cell's public tools: the `settings` operations of
+ * `inspect_memory` and `manage_memory`, and the `read_instructions` activity
+ * and `whats_new` sections. A cell refuses a name it does not list.
  * The viewer reuses the same transport for three fixed read operations.
  * Browser callers never choose a tool, tenant, gateway or cell.
  */
@@ -93,7 +94,7 @@ const ActivityPayload = z.object({
     )
     .max(20),
 });
-// A bootstrap section nests its block under the section's own name; the
+// A `read_instructions` section nests its block under the section's own name; the
 // contract states the bare payload. Both carry the same fields.
 const ActivityAnswer = z.union([z.object({ activity: ActivityPayload }), ActivityPayload]);
 
@@ -127,7 +128,11 @@ const JsonRpcAnswer = z.union([
   }),
 ]);
 // The cell's structured refusal: a successful tool call whose payload says no.
-const CellRefusal = z.object({ success: z.literal(false), error: z.object({ code: z.string() }) });
+// A public tool answers a refusal as `{error: {code}}`; an older cell also sent `success: false`.
+const CellRefusal = z.object({
+  success: z.literal(false).optional(),
+  error: z.object({ code: z.string() }),
+});
 // Only a code of this shape reaches a log line.
 const ERROR_CODE_FORMAT = /^[A-Z][A-Z0-9_]{0,63}$/;
 
@@ -185,20 +190,27 @@ export type CloudHomeDependencies = {
 
 type BootstrapSection = "activity" | "whats_new";
 
+type LevelsTool = "inspect_memory" | "manage_memory";
+
 type HomeToolCall =
+  | { name: "inspect_memory"; arguments: { operation: "settings.inspect"; arguments: object } }
   | {
-      name: "configure_memory";
+      name: "manage_memory";
       arguments:
-        | { action: "inspect" }
         | {
-            action: "set";
-            prominence: CloudHomeLevel;
-            expected_revision: string;
-            context: CloudHomeContext;
+            operation: "settings.set";
+            arguments: {
+              prominence: CloudHomeLevel;
+              expected_revision: string;
+              context: CloudHomeContext;
+            };
           }
-        | { action: "clear"; context: CloudHomeContext; expected_revision: string };
+        | {
+            operation: "settings.clear";
+            arguments: { context: CloudHomeContext; expected_revision: string };
+          };
     }
-  | { name: "bootstrap"; arguments: { profile: "compact"; section: BootstrapSection } };
+  | { name: "read_instructions"; arguments: { profile: "compact"; section: BootstrapSection } };
 
 // These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
 export type CloudViewerToolCall =
@@ -521,18 +533,19 @@ function liveLevels(
 }
 
 function levelsFromAnswer(
+  tool: LevelsTool,
   answer: CellAnswer,
   desiredState: ServingCell["desiredState"]
 ): CloudHomeLevelsView {
   if (answer.kind === "result") {
     const view = liveLevels(answer.value, desiredState);
     if (view) return view;
-    logUnavailable("configure_memory", "CELL_OUTDATED", "levels_shape");
+    logUnavailable(tool, "CELL_OUTDATED", "levels_shape");
     return unavailable("CELL_OUTDATED");
   }
   if (answer.kind === "refused") {
     logUnavailable(
-      "configure_memory",
+      tool,
       "CELL_UNREACHABLE",
       ERROR_CODE_FORMAT.test(answer.code) ? answer.code : "refused"
     );
@@ -549,10 +562,10 @@ async function readCloudHomeLevels(
   if (cell.state !== "serving") return cell;
   const answer = await callHomeTool(
     principal,
-    { name: "configure_memory", arguments: { action: "inspect" } },
+    { name: "inspect_memory", arguments: { operation: "settings.inspect", arguments: {} } },
     dependencies
   );
-  return levelsFromAnswer(answer, cell.desiredState);
+  return levelsFromAnswer("inspect_memory", answer, cell.desiredState);
 }
 
 /** Sets (`level`) or clears (`null`) one context's level, compare-and-set on `expectedRevision`. */
@@ -574,15 +587,20 @@ async function writeCloudHomeLevel(
   const answer = await callHomeTool(
     principal,
     {
-      name: "configure_memory",
+      name: "manage_memory",
       arguments:
         change.level === null
-          ? { action: "clear", context: change.context, expected_revision: change.expectedRevision }
+          ? {
+              operation: "settings.clear",
+              arguments: { context: change.context, expected_revision: change.expectedRevision },
+            }
           : {
-              action: "set",
-              prominence: change.level,
-              expected_revision: change.expectedRevision,
-              context: change.context,
+              operation: "settings.set",
+              arguments: {
+                prominence: change.level,
+                expected_revision: change.expectedRevision,
+                context: change.context,
+              },
             },
     },
     dependencies
@@ -594,12 +612,12 @@ async function writeCloudHomeLevel(
       current: await readCloudHomeLevels(principal, dependencies),
     };
   }
-  const view = levelsFromAnswer(answer, cell.desiredState);
+  const view = levelsFromAnswer("manage_memory", answer, cell.desiredState);
   return view.state === "live" ? { kind: "written", view } : { kind: "unavailable", view };
 }
 
 /**
- * One `bootstrap` section of the owner's cell, read through `parse`. An older
+ * One `read_instructions` section of the owner's cell, read through `parse`. An older
  * image refuses a section it does not know, and an answer `parse` cannot read
  * is treated the same way: both are CELL_OUTDATED, never an error.
  */
@@ -613,12 +631,12 @@ async function readBootstrapSection<T>(
   if (cell.state !== "serving") return cell;
   const answer = await callHomeTool(
     principal,
-    { name: "bootstrap", arguments: { profile: "compact", section } },
+    { name: "read_instructions", arguments: { profile: "compact", section } },
     dependencies
   );
   if (answer.kind === "refused") {
     logUnavailable(
-      "bootstrap",
+      "read_instructions",
       "CELL_UNREACHABLE",
       ERROR_CODE_FORMAT.test(answer.code) ? answer.code : "refused"
     );
@@ -627,7 +645,7 @@ async function readBootstrapSection<T>(
   if (answer.kind === "unavailable") return answer.view;
   const value = parse(answer.value);
   if (value === null) {
-    logUnavailable("bootstrap", "CELL_OUTDATED", `${section}_shape`);
+    logUnavailable("read_instructions", "CELL_OUTDATED", `${section}_shape`);
     return unavailable("CELL_OUTDATED");
   }
   return { state: "live", value };

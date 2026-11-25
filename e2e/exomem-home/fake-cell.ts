@@ -33,7 +33,7 @@ export type FakeCellState = {
     at: string;
   }[];
   since: string;
-  /** What `bootstrap` answers for the `whats_new` section. */
+  /** What `read_instructions` answers for the `whats_new` section. */
   whatsNew: {
     version: string;
     releases: { version: string; released_on: string; notes: string[] }[];
@@ -88,36 +88,52 @@ export function startFakeCell(options: {
     return state;
   };
 
-  function call(state: FakeCellState, name: string, args: Record<string, unknown>): unknown {
-    if (name === "viewer_map") return state.viewerMap ?? { available: false };
-    if (name === "ask_memory") return { result: state.viewerSearch ?? [] };
-    if (name === "read_memory") return state.viewerNotes?.[String(args.path)] ?? {};
+  // Like the real cell, the fake answers only the tool names it serves and refuses any
+  // other name, so a call by a name the cell does not list fails here too. The
+  // viewer's three reads still use command names; they move to public tools separately.
+  function call(
+    state: FakeCellState,
+    name: string,
+    args: Record<string, unknown>
+  ): { refused: string } | { answer: unknown } {
+    if (name === "viewer_map") return { answer: state.viewerMap ?? { available: false } };
+    if (name === "ask_memory") return { answer: { result: state.viewerSearch ?? [] } };
+    if (name === "read_memory") return { answer: state.viewerNotes?.[String(args.path)] ?? {} };
     const inspect = () => ({ revision: String(state.revision), levels: state.levels });
-    if (name === "bootstrap" && args.section === "whats_new") {
-      return { contract_version: "1", section: "whats_new", whats_new: state.whatsNew };
+    if (name === "read_instructions" && args.section === "whats_new") {
+      return { answer: { contract_version: "1", section: "whats_new", whats_new: state.whatsNew } };
     }
-    if (name === "bootstrap") {
+    if (name === "read_instructions" && args.section === "activity") {
       return {
-        since: state.since,
-        as_of: new Date().toISOString(),
-        note_count: state.noteCount,
-        events: state.events,
+        answer: {
+          since: state.since,
+          as_of: new Date().toISOString(),
+          note_count: state.noteCount,
+          events: state.events,
+        },
       };
     }
-    if (args.action === "inspect") return inspect();
-    if (state.operator) {
-      return { success: false, error: { code: "PREFERENCE_OPERATOR_OVERRIDE" } };
+    if (name === "inspect_memory" && args.operation === "settings.inspect") {
+      return { answer: inspect() };
     }
-    if (args.expected_revision !== String(state.revision)) {
-      return { success: false, error: { code: "PREFERENCE_CONFLICT" } };
+    if (
+      name !== "manage_memory" ||
+      (args.operation !== "settings.set" && args.operation !== "settings.clear")
+    ) {
+      return { refused: `Unknown tool: '${name}'.` };
     }
-    const context = args.context as "coding" | "conversation";
+    const write = args.arguments as Record<string, unknown>;
+    if (state.operator) return { answer: { error: { code: "PREFERENCE_OPERATOR_OVERRIDE" } } };
+    if (write.expected_revision !== String(state.revision)) {
+      return { answer: { error: { code: "PREFERENCE_CONFLICT" } } };
+    }
+    const context = write.context as "coding" | "conversation";
     state.levels[context] =
-      args.action === "clear"
+      args.operation === "settings.clear"
         ? { level: context === "coding" ? "balanced" : "maximal", source: "default" }
-        : { level: args.prominence as Level, source: "preference:context" };
+        : { level: write.prominence as Level, source: "preference:context" };
     state.revision += 1;
-    return inspect();
+    return { answer: inspect() };
   }
 
   // Test control: GET or POST /__control/<tenant id> reads or patches that tenant's cell.
@@ -147,7 +163,10 @@ export function startFakeCell(options: {
         return json(response, 200, {
           jsonrpc: "2.0",
           id: rpc.id,
-          result: { isError: false, structuredContent: result, content: [] },
+          result:
+            "refused" in result
+              ? { isError: true, content: [{ type: "text", text: result.refused }] }
+              : { isError: false, structuredContent: result.answer, content: [] },
         });
       } catch (error) {
         console.error("[fake-cell]", error);
