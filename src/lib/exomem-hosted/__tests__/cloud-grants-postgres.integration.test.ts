@@ -1375,7 +1375,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
   // and a rerun, so a column added later without a grant decision shows up.
   it("holds each role to exactly its C6 columns, and gives the gateway nothing on C6", async () => {
     await ownerPool!.query(
-      "GRANT ALL ON exomem_cloud_exports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+      "GRANT ALL ON exomem_cloud_exports, exomem_cloud_cells TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
     );
     await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
 
@@ -1436,7 +1436,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       assert.equal(rows[0]!.can_delete, false, `${role} must not delete export rows`);
     }
 
-    // Migration 0066's whole-volume figures and migration 0094's vault and media figures.
+    // Migration 0066's whole-volume figures and migration 0095's vault and media figures.
     const usage = [
       "filesystem_bytes",
       "media_allowance_bytes",
@@ -1452,6 +1452,11 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     assert.deepEqual(appUpdates.filter((column) => usage.includes(column)), []);
     const gatewayReads = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "SELECT");
     assert.deepEqual(gatewayReads.filter((column) => usage.includes(column)), []);
+    const gatewayUpdates = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "UPDATE");
+    assert.deepEqual(gatewayUpdates.filter((column) => usage.includes(column)), []);
+    // Home reads the figures as the application role.
+    const appReads = await columnPrivileges("substrate_app", "exomem_cloud_cells", "SELECT");
+    assert.deepEqual(appReads.filter((column) => usage.includes(column)), usage);
   });
 
   // contain-cloud-controller-compromise D4: cellctl relays the signed grant to the Job and must not

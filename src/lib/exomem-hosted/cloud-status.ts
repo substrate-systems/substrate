@@ -77,7 +77,7 @@ export type CloudStorageObservation =
 
 /**
  * A cell with a media store reports two figures, each against its own limit: the vault
- * against the volume, and the stored originals against the allowance (migration 0094).
+ * against the volume, and the stored originals against the allowance (migration 0095).
  * One that cellctl could not read is unknown, never zero. `media` is absent on a cell
  * that has no media store, whose storage is the whole-volume figure above.
  */
@@ -179,7 +179,7 @@ function mediaFigure(used: string | null, limit: string | null): CloudMediaFigur
   return { state: "known", used_bytes: usedBytes, limit_bytes: limitBytes };
 }
 
-/** Migration 0094's CHECK ties every figure to its read time, so no time means no media store. */
+/** Migration 0095's CHECK ties every figure to its read time, so no time means no media store. */
 function mapCloudCellToMediaStorage(row: CloudCellUsageRow): CloudMediaStorage | undefined {
   if (!row.media_usage_observed_at) return undefined;
   return {

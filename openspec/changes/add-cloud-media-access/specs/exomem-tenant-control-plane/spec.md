@@ -11,5 +11,6 @@ The cell row SHALL hold four nullable columns: the vault bytes in use, the media
 
 #### Scenario: Only cellctl writes the figures
 
-- **WHEN** the application role or the gateway writes or reads these columns
+- **WHEN** the application role writes these columns, or the gateway reads or writes them
 - **THEN** PostgreSQL refuses it, including after a blanket grant and a migration rerun
+- **AND** the application role still reads them for Home

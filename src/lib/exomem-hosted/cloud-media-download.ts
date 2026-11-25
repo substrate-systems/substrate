@@ -2,13 +2,15 @@
  * `GET /api/exomem/cloud/download?path=...`: a signed-in owner's link to one stored
  * original (add-cloud-media-access). The bytes never pass through this app. The
  * route checks the browser session, picks the cell from the session alone, and
- * answers 302 to the gateway's `/download` with a ticket for exactly this path,
- * good for ten minutes, so that a video element can seek.
+ * answers 302 to the gateway's `/download` with a ticket for exactly this path.
+ * The ticket lives long enough for a recording, because a media element sends
+ * every later Range request to the address it first followed.
  */
 
+import { CLOUD_DOWNLOAD_PATH } from "../../exomem-gateway/cloud-origin";
 import { controlPlaneKeyFromEnv } from "./security";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
-import { signDownloadTicket } from "./cloud-download-ticket";
+import { downloadTicketLifetimeSeconds, signDownloadTicket } from "./cloud-download-ticket";
 import { openHomeLoginForTicket, servingCell } from "./cloud-home-mcp";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import { PRIVATE_NO_STORE_HEADERS } from "./http";
@@ -16,8 +18,6 @@ import { safeErrorResponse } from "./next-error-response";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 import { resolveExomemSession } from "./sessions";
 
-// The gateway's download endpoint, beside the MCP resource (the upload endpoint is placed the same way).
-const GATEWAY_DOWNLOAD_PATH = "/download";
 // Longer than any vault path the cell accepts, short enough for a URL every proxy carries.
 const MAX_PATH_CHARS = 4096;
 
@@ -34,15 +34,24 @@ const unavailableCell = (reason: string) =>
 /**
  * A GET carries no CSRF header, and the session cookie is `SameSite=Lax`, so a
  * link on another site could still send it with a top-level navigation. The
- * browser's own request metadata says where the request began: only this site's
- * pages (`same-origin`) and a typed address or bookmark (`none`) may ask. A
- * browser too old to send `Sec-Fetch-Site` still sends `Origin` on a
- * cross-origin request, so that is read when the metadata is absent.
+ * browser's own request metadata says where the request began: this site's own
+ * pages (`same-origin`) and a typed address or bookmark (`none`) may ask, and so
+ * may a link that the owner follows from another site (a web chat client shows
+ * one), which is a cross-site navigation of a document. That request cannot read
+ * the answer: it only navigates to the gateway, which serves an attachment under
+ * a sandbox policy. Every other cross-site request (an image, a script, a fetch,
+ * a frame) is refused. A browser too old to send `Sec-Fetch-Site` still sends
+ * `Origin` on a cross-origin request, so that is read when the metadata is absent.
  */
 function assertOwnBrowserRequest(request: Request): void {
   const site = request.headers.get("sec-fetch-site");
   if (site !== null) {
-    if (site !== "same-origin" && site !== "none") throw exomemErrors.csrfRejected();
+    if (site === "same-origin" || site === "none") return;
+    const navigatesToDocument =
+      site === "cross-site" &&
+      request.headers.get("sec-fetch-mode") === "navigate" &&
+      request.headers.get("sec-fetch-dest") === "document";
+    if (!navigatesToDocument) throw exomemErrors.csrfRejected();
     return;
   }
   const origin = request.headers.get("origin");
@@ -89,7 +98,8 @@ export async function handleCloudMediaDownloadRequest(
     if (cell.state !== "serving") throw unavailableCell(cell.reason);
 
     const { mcpUrl, acceptedResources } = loadExomemCloudResource(dependencies.env);
-    const login = await openHomeLoginForTicket(session, mcpUrl, acceptedResources);
+    const lifetimeSeconds = downloadTicketLifetimeSeconds(dependencies.env);
+    const login = await openHomeLoginForTicket(session, mcpUrl, acceptedResources, lifetimeSeconds);
     if ("refused" in login) {
       throw login.refused === "ACCOUNT_ACCESS_CLOSED"
         ? exomemErrors.entitlementDenied()
@@ -104,9 +114,10 @@ export async function handleCloudMediaDownloadRequest(
         grantId: login.grantId,
         path,
       },
-      controlPlaneKeyFromEnv()
+      controlPlaneKeyFromEnv(),
+      { lifetimeSeconds }
     );
-    const location = new URL(GATEWAY_DOWNLOAD_PATH, mcpUrl);
+    const location = new URL(CLOUD_DOWNLOAD_PATH, mcpUrl);
     location.search = new URLSearchParams({ path, ticket }).toString();
     return new Response(null, {
       status: 302,

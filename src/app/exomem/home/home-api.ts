@@ -125,12 +125,12 @@ export type StatusRead = {
   runningRelease?: string | null;
 };
 
-// A figure against a limit of zero has no share to draw, so it reads as unknown.
+// Only a figure that was not read is unknown: an allowance of zero is a known zero.
 function parseMediaFigure(value: unknown): CloudMediaFigure | null {
   const figure = record(value);
   if (figure?.state === "unknown") return { state: "unknown" };
   if (figure?.state === "known" && typeof figure.used_bytes === "number") {
-    return typeof figure.limit_bytes === "number" && figure.limit_bytes > 0
+    return typeof figure.limit_bytes === "number" && figure.limit_bytes >= 0
       ? (figure as CloudMediaFigure)
       : { state: "unknown" };
   }

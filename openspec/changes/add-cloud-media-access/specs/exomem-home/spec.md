@@ -18,3 +18,8 @@ When a cell reports a read time for its media storage, Home SHALL show "Vault st
 
 - **WHEN** all four columns are NULL
 - **THEN** Home shows the whole-volume figure exactly as before
+
+#### Scenario: The media allowance is zero
+
+- **WHEN** the cell reports a read media figure against an allowance of zero
+- **THEN** Home shows the allowance as zero gigabytes, and only a figure that was not read shows as unknown

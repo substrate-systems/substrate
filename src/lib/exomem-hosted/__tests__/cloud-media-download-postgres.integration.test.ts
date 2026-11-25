@@ -88,6 +88,12 @@ function link(who: Owner | null, path = PATH, headers: Record<string, string> = 
   );
 }
 
+/** The claims a ticket carries; its payload is signed, not secret. */
+function claimsOf(location: string): { family_id: string; iat: number; exp: number } {
+  const ticket = new URL(location).searchParams.get("ticket")!;
+  return JSON.parse(Buffer.from(ticket.split(".")[0], "base64url").toString("utf8"));
+}
+
 /** The gateway and the cell behind it: the real handler and lookup, a stand-in for the cell's bytes. */
 function gateway(cells: Owner[]) {
   const reached: Array<{ cellUrl: string; bearer: string | null; range: string | null }> = [];
@@ -223,6 +229,48 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
     assert.deepEqual(counts.rows[0], { grants: 1, families: 1, tokens: 0 });
   });
 
+  it("gives a ticket a life of hours and only ever names a family that outlives it", async () => {
+    const a = await owner();
+    const first = claimsOf((await link(a)).headers.get("location")!);
+    assert.equal(first.exp - first.iat, 4 * 60 * 60);
+    const family = (id: string) =>
+      pool.query(
+        "UPDATE exomem_oauth_token_families SET expires_at = now() + $2::interval WHERE id = $1",
+        [id, "3 hours"]
+      );
+    // Home's access-token mint reuses a family down to its last two minutes; a ticket may not,
+    // because the gateway's login lookup ends at the family's own expiry.
+    await family(first.family_id);
+    const second = claimsOf((await link(a)).headers.get("location")!);
+    assert.notEqual(second.family_id, first.family_id);
+    const outlives = await pool.query(
+      "SELECT expires_at > to_timestamp($2) AS outlives FROM exomem_oauth_token_families WHERE id = $1",
+      [second.family_id, second.exp]
+    );
+    assert.equal(outlives.rows[0].outlives, true);
+    // A family with room beyond the ticket is reused, not replaced.
+    await pool.query(
+      "UPDATE exomem_oauth_token_families SET expires_at = now() + interval '5 hours' WHERE id = $1",
+      [second.family_id]
+    );
+    assert.equal(claimsOf((await link(a)).headers.get("location")!).family_id, second.family_id);
+  });
+
+  it("keeps a ticket alive when the owner signs out, until its grant ends", async () => {
+    const a = await owner();
+    const { follow } = gateway([a]);
+    const location = (await link(a)).headers.get("location")!;
+    await pool.query("UPDATE exomem_sessions SET revoked_at = now() WHERE tenant_id = $1", [
+      a.tenantId,
+    ]);
+    assert.equal((await follow(location, { range: "bytes=0-1" })).status, 206);
+    assert.equal((await link(a)).status, 401, "the signed-out browser cannot ask for another link");
+    await pool.query("UPDATE exomem_oauth_grants SET revoked_at = now() WHERE tenant_id = $1", [
+      a.tenantId,
+    ]);
+    assert.equal((await follow(location)).status, 401);
+  });
+
   it("never lets one owner's session reach another owner's cell or path", async () => {
     const a = await owner();
     const b = await owner();
@@ -281,8 +329,16 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
 
   it("refuses a link that began on another site, before any grant is written", async () => {
     const a = await owner();
-    for (const headers of [{ "sec-fetch-site": "cross-site" }, { "sec-fetch-site": "same-site" }]) {
-      assert.equal((await link(a, PATH, headers)).status, 403, headers["sec-fetch-site"]);
+    const refused: Array<Record<string, string>> = [
+      { "sec-fetch-site": "cross-site" },
+      { "sec-fetch-site": "same-site" },
+      { "sec-fetch-site": "cross-site", "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" },
+      { "sec-fetch-site": "cross-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "image" },
+      { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "iframe" },
+      { "sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "video" },
+    ];
+    for (const headers of refused) {
+      assert.equal((await link(a, PATH, headers)).status, 403, JSON.stringify(headers));
     }
     // A browser without fetch metadata still names a foreign site in Origin.
     const old = new Request(
@@ -303,6 +359,18 @@ describe("Signed-in media download PostgreSQL boundary", { skip: !databaseUrl },
     assert.equal(grants.rows[0].count, 0);
     // A typed address or a bookmark carries `none` and is the owner's own request.
     assert.equal((await link(a, PATH, { "sec-fetch-site": "none" })).status, 302);
+  });
+
+  it("admits a link the owner follows from another site, such as one in a web chat client", async () => {
+    const a = await owner();
+    const navigation = {
+      "sec-fetch-site": "cross-site",
+      "sec-fetch-mode": "navigate",
+      "sec-fetch-dest": "document",
+    };
+    const response = await link(a, PATH, navigation);
+    assert.equal(response.status, 302);
+    assert.ok(response.headers.get("location")?.startsWith("https://cloud.example.test/download?"));
   });
 
   it("refuses a reviewer's session", async () => {

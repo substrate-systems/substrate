@@ -763,6 +763,16 @@ describe("plan and storage", () => {
     assert.equal(view.vault.state, "known");
   });
 
+  it("shows a media allowance of zero as zero, and only an unread one as unknown", () => {
+    const none = { state: "known", used_bytes: 0, limit_bytes: 0 } as const;
+    const sent = JSON.parse(JSON.stringify({ state: "unknown", media: { ...media, media: none } }));
+    assert.deepEqual(parseStorage(sent), sent);
+    const view = storageView(parseStorage(sent), clock);
+    assert.equal(view.state, "split");
+    if (view.state !== "split") return;
+    assert.deepEqual(view.media, { state: "known", line: "0 of 0 GB", total: "0", fraction: 0 });
+  });
+
   it("still warns that the volume is filling from the vault figure of a media-store cell", () => {
     const view = storageView(
       {

@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   buildCloudProtectedResourceMetadata,
+  cloudMediaDownloadLimit,
   handleCloudDiscoveryRequest,
   handleCloudDownloadRequest,
   handleCloudMcpRequest,
@@ -11,6 +12,7 @@ import { CLOUD_DISCOVERY_PATH, CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./
 import { FAVICON, FAVICON_HEADERS, FAVICON_PATH } from "./favicon";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import { downloadTicketLifetimeSeconds } from "../lib/exomem-hosted/cloud-download-ticket";
 import { assertCloudResourceList } from "../lib/exomem-hosted/cloud-resource-list";
 
 const CACHE_HEADERS = {
@@ -147,6 +149,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
   if (!Number.isInteger(maxInflight) || maxInflight < 1 || maxInflight > 128) {
     throw new Error("EXOMEM_GATEWAY_MAX_INFLIGHT must be an integer from 1 to 128");
   }
+  // Both settings fail at start, not on the first request that reads them.
+  cloudMediaDownloadLimit();
+  downloadTicketLifetimeSeconds();
   // A reader that stops reading would keep its slots, which the MCP route shares.
   const downloadIdleMs = boundedMilliseconds(
     options.downloadIdleMs ?? Number(process.env.EXOMEM_GATEWAY_DOWNLOAD_IDLE_MS ?? 60_000),

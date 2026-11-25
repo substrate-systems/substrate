@@ -127,9 +127,9 @@ export default function ExomemPrivacyPage() {
         We use service providers only as needed to operate Evermatter: Vercel for the public web,
         sign-in and account service, including the content that Home shows you when you browse or
         ask your memory there; Hetzner for the servers in Germany that run your cell, hold its
-        encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
-        region, for stored originals where your cell uses the media store, and for imports and
-        exports until they expire; Cloudflare for DNS and Turnstile bot
+        encrypted storage, and host the account database; Backblaze for encrypted backups, held in
+        its EU region, and separately for stored originals where your cell uses the media store and
+        for imports and exports until they expire; Cloudflare for DNS and Turnstile bot
         protection; Brevo for transactional email; and Paddle as merchant of record. Until 10
         October 2026, Neon also held a frozen copy of the account database from before it moved to
         our own servers; that copy is now deleted. The public site may use privacy-filtered
@@ -174,9 +174,11 @@ export default function ExomemPrivacyPage() {
         are not erased at that moment. Where our backup custodian manages an account&apos;s backups,
         they expire automatically, normally within about 40 days. Otherwise we delete the backup
         copies by hand after the deletion completes. Stored originals in the object store are
-        handled apart: deletion retires the content keys for them, and we delete the stored copies
-        afterwards, with an operator-run step that waits at least 7 days, so until it runs they
-        remain in the store, encrypted. Backups
+        handled apart: deletion retires the content keys for them first, so what remains is
+        unreadable. Our systems then delete the stored copies with no manual step. They hide them
+        when the 7-day deletion grace ends, and the object store deletes the hidden copies 14 days
+        later, so about 21 days after the deletion they are gone. Until then they remain in the
+        store, encrypted. Backups
         of the account database, which hold your cell&apos;s keys in encrypted form, expire on their
         own retention schedule. Minimal billing, security, deletion-proof, and legal
         records may be retained for the period required to resolve disputes, prevent abuse,

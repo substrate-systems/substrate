@@ -800,7 +800,13 @@ function figureView(figure: CloudMediaFigure): StorageFigureView {
     state: "known",
     line: `${gigabytes(figure.used_bytes)} of ${total} GB`,
     total,
-    fraction: figure.used_bytes / figure.limit_bytes,
+    // Against an allowance of zero any use is over it, and no use is none.
+    fraction:
+      figure.limit_bytes > 0
+        ? figure.used_bytes / figure.limit_bytes
+        : figure.used_bytes > 0
+          ? 1
+          : 0,
   };
 }
 

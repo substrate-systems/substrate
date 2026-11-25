@@ -254,13 +254,16 @@ export type HomeLogin = { grantId: string; familyId: string };
  * the caller's transaction. An access token (`mintHomeAccessToken`) and a
  * download ticket (`openHomeLoginForTicket`) both name this login, so the
  * gateway's one lookup decides both: a revoked grant, an account block and a
- * deletion end each of them.
+ * deletion end each of them. `minimumFamilyLifeSeconds` is how long the
+ * returned family must still live: the gateway's lookup also ends at the
+ * family's own expiry, so a credential that outlives the family would die early.
  */
 async function openHomeLogin(
   tx: ExomemSql,
   principal: CloudHomePrincipal,
   resource: string,
-  acceptedResources: readonly string[]
+  acceptedResources: readonly string[],
+  minimumFamilyLifeSeconds: number
 ): Promise<(HomeLogin & { clientId: string }) | { refused: MintRefusal }> {
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
   const homeClient = await tx`
@@ -333,7 +336,7 @@ async function openHomeLogin(
     WHERE grant_id = ${grant.id}::uuid AND client_id = ${grant.client_id}::uuid
       AND revoked_at IS NULL AND candidate_id IS NULL
       AND reviewer_credential_id IS NOT DISTINCT FROM ${reviewerCredentialId}::uuid
-      AND expires_at > now() + make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS})
+      AND expires_at > now() + make_interval(secs => ${minimumFamilyLifeSeconds})
     ORDER BY expires_at DESC
     LIMIT 1
   `;
@@ -350,11 +353,17 @@ async function openHomeLogin(
   return { grantId: grant.id, familyId, clientId: grant.client_id };
 }
 
-/** The login a download ticket will name, for a session's principal, in its own transaction. */
+/**
+ * The login a download ticket will name, for a session's principal, in its own
+ * transaction. Its family outlives the ticket by the access-token margin, so
+ * the family's expiry never ends a live ticket; only the grant, the account or
+ * the cell do.
+ */
 export async function openHomeLoginForTicket(
   principal: CloudHomePrincipal,
   resource: string,
-  acceptedResources: readonly string[]
+  acceptedResources: readonly string[],
+  ticketLifetimeSeconds: number
 ): Promise<HomeLogin | { refused: MintRefusal }> {
   try {
     await assertPrincipalOwnsCloudCell(principal.tenantId);
@@ -363,7 +372,13 @@ export async function openHomeLoginForTicket(
     throw error;
   }
   const login = await withExomemTransaction((tx) =>
-    openHomeLogin(tx, principal, resource, acceptedResources)
+    openHomeLogin(
+      tx,
+      principal,
+      resource,
+      acceptedResources,
+      ticketLifetimeSeconds + CLOUD_HOME_TOKEN_TTL_SECONDS
+    )
   );
   return "refused" in login ? login : { grantId: login.grantId, familyId: login.familyId };
 }
@@ -389,7 +404,13 @@ async function mintHomeAccessToken(
   const token = new SensitiveSecret(generateExternalToken());
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
   return withExomemTransaction(async (tx) => {
-    const login = await openHomeLogin(tx, principal, resource, acceptedResources);
+    const login = await openHomeLogin(
+      tx,
+      principal,
+      resource,
+      acceptedResources,
+      CLOUD_HOME_TOKEN_TTL_SECONDS
+    );
     if ("refused" in login) return login;
     // Home mints one token per call and nothing in production prunes expired
     // access tokens, so each mint removes its own grant's expired ones.

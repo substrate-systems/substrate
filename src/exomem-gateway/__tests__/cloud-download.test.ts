@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { connect } from "node:net";
 import { beforeEach, describe, it } from "node:test";
@@ -8,10 +8,11 @@ import { deriveCloudCellBearer } from "../../lib/exomem-hosted/cloud-cell-bearer
 import type { ExomemCloudConfig } from "../../lib/exomem-hosted/cloud-config";
 import type { ActiveCloudOAuthAccessToken } from "../../lib/exomem-hosted/cloud-oauth";
 import {
+  downloadTicketLifetimeSeconds,
   signDownloadTicket,
-  DOWNLOAD_TICKET_MAX_LIFETIME_SECONDS,
 } from "../../lib/exomem-hosted/cloud-download-ticket";
 import {
+  cloudMediaDownloadLimit,
   handleCloudDownloadRequest,
   handleCloudMcpRequest,
   handleCloudUploadRequest,
@@ -374,6 +375,7 @@ describe("Cloud download ticket at the gateway", () => {
       assert.equal(response.headers.get("content-type"), "video/mp4");
       assert.equal(response.headers.get("x-content-type-options"), "nosniff");
       assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+      assert.equal(response.headers.get("content-security-policy"), "sandbox");
       assert.equal(response.headers.get("cache-control"), "no-store");
       assert.equal(await response.text(), "cdef");
     }
@@ -391,7 +393,7 @@ describe("Cloud download ticket at the gateway", () => {
   });
 
   it("refuses a ticket that is expired, for another path, forged or the wrong shape before any lookup or cell contact", async () => {
-    const issuedLongAgo = Math.floor(Date.now() / 1000) - DOWNLOAD_TICKET_MAX_LIFETIME_SECONDS - 5;
+    const issuedLongAgo = Math.floor(Date.now() / 1000) - downloadTicketLifetimeSeconds() - 5;
     const cases: Array<[string, Request]> = [
       ["expired", ticketRequest(ticket({ now: issuedLongAgo }))],
       ["another path", ticketRequest(ticket({}, "Recordings/other.mp4"))],
@@ -411,6 +413,7 @@ describe("Cloud download ticket at the gateway", () => {
       );
       assert.equal(response.status, 401, name);
       assert.deepEqual(await response.json(), { error: "DOWNLOAD_TICKET_INVALID" }, name);
+      assert.equal(response.headers.get("content-security-policy"), "sandbox", name);
     }
   });
 
@@ -489,6 +492,118 @@ describe("Cloud download ticket at the gateway", () => {
       bodies.push(await response.text());
     }
     assert.equal(bodies.length, 6, "sequential downloads never exhaust the per-owner slots");
+  });
+
+  it("downloads everything a page could run, and plays only audio and video in place", async () => {
+    const answer = async (headers: Record<string, string>) => {
+      const response = await handleCloudDownloadRequest(
+        ticketRequest(ticket()),
+        ticketDeps({ fetchCell: async () => new Response("bytes", { status: 200, headers }) })
+      );
+      assert.equal(response.status, 200);
+      await response.text();
+      return response.headers.get("content-disposition");
+    };
+    // The cell's filename survives; only the disposition type is forced.
+    assert.equal(
+      await answer({
+        "content-type": "text/html; charset=utf-8",
+        "content-disposition": 'inline; filename="a.html"',
+      }),
+      'attachment; filename="a.html"'
+    );
+    assert.equal(await answer({ "content-type": "image/svg+xml" }), "attachment");
+    assert.equal(
+      await answer({
+        "content-type": "application/pdf",
+        "content-disposition": 'attachment; filename="r.pdf"',
+      }),
+      'attachment; filename="r.pdf"'
+    );
+    assert.equal(await answer({}), "attachment", "a file of no declared type downloads");
+    // Audio and video keep the cell's own choice, so a media element can play it.
+    assert.equal(await answer({ "content-type": "video/mp4" }), null);
+    assert.equal(
+      await answer({
+        "content-type": "Audio/Mpeg",
+        "content-disposition": 'inline; filename="a.mp3"',
+      }),
+      'inline; filename="a.mp3"'
+    );
+  });
+
+  it("keeps media streams in a pool of their own, so a full pool never takes MCP's slots", async () => {
+    let serverSlotsGivenBack = 0;
+    const serverSlot = { release: () => (serverSlotsGivenBack += 1), take: () => true };
+    const playing = new TextEncoder().encode("playing");
+    // More media slots than the MCP pool has in all: if they shared a pool, MCP would be full.
+    const mediaSlots = 20;
+    const tenants = Array.from({ length: 6 }, () => randomUUID());
+    const stream = (tenantId: string) =>
+      handleCloudDownloadRequest(
+        ticketRequest(signDownloadTicket({ ...CLAIMS, tenantId, path: PATH }, MAC_KEY)),
+        ticketDeps({
+          maxMediaDownloads: mediaSlots,
+          serverSlot,
+          findLogin: async () => ({ ...HOME_LOGIN, tenantId }),
+          fetchCell: async () =>
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  controller.enqueue(playing);
+                },
+              }),
+              { status: 200, headers: { "content-type": "video/mp4" } }
+            ),
+        })
+      );
+
+    const open: Response[] = [];
+    // Four per tenant is the per-owner rule, and it still holds inside the pool.
+    for (const tenantId of tenants.slice(0, 5)) {
+      for (let count = 0; count < 4; count += 1) open.push(await stream(tenantId));
+    }
+    assert.deepEqual(new Set(open.map((response) => response.status)), new Set([200]));
+    assert.equal(serverSlotsGivenBack, mediaSlots, "each stream left the server's in-flight count");
+
+    const full = await stream(tenants[5]);
+    assert.equal(full.status, 429);
+    assert.match(full.headers.get("retry-after") ?? "", /^\d+$/);
+    assert.equal(full.headers.get("content-security-policy"), "sandbox");
+    assert.equal((await stream(tenants[0])).status, 429, "an owner's fifth stream is refused too");
+    assert.equal(serverSlotsGivenBack, mediaSlots, "a refusal never held a slot to give back");
+
+    const mcp = await handleCloudMcpRequest(
+      new Request(`http://gateway.invalid${CONFIG.mcpPath}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${"a".repeat(43)}`, "content-type": "application/json" },
+        body: "{}",
+      }),
+      deps({
+        recordAppUse: async () => undefined,
+        serviceNoticeHeader: async () => null,
+        fetchCell: async () => new Response("{}", { status: 200 }),
+      })
+    );
+    assert.notEqual(mcp.status, 429, "MCP keeps its slots while every media slot is taken");
+    await mcp.text();
+
+    for (const response of open) await response.body?.cancel();
+    const after = await stream(tenants[5]);
+    assert.equal(after.status, 200, "finished streams give their media slots back");
+    await after.body?.cancel();
+  });
+
+  it("reads the media pool's size from its setting, and refuses one it cannot use", () => {
+    assert.equal(cloudMediaDownloadLimit({}), 16);
+    assert.equal(cloudMediaDownloadLimit({ EXOMEM_GATEWAY_MAX_MEDIA_DOWNLOADS: "4" }), 4);
+    for (const bad of ["0", "129", "abc", "2.5"]) {
+      assert.throws(
+        () => cloudMediaDownloadLimit({ EXOMEM_GATEWAY_MAX_MEDIA_DOWNLOADS: bad }),
+        /EXOMEM_GATEWAY_MAX_MEDIA_DOWNLOADS/,
+        bad
+      );
+    }
   });
 
   it("is useless at /mcp and /upload", async () => {
