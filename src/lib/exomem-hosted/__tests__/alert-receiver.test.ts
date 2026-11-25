@@ -67,6 +67,8 @@ type Row = {
   received_at: number;
   /** How long ago the database stamped `received_at`; the fake has no wall clock. */
   age_hours: number;
+  /** Delivered without an email, because it repeated the last emailed state. */
+  suppressed: boolean;
   notification_state: "pending" | "delivered" | "failed";
   notification_attempts: number;
   claimed_until: number | null;
@@ -115,6 +117,7 @@ function installFakeSql(): void {
         active,
         received_at: sequence++,
         age_hours: 0,
+        suppressed: false,
         notification_state: "pending",
         notification_attempts: 0,
         claimed_until: null,
@@ -149,10 +152,11 @@ function installFakeSql(): void {
     }
 
     if (marker === "exomem:mark-alert-notified") {
-      const [transitionId] = values as [string];
+      const [suppressed, transitionId] = values as [boolean, string];
       const row = table.get(transitionId);
       if (row && row.notification_state === "pending") {
         row.notification_state = "delivered";
+        row.suppressed = suppressed;
         row.notified_at = clock;
         row.claimed_until = null;
         row.last_error_code = null;
@@ -185,6 +189,7 @@ function installFakeSql(): void {
             row.job === job &&
             row.alert === alert &&
             row.notification_state === "delivered" &&
+            !row.suppressed &&
             row.transition_id !== transitionId
         )
         .sort((left, right) => right.received_at - left.received_at)[0];
@@ -234,6 +239,7 @@ function seed(overrides: Partial<Row> & { transition_id: string }): Row {
     active: true,
     received_at: sequence++,
     age_hours: 0,
+    suppressed: false,
     notification_state: "pending",
     notification_attempts: 0,
     claimed_until: null,
@@ -584,6 +590,11 @@ describe("deliverClaimedAlert", () => {
     const outcome = await receiver.deliverClaimedAlert(OTHER_ID);
     assert.equal(outcome.skipped, true);
     assert.equal(sent.length, 0);
+    assert.equal(
+      table.get(OTHER_ID)?.suppressed,
+      true,
+      "a suppressed row must not restart the window"
+    );
   });
 
   it("notifies again when a still-active alert repeats after 23 hours", async () => {
@@ -601,6 +612,31 @@ describe("deliverClaimedAlert", () => {
     assert.equal(outcome.skipped, false);
     assert.equal(sent.length, 1);
     assert.equal(table.get(OTHER_ID)?.notification_state, "delivered");
+    assert.equal(table.get(OTHER_ID)?.suppressed, false);
+  });
+
+  it("counts the 23 hours from the last email, not from a report that sent none", async () => {
+    // A sender that reports several times a day: the reports in between were
+    // suppressed, and must not push the next email back.
+    seed({
+      transition_id: TRANSITION_ID,
+      notification_state: "delivered",
+      notified_at: clock,
+      active: true,
+      age_hours: 24,
+    });
+    seed({
+      transition_id: "c".repeat(64),
+      notification_state: "delivered",
+      notified_at: clock,
+      active: true,
+      suppressed: true,
+      age_hours: 1,
+    });
+    seed({ transition_id: OTHER_ID, active: true });
+    const outcome = await receiver.deliverClaimedAlert(OTHER_ID);
+    assert.equal(outcome.skipped, false);
+    assert.equal(sent.length, 1);
   });
 
   it("keeps an inactive repeat silent however long ago the last delivery was", async () => {

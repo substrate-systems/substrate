@@ -251,12 +251,19 @@ export async function claimAlertNotification(
   };
 }
 
-export async function markAlertNotified(transitionId: string): Promise<void> {
+/** Record a transition as delivered. `suppressed` says no email went out for it
+ * because it repeated the last emailed state; the 23-hour repeat counts from
+ * the last row that was not suppressed. */
+export async function markAlertNotified(
+  transitionId: string,
+  { suppressed = false }: { suppressed?: boolean } = {}
+): Promise<void> {
   await executeExomemSql`
     /* exomem:mark-alert-notified */
     UPDATE exomem_hosted_alert_transitions
     SET notification_state = 'delivered',
         notified_at = now(),
+        suppressed = ${suppressed},
         claimed_until = NULL,
         last_error_code = NULL
     WHERE transition_id = ${transitionId}
@@ -288,22 +295,25 @@ export async function releaseAlertNotification(
   `;
 }
 
-/** Mark a transition delivered without sending, because it carries no news.
+/** Decide whether a transition carries no news, so the caller marks it
+ * delivered and suppressed without sending.
  *
  * The sender recomputes `transition_id` from a sequence plus the transition
  * body, and the sequence does not advance until every delivery in a pass has
  * succeeded. A retried pass whose transition list has shifted therefore emits
  * the *same* state change under a *different* id, which the primary key cannot
- * catch. Comparing against the last delivered state for this (job, alert) does:
+ * catch. Comparing against the last emailed state for this (job, alert) does:
  * a genuine flap alternates `active`, a redelivery repeats it.
  *
- * An active repeat is news again once the last delivered row is more than 23
+ * An active repeat is news again once the last emailed row is more than 23
  * hours old: a sender that re-reports a still-active alert daily lands its next
  * report a little under or over 24 hours later, and an emailed-once alert would
- * otherwise stay silent for as long as it stays active. A retry arrives within
- * minutes, so it stays redundant. An inactive repeat is never news; the key
- * watcher sends one every hour. The comparison runs in SQL so it uses the
- * database's clock, the one `received_at` was stamped with.
+ * otherwise stay silent for as long as it stays active. The window runs from
+ * the last email, not from the last report, so a sender that reports many
+ * times a day still gets one repeat a day. A retry arrives within minutes, so
+ * it stays redundant. An inactive repeat is never news; the key watcher sends
+ * one every hour. The comparison runs in SQL so it uses the database's clock,
+ * the one `received_at` was stamped with.
  */
 export async function isRedundantTransition(transition: AlertTransition): Promise<boolean> {
   const { rows } = await executeExomemSql`
@@ -313,6 +323,7 @@ export async function isRedundantTransition(transition: AlertTransition): Promis
     WHERE job = ${transition.job}
       AND alert = ${transition.alert}
       AND notification_state = 'delivered'
+      AND NOT suppressed
       AND transition_id <> ${transition.transitionId}
     ORDER BY received_at DESC
     LIMIT 1
@@ -422,7 +433,7 @@ export async function deliverClaimedAlert(transitionId: string): Promise<AlertNo
 
   try {
     if (await isRedundantTransition(transition)) {
-      await markAlertNotified(transition.transitionId);
+      await markAlertNotified(transition.transitionId, { suppressed: true });
       return { ...identity, delivered: true, skipped: true };
     }
   } catch {
