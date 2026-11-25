@@ -423,6 +423,28 @@
   color: var(--fg-secondary);
 }
 
+/* --- What's new: the cell's notes under each release's date --- */
+
+.whatsNewNotes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.whatsNewFoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 12px 0;
+}
+
 /* --- Add another app --- */
 
 .addPanel {

@@ -16,6 +16,25 @@ function format(iso: string, options: Intl.DateTimeFormatOptions, timeZone?: str
   return new Intl.DateTimeFormat(LOCALE, { ...options, timeZone }).format(new Date(iso));
 }
 
+/**
+ * "26 Nov", and "26 Nov 2025" when the year is not the reader's current one. The
+ * date has no time of day, so it is read as that calendar date in every zone.
+ */
+export function releaseDay(date: string, clock: Clock): string {
+  const day = new Date(`${date}T00:00:00Z`);
+  const thisYear = new Intl.DateTimeFormat(LOCALE, {
+    year: "numeric",
+    timeZone: clock.timeZone,
+  }).format(clock.now);
+  const sameYear = day.getUTCFullYear() === Number(thisYear);
+  return new Intl.DateTimeFormat(LOCALE, {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+    timeZone: "UTC",
+  }).format(day);
+}
+
 /** "14:02": the time Home read something. */
 export function hourMinute(ms: number, timeZone?: string): string {
   return new Intl.DateTimeFormat(LOCALE, { hour: "2-digit", minute: "2-digit", timeZone }).format(
