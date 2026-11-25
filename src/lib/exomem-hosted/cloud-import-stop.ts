@@ -9,11 +9,10 @@ export type ImportStopNext = "resume" | "choose" | "cancel" | "status";
 // Our own reasons for stopping a browser import. The text never carries a file name, a path
 // or a browser's message, because those can name private folder content.
 const STOPS = {
-  FOLDER_EMPTY: { next: "choose", text: "Choose a folder that contains files." },
-  FOLDER_SHAPE: { next: "choose", text: "Choose one folder to import." },
+  FOLDER_EMPTY: { next: "choose", text: "The selection holds no files. Choose files or a folder." },
   FOLDER_PATH: {
     next: "choose",
-    text: "The folder contains an invalid or repeated archive path.",
+    text: "A file name in the selection is invalid or repeated. Remove that pick and choose again.",
   },
   BROWSER_SPACE: {
     next: "resume",

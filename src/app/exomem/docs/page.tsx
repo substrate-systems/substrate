@@ -168,7 +168,7 @@ export default function ExomemDocsPage() {
           Evermatter keeps the old version and marks it as replaced.
         </li>
         <li>
-          <strong>Imports:</strong> you can also add your own documents with “Import documents” on{" "}
+          <strong>Imports:</strong> you can also add your own files with “Add files” on{" "}
           {home}.
         </li>
       </ul>

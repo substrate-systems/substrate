@@ -10,10 +10,16 @@ const ROOT = "exomem-import-uploads";
 // Checks the shape of our own file names (an import UUID plus ".age"). Anything else, such as a
 // browser's ".crswap" file for a write in progress, is not ours to count or remove.
 const KEPT_NAME = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.age$/i;
+// The same check for the person's label kept beside an import's ciphertext.
+const LABEL_NAME = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.label$/i;
 
 /** The import ID names its ciphertext, so a reload or a new tab finds the same file. */
 function ciphertextName(importId: string): string {
   return `${importId}.age`;
+}
+
+function labelName(importId: string): string {
+  return `${importId}.label`;
 }
 
 /** Origin-private storage exists only in secure contexts of browsers that implement it. */
@@ -134,7 +140,40 @@ export async function storedImportCiphertext(
 /** Removes this import's copy; the caller holds the import or has checked that no tab does. */
 export async function removeImportCiphertext(account: string, importId: string): Promise<void> {
   if (!privateStorage()) return;
-  await removeEntry(await accountDirectory(account), ciphertextName(importId));
+  const directory = await accountDirectory(account);
+  await removeEntry(directory, ciphertextName(importId));
+  await removeEntry(directory, labelName(importId));
+}
+
+/**
+ * Keeps the person's label for an import in this browser. The label is part of the archive the
+ * import declared, so choosing the same files after a reload matches only with the same label.
+ */
+export async function keepImportLabel(
+  account: string,
+  importId: string,
+  label: string
+): Promise<void> {
+  if (!privateStorage()) return;
+  const directory = await accountDirectory(account);
+  if (!label) return removeEntry(directory, labelName(importId));
+  const writable = await (
+    await directory.getFileHandle(labelName(importId), { create: true })
+  ).createWritable();
+  await writable.write(new TextEncoder().encode(label));
+  await writable.close();
+}
+
+/** The label this browser kept for an import, or null when it kept none. */
+export async function storedImportLabel(account: string, importId: string): Promise<string | null> {
+  if (!privateStorage()) return null;
+  try {
+    const handle = await (await accountDirectory(account)).getFileHandle(labelName(importId));
+    return await (await handle.getFile()).text();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotFoundError") return null;
+    throw error;
+  }
 }
 
 /** Removes this import's copy unless another tab holds the import; false when one does. */
@@ -162,8 +201,9 @@ export async function sweepKeptCiphertext(
   const directory = await accountDirectory(account);
   const candidates: string[] = [];
   for await (const [name, handle] of entries(directory)) {
-    const importId = KEPT_NAME.exec(name)?.[1];
-    if (handle.kind === "file" && importId && importId !== keep) candidates.push(importId);
+    const importId = (KEPT_NAME.exec(name) ?? LABEL_NAME.exec(name))?.[1];
+    if (handle.kind === "file" && importId && importId !== keep && !candidates.includes(importId))
+      candidates.push(importId);
   }
   for (const importId of candidates) {
     // One copy that cannot be removed now stays counted as used; the next sweep tries again.
@@ -176,13 +216,16 @@ export async function sweepKeptCiphertext(
 
 type KeptCopy = { directory: FileSystemDirectoryHandle; name: string; importId: string };
 
-/** Copies outside this account's folder: other accounts' and those from before folders. */
-async function otherCopies(account: string): Promise<KeptCopy[]> {
+/**
+ * Copies outside this account's folder: other accounts' and those from before folders. With
+ * LABEL_NAME, the labels kept beside them instead.
+ */
+async function otherCopies(account: string, names: RegExp = KEPT_NAME): Promise<KeptCopy[]> {
   const root = await rootDirectory();
   const copies: KeptCopy[] = [];
   const collect = async (directory: FileSystemDirectoryHandle) => {
     for await (const [name, handle] of entries(directory)) {
-      const importId = KEPT_NAME.exec(name)?.[1];
+      const importId = names.exec(name)?.[1];
       if (handle.kind === "file" && importId) copies.push({ directory, name, importId });
     }
   };
@@ -212,17 +255,20 @@ export async function otherKeptCiphertext(
   return total;
 }
 
-/** Removes other accounts' kept copies on the owner's request, except those a tab holds. */
+/**
+ * Removes other accounts' kept copies and their labels on the owner's request, except those a
+ * tab holds. `kept` counts the copies that stay.
+ */
 export async function discardOtherKeptCiphertext(account: string): Promise<{ kept: number }> {
   if (!privateStorage()) return { kept: 0 };
-  let kept = 0;
-  for (const { directory, name, importId } of await otherCopies(account)) {
-    const removed = await whileImportFree(importId, async () => {
+  const remove = ({ directory, name, importId }: KeptCopy) =>
+    whileImportFree(importId, async () => {
       await removeEntry(directory, name);
       return true;
     }).catch(() => false);
-    if (!removed) kept += 1;
-  }
+  let kept = 0;
+  for (const copy of await otherCopies(account)) if (!(await remove(copy))) kept += 1;
+  for (const label of await otherCopies(account, LABEL_NAME)) await remove(label);
   return { kept };
 }
 

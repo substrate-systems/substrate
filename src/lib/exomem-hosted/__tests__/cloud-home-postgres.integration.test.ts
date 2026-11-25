@@ -3,13 +3,14 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, before, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
 import { cloudExportReply } from "../../exomem/cloud-export-contract";
 import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
 import {
+  handleCloudHomeFilingRequest,
   handleCloudHomeLevelsRequest,
   handleCloudHomeLiveRequest,
   handleCloudHomeWhatsNewRequest,
@@ -1364,6 +1365,152 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         { env: { ...ENV, EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: undefined } }
       );
       assert.equal(notes.status, 404);
+    });
+
+    it("reads one import's filing on the session's own cell; an older cell's refusal offers the assistant prompt", async () => {
+      const alice = await owner();
+      const importId = randomUUID();
+      // The settled record as Home passes it on; the cell's reply adds the agents' text.
+      const shown = {
+        state: "done",
+        as_of: "2026-11-25T10:00:00Z",
+        progress: {
+          total: 40,
+          filed: 37,
+          skipped_duplicates: 1,
+          failed: 0,
+          left_out: 2,
+          remaining: 0,
+        },
+        left_out: {
+          by_reason: { ineligible: 2 },
+          items: [
+            { path: "Takeout/setup.exe", code: "ineligible" },
+            { path: "Takeout/tool.dmg", code: "ineligible" },
+          ],
+          truncated: false,
+        },
+        stop: null,
+        needs: [],
+        rate: null,
+      };
+      const record = {
+        ...shown,
+        person: [{ need: "review_residual", text: "2 files stay staged in _Imports/…" }],
+      };
+      const filing = (cell: ReturnType<typeof fakeCell>, id: string = importId) =>
+        handleCloudHomeFilingRequest(
+          browserRequest(alice, "GET", `/api/exomem/cloud/home/filing/${id}`),
+          id,
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+
+      const current = fakeCell(() => record);
+      const live = await filing(current);
+      assert.equal(live.status, 200);
+      assert.deepEqual(await json(live), { state: "live", filing: shown });
+      // A cell serves only its public tools: the read goes through its read door.
+      assert.equal(current.calls[0]!.tool, "inspect_memory");
+      assert.deepEqual(current.calls[0]!.arguments, {
+        operation: "imports.status",
+        arguments: { path: `_Imports/${importId}`, view: "filing" },
+      });
+      assert.equal(current.calls[0]!.routedTenantId, alice.tenantId);
+
+      // A cell from before the doors refuses the tool; a later one without the filer refuses
+      // the view. Both offer the assistant prompt.
+      const beforeDoors = fakeCell(
+        (call) =>
+          new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: JSON.parse(call.rawBody).id,
+              result: { isError: true, content: [{ type: "text", text: "Unknown tool" }] },
+            }),
+            { headers: { "content-type": "application/json" } }
+          )
+      );
+      assert.deepEqual(await json(await filing(beforeDoors)), { state: "not_offered" });
+      const withoutFiler = fakeCell(() => ({
+        error: { code: "IMPORT_REQUEST_INVALID", message: "unknown status view" },
+      }));
+      assert.deepEqual(await json(await filing(withoutFiler)), { state: "not_offered" });
+
+      // A refusal of the arguments still offers the prompt, but a contract break must show in
+      // the log: one line with the code alone.
+      const argumentLog: unknown[] = [];
+      const argumentWarn = mock.method(console, "warn", (line: unknown) => argumentLog.push(line));
+      try {
+        const refusesArguments = fakeCell(() => ({
+          error: { code: "INVALID_ARGUMENT", message: "view must be one of summary, full" },
+        }));
+        assert.deepEqual(await json(await filing(refusesArguments)), { state: "not_offered" });
+      } finally {
+        argumentWarn.mock.restore();
+      }
+      assert.deepEqual(argumentLog, [
+        {
+          event: "exomem_cloud_home_call_unavailable",
+          tool: "inspect_memory",
+          reason: "NOT_OFFERED",
+          detail: "INVALID_ARGUMENT",
+        },
+      ]);
+
+      // A record of another shape comes from a cell that files by itself: unreadable, not older.
+      // Its log line names the failure only, never a path or label from the record.
+      const warnings: unknown[] = [];
+      const warn = mock.method(console, "warn", (line: unknown) => warnings.push(line));
+      try {
+        const drifted = fakeCell(() => ({ ...record, progress: { filed: "Takeout/setup.exe" } }));
+        assert.deepEqual(await json(await filing(drifted)), {
+          state: "unavailable",
+          reason: "FILING_UNREADABLE",
+        });
+      } finally {
+        warn.mock.restore();
+      }
+      assert.equal(warnings.length, 1);
+      assert.ok(!JSON.stringify(warnings).includes("Takeout"));
+
+      // Only an import ID becomes a stage path; nothing else reaches the cell.
+      const probe = fakeCell(() => record);
+      assert.equal((await filing(probe, "../_Schema")).status, 400);
+      assert.equal(probe.calls.length, 0);
+    });
+
+    it("wakes an import's filer under the session's login with a checked request, and passes on its record", async () => {
+      const alice = await owner();
+      const importId = randomUUID();
+      const record = {
+        state: "working",
+        as_of: "2026-11-25T10:00:00Z",
+        progress: null,
+        left_out: null,
+        stop: null,
+        needs: [],
+        rate: null,
+      };
+      const cell = fakeCell(() => record);
+      const wake = (request: Request) =>
+        handleCloudHomeFilingRequest(request, importId, { fetchCell: cell.fetchCell, env: ENV });
+      const path = `/api/exomem/cloud/home/filing/${importId}`;
+
+      const woken = await wake(browserRequest(alice, "POST", path, {}));
+      assert.equal(woken.status, 200);
+      assert.deepEqual(await json(woken), { state: "live", filing: record });
+      assert.equal(cell.calls[0]!.tool, "manage_memory");
+      assert.deepEqual(cell.calls[0]!.arguments, {
+        operation: "imports.file",
+        arguments: { path: `_Imports/${importId}`, wait: false },
+      });
+      assert.equal(cell.calls[0]!.routedTenantId, alice.tenantId);
+
+      // A wake without the page's CSRF token never reaches the cell.
+      const forged = browserRequest(alice, "POST", path, {});
+      forged.headers.delete("x-exomem-csrf");
+      assert.equal((await wake(forged)).status, 403);
+      assert.equal(cell.calls.length, 1);
     });
   });
 

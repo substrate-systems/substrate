@@ -3,13 +3,15 @@ import { mock, test } from "node:test";
 import { Decrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import { createTarDecoder } from "modern-tar";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { BlobWriter, TextReader, ZipWriter } from "@zip.js/zip.js/index-native.js";
 import {
   encryptImportFiles,
-  folderImportFiles,
   forecastImport,
   uploadImportParts,
   type EncryptionProgress,
 } from "../cloud-import-browser";
+import { importArchive, uploadOrigin } from "../cloud-import-envelope";
+import { addToSelection, selectImportFiles, selectionCollection } from "../cloud-import-selection";
 
 test("browser encryption preserves selected Unicode paths, binary bytes and empty files", async () => {
   const identity = await generateIdentity();
@@ -191,10 +193,98 @@ test("a substituted part layout is refused before uploading any bytes", async ()
   }
 });
 
-test("folder selection retains nested paths without importing its enclosing folder", () => {
-  const file = new File(["content"], "note.md");
-  Object.defineProperty(file, "webkitRelativePath", { value: "selected/notes/note.md" });
-  assert.deepEqual(folderImportFiles([file]), [{ path: "notes/note.md", file }]);
+test("a built archive decrypts to the series file, each member's time and the folder's collection name", async () => {
+  const identity = await generateIdentity();
+  const zip = new ZipWriter(new BlobWriter(), { useWebWorkers: false });
+  await zip.add("page.md", new TextReader("from the export"), {
+    lastModDate: new Date("2024-03-05T10:20:30Z"),
+  });
+  const plan = new File(["plan"], "plan.md", { lastModified: Date.parse("2025-06-01T08:00:00Z") });
+  const parts = await addToSelection(
+    [],
+    [
+      {
+        kind: "folder",
+        name: "Workspace",
+        files: [
+          { path: "notes/plan.md", file: plan },
+          {
+            path: "export.zip",
+            file: new File([await zip.close()], "export.zip", { lastModified: 0 }),
+          },
+          { path: ".obsidian/app.json", file: new File(["{}"], "app.json") },
+        ],
+      },
+    ]
+  );
+  const selection = selectImportFiles(parts, { gitignored: false });
+  const origin = uploadOrigin(
+    {
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 " +
+        "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    },
+    "  Notion export  "
+  );
+  const archive = importArchive(selection, selectionCollection(parts), origin);
+
+  const chunks: Buffer[] = [];
+  await encryptImportFiles(
+    archive,
+    await identityToRecipient(identity),
+    new WritableStream({ write: (chunk) => void chunks.push(Buffer.from(chunk)) })
+  );
+  const decrypter = new Decrypter();
+  decrypter.addIdentity(identity);
+  const plaintext = await decrypter.decrypt(Buffer.concat(chunks));
+  const members = new Map<string, { mtime: number; body: string }>();
+  const reader = new Blob([Uint8Array.from(plaintext)])
+    .stream()
+    .pipeThrough(createTarDecoder({ strict: true }))
+    .getReader();
+  for (;;) {
+    const { value: entry, done } = await reader.read();
+    if (done) break;
+    members.set(entry.header.name, {
+      mtime: entry.header.mtime!.getTime(),
+      body: await new Response(entry.body).text(),
+    });
+  }
+
+  assert.deepEqual(
+    [...members.keys()],
+    [".exomem-series.json", "Workspace/notes/plan.md", "Workspace/export/page.md"]
+  );
+  assert.deepEqual(JSON.parse(members.get(".exomem-series.json")!.body), {
+    label: "Workspace",
+    paths: ["Workspace/notes/plan.md", "Workspace/export/page.md"],
+    filing: "cell",
+    origin: { label: "Notion export", device_family: "phone", browser_family: "safari" },
+  });
+  assert.equal(members.get("Workspace/notes/plan.md")!.mtime, Date.parse("2025-06-01T08:00:00Z"));
+  // A zip member keeps the time the zip records for it.
+  assert.equal(members.get("Workspace/export/page.md")!.mtime, Date.parse("2024-03-05T10:20:30Z"));
+});
+
+test("loose files name no collection: the person's label stays provenance alone", async () => {
+  const parts = await addToSelection(
+    [],
+    [{ kind: "file", file: new File(["pixels"], "IMG_0001.HEIC") }]
+  );
+  const selection = selectImportFiles(parts, { gitignored: false });
+  const series = await new Response(
+    importArchive(
+      selection,
+      selectionCollection(parts),
+      uploadOrigin({ userAgent: "synthetic" }, "My phone")
+    )[0].file.stream()
+  ).json();
+  // A reused label as the collection name would join unrelated uploads as one collection's versions.
+  assert.deepEqual(series, {
+    paths: ["IMG_0001.HEIC"],
+    filing: "cell",
+    origin: { label: "My phone", device_family: "other", browser_family: "other" },
+  });
 });
 
 test(

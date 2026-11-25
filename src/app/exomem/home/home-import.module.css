@@ -1,0 +1,173 @@
+/* Home's import dialog: the drop zone (Home board, import pick), the selection summary and
+   the filing result. Values follow the board's import modal; colours are tokens. */
+
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 16px 18px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--exo-border-field);
+  background: var(--bg-base);
+  text-align: center;
+  transition: border-color 150ms ease;
+}
+
+.compact {
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.dropOver {
+  border-color: var(--fg-primary);
+}
+
+.mark {
+  color: var(--fg-muted);
+}
+
+.dropTitle {
+  font-size: 14.5px;
+  color: var(--fg-primary);
+}
+
+.dropActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dropNote {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+/* A phone has no drag and drop and no folder picker: its words and controls differ. */
+.fine {
+  display: contents;
+}
+
+.coarse {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .fine {
+    display: none;
+  }
+
+  .coarse {
+    display: contents;
+  }
+}
+
+.headline {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 15px;
+  color: var(--fg-primary);
+}
+
+.parts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--exo-rule);
+}
+
+.parts li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--exo-rule);
+}
+
+.partName {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.partFrom {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.partTotals {
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.leftOut summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 0;
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+
+.leftOut summary::before {
+  content: "+";
+  display: inline-block;
+  width: 16px;
+  color: var(--fg-muted);
+}
+
+.leftOut[open] summary::before {
+  content: "–";
+}
+
+.leftOut summary::-webkit-details-marker {
+  display: none;
+}
+
+.leftOut ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leftOut li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.leftOutPath {
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.leftOutReason {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+
+.leftOutMore {
+  margin: 8px 0 0;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}

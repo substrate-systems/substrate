@@ -93,6 +93,11 @@ export function count(value: number): string {
   return new Intl.NumberFormat(LOCALE).format(value);
 }
 
+/** "1 file", "1,204 files". */
+export function filesWord(value: number): string {
+  return `${count(value)} file${value === 1 ? "" : "s"}`;
+}
+
 /** Bytes as decimal gigabytes with one decimal at most: "1.2", "10.7". */
 export function gigabytes(bytes: number): string {
   return new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(bytes / 1e9);

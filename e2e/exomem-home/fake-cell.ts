@@ -41,6 +41,11 @@ export type FakeCellState = {
   viewerMap?: unknown;
   viewerSearch?: unknown;
   viewerNotes?: Record<string, unknown>;
+  /**
+   * The filing view's record per import ID. Unset, the stand-in is a cell without the
+   * import filer, which refuses the view.
+   */
+  filing?: Record<string, unknown>;
 };
 
 function initialState(): FakeCellState {
@@ -99,6 +104,18 @@ export function startFakeCell(options: {
     if (name === "viewer_map") return { answer: state.viewerMap ?? { available: false } };
     if (name === "ask_memory") return { answer: { result: state.viewerSearch ?? [] } };
     if (name === "read_memory") return { answer: state.viewerNotes?.[String(args.path)] ?? {} };
+    // The filing view's read and the wake both answer the stage's record, unwrapped as a
+    // real cell's door answers; a stage without one is refused as a cell without the filer
+    // refuses the view.
+    if (
+      (name === "inspect_memory" && args.operation === "imports.status") ||
+      (name === "manage_memory" && args.operation === "imports.file")
+    ) {
+      const fields = (args.arguments ?? {}) as Record<string, unknown>;
+      const importId = String(fields.path).split("/")[1];
+      const record = state.filing?.[importId];
+      return { answer: record ?? { error: { code: "IMPORT_REQUEST_INVALID" } } };
+    }
     const inspect = () => ({ revision: String(state.revision), levels: state.levels });
     if (name === "read_instructions" && args.section === "whats_new") {
       return { answer: { contract_version: "1", section: "whats_new", whats_new: state.whatsNew } };

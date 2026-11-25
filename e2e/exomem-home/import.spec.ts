@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, test as base } from "@playwright/test";
 import { Decrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import { createTarDecoder } from "modern-tar";
@@ -22,7 +22,7 @@ test("Home offers imports only while the cell permits starting one", async ({ pa
   const owner = await createOwner();
   await signIn(context, owner);
   await page.goto("/exomem/home");
-  const start = page.getByRole("button", { name: "Import…", exact: true });
+  const start = page.getByRole("button", { name: "Add files…", exact: true });
   await expect(start).toBeVisible();
 
   // These are C5's two retained cell states that refuse new imports.
@@ -60,9 +60,9 @@ test("an open import remains cancellable when billing stops new uploads", async 
     await signIn(context, owner);
     await page.clock.install();
     await page.goto("/exomem/home");
-    await page.getByRole("button", { name: "Import…", exact: true }).click();
+    await page.getByRole("button", { name: "Add files…", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Folder to import").setInputFiles(folder);
+    await dialog.getByLabel("Folder to add").setInputFiles(folder);
     const created = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === "/api/exomem/cloud/imports" &&
@@ -83,11 +83,13 @@ test("an open import remains cancellable when billing stops new uploads", async 
     await expect(
       dialog.getByText("Starting or resuming an upload is unavailable right now.")
     ).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: /^(Choose a folder|Choose files|Choose photos or files)$/ })
+    ).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Resume upload" })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Import status…", exact: true }).click();
+    await page.getByRole("button", { name: "Status…", exact: true }).click();
     await dialog.getByRole("button", { name: "Cancel import", exact: true }).click();
     await expect(dialog.getByText("Cancellation requested.", { exact: false })).toBeVisible();
     const stored = await pool.query(
@@ -96,7 +98,7 @@ test("an open import remains cancellable when billing stops new uploads", async 
     );
     expect(stored.rows[0].requested_state).toBe("cancelled");
     await page.reload();
-    await page.getByRole("button", { name: "Import status…", exact: true }).click();
+    await page.getByRole("button", { name: "Status…", exact: true }).click();
     await expect(
       page.getByRole("dialog").getByText("Cancellation requested.", { exact: false })
     ).toBeVisible();
@@ -136,10 +138,13 @@ test("Home encrypts the selected folder, stages it and preserves observed status
     });
     await signIn(context, owner);
     await page.goto("/exomem/home");
-    await page.getByRole("button", { name: "Import…", exact: true }).click();
+    await page.getByRole("button", { name: "Add files…", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toBeVisible();
-    await dialog.getByLabel("Folder to import").setInputFiles(folder);
+    // Desktop shows "Choose a folder"; a touch screen shows one "Choose photos or files".
+    await expect(
+      dialog.getByRole("button", { name: /^(Choose a folder|Choose photos or files)$/ }).first()
+    ).toBeVisible();
+    await dialog.getByLabel("Folder to add").setInputFiles(folder);
     const created = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === "/api/exomem/cloud/imports" &&
@@ -192,22 +197,34 @@ test("Home encrypts the selected folder, stages it and preserves observed status
     } finally {
       reader.releaseLock();
     }
-    expect(files.get("notes/計画.md")).toBe(body);
-    expect(files.get("empty.md")).toBe("");
-    expect(files.size).toBe(2);
+    // The chosen folder keeps its name; the series file asks the cell to file the import.
+    const root = basename(folder);
+    expect(files.get(`${root}/notes/計画.md`)).toBe(body);
+    expect(files.get(`${root}/empty.md`)).toBe("");
+    const series = files.get(".exomem-series.json")!;
+    expect(JSON.parse(series)).toMatchObject({
+      label: root,
+      paths: expect.arrayContaining([`${root}/notes/計画.md`, `${root}/empty.md`]),
+      filing: "cell",
+      // The phone projects run with touch and a phone user agent.
+      origin: { device_family: test.info().project.name.includes("phone") ? "phone" : "desktop" },
+    });
+    expect(files.size).toBe(3);
     const stored = await pool.query(
       "SELECT requested_state,declared_files,declared_bytes FROM exomem_cloud_imports WHERE import_id=$1",
       [operation.import_id]
     );
     expect(stored.rows[0].requested_state).toBe("uploaded");
-    expect(Number(stored.rows[0].declared_files)).toBe(2);
-    expect(Number(stored.rows[0].declared_bytes)).toBe(Buffer.byteLength(body));
+    expect(Number(stored.rows[0].declared_files)).toBe(3);
+    expect(Number(stored.rows[0].declared_bytes)).toBe(
+      Buffer.byteLength(body) + Buffer.byteLength(series)
+    );
     await pool.query(
       "UPDATE exomem_cloud_imports SET observed_state='done',updated_at=now() WHERE import_id=$1",
       [operation.import_id]
     );
     await page.reload();
-    await page.getByRole("button", { name: "Import…", exact: true }).click();
+    await page.getByRole("button", { name: "Add files…", exact: true }).click();
     await expect(
       page.getByRole("dialog").getByText("Files staged.", { exact: false })
     ).toBeVisible();
@@ -290,10 +307,13 @@ test("local ciphertext cleanup failure does not block cancellation or reuse a te
     });
     await signIn(context, owner);
     await page.goto("/exomem/home");
-    await page.getByRole("button", { name: "Import…", exact: true }).click();
+    await page.getByRole("button", { name: "Add files…", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "Choose a folder" })).toBeVisible();
-    await dialog.getByLabel("Folder to import").setInputFiles(folder);
+    // Desktop shows "Choose a folder"; a touch screen shows one "Choose photos or files".
+    await expect(
+      dialog.getByRole("button", { name: /^(Choose a folder|Choose photos or files)$/ }).first()
+    ).toBeVisible();
+    await dialog.getByLabel("Folder to add").setInputFiles(folder);
     const created = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === "/api/exomem/cloud/imports" &&
@@ -344,7 +364,7 @@ test("local ciphertext cleanup failure does not block cancellation or reuse a te
     await expect(
       dialog.getByRole("button", { name: "Encrypt and upload", exact: true })
     ).toHaveCount(0);
-    await dialog.getByLabel("Folder to import").setInputFiles(folder);
+    await dialog.getByLabel("Folder to add").setInputFiles(folder);
     await expect(dialog.getByRole("alert")).toContainText("Browser cleanup failed.");
     const fresh = page.waitForResponse(
       (response) =>

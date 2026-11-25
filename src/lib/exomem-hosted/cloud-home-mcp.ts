@@ -9,14 +9,22 @@
  * deletion when the token arrives (`findCloudOAuthAccessToken`).
  *
  * Home calls only the cell's public tools: the `settings` operations of
- * `inspect_memory` and `manage_memory`, and the `read_instructions` activity
- * and `whats_new` sections. A cell refuses a name it does not list.
+ * `inspect_memory` and `manage_memory`, the `read_instructions` activity and
+ * `whats_new` sections, and one import's filing through `inspect_memory`
+ * `imports.status` and `manage_memory` `imports.file`. A cell refuses a name it
+ * does not list.
  * The viewer reuses the same transport for three fixed read operations.
  * Browser callers never choose a tool, tenant, gateway or cell.
  */
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  filingRecord,
+  filingStatusCall,
+  filingWakeCall,
+  type FilingView,
+} from "../exomem/cloud-filing-contract";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
 import {
   isReleaseVersion,
@@ -210,7 +218,9 @@ type HomeToolCall =
             arguments: { context: CloudHomeContext; expected_revision: string };
           };
     }
-  | { name: "read_instructions"; arguments: { profile: "compact"; section: BootstrapSection } };
+  | { name: "read_instructions"; arguments: { profile: "compact"; section: BootstrapSection } }
+  | ReturnType<typeof filingStatusCall>
+  | ReturnType<typeof filingWakeCall>;
 
 // These names and argument shapes are the existing cell protocol, not a browser-selected proxy.
 export type CloudViewerToolCall =
@@ -228,7 +238,7 @@ export type CloudViewerToolCall =
     }
   | { name: "read_memory"; arguments: { path: string; links: true; include_raw: false } };
 
-type CellAnswer =
+export type CellAnswer =
   | { kind: "result"; value: unknown }
   | { kind: "refused"; code: string }
   | { kind: "unavailable"; view: CloudHomeUnavailable };
@@ -698,6 +708,62 @@ async function readCloudHomeWhatsNew(
   };
 }
 
+/**
+ * One import's filing on the cell. A cell without the filer refuses the call: a cell from
+ * before the doors refuses the tool (an outdated answer), and a later one without the filing
+ * view refuses the operation or its arguments. Home then offers the assistant prompt instead.
+ */
+function filingUnavailable({ reason }: CloudHomeUnavailable): FilingView {
+  return reason === "CELL_OUTDATED" ? { state: "not_offered" } : { state: "unavailable", reason };
+}
+
+// The cell's refusal codes for an operation or view it does not offer: the doors' own two, and
+// the status of `adoption_run` for an unknown view. A closed set of the cell's protocol codes.
+const NOT_OFFERED = new Set(["INVALID_OPERATION", "INVALID_ARGUMENT", "IMPORT_REQUEST_INVALID"]);
+
+function filingFromAnswer(tool: HomeToolCall["name"], answer: CellAnswer): FilingView {
+  if (answer.kind === "unavailable") return filingUnavailable(answer.view);
+  if (answer.kind === "refused") {
+    // Arguments a cell with the filer refuses are a contract break rather than an older cell;
+    // Home still offers the assistant prompt, and the code alone goes to the log.
+    if (answer.code === "INVALID_ARGUMENT") logUnavailable(tool, "NOT_OFFERED", answer.code);
+    if (NOT_OFFERED.has(answer.code)) return { state: "not_offered" };
+    logUnavailable(
+      tool,
+      "CELL_UNREACHABLE",
+      ERROR_CODE_FORMAT.test(answer.code) ? answer.code : "refused"
+    );
+    return { state: "unavailable", reason: "CELL_UNREACHABLE" };
+  }
+  // A door answers with the operation's reply as it is.
+  const parsed = filingRecord.safeParse(answer.value);
+  // A cell that answers the view runs the filer, so an unexpected record is no older cell.
+  // The log names the failure only: the record holds file paths.
+  if (!parsed.success) {
+    logUnavailable(tool, "FILING_UNREADABLE", "filing_shape");
+    return { state: "unavailable", reason: "FILING_UNREADABLE" };
+  }
+  return { state: "live", filing: parsed.data };
+}
+
+/**
+ * Reads one import's filing record, or with `wake` registers the stage under this login first.
+ * The wake makes no filing call in the request and answers the same record. A read-only cell
+ * files nothing, so it is only read.
+ */
+async function cloudHomeFiling(
+  principal: CloudHomePrincipal,
+  importId: string,
+  wake: boolean,
+  dependencies: CloudHomeDependencies = {}
+): Promise<FilingView> {
+  const cell = await servingCell(principal);
+  if (cell.state !== "serving") return filingUnavailable(cell);
+  const call =
+    wake && cell.desiredState === "running" ? filingWakeCall(importId) : filingStatusCall(importId);
+  return filingFromAnswer(call.name, await callHomeTool(principal, call, dependencies));
+}
+
 const HOME_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
   "referrer-policy": "no-referrer",
@@ -779,6 +845,29 @@ export async function handleCloudHomeLiveRequest(
     if (!cloudHomeChannelEnabled(dependencies.env)) throw homeChannelOff();
     const session = await resolveExomemSession(request);
     return respond(await readCloudHomeActivity(session, dependencies));
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+// C5 names each import with a UUID; only that shape becomes a stage path on the cell.
+const ImportId = z.uuid();
+
+/** `GET` and `POST /api/exomem/cloud/home/filing/<import id>`: one import's filing. */
+export async function handleCloudHomeFilingRequest(
+  request: Request,
+  importId: string,
+  dependencies: CloudHomeDependencies = {}
+): Promise<Response> {
+  try {
+    if (!cloudHomeChannelEnabled(dependencies.env)) throw homeChannelOff();
+    const session = await resolveExomemSession(request);
+    // `POST` wakes the filer for this import under the session's login; `GET` only reads.
+    const wake = request.method === "POST";
+    if (wake) validateMutationRequest(request, session);
+    const parsed = ImportId.safeParse(importId);
+    if (!parsed.success) throw exomemErrors.invalidRequest();
+    return respond(await cloudHomeFiling(session, parsed.data, wake, dependencies));
   } catch (error) {
     return errorResponse(error);
   }
