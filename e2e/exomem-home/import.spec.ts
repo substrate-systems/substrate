@@ -206,7 +206,8 @@ test("Home encrypts the selected folder, stages it and preserves observed status
       label: root,
       paths: expect.arrayContaining([`${root}/notes/計画.md`, `${root}/empty.md`]),
       filing: "cell",
-      origin: { device_family: "desktop" },
+      // The phone projects run with touch and a phone user agent.
+      origin: { device_family: test.info().project.name.includes("phone") ? "phone" : "desktop" },
     });
     expect(files.size).toBe(3);
     const stored = await pool.query(
