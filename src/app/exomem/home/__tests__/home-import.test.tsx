@@ -457,6 +457,15 @@ const filingCases: { name: string; answer: unknown; shows: string[]; hides: stri
     hides: ["The cell's own words"],
   },
   {
+    name: "paused on a read-only cell: worded by Home, with no next step to take",
+    answer: {
+      state: "live",
+      filing: parked("CLOUD_CELL_READ_ONLY", [{ need: "read_only" }]),
+    },
+    shows: ["Filing paused: read-only"],
+    hides: ["Contact support", "Import ID", "CLOUD_CELL_READ_ONLY"],
+  },
+  {
     name: "paused by a code Home does not know, which the reference names",
     answer: { state: "live", filing: parked("MUTATION_BUSY", []) },
     shows: ["Filing paused", "Contact support with the import ID.", "MUTATION_BUSY"],
@@ -592,6 +601,12 @@ it("filing is read again quickly only while the dialog shows it at work, and not
       live(parked("IMPORT_RECOVERY_UNRESOLVED", [{ need: "support" }])),
       true,
       null,
+    ],
+    [
+      "paused on a read-only cell",
+      live(parked("CLOUD_CELL_READ_ONLY", [{ need: "read_only" }])),
+      true,
+      30_000,
     ],
     ["paused with no need", live(parked("MUTATION_BUSY", [])), true, null],
     ["done", live({ ...working, state: "done" }), true, null],

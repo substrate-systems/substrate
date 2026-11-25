@@ -1405,8 +1405,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           { fetchCell: cell.fetchCell, env: ENV }
         );
 
-      // A door answers with the operation's reply under `result`.
-      const current = fakeCell(() => ({ result: record }));
+      const current = fakeCell(() => record);
       const live = await filing(current);
       assert.equal(live.status, 200);
       assert.deepEqual(await json(live), { state: "live", filing: shown });
@@ -1437,14 +1436,33 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       }));
       assert.deepEqual(await json(await filing(withoutFiler)), { state: "not_offered" });
 
+      // A refusal of the arguments still offers the prompt, but a contract break must show in
+      // the log: one line with the code alone.
+      const argumentLog: unknown[] = [];
+      const argumentWarn = mock.method(console, "warn", (line: unknown) => argumentLog.push(line));
+      try {
+        const refusesArguments = fakeCell(() => ({
+          error: { code: "INVALID_ARGUMENT", message: "view must be one of summary, full" },
+        }));
+        assert.deepEqual(await json(await filing(refusesArguments)), { state: "not_offered" });
+      } finally {
+        argumentWarn.mock.restore();
+      }
+      assert.deepEqual(argumentLog, [
+        {
+          event: "exomem_cloud_home_call_unavailable",
+          tool: "inspect_memory",
+          reason: "NOT_OFFERED",
+          detail: "INVALID_ARGUMENT",
+        },
+      ]);
+
       // A record of another shape comes from a cell that files by itself: unreadable, not older.
       // Its log line names the failure only, never a path or label from the record.
       const warnings: unknown[] = [];
       const warn = mock.method(console, "warn", (line: unknown) => warnings.push(line));
       try {
-        const drifted = fakeCell(() => ({
-          result: { ...record, progress: { filed: "Takeout/setup.exe" } },
-        }));
+        const drifted = fakeCell(() => ({ ...record, progress: { filed: "Takeout/setup.exe" } }));
         assert.deepEqual(await json(await filing(drifted)), {
           state: "unavailable",
           reason: "FILING_UNREADABLE",
@@ -1456,7 +1474,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.ok(!JSON.stringify(warnings).includes("Takeout"));
 
       // Only an import ID becomes a stage path; nothing else reaches the cell.
-      const probe = fakeCell(() => ({ result: record }));
+      const probe = fakeCell(() => record);
       assert.equal((await filing(probe, "../_Schema")).status, 400);
       assert.equal(probe.calls.length, 0);
     });
@@ -1473,7 +1491,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         needs: [],
         rate: null,
       };
-      const cell = fakeCell(() => ({ result: record }));
+      const cell = fakeCell(() => record);
       const wake = (request: Request) =>
         handleCloudHomeFilingRequest(request, importId, { fetchCell: cell.fetchCell, env: ENV });
       const path = `/api/exomem/cloud/home/filing/${importId}`;

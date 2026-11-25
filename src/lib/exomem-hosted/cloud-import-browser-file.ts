@@ -216,13 +216,16 @@ export async function sweepKeptCiphertext(
 
 type KeptCopy = { directory: FileSystemDirectoryHandle; name: string; importId: string };
 
-/** Copies outside this account's folder: other accounts' and those from before folders. */
-async function otherCopies(account: string): Promise<KeptCopy[]> {
+/**
+ * Copies outside this account's folder: other accounts' and those from before folders. With
+ * LABEL_NAME, the labels kept beside them instead.
+ */
+async function otherCopies(account: string, names: RegExp = KEPT_NAME): Promise<KeptCopy[]> {
   const root = await rootDirectory();
   const copies: KeptCopy[] = [];
   const collect = async (directory: FileSystemDirectoryHandle) => {
     for await (const [name, handle] of entries(directory)) {
-      const importId = KEPT_NAME.exec(name)?.[1];
+      const importId = names.exec(name)?.[1];
       if (handle.kind === "file" && importId) copies.push({ directory, name, importId });
     }
   };
@@ -252,17 +255,20 @@ export async function otherKeptCiphertext(
   return total;
 }
 
-/** Removes other accounts' kept copies on the owner's request, except those a tab holds. */
+/**
+ * Removes other accounts' kept copies and their labels on the owner's request, except those a
+ * tab holds. `kept` counts the copies that stay.
+ */
 export async function discardOtherKeptCiphertext(account: string): Promise<{ kept: number }> {
   if (!privateStorage()) return { kept: 0 };
-  let kept = 0;
-  for (const { directory, name, importId } of await otherCopies(account)) {
-    const removed = await whileImportFree(importId, async () => {
+  const remove = ({ directory, name, importId }: KeptCopy) =>
+    whileImportFree(importId, async () => {
       await removeEntry(directory, name);
       return true;
     }).catch(() => false);
-    if (!removed) kept += 1;
-  }
+  let kept = 0;
+  for (const copy of await otherCopies(account)) if (!(await remove(copy))) kept += 1;
+  for (const label of await otherCopies(account, LABEL_NAME)) await remove(label);
   return { kept };
 }
 

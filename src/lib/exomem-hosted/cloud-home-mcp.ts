@@ -721,26 +721,22 @@ function filingUnavailable({ reason }: CloudHomeUnavailable): FilingView {
 // the status of `adoption_run` for an unknown view. A closed set of the cell's protocol codes.
 const NOT_OFFERED = new Set(["INVALID_OPERATION", "INVALID_ARGUMENT", "IMPORT_REQUEST_INVALID"]);
 
-// A door answers with its operation's reply under `result`, and refuses with `{error: {code}}`.
-const DoorAnswer = z.object({ result: z.record(z.string(), z.unknown()) });
-const DoorRefusal = z.object({ error: z.object({ code: z.string() }) });
-
 function filingFromAnswer(tool: HomeToolCall["name"], answer: CellAnswer): FilingView {
   if (answer.kind === "unavailable") return filingUnavailable(answer.view);
-  let reply: unknown = null;
-  let refused = answer.kind === "refused" ? answer.code : null;
-  if (answer.kind === "result") {
-    const door = DoorAnswer.safeParse(answer.value);
-    reply = door.success ? door.data.result : answer.value;
-    const refusal = DoorRefusal.safeParse(reply);
-    if (refusal.success) refused = refusal.data.error.code;
-  }
-  if (refused !== null) {
-    if (NOT_OFFERED.has(refused)) return { state: "not_offered" };
-    logUnavailable(tool, "CELL_UNREACHABLE", ERROR_CODE_FORMAT.test(refused) ? refused : "refused");
+  if (answer.kind === "refused") {
+    // Arguments a cell with the filer refuses are a contract break rather than an older cell;
+    // Home still offers the assistant prompt, and the code alone goes to the log.
+    if (answer.code === "INVALID_ARGUMENT") logUnavailable(tool, "NOT_OFFERED", answer.code);
+    if (NOT_OFFERED.has(answer.code)) return { state: "not_offered" };
+    logUnavailable(
+      tool,
+      "CELL_UNREACHABLE",
+      ERROR_CODE_FORMAT.test(answer.code) ? answer.code : "refused"
+    );
     return { state: "unavailable", reason: "CELL_UNREACHABLE" };
   }
-  const parsed = filingRecord.safeParse(reply);
+  // A door answers with the operation's reply as it is.
+  const parsed = filingRecord.safeParse(answer.value);
   // A cell that answers the view runs the filer, so an unexpected record is no older cell.
   // The log names the failure only: the record holds file paths.
   if (!parsed.success) {

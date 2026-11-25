@@ -44,12 +44,14 @@ const STOP_TITLES: Record<string, string> = {
   IMPORT_RECOVERY_UNRESOLVED: "needs support",
   IMPORT_FILING_LOGIN_ENDED: "sign-in ended",
   IMPORT_FILING_REPLY_UNREADABLE: "needs support",
+  CLOUD_CELL_READ_ONLY: "read-only",
 };
 
 // What the person must do, by the cell's `needs`, when no known stop code says it.
 const NEED_TITLES: Record<string, string> = {
   free_space: STOP_TITLES.INSUFFICIENT_SPACE,
   login: STOP_TITLES.IMPORT_FILING_LOGIN_ENDED,
+  read_only: STOP_TITLES.CLOUD_CELL_READ_ONLY,
   support: STOP_TITLES.IMPORT_RECOVERY_UNRESOLVED,
 };
 
@@ -81,12 +83,15 @@ function needs(filing: FilingRecord, need: string): boolean {
 
 /**
  * What a paused import waits for: free space the person adds, a login Home registers again,
- * or support. Only support needs someone outside the page.
+ * a read-only cell the cell itself checks again, or support. Only support needs someone outside
+ * the page.
  */
-function pausedFor(filing: FilingRecord): "free_space" | "login" | "support" {
+function pausedFor(filing: FilingRecord): "free_space" | "login" | "read_only" | "support" {
   if (needs(filing, "free_space") || filing.stop?.code === "INSUFFICIENT_SPACE")
     return "free_space";
   if (needs(filing, "login") || filing.stop?.code === "IMPORT_FILING_LOGIN_ENDED") return "login";
+  if (needs(filing, "read_only") || filing.stop?.code === "CLOUD_CELL_READ_ONLY")
+    return "read_only";
   return "support";
 }
 
@@ -345,6 +350,9 @@ function ParkedNext({ filing, importId }: { filing: FilingRecord; importId: stri
     }
     case "login":
       return <p className={dialog.text}>Filing waits for your sign-in.</p>;
+    case "read_only":
+      // The title says it; filing resumes on its own once the cell can write again.
+      return null;
     case "support":
       // Support needs the reference: the import ID and the code that stopped filing.
       return (

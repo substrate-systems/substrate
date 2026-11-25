@@ -34,7 +34,7 @@ Home SHALL write the series file with `"filing": "cell"` and an `origin` holding
 
 ### Requirement: Home shows what the cell filed
 
-After the upload, Home SHALL read the cell's filing view and show its state: working with the filed and remaining counts, paused with its reason and next step, done, or unknown. It SHALL show a time left only when the cell reports a rate, labelled "at the measured rate". When filing is done, Home SHALL show the filed count, the skipped duplicates, and each left-out file with its reason.
+After the upload, Home SHALL read the cell's filing view and show its state: working with the filed and remaining counts, paused with its reason and, when the person can act, the next step, done, or unknown. It SHALL show a time left only when the cell reports a rate, labelled "at the measured rate". When filing is done, Home SHALL show the filed count, the skipped duplicates, and each left-out file with its reason.
 
 #### Scenario: Filing finishes without an assistant
 
