@@ -21,7 +21,7 @@ import {
   registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
-import { listOwnerApps } from "../owner-apps";
+import { disconnectOwnerApp, listOwnerApps, setOwnerAppContext } from "../owner-apps";
 import { digestSecret, generateExternalToken, tokenDigest } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -479,7 +479,7 @@ describe(
           "the grant is neither revoked nor re-issued"
         );
         assert.deepEqual(await grantsAndCodesFor(client), { grants: 1, codes: 1 });
-        assert.ok(await findCloudOAuthAccessToken(existing.accessDigest, CLOUD_RESOURCE));
+        assert.ok(await findCloudOAuthAccessToken(existing.accessDigest, [CLOUD_RESOURCE]));
         // A Connect on the same request afterwards mints nothing.
         assert.equal(
           await attachExistingOwnerAuthorizationAtomic({
@@ -571,7 +571,7 @@ describe(
         const disconnectedConnection = await connect(owner, disconnected);
         const keptConnection = await connect(owner, kept);
         assert.ok(
-          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, CLOUD_RESOURCE)
+          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, [CLOUD_RESOURCE])
         );
 
         const response = await disconnectRoute(
@@ -581,11 +581,11 @@ describe(
         assert.equal(response.status, 200);
         assert.deepEqual(await response.json(), { status: "disconnected" });
         assert.equal(
-          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, CLOUD_RESOURCE),
+          await findCloudOAuthAccessToken(disconnectedConnection.accessDigest, [CLOUD_RESOURCE]),
           null
         );
         assert.equal(await refresh(disconnected, disconnectedConnection), null);
-        assert.ok(await findCloudOAuthAccessToken(keptConnection.accessDigest, CLOUD_RESOURCE));
+        assert.ok(await findCloudOAuthAccessToken(keptConnection.accessDigest, [CLOUD_RESOURCE]));
         assert.ok(await refresh(kept, keptConnection));
         const listed = await listOwnerApps(owner);
         assert.deepEqual(
@@ -624,7 +624,7 @@ describe(
           [foreign.status, otherResource.status, unknownId.status, malformed.status],
           [404, 404, 404, 404]
         );
-        assert.ok(await findCloudOAuthAccessToken(otherConnection.accessDigest, CLOUD_RESOURCE));
+        assert.ok(await findCloudOAuthAccessToken(otherConnection.accessDigest, [CLOUD_RESOURCE]));
         assert.ok(await refresh(client, otherConnection));
         const untouched = await pool!.query(
           "SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1",
@@ -650,7 +650,7 @@ describe(
         // The gateway's own lookup reads the stored context, not the redirects.
         const authority = await findCloudOAuthAccessToken(
           connection.accessDigest,
-          CLOUD_RESOURCE
+          [CLOUD_RESOURCE]
         );
         assert.equal(authority?.client.clientContext, "coding");
 
@@ -698,7 +698,7 @@ describe(
         assert.equal((await listOwnerApps(ownerB)).apps[0]?.context, "conversation");
         const authorityB = await findCloudOAuthAccessToken(
           connectionB.accessDigest,
-          CLOUD_RESOURCE
+          [CLOUD_RESOURCE]
         );
         assert.equal(authorityB?.client.clientContext, "conversation");
         const stored = await pool!.query(
@@ -743,6 +743,49 @@ describe(
           ...contextRequest(owner, second.grantId, { context: "conversation" })
         );
         assert.equal(revoked.status, 404);
+      });
+
+      it("refuses to stamp a context on a grant a disconnect revoked mid-write", async () => {
+        const owner = await newOwner();
+        const client = await newCimdClient();
+        const connection = await connect(owner, client);
+
+        // A disconnect commits on a second connection in the window between
+        // the owner-app read and the write's UPDATE, which the tag names.
+        __setExomemTransactionForTests((callback) =>
+          interactiveTransaction((tx) =>
+            callback(async (strings, ...values) => {
+              if (strings.join("").includes("exomem:set-owner-app-context")) {
+                assert.ok(
+                  await disconnectOwnerApp({
+                    userId: owner.userId,
+                    tenantId: owner.tenantId,
+                    appId: connection.grantId,
+                  })
+                );
+              }
+              return tx(strings, ...values);
+            })
+          )
+        );
+        try {
+          const changed = await setOwnerAppContext({
+            userId: owner.userId,
+            tenantId: owner.tenantId,
+            appId: connection.grantId,
+            context: "coding",
+          });
+          assert.equal(changed, false);
+        } finally {
+          __setExomemTransactionForTests(interactiveTransaction);
+        }
+
+        const stored = await pool!.query(
+          "SELECT revoked_at, client_context_override FROM exomem_oauth_grants WHERE id = $1",
+          [connection.grantId]
+        );
+        assert.ok(stored.rows[0]!.revoked_at);
+        assert.equal(stored.rows[0]!.client_context_override, null);
       });
 
       it("answers 404 for a context change on an id the list cannot show", async () => {
@@ -969,7 +1012,7 @@ describe(
 
           assert.deepEqual(apps, []);
           assert.equal(response.status, 404);
-          assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, CLOUD_RESOURCE));
+          assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, [CLOUD_RESOURCE]));
         });
 
         // The release before this one shares these store statements. They admit

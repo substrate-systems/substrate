@@ -175,7 +175,7 @@ export default function AuthorizeClient({
    */
   expiredApp?: RequestApp | null;
   requestLife: string;
-  statusPageUrl: string | null;
+  statusPageUrl: string;
 }) {
   if (!request) {
     return (
@@ -211,7 +211,7 @@ function Consent({
   screen: ConsentScreen;
   request: ConsentRequest;
   requestLife: string;
-  statusPageUrl: string | null;
+  statusPageUrl: string;
 }) {
   const { app, confirmation, nonce, account } = request;
   const name = app.displayName;
@@ -465,7 +465,7 @@ function Consent({
             title={breakCopy.connectError.title}
             lede={breakCopy.connectError.lede(name)}
           />
-          {statusPageUrl ? <StepNotice>{breakCopy.connectError.notice}</StepNotice> : null}
+          <StepNotice>{breakCopy.connectError.notice}</StepNotice>
           <ScopesCard
             scopes={request.scopes}
             readOnly={false}
@@ -474,14 +474,10 @@ function Consent({
           />
           <StepActions
             primary={{ label: breakCopy.connectError.retry, onClick: () => void connect() }}
-            secondary={
-              statusPageUrl
-                ? {
-                    label: breakCopy.connectError.statusPage,
-                    onClick: () => openElsewhere(statusPageUrl),
-                  }
-                : null
-            }
+            secondary={{
+              label: breakCopy.connectError.statusPage,
+              onClick: () => openElsewhere(statusPageUrl),
+            }}
           />
         </>
       );

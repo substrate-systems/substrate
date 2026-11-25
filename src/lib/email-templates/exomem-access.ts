@@ -47,12 +47,12 @@ export function renderExomemMagicLinkEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Sign in to Exomem",
+    subject: "Sign in to Evermatter",
     preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
     band: "arrive",
     headline: "Your sign-in link",
     body: ["Open it in any browser. We may ask you to confirm your email address."],
-    action: { label: "Sign in to Exomem", url: input.accessUrl },
+    action: { label: "Sign in to Evermatter", url: input.accessUrl },
     smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. If you didn’t ask for this, ignore it: nothing happens.`,
   });
 }
@@ -75,12 +75,12 @@ export function renderExomemWelcomeEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Start your Exomem",
+    subject: "Start your Evermatter",
     preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
     band: "arrive",
-    headline: "Let’s start your Exomem.",
-    body: ["One tap and you’re in. Next: choose your plan, then add Exomem to your assistant."],
-    action: { label: "Start Exomem", url: input.accessUrl },
+    headline: "Let’s start your Evermatter.",
+    body: ["One tap and you’re in. Next: choose your plan, then add Evermatter to your assistant."],
+    action: { label: "Start Evermatter", url: input.accessUrl },
     smallPrint: `The link works once, until ${linkLimit(input.expiresAt, now, emailDateTime(input.expiresAt, input.timeZone))}. If you didn’t ask for it, ignore this email.`,
   });
 }
@@ -104,10 +104,10 @@ export function renderExomemInviteEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "You’re invited to Exomem",
+    subject: "You’re invited to Evermatter",
     preheader: "One memory for every assistant you use.",
     band: "arrive",
-    headline: "Start your Exomem",
+    headline: "Start your Evermatter",
     body: [
       "One memory for every assistant and every session you connect. Everything you keep stays yours, with its source.",
     ],
@@ -135,14 +135,14 @@ export function renderExomemHoldReminderEmail(input: {
   const deadline = emailDate(input.holdEndsAt, input.timeZone);
   const body = input.inviterName
     ? `You accepted ${input.inviterName}’s invitation but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup; the invitation stays used.`
-    : `You started setting up Exomem but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
+    : `You started setting up Evermatter but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Finish setting up your Exomem",
+    subject: "Finish setting up your Evermatter",
     preheader: `Finish by ${deadline}.`,
     band: "arrive",
-    headline: "Your Exomem is waiting",
+    headline: "Your Evermatter is waiting",
     body: [body],
     action: { label: "Finish setting up", url: input.setupUrl },
     smallPrint: "We send this once. If you’ve changed your mind, ignore it.",
@@ -156,12 +156,12 @@ export function renderExomemWaitlistEmail(
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "You’re on the Exomem list",
+    subject: "You’re on the Evermatter list",
     preheader: "We’ll email you when there’s a place for you.",
     band: "arrive",
     headline: "You’re on the list",
     body: [
-      "Exomem is open by invitation for now. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
+      "Evermatter is open by invitation for now. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
     ],
     smallPrint: "If you didn’t ask for this, ignore this email.",
   });
@@ -177,12 +177,12 @@ export function renderExomemWaitlistStillWaitingEmail(
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "You’re still on the Exomem list",
+    subject: "You’re still on the Evermatter list",
     preheader: "Your place is kept.",
     band: "arrive",
     headline: "You’re still on the list",
     body: [
-      "You asked to start Exomem again. You’re still on the list and keep your place. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
+      "You asked to start Evermatter again. You’re still on the list and keep your place. We’ll email you at this address when there’s a place for you. You don’t need to do anything until then.",
     ],
     smallPrint: "If you didn’t ask for this, ignore this email.",
   });
@@ -206,11 +206,11 @@ export function renderExomemInvitationWaitingEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Your Exomem invitation is waiting",
+    subject: "Your Evermatter invitation is waiting",
     preheader: `Your invitation stays open until ${until}.`,
     band: "arrive",
     headline: "Your invitation is waiting",
-    body: [`Open it to start your Exomem. The invitation stays open until ${until}.`],
+    body: [`Open it to start your Evermatter. The invitation stays open until ${until}.`],
     action: { label: "Open invitation", url: input.accessUrl },
     smallPrint:
       "This link replaces any earlier invitation link we sent you. If you didn’t ask for this, ignore this email.",
@@ -234,12 +234,12 @@ export function renderExomemPlaceOpenedEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Your place in Exomem is ready",
+    subject: "Your place in Evermatter is ready",
     preheader: zone ? `Start before ${time} to keep it.` : `Start before ${time} UTC to keep it.`,
     band: "arrive",
     headline: "Your place is ready",
-    body: ["A place opened up for you. Start your Exomem, then add it to your assistant."],
-    action: { label: "Start Exomem", url: input.accessUrl },
+    body: ["A place opened up for you. Start your Evermatter, then add it to your assistant."],
+    action: { label: "Start Evermatter", url: input.accessUrl },
     smallPrint: `The link works once, until ${time} ${zone ? "(your time)" : "UTC"}. If you don't use it, the place goes to the next person on the list.`,
   });
 }
@@ -262,14 +262,14 @@ export function renderExomemDeletionEmail(input: {
   return renderExomemEmail({
     base: input.scheme ?? null,
     themeChoice: input.themeChoice,
-    subject: "Confirm deletion of your Exomem",
+    subject: "Confirm deletion of your Evermatter",
     preheader: "Nothing is deleted until you open the link.",
     band: "fading",
-    headline: "Delete your Exomem?",
+    headline: "Delete your Evermatter?",
     body: [
-      "You asked to delete your Exomem. This removes your notes, files, backups, exports and encryption keys for good.",
+      "You asked to delete your Evermatter. This removes your notes, files, backups, exports and encryption keys for good.",
     ],
     action: { label: "Review and confirm deletion", url: input.accessUrl },
-    smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. Ignore it and your Exomem stays.`,
+    smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. Ignore it and your Evermatter stays.`,
   });
 }

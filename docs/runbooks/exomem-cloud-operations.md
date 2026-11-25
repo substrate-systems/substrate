@@ -16,58 +16,61 @@ redeploy. The exceptions are `EXOMEM_CLOUD_GRANT_SIGNING_KEY` and
 a Preview build runs unreviewed branch code that could read the keys and mint
 grants. Never reuse a cell credential as a control-plane secret.
 
-| Variable                                                            | Requirement                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                      | Postgres connection used by migrations and product-scoped rows.                                                                                                                                                                       |
-| `EXOMEM_PUBLIC_BASE_URL`                                            | Production HTTPS origin, exactly `https://substratesystems.io`. Credentials, query, fragment and non-root paths are rejected, and there is no request-derived fallback. Development HTTP is loopback-only.                            |
-| `EXOMEM_ADMIN_TOKEN`                                                | At least 32 random bytes, known only to operators. Protects the operator API and page.                                                                                                                                                |
-| `EXOMEM_CONTROL_PLANE_KEY`                                          | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email payloads, and keys rate-limit buckets. A production web deploy fails without it.                            |
-| `EXOMEM_CLOUD_MCP_URL`, `EXOMEM_CLOUD_MCP_PATH`                     | The Cloud MCP resource URL and its path on the gateway. The web app and the gateway must name the same resource. A missing value fails OAuth closed.                                                                                  |
-| `EXOMEM_CLOUD_CELL_TOKEN_KEY`                                       | Gateway only: 32 bytes as hex, used to derive each cell's bearer. The web app does not need it.                                                                                                                                       |
-| `CRON_SECRET`                                                       | Vercel-only bearer for unrelated daily and weekly jobs. Never install it in the K3s scheduler.                                                                                                                                        |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                    | Dedicated active bearer shared only by the two Exomem scheduled routes and the K3s scheduler.                                                                                                                                         |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                           | Optional Vercel receiver-only overlap during rotation. Absent in steady state and never installed in K3s.                                                                                                                             |
-| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256`                                  | SHA-256 of the scheduler alert receiver capability for `/api/exomem/alerts/[token]`. Unset means the endpoint answers `404`. Only the digest belongs here.                                                                            |
-| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                         | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                                                        |
-| `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256`                             | SHA-256 of the object-store key watcher's own capability. It may report only job `b2-key-watcher`, and the scheduler capability may never report that job. Setting it enables the daily `KEY_WATCHER_STALE` check (`/api/cron/exomem-key-watcher`), which runs daily and fires when the last hourly run is more than two hours old, so a stopped watcher is caught within about a day. |
-| `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256_PREVIOUS`                    | Optional overlap during key-watcher capability rotation. A malformed value is ignored. |
-| `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256`                            | SHA-256 of the release automation's own alert capability. It may report only job `cloud-deploy`, and no other capability may report that job. No missed-run check watches it, because it runs on releases, not on a schedule. |
-| `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256_PREVIOUS`                   | Optional overlap during cloud-deploy capability rotation. A malformed value is ignored. |
-| `EXOMEM_DEPLOY_TOKEN`                                               | Production only. The release automation's token, separate from `EXOMEM_ADMIN_TOKEN`. It reads the rollout view and sets `cellImage` with its `release`, and nothing else. Seed the image history before you set it. See "Cloud releases" below. |
-| `EXOMEM_HOSTED_ALERT_RECIPIENT`                                     | Alert address. Production sets `alerts@substratesystems.io`; unset falls back to `founder@substratesystems.io`, so a missing value never drops an alert.                                                                                                                                                           |
-| `BREVO_API_KEY`                                                     | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                                                     |
-| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | `BREVO_SENDER_EMAIL` is required: the verified default sender for mail that names none (Endstate claim and webhook mail). Exomem mail passes its own sender. `BREVO_SENDER_NAME` is optional.                                                                                                                                                                                                   |
-| `BREVO_API_BASE_URL`                                                | Unset in production, which sends to `https://api.brevo.com/v3`. Tests point it at a stand-in. The API key goes to this host.                                                                                                          |
-| `BREVO_WEBHOOK_TOKEN`                                               | Web app only. The bearer token that `POST /api/webhooks/brevo` requires from Brevo. Unset, the route answers `503` and stores nothing. See "Email delivery" below.                                                                    |
-| `EXOMEM_HEALTH_START_CANARY_EMAIL`                                  | Web app only. The address the email health proof starts a sign-in with every 30 minutes. It must have no Exomem account, be on our own domain, and be accepted and dropped by the mail host. Unset or not an email address, the email proof fails. See "Functional health" below. |
-| `EXOMEM_HEALTH_CANARY_QUEUE_SECONDS`                                | Web app only. How long after its due time Brevo must have accepted the previous canary email. Default 60. A positive whole number of seconds. |
-| `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS`                             | Web app only. How long after accepting the previous canary email Brevo must have reported it `delivered`. Default 600. A positive whole number of seconds. |
-| `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`     | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely.                          |
-| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT` | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                                               |
-| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                                                       |
-| `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                                                        |
-| `EXOMEM_PADDLE_DUNNING_DAYS`                                        | Days that Paddle retries a failed payment, as set in payment recovery. Home shows "read-only until" as the failed-payment start plus these days. Unset or outside 1 to 365, that date is unknown.                                     |
-| `EXOMEM_PADDLE_FRIEND_PRICE_ID`                                     | The dedicated monthly friend price for this Paddle environment. Checkout uses this price without a discount; Paddle supplies localized amounts and tax.                                                                               |
-| `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The legacy recurring friend discount. Existing subscriptions remain recognized; checkout uses it only while the dedicated friend price is unset.                                                                                      |
-| `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level. |
-| `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                                          |
-| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                      |
-| `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`                             | Start links that `open` mode hands out per hour, to newcomers and promoted people together. Unset or not a positive whole number reads as 5. See "Start admission" below.                                                             |
-| `EXOMEM_CLOUD_EXPORTS_ENABLED`                                      | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                     |
-| `EXOMEM_CLOUD_GRANT_SIGNING_KEY`                                    | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the operation grant of each export and import request. Use a key apart from `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`, and give each cell only the matching public key. Unset, Substrate signs no grant, the request row keeps a NULL grant, and the cells log `grant_missing`. A value that is not an Ed25519 private key is logged by name only and treated as unset. |
-| `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`                           | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the deletion grant Substrate stores when it deletes a cell. Use a key apart from `EXOMEM_CLOUD_GRANT_SIGNING_KEY`, and give the Exomem executors only the matching public key, through their `cellDeletion.grantPublicKeys` value. Unset, a cell deletion still succeeds and stores no grant, and nothing purges the cell's backups or media. A value that is not an Ed25519 private key is logged by name only and treated as unset. |
-| `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`                                 | Gateway only: an Ed25519 private key in PEM form. When it is set, the gateway signs an origin proof on every `/mcp` request to every cell, and each cell needs the matching public key to check it. Artifact transport and uploads still need their own switches. A value that is set and is not an Ed25519 private key is logged by name only (`exomem_cloud_artifact_signing_key_invalid`, on the 1st, 2nd, 4th, 8th... load) and read as unset, so the cells report the requests as unproven. With artifact transport or uploads on, the same value fails the gateway configuration. |
-| `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED`                               | Gateway only. `true` serves `observe_transfer` and `transfer_memory` from the control plane. Needs gateway HTTPS egress (chart flag `cloudGateway.transferTools.enabled`). Anything else is off, the rollback.                        |
-| `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS`, `EXOMEM_CLOUD_HOLD_INTERVAL_MS`, `EXOMEM_CLOUD_HOLD_JITTER_MS`, `EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`, `EXOMEM_CLOUD_HOLD_MAX`, `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS`, `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS`, `EXOMEM_CLOUD_UPSTREAM_IDLE_SECONDS` | Gateway only, all required: the gateway does not start without each one. The platform chart renders them from `cloudGateway.hold.*` and `cloudGateway.upstream.*`. See "The gateway hold" below. |
-| `EXOMEM_CLOUD_UPLOAD_ENABLED`, `EXOMEM_CLOUD_UPLOAD_CELL_IDS`       | Gateway only. `true` plus a JSON array of cell IDs serves Cloud upload handoffs for exactly those cells, signed with `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`. Each selected cell needs the matching public key; see Exomem's `cloud-upload-handoff` runbook. The ingress must route `POST /upload` to the gateway. Anything else is off, the rollback. Artifact transport alone never enables uploads. |
-| `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
-| `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
-| `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                                          |
-| `EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS`                         | Optional. Hours after its metadata expired before the sweep retires a connector that held a grant. Default 336 (14 days). A value that is not a whole number of at least 1 fails the sweep.                                           |
-| `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`                              | Optional. Hours before the sweep retires a generic client holding nothing, or a connector with no grant since it registered. Default 24. A value that is not a whole number of at least 1 fails the sweep.                            |
-| `EXOMEM_OAUTH_REFRESH_IDLE_DAYS`                                    | Optional. Days a connected app's refresh token stays valid unused. Every refresh renews it. Default 30, maximum 90. See "Connected-app sessions" below.                                                                               |
-| `EXOMEM_OAUTH_SESSION_MAX_DAYS`                                     | Optional. Days from sign-in at which a connected app must authorize again, however active it is. Default 365, maximum 730. Applies to new sign-ins only.                                                                             |
-| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 60, maximum 300. Unset reads as 60; 0, or a value that is not a whole number, turns it off.                                                                     |
+| Variable                                                                                                                                                                                                                                                                                                                   | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                                                                                                                                                                                                                                                                             | Postgres connection used by migrations and product-scoped rows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `EXOMEM_PUBLIC_BASE_URL`                                                                                                                                                                                                                                                                                                   | Production HTTPS origin of the app pages and the OAuth issuer: `https://substratesystems.io` until sign-in moves to the product host, then `https://evermatter.ai`, set on the web app and the gateway together. Credentials, query, fragment and non-root paths are rejected, and there is no request-derived fallback. Development HTTP is loopback-only.                                                                                                                                                                                                                             |
+| `EXOMEM_ADMIN_TOKEN`                                                                                                                                                                                                                                                                                                       | At least 32 random bytes, known only to operators. Protects the operator API and page.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `EXOMEM_CONTROL_PLANE_KEY`                                                                                                                                                                                                                                                                                                 | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email payloads, and keys rate-limit buckets. A production web deploy fails without it.                                                                                                                                                                                                                                                                                                                                                                              |
+| `EXOMEM_CLOUD_MCP_URL`, `EXOMEM_CLOUD_MCP_PATH`                                                                                                                                                                                                                                                                            | The Cloud MCP resource URL and its path on the gateway. The web app and the gateway must name the same resource. A missing value fails OAuth closed. Change the URL only in the deploy that removes its host from `EXOMEM_CLOUD_MCP_URLS`.                                                                                                                                                                                                                                                                                                                                              |
+| `EXOMEM_CLOUD_MCP_URLS`                                                                                                                                                                                                                                                                                                    | Optional: the accepted resource URLs, newest first, comma-separated, each written as `https://host/path` on the gateway path and including `EXOMEM_CLOUD_MCP_URL`. The web app and the gateway carry the same list; deploy the web app first. A bad list fails the web build and the gateway readiness check. Unset, `EXOMEM_CLOUD_MCP_URL` is the only resource.                                                                                                                                                                                                                       |
+| `EVERMATTER_SITE_ORIGIN`                                                                                                                                                                                                                                                                                                   | Optional, web app only: the product site's bare HTTPS origin. Set, the public product pages serve at its root, their `/exomem` paths on the company site redirect there, and app pages redirect to `EXOMEM_PUBLIC_BASE_URL`'s host. Set it only once the origin serves TLS.                                                                                                                                                                                                                                                                                                             |
+| `EXOMEM_CLOUD_CELL_TOKEN_KEY`                                                                                                                                                                                                                                                                                              | Gateway only: 32 bytes as hex, used to derive each cell's bearer. The web app does not need it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `CRON_SECRET`                                                                                                                                                                                                                                                                                                              | Vercel-only bearer for unrelated daily and weekly jobs. Never install it in the K3s scheduler.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                                                                                                                                                                                                                                                                           | Dedicated active bearer shared only by the two Exomem scheduled routes and the K3s scheduler.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                                                                                                                                                                                                                                                                                  | Optional Vercel receiver-only overlap during rotation. Absent in steady state and never installed in K3s.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256`                                                                                                                                                                                                                                                                                         | SHA-256 of the scheduler alert receiver capability for `/api/exomem/alerts/[token]`. Unset means the endpoint answers `404`. Only the digest belongs here.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                                                                                                                                                                                                                                                                                | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256`                                                                                                                                                                                                                                                                                    | SHA-256 of the object-store key watcher's own capability. It may report only job `b2-key-watcher`, and the scheduler capability may never report that job. Setting it enables the daily `KEY_WATCHER_STALE` check (`/api/cron/exomem-key-watcher`), which runs daily and fires when the last hourly run is more than two hours old, so a stopped watcher is caught within about a day.                                                                                                                                                                                                  |
+| `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256_PREVIOUS`                                                                                                                                                                                                                                                                           | Optional overlap during key-watcher capability rotation. A malformed value is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256`                                                                                                                                                                                                                                                                                   | SHA-256 of the release automation's own alert capability. It may report only job `cloud-deploy`, and no other capability may report that job. No missed-run check watches it, because it runs on releases, not on a schedule.                                                                                                                                                                                                                                                                                                                                                           |
+| `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256_PREVIOUS`                                                                                                                                                                                                                                                                          | Optional overlap during cloud-deploy capability rotation. A malformed value is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EXOMEM_DEPLOY_TOKEN`                                                                                                                                                                                                                                                                                                      | Production only. The release automation's token, separate from `EXOMEM_ADMIN_TOKEN`. It reads the rollout view and sets `cellImage` with its `release`, and nothing else. Seed the image history before you set it. See "Cloud releases" below.                                                                                                                                                                                                                                                                                                                                         |
+| `EXOMEM_HOSTED_ALERT_RECIPIENT`                                                                                                                                                                                                                                                                                            | Alert address. Production sets `alerts@substratesystems.io`; unset falls back to `founder@substratesystems.io`, so a missing value never drops an alert.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `BREVO_API_KEY`                                                                                                                                                                                                                                                                                                            | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                                                                                                                                                                                                                                                                  | `BREVO_SENDER_EMAIL` is required: the verified default sender for mail that names none (Endstate claim and webhook mail). Exomem mail passes its own sender. `BREVO_SENDER_NAME` is optional.                                                                                                                                                                                                                                                                                                                                                                                           |
+| `BREVO_API_BASE_URL`                                                                                                                                                                                                                                                                                                       | Unset in production, which sends to `https://api.brevo.com/v3`. Tests point it at a stand-in. The API key goes to this host.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `BREVO_WEBHOOK_TOKEN`                                                                                                                                                                                                                                                                                                      | Web app only. The bearer token that `POST /api/webhooks/brevo` requires from Brevo. Unset, the route answers `503` and stores nothing. See "Email delivery" below.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `EXOMEM_HEALTH_START_CANARY_EMAIL`                                                                                                                                                                                                                                                                                         | Web app only. The address the email health proof starts a sign-in with every 30 minutes. It must have no Exomem account, be on our own domain, and be accepted and dropped by the mail host. Unset or not an email address, the email proof fails. See "Functional health" below.                                                                                                                                                                                                                                                                                                       |
+| `EXOMEM_HEALTH_CANARY_QUEUE_SECONDS`                                                                                                                                                                                                                                                                                       | Web app only. How long after its due time Brevo must have accepted the previous canary email. Default 60. A positive whole number of seconds.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `EXOMEM_HEALTH_CANARY_DELIVERY_SECONDS`                                                                                                                                                                                                                                                                                    | Web app only. How long after accepting the previous canary email Brevo must have reported it `delivered`. Default 600. A positive whole number of seconds.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`                                                                                                                                                                                                                                                            | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely.                                                                                                                                                                                                                                                                                                                                                                            |
+| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT`                                                                                                                                                                                                                                                        | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`                                                                                                                                                                                                                                                            | The environment and the Exomem product that the server selects.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `EXOMEM_PADDLE_PRICE_ID`                                                                                                                                                                                                                                                                                                   | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `EXOMEM_PADDLE_DUNNING_DAYS`                                                                                                                                                                                                                                                                                               | Days that Paddle retries a failed payment, as set in payment recovery. Home shows "read-only until" as the failed-payment start plus these days. Unset or outside 1 to 365, that date is unknown.                                                                                                                                                                                                                                                                                                                                                                                       |
+| `EXOMEM_PADDLE_FRIEND_PRICE_ID`                                                                                                                                                                                                                                                                                            | The dedicated monthly friend price for this Paddle environment. Checkout uses this price without a discount; Paddle supplies localized amounts and tax.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                                                                                                                                                                                                                                                                         | The legacy recurring friend discount. Existing subscriptions remain recognized; checkout uses it only while the dedicated friend price is unset.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `EXOMEM_TURNSTILE_SECRET_KEY`                                                                                                                                                                                                                                                                                              | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level.                                                                                                                                                                                                                                                                                                                                                   |
+| `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                                                                                                                                                                                                                                                                                    | The matching Turnstile site key for the start form's widget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `EXOMEM_SELF_SERVE_ADMISSION`                                                                                                                                                                                                                                                                                              | `waitlist` (default) or `open`. See "Start admission" below. An unset or unrecognized value reads as `waitlist`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `EXOMEM_SELF_SERVE_ADMISSIONS_PER_HOUR`                                                                                                                                                                                                                                                                                    | Start links that `open` mode hands out per hour, to newcomers and promoted people together. Unset or not a positive whole number reads as 5. See "Start admission" below.                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `EXOMEM_CLOUD_EXPORTS_ENABLED`                                                                                                                                                                                                                                                                                             | `true` turns on the owner export once the cell controller packs exports; anything else is off. The landing and privacy pages read it at build time, so a change needs a redeploy.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `EXOMEM_CLOUD_GRANT_SIGNING_KEY`                                                                                                                                                                                                                                                                                           | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the operation grant of each export and import request. Use a key apart from `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`, and give each cell only the matching public key. Unset, Substrate signs no grant, the request row keeps a NULL grant, and the cells log `grant_missing`. A value that is not an Ed25519 private key is logged by name only and treated as unset.                                                                                                  |
+| `EXOMEM_CLOUD_DELETION_GRANT_SIGNING_KEY`                                                                                                                                                                                                                                                                                  | Production only; never set it in Preview or Development. Web app only: an Ed25519 private key in PEM form that signs the deletion grant Substrate stores when it deletes a cell. Use a key apart from `EXOMEM_CLOUD_GRANT_SIGNING_KEY`, and give the Exomem executors only the matching public key, through their `cellDeletion.grantPublicKeys` value. Unset, a cell deletion still succeeds and stores no grant, and nothing purges the cell's backups or media. A value that is not an Ed25519 private key is logged by name only and treated as unset.                              |
+| `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`                                                                                                                                                                                                                                                                                        | Gateway only: an Ed25519 private key in PEM form. When it is set, the gateway signs an origin proof on every `/mcp` request to every cell, and each cell needs the matching public key to check it. Artifact transport and uploads still need their own switches. A value that is set and is not an Ed25519 private key is logged by name only (`exomem_cloud_artifact_signing_key_invalid`, on the 1st, 2nd, 4th, 8th... load) and read as unset, so the cells report the requests as unproven. With artifact transport or uploads on, the same value fails the gateway configuration. |
+| `EXOMEM_CLOUD_TRANSFER_TOOLS_ENABLED`                                                                                                                                                                                                                                                                                      | Gateway only. `true` serves `observe_transfer` and `transfer_memory` from the control plane. Needs gateway HTTPS egress (chart flag `cloudGateway.transferTools.enabled`). Anything else is off, the rollback.                                                                                                                                                                                                                                                                                                                                                                          |
+| `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS`, `EXOMEM_CLOUD_HOLD_INTERVAL_MS`, `EXOMEM_CLOUD_HOLD_JITTER_MS`, `EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`, `EXOMEM_CLOUD_HOLD_MAX`, `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS`, `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS`, `EXOMEM_CLOUD_UPSTREAM_IDLE_SECONDS` | Gateway only, all required: the gateway does not start without each one. The platform chart renders them from `cloudGateway.hold.*` and `cloudGateway.upstream.*`. See "The gateway hold" below.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `EXOMEM_CLOUD_UPLOAD_ENABLED`, `EXOMEM_CLOUD_UPLOAD_CELL_IDS`                                                                                                                                                                                                                                                              | Gateway only. `true` plus a JSON array of cell IDs serves Cloud upload handoffs for exactly those cells, signed with `EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY`. Each selected cell needs the matching public key; see Exomem's `cloud-upload-handoff` runbook. The ingress must route `POST /upload` to the gateway. Anything else is off, the rollback. Artifact transport alone never enables uploads.                                                                                                                                                                                      |
+| `EXOMEM_STATUS_PAGE_URL`                                                                                                                                                                                                                                                                                                   | Optional, on the web app and the gateway. The https address of the public status page. The web app's "Status page" links, service-notice emails and the assistant's sentence point to it, and use `https://status.substratesystems.io` when it is unset. A value that is not https or is over 200 characters is ignored, with one `exomem_status_page_url_rejected` warning per process. See "Service notices" below.                                                                                                                                                                   |
+| `OPENAI_APPS_CHALLENGE`                                                                                                                                                                                                                                                                                                    | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                                                                                                                                                                                                                                                                               | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `EXOMEM_CONNECTOR_SETTINGS_URLS`                                                                                                                                                                                                                                                                                           | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                                                                                                                                                                                                                                                                                                                                                                                            |
+| `EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS`                                                                                                                                                                                                                                                                                | Optional. Hours after its metadata expired before the sweep retires a connector that held a grant. Default 336 (14 days). A value that is not a whole number of at least 1 fails the sweep.                                                                                                                                                                                                                                                                                                                                                                                             |
+| `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`                                                                                                                                                                                                                                                                                     | Optional. Hours before the sweep retires a generic client holding nothing, or a connector with no grant since it registered. Default 24. A value that is not a whole number of at least 1 fails the sweep.                                                                                                                                                                                                                                                                                                                                                                              |
+| `EXOMEM_OAUTH_REFRESH_IDLE_DAYS`                                                                                                                                                                                                                                                                                           | Optional. Days a connected app's refresh token stays valid unused. Every refresh renews it. Default 30, maximum 90. See "Connected-app sessions" below.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EXOMEM_OAUTH_SESSION_MAX_DAYS`                                                                                                                                                                                                                                                                                            | Optional. Days from sign-in at which a connected app must authorize again, however active it is. Default 365, maximum 730. Applies to new sign-ins only.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`                                                                                                                                                                                                                                                                                       | Optional. Seconds after a refresh token is spent in which its own client may present it again and get a fresh pair. Default 604800 (7 days), maximum 2592000 (30 days). Unset reads as 604800; 0, or a value that is not a whole number, turns it off.                                                                                                                                                                                                                                                                                                                                  |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -77,8 +80,9 @@ buckets older than the longest window plus one hour, in bounded batches.
 
 The authorization server metadata is at
 `/.well-known/oauth-authorization-server/api/exomem/oauth`. The endpoints are
-`/api/exomem/oauth/authorize`, `/token` and `/revoke`. Tokens are bound to
-`EXOMEM_CLOUD_MCP_URL` by exact equality, and a grant always carries both
+`/api/exomem/oauth/authorize`, `/token` and `/revoke`. Each token is bound to one
+resource by exact equality, and the Cloud accepts a token for any resource in
+`EXOMEM_CLOUD_MCP_URLS` (`EXOMEM_CLOUD_MCP_URL` alone while that is unset). A grant always carries both
 `exomem.read` and `exomem.write`. Token issuance requires a non-deleted cell
 row for the tenant.
 
@@ -111,34 +115,166 @@ Check for it after a deploy that changes these variables.
 
 Parallel sessions of one app often share one stored refresh token, and a reply
 to a refresh can be lost. Both make a client present a token that Substrate has
-just spent. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` after the spend, such a
-presentation gets a fresh pair in the same family, and Substrate logs
-`exomem_oauth_refresh_reused` with the client ID and the family ID. The
+already spent — sometimes hours or days later, when one process kept a copy
+another process rotated. For `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` (seven days
+by default) after the spend, such a presentation gets a fresh pair in the same
+family, and Substrate logs `exomem_oauth_refresh_reused` with the client ID,
+the family ID and `spend_age_seconds`, the token's age since its spend. The
 family stays live. This applies only while the family and its grant are
-unrevoked and the family is unexpired.
+unrevoked and the family is unexpired, and the same admission checks as a first
+rotation apply.
 
-After that interval, a spent token is a replay: Substrate revokes the whole
-family with the reason `refresh_replayed`, and the person connects the app
-again. A spent token that another client presents gets no tokens.
+After that interval the presentation is stale: the token is refused with
+`invalid_grant` and the family is NOT revoked — sessions holding the family's
+other tokens keep working. Substrate logs `exomem_oauth_refresh_reuse_stale`
+with the client ID, family ID and spend age, metadata only. A spent token that
+another client presents gets no tokens, and creates no token or grant row.
 
 Know what the reuse interval gives away. The client ID is public and does not
 authenticate the party that presents a token, so anyone who holds a refresh
 token within the interval of its legitimate spend can use it:
 
 - Each reuse starts an independent chain. That chain rotates and renews like any
-  other, up to the session ceiling (365 days by default).
-- Replay detection never revokes that chain. Only revoking the family, or the
-  grant through Disconnect, ends it.
-- The number of reuses of one spent token is not limited inside the interval.
-  Only the per-address token rate limit of 30 requests per minute bounds it.
+  other, up to the session ceiling (365 days by default), and each minted
+  refresh token still expires inside its own idle window.
+- Nothing but revoking the family, or the grant through Disconnect, ends such a
+  chain — a stale presentation refuses only itself.
+- One spent token mints at most 64 children: the one its spend created, plus
+  at most sixty-three reuses. This is a loop guard for a client stuck
+  re-presenting one token, not a bound on a thief — every minted token fans
+  out on its own spend, so only revoking the family or grant ends what a
+  stolen token starts.
 
-A token stolen after the interval is a replay and revokes the family, as before.
-Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to restore strict replay.
+Set `EXOMEM_OAUTH_REFRESH_REUSE_SECONDS` to 0 to refuse every spent-token
+presentation at once.
 
 One or two `exomem_oauth_refresh_reused` events for a family match a lost reply
-or a parallel session. A pinned client's ID is shared by every user of its
+or a parallel session; a large `spend_age_seconds` matches a session that came
+back after days away. A pinned client's ID is shared by every user of its
 platform, so read the family ID. When one family keeps reusing and its owner
-cannot explain it, revoke that family as described below.
+cannot explain it, revoke that family as described below. The owner ends a
+sign-in themselves in Home: "Connected apps", then "Disconnect" beside the app,
+which revokes the grant and every family under it.
+
+#### Whether an app can still reach the Exomem
+
+An app can reach its owner's cell only while at least one token family under
+its grant is unrevoked and still holds a usable credential: an unconsumed,
+unexpired refresh token, or — for a family issued without refresh — an
+unrevoked, unexpired access token. The refresh token's `expires_at` is the
+real idle window; the family row's own `expires_at` is only the session
+ceiling the tokens are already capped by. A family whose last refresh token
+expired a day ago is dead even though its row reads unexpired for months.
+This one rule (`exomem_oauth_family_live_until`, migration 0089) decides
+everywhere a sign-in state is read.
+
+Home's "Connected apps" rows now say so: "signed in" while a family is live,
+"signed out since `<date>`" (the day the last live family ended, by
+revocation or by its last credential expiring) with the remedy "open `<app>`
+and connect Exomem again", and "sign-in unknown" when the state cannot be
+read — an unreadable state is never shown as signed in. A grant stays in the
+list while it is unrevoked, so a signed-out app still offers Disconnect.
+
+#### The sign-out email
+
+When the last live family under a grant ends without the owner's action — a
+replay revocation, the idle window or the session ceiling expiring, or an
+operator family revocation — the OAuth lane of `exomem-reconcile` emails the
+owner once per family: which app (the display name Home shows; a name the app
+declares itself is marked as its own claim), when access ended, that nothing
+the app saves reaches the Exomem until it reconnects, and to open the app and
+connect Exomem again. The email goes through the normal outbox with delivery
+evidence (see "Email delivery" below), and cancels at send time if the owner
+disconnected or reconnected meanwhile or the account is gone.
+
+The rules:
+
+- The grant must have been used within the last 14 days
+  (`exomem_oauth_grant_usage.last_used_at`); a quieter app gets no email.
+- Owner disconnects (`owner_disconnected`), the client's own revocation
+  (`client_revoked`) and account, cell or reviewer lifecycle endings
+  (`lifecycle_deleted`, `cloud_cell_deleted`,
+  `reviewer_credential_revoked`) send nothing.
+- At most one email per grant per 24 hours. A durable marker row per family
+  (`exomem_oauth_app_signout_notices`, migration 0089) makes the notice
+  once-per-family under retries and concurrent sweeps; the sweep detects
+  endings within a 25-hour lookback in batches of 100, and deletes markers
+  older than 30 days, bounded per run.
+- Marketplace reviewer tenants never get the email, and Home's own channel
+  (a first-party client) cannot be the app it names.
+- Each queued email logs the content-free event `oauth.app_signout.notified`
+  with the tenant ID and `emailKind` `app_signout` — metadata only, no app
+  names. The reconcile result's `oauth.signouts` carries `candidates` and
+  `emailed`, or `null` when that lane failed (logged as
+  `exomem-oauth: app sign-out notice lane failed`).
+
+Rollback note: a rollback to a release without the `app_signout` email kind
+drains queued notices as failed — the outbox claims each row, finds the kind
+unregistered (`EMAIL_KIND_UNREGISTERED`) and settles it as failed. They are
+not re-sent when the fixed release returns.
+
+### Measure refresh-token reuse ages
+
+The reuse window (`EXOMEM_OAUTH_REFRESH_REUSE_SECONDS`) is meant to shrink to
+the longest reuse that clients actually need; its default is 7 days. The token table
+already records each reuse: a refresh token's second and later children were
+minted from the already-spent parent. This query reports, per app, how old the
+spent token was at each reuse and how many rotations its session had missed. It
+reads only sign-in metadata.
+
+1. Set `since` to the first full day after the grace change deployed.
+2. Run the query below with `psql "$DATABASE_URL" -v since=<YYYY-MM-DD> -f <file>`.
+3. Propose a tighter window above the largest `p99_age` across apps, with margin.
+
+The parent scan is unindexed on `consumed_at`; at current volume it finishes
+well inside its 60-second timeout. Expected result: one row per app that reused
+a token, with ages and missed-rotation counts.
+
+```sql
+-- Refresh-token reuse ages since the grace change. Read-only, metadata only.
+-- A reuse is a refresh token's second or later child: the first child is the
+-- ordinary rotation; each later one was minted from the already-spent parent.
+-- Both measures read the children's created_at, the transaction-start clock:
+-- the parent's consumed_at is clock_timestamp() after the rotation's locks,
+-- so the first child always predates it and a window anchored on consumed_at
+-- would drop that rotation from every count.
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '60s';
+WITH reuse AS (
+  SELECT family.client_id,
+         reuse_child.created_at - first_child.created_at AS age,
+         (SELECT count(*) FROM exomem_oauth_refresh_tokens AS meanwhile
+           WHERE meanwhile.family_id = parent.family_id
+             AND meanwhile.created_at >= first_child.created_at
+             AND meanwhile.created_at < reuse_child.created_at) AS rotations_missed
+  FROM exomem_oauth_refresh_tokens AS parent
+  JOIN exomem_oauth_token_families AS family ON family.id = parent.family_id
+  CROSS JOIN LATERAL (
+    SELECT created_at FROM exomem_oauth_refresh_tokens AS child
+    WHERE child.parent_refresh_token_id = parent.id
+    ORDER BY created_at LIMIT 1
+  ) AS first_child
+  JOIN LATERAL (
+    SELECT created_at FROM exomem_oauth_refresh_tokens AS reuse_child
+    WHERE reuse_child.parent_refresh_token_id = parent.id
+    ORDER BY created_at OFFSET 1
+  ) AS reuse_child ON true
+  WHERE parent.consumed_at >= :'since'::timestamptz
+)
+SELECT coalesce(client.client_name, client.client_platform, client.admission_mode) AS app,
+       count(*) AS reuses,
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY age) AS p50_age,
+       percentile_disc(0.9) WITHIN GROUP (ORDER BY age) AS p90_age,
+       percentile_disc(0.99) WITHIN GROUP (ORDER BY age) AS p99_age,
+       max(age) AS max_age,
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY rotations_missed) AS p50_rotations_missed,
+       max(rotations_missed) AS max_rotations_missed
+FROM reuse
+JOIN exomem_oauth_clients AS client ON client.id = reuse.client_id
+GROUP BY 1
+ORDER BY reuses DESC;
+ROLLBACK;
+```
 
 ### Revoke connected apps
 
@@ -380,22 +516,27 @@ instead.
 
 Each client takes one slot in one of three partitions: operator, auto-registered
 CIMD connectors, and generic clients. Each partition's bound is a row in
-`exomem_oauth_client_partition_bounds`. The function
-`exomem_oauth_client_partitions()` reads those rows, counts each partition, and
-admission reads it. The first-party Home client takes no slot. An
+`exomem_oauth_client_partition_bounds`, beside `used`, its count of unretired
+clients. Database triggers keep `used` current on every write to the clients
+table, so admission reads one row at any population. The function
+`exomem_oauth_client_partitions()` returns each partition's `bound` and `used`.
+The first-party Home client takes no slot. An
 auto-registered CIMD client with no platform is one only the generic lane can
 admit, so it counts in `generic`, not `auto_registered`.
 
-| Partition         | Launch bound | What one slot is                                             |
-| ----------------- | ------------ | ------------------------------------------------------------ |
-| `operator`        | 96           | A client that an operator registered by hand.                |
+| Partition         | Launch bound | What one slot is                                                        |
+| ----------------- | ------------ | ----------------------------------------------------------------------- |
+| `operator`        | 96           | A client that an operator registered by hand.                           |
 | `auto_registered` | 50,000       | A connector on an allowlisted host, or the one global claude.ai client. |
-| `generic`         | 50,000       | A dynamically registered app, or a lane-admitted CIMD client. |
+| `generic`         | 50,000       | A dynamically registered app, or a lane-admitted CIMD client.           |
 
 A bound limits two things: the clients connected at the same time, and the rows
 that a registration flood can add before the sweep retires them. Each
 self-registering bound is 50 clients for each of 1,000 accounts, because a heavy
-user runs 15 to 25 apps or more at peak.
+user runs 15 to 25 apps or more at peak. The load target is 10,000 tenants
+(`openspec/project.md`), so raise both self-registering bounds to 500,000 before
+the account count passes 1,000. Migration 0093 made the partition check cost the
+same at any population: under 1 ms at 500,000 clients per partition.
 
 To change a bound:
 
@@ -434,6 +575,11 @@ Each run does these things:
   `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`: the client registered before the
   grace began, and no grant of it was created, renewed or revoked since.
 - It retires at most 100 clients per partition.
+- Once an hour per partition, it recounts the partition's unretired clients
+  exactly and corrects `used`. The response's `partitionRecounts` gives the
+  correction for each partition that was due. A non-zero correction logs
+  `exomem-oauth: client partition <partition> counter corrected by <n>`, and
+  means a write bypassed the counting triggers.
 
 The sweep never retires a client in the view
 `exomem_oauth_clients_holding_live_authority`: a client that holds a grant that
@@ -455,6 +601,21 @@ for example by removing and adding the server again, and then connect again.
 To read the headroom, request `GET /api/exomem/admin/oauth-clients` with the
 operator bearer. The `headroom` object gives `bound`, `used` and `free` for each
 partition. The SQL equivalent is `SELECT * FROM exomem_oauth_client_partitions();`.
+
+A recount reads every unretired client, about 70–90 ms with 500,000 in each
+self-registering partition, while a registration in that partition waits. A
+bounds row that you add has no count until a recount: its partition admits no
+new client and the headroom read fails until then. To recount at once, for example after a
+restore with triggers disabled or after adding a bounds row by hand, run:
+
+```sql
+SELECT client_partition, exomem_oauth_client_partition_recount(client_partition) AS corrected
+FROM exomem_oauth_client_partition_bounds;
+```
+
+A `NULL` correction means a registration held that partition; run it again.
+The sweep reports such a partition as `null` in `partitionRecounts` and
+recounts it on its next run.
 
 If the sweep fails, the reconcile job answers `503` and logs
 `exomem-oauth: expired state and client retirement lane failed`. A malformed
@@ -997,11 +1158,11 @@ Do not edit the outbox row.
 
 Public health readers certify the latest completed proof, rather than a responding process. Missing, failed, stale or unreadable proof returns HTTP 503 with `{"ok":false}`. Fresh successful proof returns HTTP 200 with `{"ok":true}`. Readers disable caching and perform no sends or writes.
 
-| Public route              | Checked scope                                                                          | Schedule                     | Default freshness |
-| ------------------------- | -------------------------------------------------------------------------------------- | ---------------------------- | ----------------- |
-| Control `/healthz`        | PostgreSQL temporary-row write/read                                                    | Each minute                  | 180 seconds       |
-| Control `/healthz/email`  | A canary start accepted and delivered, and no stalled or failed queued email           | Each 30 minutes              | 3,600 seconds     |
-| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                                           | Platform CronJob each minute | 180 seconds       |
+| Public route              | Checked scope                                                                | Schedule                     | Default freshness |
+| ------------------------- | ---------------------------------------------------------------------------- | ---------------------------- | ----------------- |
+| Control `/healthz`        | PostgreSQL temporary-row write/read                                          | Each minute                  | 180 seconds       |
+| Control `/healthz/email`  | A canary start accepted and delivered, and no stalled or failed queued email | Each 30 minutes              | 3,600 seconds     |
+| Gateway `/healthz/canary` | One synthetic cell's mutable-page write/read                                 | Platform CronJob each minute | 180 seconds       |
 
 The email proof starts a sign-in the way a person does, and checks that the
 email arrives. Every 30 minutes it requests a start for
@@ -1159,7 +1320,7 @@ CELL_NOT_READY` with `Retry-After: EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`.
 - A held request counts against `EXOMEM_CLOUD_HOLD_MAX` and
   `EXOMEM_CLOUD_HOLD_MAX_PER_TENANT`, not against the in-flight caps. When the
   cell accepts, the request needs a free in-flight slot, or it gets `429
-  RATE_LIMITED`.
+RATE_LIMITED`.
 - `EXOMEM_CLOUD_CONNECT_TIMEOUT_MS` bounds each connection attempt to a cell.
 - A cell that sends no response headers within
   `EXOMEM_CLOUD_UPSTREAM_TIMEOUT_SECONDS` gets `504 CELL_TIMEOUT`.
@@ -1168,6 +1329,113 @@ CELL_NOT_READY` with `Retry-After: EXOMEM_CLOUD_HOLD_RETRY_AFTER_SECONDS`.
 
 To turn the hold off, set `EXOMEM_CLOUD_HOLD_BUDGET_SECONDS` to `0`. The
 gateway then answers a refused connection with `503 CELL_NOT_READY` at once.
+
+## Service notices
+
+An operator declares planned maintenance or a known incident with one command.
+Substrate does nothing by itself: no notice exists until you declare one. A
+declared notice does four things.
+
+- It emails the owner of each covered Exomem, once.
+- It adds the header `x-exomem-service-notice` to each MCP request that goes to
+  a covered cell, so the person's assistant can tell them.
+- It lists the notice on the public status page.
+- It ends when maintenance ends, when you cancel it, or when you resolve it.
+
+### When to declare
+
+- Declare maintenance for planned work that stops or slows Exomem Cloud, such
+  as a cell release or a storage move. Declare it at least two days ahead.
+  Substrate emails owners 48 hours before the start unless you set
+  `--announce-from`.
+- Declare an incident when you know of a problem that owners can feel. Resolve
+  it when it is over.
+- Declare nothing for a fault that nobody can feel.
+
+### Write the summary
+
+The summary is one line of plain text, at most 280 characters. The email, the
+assistant's sentence and the status issue title all use it. The assistant's text
+is capped at 400 characters in all, so a summary over about 200 characters is
+shortened there. The email and the issue title keep it whole.
+
+1. Say what is affected, in the owner's terms, and what still works.
+2. Say only what you know. Name no cause you have not confirmed and promise no time.
+3. Name no person, tenant or cell.
+
+Example: "Saving is slow. Recall works, and nothing is lost."
+
+### Declare maintenance
+
+Set `EXOMEM_PUBLIC_BASE_URL` and `EXOMEM_ADMIN_TOKEN` in your shell. Sign in to
+`gh` with an account that can write to the status repository.
+
+1. Run `gh auth status`. Expect your account and no error.
+2. To cover the whole fleet, run the command below. Add `--cell <cell-id>` once per cell to cover only some.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts create maintenance --summary "Saving may pause for a few minutes while we move storage." --starts 2026-12-01T02:00:00Z --ends 2026-12-01T02:30:00Z --line website-and-sign-in
+   ```
+3. Read the owner count and the assistant's sentence. Type `y` to confirm.
+4. Expect `Created maintenance notice <id> (scheduled).` and the URL of the status issue.
+
+To see the owner count and the sentence without creating anything, use `preview`
+in place of `create`. `--line` names the status lines that the issue lists as
+expected to be down. `--no-mirror` skips the status page.
+
+### Declare an incident
+
+1. Run the command below. `--line` is the slug of the affected status line, as the status site shows it.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts create incident --summary "Saving is slow. Recall works, and nothing is lost." --line website-and-sign-in
+   ```
+2. Read the owner count and the sentence. Type `y` to confirm.
+3. When the problem is over, run the command below with the notice id from `list`.
+   ```bash
+   npx tsx scripts/exomem-service-notice.ts resolve <notice-id> --account "Storage was slow for 40 minutes after a disk filled; we cleared it."
+   ```
+4. Expect `Resolved notice <id>.` and `Closed status issue`. Covered owners get one email that says the problem is resolved.
+   The status monitor can close an incident issue itself when its check recovers. The command then
+   prints `was already closed; added the comment to it` and still exits 0.
+
+### Fix a wrong notice
+
+- To correct a wrong time or wrong cells, cancel the notice and declare a new one.
+  Run `npx tsx scripts/exomem-service-notice.ts cancel <notice-id>`.
+- A cancelled or started maintenance sends no further emails. An email that has
+  already gone cannot be recalled. Tell owners on the status page.
+- `npx tsx scripts/exomem-service-notice.ts list` shows each notice, its state and its id.
+
+### What each person sees
+
+- An owner gets one email for maintenance and one when an incident is resolved.
+  The email states the times in the owner's time zone, your summary and the
+  status page address. The delivery job sends 20 emails a minute, so declare
+  early for a large fleet: a maintenance email not sent by the start is dropped.
+  An incident email goes only to owners whose cell existed when you resolved the
+  incident, so a cell created later gets none.
+- A person's assistant gets an instruction to tell the person once in the
+  conversation, with the times in UTC, your summary and the status page address.
+  A cell shows it only after the Exomem cell release that reads the header;
+  older cells ignore it.
+- Substrate sets the header and refuses a caller's own `x-exomem-` header.
+  A gateway instance keeps its copy of the notices for 30 seconds. The first
+  request after that waits for one refresh, at most 1 second, and carries the
+  result, so a request never carries a notice that changed more than 30 seconds
+  ago. An instance with no traffic asks the database nothing.
+- The status page shows maintenance under scheduled maintenance, with its start
+  and end, and an incident under its status line.
+
+### Configuration and grants
+
+- `EXOMEM_STATUS_REPO` names the status repository for the script. Default
+  `substrate-systems/exomem-status`.
+- `exomem_gateway` has `SELECT` on `exomem_service_notices` and
+  `exomem_service_notice_cells`, applied by `scripts/exomem-cloud-grants.sql`
+  after each migration run.
+- If the gateway logs `exomem_cloud_gateway_service_notices_unavailable`, it
+  sends no notice and serves every request as before. It tries again once every
+  30 seconds, and requests carry no notice until a lookup works. Check the grants
+  and the database connection.
 
 ## Cloud releases
 
@@ -1183,12 +1451,12 @@ image. The deploy token, `EXOMEM_DEPLOY_TOKEN`, may only do these two things:
 - send `PUT /api/exomem/admin/cloud-release` with exactly `cellImage` and
   `release`.
 
-| Answer                         | Meaning                                                                                                   |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `409 CELL_IMAGE_SEEN`          | The deploy token sent a digest that was `cell_image` before. Nothing changed.                             |
-| `409 CELL_RELEASE_OLDER`       | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.          |
-| `403 OPERATOR_SCOPE_DENIED`    | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed.     |
-| `401` on the full `GET`        | The full view names every cell and tenant, so only the admin token reads it.                              |
+| Answer                      | Meaning                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `409 CELL_IMAGE_SEEN`       | The deploy token sent a digest that was `cell_image` before. Nothing changed.                         |
+| `409 CELL_RELEASE_OLDER`    | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.       |
+| `403 OPERATOR_SCOPE_DENIED` | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed. |
+| `401` on the full `GET`     | The full view names every cell and tenant, so only the admin token reads it.                          |
 
 The rollout view holds no cell ID and no tenant ID, and its size does not grow
 with the fleet. It returns `cell_image` and its `release`, `paused` and

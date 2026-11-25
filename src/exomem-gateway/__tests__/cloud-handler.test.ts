@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync, verify } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync, verify } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { beforeEach, describe, it, mock } from "node:test";
@@ -33,6 +33,7 @@ const EXPECTED_CELL_BEARER = deriveCloudCellBearer(TEST_TOKEN_KEY, TEST_CELL_ID)
 
 const TEST_CONFIG: ExomemCloudConfig = {
   mcpUrl: TEST_CLOUD_RESOURCE,
+  acceptedResources: [TEST_CLOUD_RESOURCE],
   mcpPath: "/api/exomem/cloud/mcp/v1",
   cellTokenKey: TEST_TOKEN_KEY,
 };
@@ -140,6 +141,8 @@ function baseDeps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatew
     findAccessToken: async () => VALID_ACCESS,
     recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
     ...overrides,
   };
 }
@@ -149,10 +152,12 @@ function postRequest(input: {
   headers?: Record<string, string>;
   body?: string;
   method?: string;
+  /** The public host the request arrived on; server.ts builds the URL from Host. */
+  host?: string;
 }): Request {
   const headers = new Headers(input.headers ?? {});
   if (input.bearer) headers.set("authorization", `Bearer ${input.bearer}`);
-  return new Request("http://gateway.invalid/api/exomem/cloud/mcp/v1", {
+  return new Request(`http://${input.host ?? "gateway.invalid"}/api/exomem/cloud/mcp/v1`, {
     method: input.method ?? "POST",
     headers,
     body: input.body,
@@ -176,6 +181,8 @@ const SERVICE_ACCESS: ActiveCloudServiceCredential = {
     admissionMode: "service",
     platform: null,
     redirectUris: [],
+    cimdHost: null,
+    clientContext: "conversation",
   },
   serviceCredential: true,
 };
@@ -257,6 +264,30 @@ describe("Exomem Cloud gateway handler", () => {
     assert.equal(unknownToken.headers.get("www-authenticate"), expected);
   });
 
+  // move-cloud-to-evermatter-hosts: an app on the old host that re-runs discovery after a 401
+  // must be sent to the old host's metadata, or it would start a new connection elsewhere.
+  it("names the metadata of the host the request arrived on", async () => {
+    const OLD_HOST_RESOURCE = "https://old.example.test/api/exomem/cloud/mcp/v1";
+    const NEW_HOST_RESOURCE = "https://new.example.test/api/exomem/cloud/mcp/v1";
+    const config: ExomemCloudConfig = {
+      ...TEST_CONFIG,
+      mcpUrl: NEW_HOST_RESOURCE,
+      acceptedResources: [NEW_HOST_RESOURCE, OLD_HOST_RESOURCE],
+    };
+    const challenge = async (host: string) =>
+      (await handleCloudMcpRequest(postRequest({ host }), baseDeps({ config }))).headers.get(
+        "www-authenticate"
+      );
+    assert.match(
+      (await challenge("old.example.test")) ?? "",
+      /resource_metadata="https:\/\/old\.example\.test\/\.well-known\//
+    );
+    assert.match(
+      (await challenge("unlisted.example.test")) ?? "",
+      /resource_metadata="https:\/\/new\.example\.test\/\.well-known\//
+    );
+  });
+
   // Item 4 / task 3.5 (design D2): explicit evidence that the handler asks
   // findCloudOAuthAccessToken (D2's exact-resource lookup) for the
   // configured Cloud resource specifically, never the hosted one. This is
@@ -269,14 +300,15 @@ describe("Exomem Cloud gateway handler", () => {
   it("refuses a token bound to the hosted resource even though its digest is otherwise valid", async () => {
     const HOSTED_RESOURCE = "https://hosted.example.test/api/exomem/mcp/v1";
     const tokensByResource = new Map([[HOSTED_RESOURCE, VALID_ACCESS]]);
-    let receivedResource: string | undefined;
+    let receivedResources: readonly string[] | undefined;
     let fetchCalls = 0;
     const response = await handleCloudMcpRequest(
       postRequest({ bearer: CLIENT_BEARER }),
       baseDeps({
-        findAccessToken: async (_digest, expectedResource) => {
-          receivedResource = expectedResource;
-          return tokensByResource.get(expectedResource) ?? null;
+        findAccessToken: async (_digest, acceptedResources) => {
+          receivedResources = acceptedResources;
+          const match = acceptedResources.find((resource) => tokensByResource.has(resource));
+          return match ? tokensByResource.get(match)! : null;
         },
         fetchCell: (async () => {
           fetchCalls += 1;
@@ -286,7 +318,7 @@ describe("Exomem Cloud gateway handler", () => {
     );
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: "ACCESS_TOKEN_INVALID" });
-    assert.equal(receivedResource, TEST_CLOUD_RESOURCE);
+    assert.deepEqual(receivedResources, [TEST_CLOUD_RESOURCE]);
     assert.equal(fetchCalls, 0);
   });
 
@@ -996,6 +1028,99 @@ describe("Exomem Cloud gateway handler", () => {
         await cell.close();
       }
     });
+
+    it("keeps two tenants' interleaved requests, cell bearers, answers and logs apart", async () => {
+      const tenants = [
+        { sentinel: "SENTINEL-ALPHA", bearer: "x".repeat(43), cellId: "aaaaaaaaaaaaaaaa" },
+        { sentinel: "SENTINEL-BRAVO", bearer: "y".repeat(43), cellId: "bbbbbbbbbbbbbbbb" },
+      ];
+      const cells = new Map<string, StandInCell>();
+      const logged: string[] = [];
+      const consoles = (["warn", "error", "info", "log"] as const).map((level) =>
+        mock.method(console, level, (...args: unknown[]) => logged.push(JSON.stringify(args)))
+      );
+      const recorded: string[] = [];
+      // One set of dependencies serves both tenants, as the running gateway's does.
+      const deps = baseDeps({
+        findAccessToken: async (digest) => {
+          const t = tenants.find((x) =>
+            createHash("sha256").update(x.bearer).digest().equals(digest)
+          );
+          if (!t) return null;
+          return {
+            ...VALID_ACCESS,
+            tenantId: `tenant-${t.sentinel}`,
+            grantId: `grant-${t.sentinel}`,
+            cellId: t.cellId,
+          };
+        },
+        // A failed record logs a line; its error text names the grant, so the tenant.
+        recordAppUse: async (grantId) => {
+          recorded.push(grantId);
+          throw Object.assign(new Error(grantId), { code: "42501" });
+        },
+        cellOrigin: (cellId) => `http://127.0.0.1:${cells.get(cellId)!.port}`,
+      });
+      const bodyOf = (sentinel: string, n: number) => `{"note":"${sentinel}-${n}"}`;
+      try {
+        // Each cell answers with its own tenant's sentinel, slowly enough that all six calls overlap.
+        for (const { sentinel, cellId } of tenants) {
+          const chunks = ['{"answer":"', `${sentinel}"}`];
+          cells.set(cellId, await startStandInCell({ kind: "ok", chunks, chunkDelayMs: 20 }));
+        }
+        await Promise.all(
+          [1, 2, 3].flatMap((n) =>
+            tenants.map(async ({ sentinel, bearer }) => {
+              const response = await handleCloudMcpRequest(
+                postRequest({ bearer, body: bodyOf(sentinel, n) }),
+                deps
+              );
+              assert.equal(response.status, 200);
+              assert.equal(await response.text(), `{"answer":"${sentinel}"}`);
+            })
+          )
+        );
+        for (const { sentinel, cellId } of tenants) {
+          const other = tenants.find((t) => t.cellId !== cellId)!;
+          const received = cells.get(cellId)!.requests;
+          assert.deepEqual(
+            received.map((r) => r.body).sort(),
+            [1, 2, 3].map((n) => bodyOf(sentinel, n))
+          );
+          // Contract C4, written out here so a bug in deriveCloudCellBearer cannot excuse itself.
+          const bearer = createHmac("sha256", TEST_TOKEN_KEY)
+            .update(`exomem-cloud-cell-token-v1:${cellId}`)
+            .digest("base64url");
+          for (const request of received) {
+            assert.equal(request.headers.authorization, `Bearer ${bearer}`);
+            assert.ok(
+              !JSON.stringify(request).includes(other.sentinel),
+              "a cell saw the other tenant"
+            );
+          }
+        }
+        const [alphaAuth, bravoAuth] = tenants.map(
+          ({ cellId }) => cells.get(cellId)!.requests[0]!.headers.authorization
+        );
+        assert.notEqual(alphaAuth, bravoAuth, "both cells were given one bearer");
+        // Three calls per tenant fall in one app-use window, so each grant records once.
+        assert.deepEqual(
+          recorded.sort(),
+          tenants.map((t) => `grant-${t.sentinel}`)
+        );
+        assert.ok(
+          logged.some((line) => line.includes("exomem_cloud_gateway_app_use_unrecorded")),
+          "the failed records must log"
+        );
+        assert.ok(
+          !logged.some((line) => tenants.some((t) => line.includes(t.sentinel))),
+          "a log line named a tenant"
+        );
+      } finally {
+        for (const muted of consoles) muted.mock.restore();
+        await Promise.all([...cells.values()].map((cell) => cell.close()));
+      }
+    });
   });
 });
 
@@ -1004,7 +1129,7 @@ describe("Cloud artifact fetch authority", () => {
   const FILE_CALL_BODY = JSON.stringify({
     method: "tools/call",
     params: {
-      name: "preserve_artifacts",
+      name: "save_evidence",
       arguments: {
         scope: "sample",
         category: "review",
@@ -1025,7 +1150,7 @@ describe("Cloud artifact fetch authority", () => {
       id: 1,
       method: "tools/call",
       params: {
-        name: "preserve_artifacts",
+        name: "save_evidence",
         arguments: { scope: "sample", category: "review", files: [file] },
       },
     });
@@ -1059,7 +1184,7 @@ describe("Cloud artifact fetch authority", () => {
     );
     const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
     assert.equal(claims.sub, TEST_CELL_ID);
-    assert.equal(claims.op, "preserve_artifacts");
+    assert.equal(claims.op, "save_evidence");
     assert.deepEqual(claims.handles, [
       createHash("sha256")
         .update(JSON.stringify(["synthetic-file", file.download_url, null, file.file_name]))
@@ -1111,7 +1236,7 @@ describe("Cloud artifact fetch authority", () => {
             },
           },
         }),
-        headers: { "mcp-name": "preserve_artifacts" },
+        headers: { "mcp-name": "save_evidence" },
       }),
       deps
     );
@@ -1202,7 +1327,7 @@ describe("Cloud artifact fetch authority", () => {
     const { privateKey } = generateKeyPairSync("ed25519");
     const body = JSON.stringify({
       method: "tools/call",
-      params: { name: "capture_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
+      params: { name: "save_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
     });
     const variants: Record<string, string>[] = [
       {},
@@ -1675,5 +1800,90 @@ describe("Exomem Cloud authenticated discovery (D6)", () => {
       })
     );
     assert.equal(response.status, 502);
+  });
+});
+
+// add-exomem-service-notices D3: the gateway tells a cell about the operator's current
+// notice in one header, and nobody else can set it.
+describe("Exomem Cloud gateway service notice header", () => {
+  beforeEach(() => resetCloudGatewayConcurrencyForTests());
+  const NOTICE = "eyJ2IjoxfQ";
+
+  async function forward(
+    serviceNoticeHeader: CloudGatewayDependencies["serviceNoticeHeader"],
+    headers: Record<string, string> = {}
+  ) {
+    const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+    try {
+      const response = await handleCloudMcpRequest(
+        postRequest({ bearer: CLIENT_BEARER, headers, body: "{}" }),
+        baseDeps({ serviceNoticeHeader, fetchCell: fetchCellAt(cell.port) })
+      );
+      return { response, received: cell.requests[0]?.headers };
+    } finally {
+      await cell.close();
+    }
+  }
+
+  it("sends the notice for the caller's own cell, and none when the lookup finds none", async () => {
+    const asked: string[] = [];
+    const covered = await forward(async (cellId) => {
+      asked.push(cellId);
+      return NOTICE;
+    });
+    assert.equal(covered.response.status, 200);
+    assert.equal(covered.received?.["x-exomem-service-notice"], NOTICE);
+    // The lookup is keyed by the cell the token resolved to, never by anything the caller sent.
+    assert.deepEqual(asked, [TEST_CELL_ID]);
+
+    const uncovered = await forward(async () => null);
+    assert.equal(uncovered.response.status, 200);
+    assert.equal(uncovered.received?.["x-exomem-service-notice"], undefined);
+  });
+
+  it("still serves the request when the notice lookup fails", async () => {
+    const { response, received } = await forward(async () => {
+      throw new Error("database unavailable");
+    });
+    assert.equal(response.status, 200);
+    assert.equal(received?.["x-exomem-service-notice"], undefined);
+  });
+
+  it("refuses a caller's own notice header before the cell is reached", async () => {
+    const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+    try {
+      const refused = await handleCloudMcpRequest(
+        postRequest({
+          bearer: CLIENT_BEARER,
+          headers: { "x-exomem-service-notice": NOTICE },
+          body: "{}",
+        }),
+        baseDeps({ serviceNoticeHeader: async () => NOTICE, fetchCell: fetchCellAt(cell.port) })
+      );
+      assert.equal(refused.status, 400);
+      assert.deepEqual(await refused.json(), { error: "HOSTED_SELECTOR_REJECTED" });
+      assert.equal(cell.requests.length, 0);
+    } finally {
+      await cell.close();
+    }
+  });
+
+  it("replaces a caller's copy that passed the selector check with its own, or removes it", async () => {
+    const saved = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-exomem-service-notice";
+    try {
+      const forged = { "x-exomem-service-notice": "forged" };
+      assert.equal(
+        (await forward(async () => NOTICE, forged)).received?.["x-exomem-service-notice"],
+        NOTICE
+      );
+      assert.equal(
+        (await forward(async () => null, forged)).received?.["x-exomem-service-notice"],
+        undefined
+      );
+    } finally {
+      if (saved === undefined) delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = saved;
+    }
   });
 });

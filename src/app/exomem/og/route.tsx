@@ -1,4 +1,12 @@
 import { ImageResponse } from "next/og";
+import {
+  FULL,
+  FULL_ROW,
+  WORD_ASPECT,
+  WORD_DOT_E_TRANSFORM,
+  WORD_PATH,
+  WORD_VIEWBOX,
+} from "@/components/exomem/dot-e";
 import { exomemTokens } from "@/lib/exomem/design-tokens";
 
 export const runtime = "nodejs";
@@ -10,6 +18,7 @@ export const runtime = "nodejs";
 // keep intent without a runtime font fetch.
 
 const MONO = "IBM Plex Mono, ui-monospace, monospace";
+const WORDMARK_HEIGHT = 44;
 
 export function GET() {
   // Satori cannot read CSS variables: the literal dark-theme token values.
@@ -180,37 +189,26 @@ export function GET() {
             padding: "72px 76px 56px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 11,
-                border: `1px solid ${t["--exo-border-input"]}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: t["--bg-hover"],
-                color: t["--fg-primary"],
-                fontFamily: MONO,
-                fontSize: 23,
-                fontWeight: 600,
-              }}
-            >
-              E
-            </div>
-            <div
-              style={{
-                display: "flex",
-                color: t["--fg-primary"],
-                fontFamily: MONO,
-                fontSize: 27,
-                fontWeight: 600,
-              }}
-            >
-              exomem
-            </div>
-          </div>
+          {/* the logo: the Dot E as the capital of "vermatter", the Wordmark component's drawing */}
+          <svg
+            width={WORDMARK_HEIGHT * WORD_ASPECT}
+            height={WORDMARK_HEIGHT}
+            viewBox={WORD_VIEWBOX}
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <g transform={WORD_DOT_E_TRANSFORM}>
+              {FULL.map(([x, y], k) => (
+                <circle
+                  key={k}
+                  cx={x}
+                  cy={y}
+                  r={2.2}
+                  fill={FULL_ROW.includes(k) ? amber : t["--fg-primary"]}
+                />
+              ))}
+            </g>
+            <path d={WORD_PATH} fill={t["--fg-primary"]} />
+          </svg>
 
           <div
             style={{

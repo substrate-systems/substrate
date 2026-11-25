@@ -14,6 +14,7 @@
  */
 
 import type { ExomemSql } from "./db";
+import { OAUTH_FAMILY_END_REASON } from "./oauth-family-end";
 
 export async function revokeCloudResourceConsent(tx: ExomemSql, tenantId: string): Promise<void> {
   // One statement: every data-modifying CTE sees the same snapshot, so the
@@ -34,7 +35,7 @@ export async function revokeCloudResourceConsent(tx: ExomemSql, tenantId: string
     revoked_families AS (
       UPDATE exomem_oauth_token_families AS family
       SET revoked_at = now(),
-          revoked_reason = COALESCE(family.revoked_reason, 'cloud_cell_deleted')
+          revoked_reason = COALESCE(family.revoked_reason, ${OAUTH_FAMILY_END_REASON.cloudCellDeleted})
       FROM cloud_grants
       WHERE family.grant_id = cloud_grants.id AND family.revoked_at IS NULL
       RETURNING family.id
@@ -86,7 +87,7 @@ export async function revokeOwnerOAuthGrant(
     revoked_families AS (
       UPDATE exomem_oauth_token_families AS family
       SET revoked_at = now(),
-          revoked_reason = COALESCE(family.revoked_reason, 'owner_disconnected')
+          revoked_reason = COALESCE(family.revoked_reason, ${OAUTH_FAMILY_END_REASON.ownerDisconnected})
       FROM owned
       WHERE family.grant_id = owned.id AND family.revoked_at IS NULL
       RETURNING family.id

@@ -44,6 +44,7 @@ const CAPABILITY_MARKERS = [
 
 const CONFIG: ExomemCloudConfig = {
   mcpUrl: MCP_URL,
+  acceptedResources: [MCP_URL],
   mcpPath: "/api/exomem/cloud/mcp/v1",
   cellTokenKey: Buffer.alloc(32, 7),
   transferToolsEnabled: true,
@@ -164,6 +165,8 @@ function deps(overrides: Partial<CloudGatewayDependencies> = {}): CloudGatewayDe
     recordAppUse: async () => undefined,
     takeRateLimit: async () => true,
     fetchCell: unreachableCell().fetchCell,
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
     ...overrides,
   };
 }
@@ -522,7 +525,7 @@ describe("Cloud transfer tools in the gateway", () => {
     assert.equal(browser.home_url, `${PUBLIC_BASE}/exomem/home#your-data`);
     assert.deepEqual(attachments, {
       kind: "attachments",
-      tools: ["capture_source", "preserve_artifacts"],
+      tools: ["save_source", "save_evidence"],
       max_files: 8,
       max_bytes: 100 * 1024 * 1024,
     });

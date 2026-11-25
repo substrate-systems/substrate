@@ -4,7 +4,7 @@ import { JourneyPage } from "../../_journey/JourneyPage";
 import { StepHeading } from "../../_journey/parts";
 
 export const metadata: Metadata = {
-  title: "Authorize Exomem",
+  title: "Authorize Evermatter",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

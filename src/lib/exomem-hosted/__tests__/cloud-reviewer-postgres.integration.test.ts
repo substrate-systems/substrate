@@ -383,12 +383,12 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
   it("refuses payment-bearing reviewer authority at session, consent, mint, refresh and Cloud access", async () => {
     const fixture = await reviewerFixture();
     const tokens = await authorize(fixture);
-    assert.ok(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE));
+    assert.ok(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]));
     await pool.query(
       "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = $2, provider_environment = 'sandbox' WHERE tenant_id = $1",
       [fixture.tenantId, `ctm_${randomUUID()}`]
     );
-    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]), null);
     assert.equal(await findExomemSessionByDigest(fixture.sessionDigest), null);
     assert.equal(
       await rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens.refreshDigest)),
@@ -649,7 +649,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     const tokens = await authorize(fixture);
     const next = refreshInput(fixture, tokens.refreshDigest);
     assert.ok(await rotateOAuthRefreshTokenAtomic(next));
-    assert.ok(await findCloudOAuthAccessToken(next.accessDigest, CLOUD_RESOURCE));
+    assert.ok(await findCloudOAuthAccessToken(next.accessDigest, [CLOUD_RESOURCE]));
     const session = await findExomemSessionByDigest(fixture.sessionDigest);
     assert.equal(session?.reviewerCredentialId, fixture.credentialId);
     assert.equal(session?.reviewerCredentialKind, "cloud_provider_review");
@@ -673,7 +673,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       [fixture.credentialId]
     );
     assert.equal(await findExomemSessionByDigest(fixture.sessionDigest), null);
-    assert.equal(await findCloudOAuthAccessToken(next.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(next.accessDigest, [CLOUD_RESOURCE]), null);
     assert.equal(
       await rotateOAuthRefreshTokenAtomic({
         ...next,
@@ -727,7 +727,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       client.rows[0].id,
       tokens.familyId,
     ]);
-    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]), null);
   });
 
   it("keeps runtime health in routing while refusing stopped/deleted cells and blocked/deleted owners", async () => {
@@ -737,13 +737,13 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       "UPDATE exomem_cloud_cells SET observed_state = 'failed', ready = false WHERE tenant_id = $1",
       [fixture.tenantId]
     );
-    assert.ok(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE));
+    assert.ok(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]));
     assert.ok(await findExomemSessionByDigest(fixture.sessionDigest));
     await pool.query(
       "UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE tenant_id = $1",
       [fixture.tenantId]
     );
-    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]), null);
     await pool.query(
       "UPDATE exomem_cloud_cells SET desired_state = 'running' WHERE tenant_id = $1",
       [fixture.tenantId]
@@ -752,7 +752,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       "INSERT INTO exomem_oauth_account_blocks (owner_user_id, tenant_id, blocked_reason) VALUES ($1, $2, 'operator_revoked')",
       [fixture.ownerUserId, fixture.tenantId]
     );
-    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]), null);
     assert.equal(
       await createCloudReviewerOAuthSessionAtomic({
         ...fixture.sessionInput,
@@ -767,7 +767,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       "UPDATE exomem_users SET email = NULL, email_verified_at = NULL, deleted_at = now() WHERE id = $1",
       [fixture.ownerUserId]
     );
-    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]), null);
     assert.equal(
       await rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens.refreshDigest)),
       null
@@ -778,7 +778,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     const fixture = await reviewerFixture();
     const tokens = await authorize(fixture);
     process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "false";
-    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, [CLOUD_RESOURCE]), null);
     assert.equal(await createCloudReviewerOAuthSessionAtomic(fixture.sessionInput), null);
     assert.equal(
       await rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens.refreshDigest)),
@@ -804,11 +804,11 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     const replacement = await reviewerFixture();
     assert.notEqual(replacement.tenantId, previous.tenantId);
     assert.equal(
-      await findCloudOAuthAccessToken(previousTokens.accessDigest, CLOUD_RESOURCE),
+      await findCloudOAuthAccessToken(previousTokens.accessDigest, [CLOUD_RESOURCE]),
       null
     );
     assert.equal(await findExomemSessionByDigest(previous.sessionDigest), null);
-    assert.ok(await findCloudOAuthAccessToken(otherTokens.accessDigest, CLOUD_RESOURCE));
+    assert.ok(await findCloudOAuthAccessToken(otherTokens.accessDigest, [CLOUD_RESOURCE]));
     assert.ok(await findExomemSessionByDigest(replacement.sessionDigest));
   });
 
@@ -846,13 +846,16 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
       0
     );
     assert.equal(await findExomemSessionByDigest(openai.sessionDigest), null);
-    assert.equal(await findCloudOAuthAccessToken(openaiTokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(
+      await findCloudOAuthAccessToken(openaiTokens.accessDigest, [CLOUD_RESOURCE]),
+      null
+    );
     assert.equal(
       await rotateOAuthRefreshTokenAtomic(refreshInput(openai, openaiTokens.refreshDigest)),
       null
     );
-    assert.ok(await findCloudOAuthAccessToken(anthropicTokens.accessDigest, CLOUD_RESOURCE));
-    assert.ok(await findCloudOAuthAccessToken(ordinaryAccess, CLOUD_RESOURCE));
+    assert.ok(await findCloudOAuthAccessToken(anthropicTokens.accessDigest, [CLOUD_RESOURCE]));
+    assert.ok(await findCloudOAuthAccessToken(ordinaryAccess, [CLOUD_RESOURCE]));
     assert.ok(
       await rotateOAuthRefreshTokenAtomic(refreshInput(anthropic, anthropicTokens.refreshDigest))
     );

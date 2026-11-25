@@ -9,7 +9,7 @@ describe("OAuth session policy", () => {
     assert.deepEqual(loadOAuthSessionPolicy({}), {
       refreshIdleDays: 30,
       sessionMaxDays: 365,
-      refreshReuseSeconds: 60,
+      refreshReuseSeconds: 604800,
     });
   });
 
@@ -31,9 +31,9 @@ describe("OAuth session policy", () => {
       loadOAuthSessionPolicy({
         EXOMEM_OAUTH_REFRESH_IDLE_DAYS: "400",
         EXOMEM_OAUTH_SESSION_MAX_DAYS: "5000",
-        EXOMEM_OAUTH_REFRESH_REUSE_SECONDS: "3600",
+        EXOMEM_OAUTH_REFRESH_REUSE_SECONDS: "3000000",
       }),
-      { refreshIdleDays: 90, sessionMaxDays: 730, refreshReuseSeconds: 300 }
+      { refreshIdleDays: 90, sessionMaxDays: 730, refreshReuseSeconds: 2592000 }
     );
     assert.equal(warn.mock.callCount(), 3);
   });
@@ -46,7 +46,7 @@ describe("OAuth session policy", () => {
         EXOMEM_OAUTH_REFRESH_IDLE_DAYS: "0",
         EXOMEM_OAUTH_SESSION_MAX_DAYS: "a year",
       }),
-      { refreshIdleDays: 30, sessionMaxDays: 365, refreshReuseSeconds: 60 }
+      { refreshIdleDays: 30, sessionMaxDays: 365, refreshReuseSeconds: 604800 }
     );
     assert.equal(warn.mock.callCount(), 2);
   });

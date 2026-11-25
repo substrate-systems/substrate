@@ -11,7 +11,7 @@ import {
   resolveActiveOAuthClient,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { isAcceptedCloudResource, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
 import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
@@ -163,11 +163,26 @@ function rateLimited(): NextResponse {
   );
 }
 
+/**
+ * The continuation cookies are host-only and the consent page serves on the public base
+ * origin, so an authorize request that arrives on another host (a client holding metadata
+ * from before sign-in moved) goes to the base origin first. Authorize is a browser
+ * navigation, so the redirect is safe here, unlike on the token endpoint.
+ */
+function onAnotherHost(request: Request, url: URL): NextResponse | null {
+  const base = exomemPublicBaseUrlFromEnv();
+  const host = request.headers.get("host")?.toLowerCase();
+  if (!host || host === new URL(base).host) return null;
+  return NextResponse.redirect(new URL(`${url.pathname}${url.search}`, base), 307);
+}
+
 export async function GET(request: Request): Promise<NextResponse> {
   let callback: { redirectUri: string; state: string | null } | null = null;
   let stage: AuthorizeStage = "ip_rate_limit";
   try {
     const url = new URL(request.url);
+    const moved = onAnotherHost(request, url);
+    if (moved) return moved;
     const ipAllowed = await takeExomemRateLimit(
       EXOMEM_RATE_LIMITS.oauthAuthorizeIp,
       clientAddressKey(request) ?? "unavailable"
@@ -241,7 +256,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     // A misconfigured Cloud deployment throws ExomemCloudConfigurationError
     // here, which the outer catch below turns into the bound client's
     // temporarily_unavailable callback.
-    const resource = loadExomemCloudResource().mcpUrl;
+    // A client that names an accepted resource keeps it (an existing connection re-authorizing
+    // on its old host); any other request is checked against the advertised one and refused.
+    const cloud = loadExomemCloudResource();
+    const resource = isAcceptedCloudResource(cloud, parameters.resource)
+      ? parameters.resource
+      : cloud.mcpUrl;
     // D2: a Cloud-resource grant always carries both exomem.read and
     // exomem.write. An omitted scope receives both; a request naming only a
     // subset is refused with invalid_scope before validateAuthorizationRequest
@@ -252,7 +272,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         callback.redirectUri,
         callback.state,
         "invalid_scope",
-        "Exomem Cloud needs both exomem.read and exomem.write"
+        "Evermatter Cloud needs both exomem.read and exomem.write"
       );
     }
     const authorization = validateAuthorizationRequest({

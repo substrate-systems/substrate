@@ -537,7 +537,7 @@ export default function ViewerClient() {
   return (
     <main className={`brand-exomem ${styles.page}`} data-reach={reach}>
       <header className={styles.header}>
-        <a href="/exomem/home" className={styles.wordmark} aria-label="Exomem home">
+        <a href="/exomem/home" className={styles.wordmark} aria-label="Evermatter home">
           <Mark size={26} state={reach === "lost" ? "off" : "rest"} />
         </a>
         <div className={styles.search}>
@@ -634,7 +634,7 @@ export default function ViewerClient() {
       ) : !map ? (
         <section className={styles.empty}>
           <Mark state={reach === "loading" ? "progress" : "off"} />
-          <h1>{reach === "loading" ? "Opening your knowledge" : "Can’t reach Exomem."}</h1>
+          <h1>{reach === "loading" ? "Opening your knowledge" : "Can’t reach Evermatter."}</h1>
           {reach === "lost" && (
             <>
               <p>Your memories are safe. We’ll try again.</p>
@@ -646,7 +646,7 @@ export default function ViewerClient() {
         <>
           {reach === "lost" && (
             <div className={styles.banner}>
-              Can’t reach Exomem. Showing the view from {asOf(map.observed_at)}.{" "}
+              Can’t reach Evermatter. Showing the view from {asOf(map.observed_at)}.{" "}
               <Button variant="ghost" onClick={() => void refreshMap()}>
                 Try now
               </Button>
@@ -865,7 +865,7 @@ export default function ViewerClient() {
       )}
       <div className={styles.announcement} role="status" aria-live="polite">
         {reach === "lost"
-          ? "Can’t reach Exomem."
+          ? "Can’t reach Evermatter."
           : reader?.lost
             ? "The note is unavailable."
             : searchState === "done" && query

@@ -14,19 +14,19 @@ export const UNNAMED_APP = "your app";
 
 /** The wordmark's link names, which say where it goes. The board draws no names. */
 export const wordmarkCopy = {
-  home: "Exomem home",
-  landing: "Exomem main page",
+  home: "Evermatter home",
+  landing: "Evermatter main page",
 };
 
 export const startCopy = {
   web: {
     title: "Start with your email",
-    lede: "Your Exomem is tied to this email. New or returning, it’s the same step. No password.",
+    lede: "Your Evermatter is tied to this email. New or returning, it’s the same step. No password.",
     primary: "Email me a link",
   },
   app: (app: string) => ({
     title: `Connect ${app} to your memory`,
-    lede: "Sign in with the email your Exomem is tied to. You’ll come straight back here.",
+    lede: "Sign in with the email your Evermatter is tied to. You’ll come straight back here.",
     primary: "Email me a sign-in link",
   }),
   emailLabel: "Email",
@@ -112,8 +112,8 @@ export const inviteCopy = {
    * An invitation with no inviter (the operator's). The board draws only a friend's
    * ("Alex invited you to Exomem"); this is the subject of email 02, listed as a deviation.
    */
-  standardTitle: "You’re invited to Exomem",
-  friendTitle: (by: string) => `${by} invited you to Exomem`,
+  standardTitle: "You’re invited to Evermatter",
+  friendTitle: (by: string) => `${by} invited you to Evermatter`,
   lede: "A knowledge base that every assistant you use shares. It keeps where each thing came from, and what changed.",
   accept: "Accept invitation",
   price: {
@@ -128,7 +128,7 @@ export const inviteCopy = {
     exactAtCheckout: "Paddle shows the exact amount before you pay.",
   },
   existing: {
-    title: "You already have Exomem",
+    title: "You already have Evermatter",
     lede: (by: string) =>
       `${by}’s invitation can’t start a second one, but ${by}’s friend price can go on the plan you have. It starts with your next payment.`,
     useFriendPrice: (by: string) => `Use ${by}’s friend price`,
@@ -168,7 +168,7 @@ export const inviteCopy = {
   },
   home: "Go to Home",
   accepting: {
-    title: "Setting up your Exomem",
+    title: "Setting up your Evermatter",
     lede: "A few seconds. Then add it to your assistant.",
   },
   unusable: {
@@ -205,8 +205,8 @@ export const subscribeCopy = {
 export type PluginApp = "claude" | "openai";
 
 export const chooseCopy = {
-  title: "Add Exomem to your assistant",
-  lede: "Your Exomem is ready. Pick where you’ll use it first; you can add more any time.",
+  title: "Add Evermatter to your assistant",
+  lede: "Your Evermatter is ready. Pick where you’ll use it first; you can add more any time.",
   rows: {
     claude: { also: "also Claude Code, Desktop and Cowork", glyph: "C" },
     openai: { also: "also Codex", glyph: "G" },
@@ -226,7 +226,8 @@ export const chooseCopy = {
  * itself, so the board's "Find Exomem" step is gone (design.md (ax)).
  */
 const AT_LISTING: Partial<Record<PluginApp, string>> = {
-  openai: "ChatGPT opened in a new tab, at Exomem’s page in its plugin directory. Press Connect.",
+  openai:
+    "ChatGPT opened in a new tab, at the plugin directory page for Evermatter (or Exomem). Press Connect.",
 };
 
 export const waitingCopy = {
@@ -234,8 +235,8 @@ export const waitingCopy = {
   /** Where the app's connector settings opened. */
   where: {
     claude:
-      "Claude opened in a new tab, at Settings, then Connectors. Find Exomem and press Connect.",
-    openai: "In ChatGPT, open the plugin directory. Find Exomem and press Connect.",
+      "Claude opened in a new tab, at Settings, then Connectors. Find Evermatter (or Exomem) and press Connect.",
+    openai: "In ChatGPT, open the plugin directory. Find Evermatter (or Exomem) and press Connect.",
   } satisfies Record<PluginApp, string>,
   atListing: AT_LISTING,
   then: (app: string) => `${app} then opens a page here to confirm.`,
@@ -244,9 +245,9 @@ export const waitingCopy = {
 };
 
 export const otherAppCopy = {
-  title: "Add Exomem to your app",
+  title: "Add Evermatter to your app",
   lede: "Paste this address into the app’s connector or MCP settings. The app then opens a page here to confirm.",
-  addressLabel: "Exomem address",
+  addressLabel: "Evermatter address",
 };
 
 export const joinedCopy = {
@@ -260,12 +261,12 @@ export const joinedCopy = {
   /** A level belongs to every app of a kind, "chat apps" or "coding agents". */
   saved: (apps: string) => `Saved for all your ${apps}.`,
   /** Not drawn by the board (design.md deviation (l)). */
-  notSaved: "Not saved yet: your Exomem can’t take it now.",
+  notSaved: "Not saved yet: your Evermatter can’t take it now.",
   done: (app: string) => `${app} · memory on`,
   home: "Go to Home",
   addToo: (app: string) => `Add ${app} too`,
   another: "Add another app",
-  levelsLabel: "How much your app uses Exomem",
+  levelsLabel: "How much your app uses Evermatter",
   instructions: (level: string) => `${level} instructions`,
   characters: (count: string) => `${count} characters`,
   paste: "Paste it into the app’s instructions, or its rules file (AGENTS.md).",
@@ -293,16 +294,16 @@ export const consentCopy = {
     keep: "Keep it as it is",
   },
   preparing:
-    "Your Exomem is still starting. Connect now: its tools start working within a few minutes, and we’ll email you when it’s ready.",
+    "Your Evermatter is still starting. Connect now: its tools start working within a few minutes, and we’ll email you when it’s ready.",
   readOnly: {
     lede: "You can still connect. It recalls but doesn’t save until billing is fixed.",
     notice: (until: string | null) =>
       until && until !== unknownDate
-        ? `Your last payment failed. Exomem is read-only while Paddle retries, until ${until}; after that the subscription ends.`
-        : "Your last payment failed. Exomem is read-only while Paddle retries. We don’t know when retries will end; the subscription ends after that.",
+        ? `Your last payment failed. Evermatter is read-only while Paddle retries, until ${until}; after that the subscription ends.`
+        : "Your last payment failed. Evermatter is read-only while Paddle retries. We don’t know when retries will end; the subscription ends after that.",
     fixBilling: "Fix billing",
   },
-  footer: (from: string) => `exomem · request from ${from}`,
+  footer: (from: string) => `evermatter · request from ${from}`,
   onThisComputer: (app: string) => `${app} on this computer`,
 };
 
@@ -343,7 +344,7 @@ export const breakCopy = {
   connectError: {
     title: "That didn’t finish",
     lede: (app: string) =>
-      `Exomem had a problem on our side while connecting ${app}. Nothing changed. Try again in a minute.`,
+      `Evermatter had a problem on our side while connecting ${app}. Nothing changed. Try again in a minute.`,
     notice: "If it keeps happening, our status page says what we know.",
     retry: TRY_AGAIN,
     statusPage: "Status page ↗",
@@ -374,7 +375,7 @@ export const breakCopy = {
     resume: "Resume subscription",
   },
   suspended: {
-    title: "This Exomem is suspended",
+    title: "This Evermatter is suspended",
     lede: (app: string) =>
       `It can’t connect to ${app} while it’s suspended. Your memory is safe, and you can still export it.`,
     /** The lede while Home offers no export (design.md deviation (s)). */
@@ -401,8 +402,8 @@ export const breakCopy = {
  * Not drawn by the board (design.md deviation (n)).
  */
 export const unknownAppCopy = {
-  title: "Exomem doesn’t recognise this app",
-  lede: "Remove Exomem from the app, then add it again. The app then opens a page here to confirm.",
+  title: "Evermatter doesn’t recognise this app",
+  lede: "Remove the connection from the app, then add it again. The app then opens a page here to confirm.",
 };
 
 /**
@@ -420,7 +421,7 @@ export const failureCopy = {
   /** Unchanged from the page this journey replaces. */
   linkUnusable: "That link has expired or was already used. Enter your email below for a new one.",
   /** Unchanged from the page this journey replaces. */
-  invitationNotReady: "Your invitation is fine — Exomem itself is not ready to open it yet.",
+  invitationNotReady: "Your invitation is fine — Evermatter itself is not ready to open it yet.",
 };
 
 /**

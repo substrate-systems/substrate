@@ -34,8 +34,8 @@ const SITE_KEY = process.env.NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY?.trim() || nu
 type StartFlowProps = {
   context: StartContext;
   reviewerEnabled: boolean;
-  /** The maintained HTTPS status page; absent configuration draws no status action. */
-  statusPageUrl: string | null;
+  /** The maintained HTTPS status page (`statusPageUrl()`); the screen always offers it. */
+  statusPageUrl: string;
   /** The frame the page draws around the steps. */
   frame: { app?: AppTile; footer?: string | null };
   /** A notice to show over the form when it first appears (signed out, a spent link). */
@@ -407,7 +407,7 @@ export function StartFlow({
       {step === "unreachable" ? (
         <>
           <StepHeading
-            title="We can’t reach Exomem"
+            title="We can’t reach Evermatter"
             lede="Your connection or our server stopped answering. Nothing you did is lost."
           />
           <div className={styles.group}>
@@ -415,7 +415,7 @@ export function StartFlow({
             <StepNotice>
               Trying again in {retryIn}
               {"\u00a0"}s.
-              {statusPageUrl ? " If it keeps happening, our status page says why." : null}
+              {" If it keeps happening, our status page says why."}
             </StepNotice>
           </div>
           <StepActions
@@ -424,14 +424,10 @@ export function StartFlow({
               working: sending,
               onClick: () => void send(),
             }}
-            secondary={
-              statusPageUrl
-                ? {
-                    label: breakCopy.connectError.statusPage,
-                    onClick: () => openElsewhere(statusPageUrl),
-                  }
-                : null
-            }
+            secondary={{
+              label: breakCopy.connectError.statusPage,
+              onClick: () => openElsewhere(statusPageUrl),
+            }}
           />
         </>
       ) : step === "limited" ? (

@@ -24,7 +24,7 @@ export function InvolvementLevels({
 }) {
   if (view.state === "hidden") return null;
   return (
-    <Section title="How much Exomem joins in">
+    <Section title="How much Evermatter joins in">
       {view.state === "loading" && (
         <div className={styles.panelNote} aria-busy="true">
           Reading your levels…
@@ -55,7 +55,7 @@ export function InvolvementLevels({
                 >
                   <SegmentedSwitch
                     size="row"
-                    label={`How much Exomem joins in for ${row.title.toLowerCase()}`}
+                    label={`How much Evermatter joins in for ${row.title.toLowerCase()}`}
                     options={OPTIONS}
                     value={row.level}
                     onChange={(level) => {
@@ -74,7 +74,7 @@ export function InvolvementLevels({
           {view.lockedText === null && (
             <>
               {message && " "}
-              Your assistant can change these too. Ask it to use Exomem more, or less.
+              Your assistant can change these too. Ask it to use Evermatter more, or less.
             </>
           )}
         </div>

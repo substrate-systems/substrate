@@ -246,11 +246,11 @@ test("Home shows the account's own values and calls only routes a Cloud account 
   await panel(page, "Connected apps").getByRole("button", { name: "Set up" }).click();
   await expect(page.getByRole("link", { name: "Download Claude ZIP" })).toHaveAttribute(
     "href",
-    "https://raw.githubusercontent.com/Artexis10/exomem/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip"
+    "https://raw.githubusercontent.com/substrate-systems/evermatter/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip"
   );
   await expect(page.getByRole("link", { name: "Download ChatGPT ZIP" })).toHaveAttribute(
     "href",
-    "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip"
+    "https://github.com/substrate-systems/evermatter/releases/latest/download/exomem-cloud-openai.zip"
   );
   await expect(page.getByRole("link", { name: "Open ChatGPT listing" })).toHaveAttribute(
     "href",
@@ -401,7 +401,7 @@ test("a link to the Your data section scrolls there once Home has loaded, and on
 test("a level set on Home reaches the cell and is still set after a reload", async ({ page }) => {
   const owner = await createOwner();
   await openHome(page, owner);
-  const chat = page.getByRole("group", { name: "How much Exomem joins in for chat apps" });
+  const chat = page.getByRole("group", { name: "How much Evermatter joins in for chat apps" });
 
   await chat.getByRole("button", { name: "Light" }).click();
 
@@ -416,7 +416,9 @@ test("in forced colours the level in use still stands out from its track", async
   await page.emulateMedia({ forcedColors: "active" });
   await openHome(page, owner);
   // The group is the track: an unmarked segment shows its colour through a transparent fill.
-  const coding = page.getByRole("group", { name: "How much Exomem joins in for coding agents" });
+  const coding = page.getByRole("group", {
+    name: "How much Evermatter joins in for coding agents",
+  });
   const selected = coding.getByRole("button", { name: "Balanced" });
 
   await expect(selected).toHaveAttribute("aria-pressed", "true");
@@ -431,7 +433,9 @@ test("a level changed elsewhere meets a conflict, and Home shows the level in us
 }) => {
   const owner = await createOwner();
   await openHome(page, owner);
-  const coding = page.getByRole("group", { name: "How much Exomem joins in for coding agents" });
+  const coding = page.getByRole("group", {
+    name: "How much Evermatter joins in for coding agents",
+  });
   await expect(coding.getByRole("button", { name: "Balanced" })).toHaveAttribute(
     "aria-pressed",
     "true"
@@ -537,7 +541,7 @@ test("a confirmation email that cannot be sent deletes nothing, and Home says so
   await openHome(page, owner);
 
   await panel(page, "Your data").getByRole("button", { name: "Delete…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Delete your Exomem?" });
+  const dialog = page.getByRole("dialog", { name: "Delete your Evermatter?" });
   await dialog.getByRole("button", { name: "Email me a confirmation link" }).click();
 
   await expect(dialog.getByRole("alert")).toHaveText("That didn’t finish. Try again in a minute.");
@@ -555,7 +559,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
 
   await panel(page, "Your data").getByRole("button", { name: "Delete…" }).click();
   await page
-    .getByRole("dialog", { name: "Delete your Exomem?" })
+    .getByRole("dialog", { name: "Delete your Evermatter?" })
     .getByRole("button", { name: "Email me a confirmation link" })
     .click();
 
@@ -572,7 +576,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
   expect(new URL(page.url()).hash).toBe("");
   expect(await tenantStatus(owner)).toBe("active");
 
-  await page.getByRole("button", { name: "Permanently delete my Exomem" }).click();
+  await page.getByRole("button", { name: "Permanently delete my Evermatter" }).click();
 
   await expect(page.getByRole("status")).toHaveText(
     "Your shared Substrate identity and any other product remain untouched."
@@ -608,7 +612,7 @@ test("a seeded reviewer signs in on the web and sees the sample account without 
   ).toBeVisible();
   await expect(page.getByText(`complimentary · ends ${ends}`)).toBeVisible();
   await expect(
-    panel(page, "Connected apps").getByText(/^connected \d{1,2} \w+ · during review$/)
+    panel(page, "Connected apps").getByText(/^signed in · connected \d{1,2} \w+ · during review$/)
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /billing/i })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete…" })).toHaveCount(0);
@@ -660,7 +664,9 @@ for (const theme of ["dark", "light"] as const) {
     expect(moving).toEqual([]);
 
     await page.goto(`/exomem/delete#${await createDeletionLink(owner)}`);
-    await expect(page.getByRole("button", { name: "Permanently delete my Exomem" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Permanently delete my Evermatter" })
+    ).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
   });
 }

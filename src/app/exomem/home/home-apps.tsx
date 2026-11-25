@@ -49,16 +49,16 @@ const CLOUD_PLUGINS: CloudPlugin[] = [
     name: CLIENT_PLATFORM_NAMES.claude,
     // Pin the validated description fix until a containing release replaces the rejected ZIP.
     download:
-      "https://raw.githubusercontent.com/Artexis10/exomem/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip",
+      "https://raw.githubusercontent.com/substrate-systems/evermatter/c34bb4ea6f6b3eabe20a4b2f254aa2d9646c47ba/plugins/cloud/generated/claude.zip",
     guide: "https://support.claude.com/en/articles/13837440-use-plugins-in-claude",
     instructions:
-      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your Exomem account.",
+      "Custom plugin uploads are available in “Customize” → “Plugins” on supported plans. The plugin asks you to connect your account.",
   },
   {
     name: CLIENT_PLATFORM_NAMES.openai,
     listing: CLIENT_PLATFORM_LISTING_URLS.openai,
     download:
-      "https://github.com/Artexis10/exomem/releases/latest/download/exomem-cloud-openai.zip",
+      "https://github.com/substrate-systems/evermatter/releases/latest/download/exomem-cloud-openai.zip",
     guide: "https://help.openai.com/en/articles/20001256-plugins-in-chatgpt",
     instructions:
       "Open the public listing to connect ChatGPT. To review a newer package, a workspace administrator can create a draft from the ZIP.",
@@ -72,6 +72,8 @@ type AppsProps = {
   failed: boolean;
   /** Ended: the apps are off until a new subscription, and nothing can be added. */
   ended: boolean;
+  /** The cell serves the apps' calls, so a long silence means something. */
+  served: boolean;
   /**
    * Whether a checkout can start, the banner's own condition: only then do the ended
    * lines name resubscribing (design.md (af)).
@@ -93,6 +95,7 @@ type AppsProps = {
 function AppRow({
   app,
   ended,
+  served,
   checkoutAvailable,
   off,
   onDisconnect,
@@ -103,6 +106,7 @@ function AppRow({
 }: {
   app: HomeApp;
   ended: boolean;
+  served: boolean;
   checkoutAvailable: boolean;
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
@@ -126,7 +130,7 @@ function AppRow({
     }
   }, [off, confirming]);
 
-  let meta = appMeta(app, clock, reviewer);
+  let meta = appMeta(app, clock, reviewer, served);
   if (ended)
     meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
@@ -379,6 +383,7 @@ export function ConnectedApps(props: AppsProps) {
           key={app.id}
           app={app}
           ended={props.ended}
+          served={props.served}
           checkoutAvailable={props.checkoutAvailable}
           off={props.disconnected.has(app.id)}
           onDisconnect={props.onDisconnect}

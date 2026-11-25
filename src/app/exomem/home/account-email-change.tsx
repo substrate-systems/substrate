@@ -193,13 +193,14 @@ export function AccountEmailChange({
             )}
             {receipts?.state === "conflict" && (
               <p className={styles.status}>
-                Paddle refused the receipt address because another customer uses it. Your Exomem
+                Paddle refused the receipt address because another customer uses it. Your Evermatter
                 email change still stands.
               </p>
             )}
             {receipts?.state === "failed" && (
               <p className={styles.status}>
-                Paddle couldn’t update the receipt address. Your Exomem email change still stands.
+                Paddle couldn’t update the receipt address. Your Evermatter email change still
+                stands.
               </p>
             )}
             {receipts && (receipts.state !== null || receipts.available) && (

@@ -157,6 +157,11 @@ export function isLive(variant: HomeVariant): boolean {
   return variant === "on";
 }
 
+/** The gateway passes an app's calls to a running or read-only cell, and records their use, only then. */
+export function appsServed(variant: HomeVariant): boolean {
+  return variant === "on" || variant === "readonly";
+}
+
 // --- Live activity ---
 
 export type ActivityFacts = {
@@ -356,7 +361,7 @@ export function statusCopy(
     case "paused":
       return { headline: breakCopy.paused.title, statusLine: null };
     case "suspended":
-      return { headline: "This Exomem is suspended", statusLine: null };
+      return { headline: "This Evermatter is suspended", statusLine: null };
     case "trouble":
       return { headline: "Your memories are safe.", statusLine: null };
     case "export_pause":
@@ -371,10 +376,10 @@ export function statusCopy(
       };
     case "unread":
       // The lost notice carries the retry, so the status says only what is known.
-      return { headline: "Can’t reach Exomem.", statusLine: null };
+      return { headline: "Can’t reach Evermatter.", statusLine: null };
     case "unknown":
       return {
-        headline: "Your Exomem",
+        headline: "Your Evermatter",
         statusLine: "Your account details can’t be read right now. Try again in a minute.",
       };
   }
@@ -463,8 +468,6 @@ export function notices(
   storage: StorageView,
   /** False while the export flag is off; see `banner`. */
   exportOffered: boolean,
-  /** Whether a status page is configured, for the trouble notice's "Status page ↗". */
-  statusPageOffered: boolean,
   /** The same current eligibility that offers storage in Plan and account. */
   canAddStorage: boolean
 ): HomeNotice[] {
@@ -472,18 +475,15 @@ export function notices(
   const reference = account?.supportReference ?? null;
   // The board's trouble notice says saving is slow and recall works. Home cannot tell
   // that state apart, and here the cell does not answer, so it keeps its own words and
-  // adds the board's status page link (design.md (v)).
+  // always adds the board's status page link (design.md (v)).
   if (variant === "trouble") {
     list.push({
       key: "trouble",
-      text: `Exomem is having trouble waking up. We are retrying without moving your data anywhere else.${
+      text: `Evermatter is having trouble waking up. We are retrying without moving your data anywhere else.${
         reference ? ` Support reference: ${reference}.` : ""
       }`,
       attention: false,
-      actions: [
-        ...(reference ? (["copy_reference"] as const) : []),
-        ...(statusPageOffered ? (["status_page"] as const) : []),
-      ],
+      actions: [...(reference ? (["copy_reference"] as const) : []), "status_page" as const],
     });
   }
   // An ended memory is deleted when its kept window closes. Without an export, support
@@ -508,7 +508,7 @@ export function notices(
     list.push({
       key: "full",
       // The board's sentence about adding storage shows only with its "Add storage" action.
-      text: `Your Exomem is full (${storage.total} GB). Recall works; new saves wait for room.${
+      text: `Your Evermatter is full (${storage.total} GB). Recall works; new saves wait for room.${
         canAddStorage ? " Add storage and they carry on." : ""
       } Nothing is ever deleted to make space.`,
       attention: true,
@@ -520,7 +520,7 @@ export function notices(
       // Floor: a disk that is not full never reads as 100%.
       // Storage grows only by hand (design.md (as)), so the board's "or let it grow
       // automatically" is left out.
-      text: `Your Exomem is ${Math.floor(storage.fraction * 100)}% full. Everything works.${
+      text: `Your Evermatter is ${Math.floor(storage.fraction * 100)}% full. Everything works.${
         canAddStorage ? " Add storage now." : ""
       }`,
       attention: false,
@@ -539,22 +539,55 @@ export function appGlyph(app: HomeApp): string {
   return app.displayName.trim().charAt(0).toUpperCase() || "+";
 }
 
+// A product display rule, not data: elapsed time rather than calendar days, so an
+// app used on Friday evening does not read quiet on Monday morning.
+const QUIET_AFTER_MS = 3 * 24 * 3_600_000;
+
 /**
- * The row's second line: when the app connected and when it last reached the
- * Exomem. On a reviewer account it says the app joined during the review; a name
- * the app gave itself shows where access goes.
+ * The row's second line: whether the app can still reach the Exomem, when it
+ * connected and when it last reached it. A signed-out app leads with when it
+ * lost access and what reconnecting takes. A signed-in app unused for three
+ * days of a serving cell says since when, in case it dropped its login. On a reviewer account it says the
+ * app joined during the review; a name the app gave itself shows where
+ * access goes.
  */
-export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
-  // An app connected within the hour reads "connected just now" or "12 minutes ago",
-  // as the board draws a fresh account; a reviewer's row keeps the date.
-  const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
-  const connected = recent
-    ? ago(app.connectedAt, clock.now)
-    : dayMonth(app.connectedAt, clock.timeZone);
-  const parts = [`connected ${connected}`];
-  if (reviewer) parts.push("during review");
-  // An older server sends no lastUsedAt; the row then says nothing about use.
-  if (app.lastUsedAt) parts.push(`used ${dayWord(app.lastUsedAt, clock)}`);
+export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean, served: boolean): string {
+  const parts: string[] = [];
+  if (app.session.state === "signed_out") {
+    const since = app.session.since === null ? null : dayMonth(app.session.since, clock.timeZone);
+    parts.push(since === null ? "signed out" : `signed out since ${since}`);
+    parts.push(`open ${app.displayName} and connect again`);
+  } else {
+    // An app connected within the hour reads "connected just now" or "12 minutes ago",
+    // as the board draws a fresh account; a reviewer's row keeps the date.
+    const recent = !reviewer && clock.now - Date.parse(app.connectedAt) < 3_600_000;
+    const connected = recent
+      ? ago(app.connectedAt, clock.now)
+      : dayMonth(app.connectedAt, clock.timeZone);
+    // A state the read gave no answer to is unknown, never signed in.
+    parts.push(app.session.state === "unknown" ? "sign-in unknown" : "signed in");
+    parts.push(`connected ${connected}`);
+    if (reviewer) parts.push("during review");
+    // No lastUsedAt (an older server, or no use recorded) says nothing about use, never a guess.
+    const lastUsedAt = app.lastUsedAt;
+    if (lastUsedAt) {
+      // An app can drop its own login without the server ending the sign-in;
+      // a long silence is the only sign of it Home has. While the cell serves no
+      // calls, silence says nothing about the app.
+      const quiet =
+        served &&
+        app.session.state === "signed_in" &&
+        clock.now - Date.parse(lastUsedAt) >= QUIET_AFTER_MS;
+      if (quiet)
+        parts.push(
+          `not used since ${dayMonth(lastUsedAt, clock.timeZone)}`,
+          "reconnect it in the app if that’s unexpected"
+        );
+      else parts.push(`used ${dayWord(lastUsedAt, clock)}`);
+    }
+  }
+  // A name the app gave itself stays marked in every state — a signed-out
+  // row still names where reconnecting sends access.
   if (displayNameClaimedByApp(app.displayNameSource)) {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
     parts.push("name from the app", `sends access to ${destination}`);
@@ -605,10 +638,10 @@ const LEVELS_UNREADABLE = "Levels can’t be read right now. Try again in a minu
 
 // Every reason the server can give has its own sentence, so a new reason fails tsc here.
 const UNAVAILABLE_LEVELS: Record<CloudHomeUnavailableReason, string> = {
-  CELL_STOPPED: "Levels can’t be read while your Exomem is stopped.",
+  CELL_STOPPED: "Levels can’t be read while your Evermatter is stopped.",
   CELL_NOT_READY: "Levels can’t be read right now.",
   CELL_UNREACHABLE: LEVELS_UNREADABLE,
-  CELL_OUTDATED: "Levels need a newer Exomem. It updates soon.",
+  CELL_OUTDATED: "Levels need a newer Evermatter. It updates soon.",
   HOME_CLIENT_DISABLED: "Levels aren’t available right now.",
   ACCOUNT_ACCESS_CLOSED: "Levels aren’t available for this account.",
 };
@@ -628,7 +661,7 @@ export function levelsView(levels: HomeLevels | typeof NOT_RELEASED | null): Lev
     revision: levels.revision,
     lockedText:
       levels.locked_by === "read_only"
-        ? "Levels can’t change while Exomem is read-only."
+        ? "Levels can’t change while Evermatter is read-only."
         : levels.locked_by === "operator"
           ? "An operator setting fixes these levels."
           : null,
@@ -643,7 +676,7 @@ export function levelsView(levels: HomeLevels | typeof NOT_RELEASED | null): Lev
 export function levelRefusalText(code: string): string {
   if (code === "PREFERENCE_CONFLICT")
     return "This changed elsewhere a moment ago. It shows the level in use now.";
-  if (code === "CLOUD_CELL_READ_ONLY") return "Levels can’t change while Exomem is read-only.";
+  if (code === "CLOUD_CELL_READ_ONLY") return "Levels can’t change while Evermatter is read-only.";
   if (code === "PREFERENCE_OPERATOR_OVERRIDE") return "An operator setting fixes these levels.";
   return "That didn’t finish. Try again in a minute.";
 }
@@ -840,9 +873,9 @@ export function exportRefusalText(
     case "EXPORT_IN_PROGRESS":
       return null;
     case "EXPORT_NO_DATA":
-      return "There is nothing to export yet: your Exomem has not started.";
+      return "There is nothing to export yet: your Evermatter has not started.";
     case "EXPORT_UNAVAILABLE":
-      return "Export is not available while your Exomem is being deleted.";
+      return "Export is not available while your Evermatter is being deleted.";
     case "RATE_LIMITED":
       return retryAfterMs
         ? `You can export again from ${shortDateTime(

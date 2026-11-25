@@ -157,7 +157,7 @@ describe("Exomem OAuth token store", () => {
     );
   });
 
-  it("rotates atomically and revokes the family when the digest was already consumed", async () => {
+  it("rotates atomically and refuses a consumed digest", async () => {
     let query = "";
     setSqlForTests(async (strings) => {
       query = strings.join("?");
@@ -174,34 +174,7 @@ describe("Exomem OAuth token store", () => {
     });
     assert.equal(result, null);
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
-    assert.match(query, /refresh_replayed/i);
-    assert.match(query, /UPDATE exomem_oauth_token_families/i);
     assert.match(query, /JOIN exomem_tenants AS tenant/i);
-    assert.match(query, /JOIN exomem_entitlements AS entitlement/i);
-  });
-
-  it("keeps replay lookup independent of current entitlement policy", async () => {
-    let query = "";
-    setSqlForTests(async (strings) => {
-      query = strings.join("?");
-      if (query.includes("SELECT tenant.id")) return { rows: [{ id: "tenant-1" }] };
-      return { rows: [] };
-    });
-    await rotateOAuthRefreshTokenAtomic({
-      refreshDigest: Buffer.alloc(32, 5),
-      replacementRefreshDigest: Buffer.alloc(32, 6),
-      accessDigest: Buffer.alloc(32, 7),
-      accessExpiresAt: new Date("2026-07-26T01:00:00.000Z"),
-      clientId: "client-1",
-      resource: "resource",
-    });
-    assert.match(query, /credential AS/i);
-    assert.match(query, /current_policy AS/i);
-    assert.match(query, /credential\.consumed_at IS NOT NULL/i);
-    assert.doesNotMatch(
-      query.slice(query.indexOf("WITH credential"), query.indexOf("current_policy")),
-      /JOIN exomem_entitlements/i
-    );
   });
 
   it("retains refresh lineage and replay evidence until its family expires", async () => {

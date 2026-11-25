@@ -71,3 +71,65 @@ The primary onboarding, connect, status, billing, and deletion flows SHALL suppo
 
 - **WHEN** an action fails with a retryable gateway or lifecycle code
 - **THEN** Home explains the next action and displays a copyable support reference
+
+### Requirement: Home names a signed-in app that has gone quiet
+
+While the cell serves app calls, a signed-in app row SHALL read "not used since `<date>`" and "reconnect it in the app if that’s unexpected" once its last recorded use is 72 hours old, computed at render time. A row without a readable last use SHALL NOT make this claim, and the line SHALL NOT sign the app out, send an email or add a query.
+
+#### Scenario: Signed-in app unused for three days
+
+- **WHEN** a signed-in app's last recorded use is 72 hours or more ago
+- **THEN** the row reads "not used since `<date>`" and "reconnect it in the app if that’s unexpected" instead of "used `<date>`"
+
+#### Scenario: Weekend gap
+
+- **WHEN** a signed-in app's last recorded use is three calendar days ago but less than 72 hours ago
+- **THEN** the row reads "used `<date>`"
+
+#### Scenario: No recorded use
+
+- **WHEN** a signed-in app has no recorded last use
+- **THEN** the row says nothing about use and makes no quiet claim
+
+#### Scenario: Cell serves no calls
+
+- **WHEN** the cell is paused, suspended or otherwise not serving app calls
+- **THEN** the row reads "used `<date>`" and makes no quiet claim, since the gateway records no use while it refuses calls
+
+#### Scenario: Not signed in
+
+- **WHEN** the app's row reads signed out or sign-in unknown
+- **THEN** the row keeps that state's copy, whatever the last use
+
+### Requirement: Home's app rows say whether each app can still reach the Exomem
+
+Each connected app row SHALL say whether the app can still reach the Exomem,
+computed at render time from the database: signed in while a token family
+under the grant holds a usable credential, else signed out with the day the
+last live family ended and the remedy "Open `<app>` and connect Exomem
+again". A row whose state cannot be read SHALL show unknown, never signed
+in. Every row's state SHALL come from the one list query.
+
+#### Scenario: App is signed in
+
+- **WHEN** the app's grant has at least one unrevoked token family holding a
+  usable credential — an unconsumed, unexpired refresh token, or for a
+  family without refresh an unexpired access token
+- **THEN** the row reads "signed in" with its connected and used dates
+
+#### Scenario: An unexpired family row whose credential lapsed
+
+- **WHEN** a family's row is unrevoked and unexpired but its last unconsumed
+  refresh token has expired
+- **THEN** the row does not read signed in
+
+#### Scenario: Every family ended
+
+- **WHEN** no family under the app's grant holds a usable credential
+- **THEN** the row reads "signed out since `<date>`" or "signed out" and tells
+  the owner to open the app and connect Exomem again
+
+#### Scenario: State cannot be read
+
+- **WHEN** the row's sign-in state is absent or unreadable
+- **THEN** the row shows unknown and never claims the app is signed in

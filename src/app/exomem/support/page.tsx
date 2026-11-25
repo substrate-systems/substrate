@@ -2,23 +2,25 @@ import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildExomemMetadata({
-  title: "Exomem Cloud Support",
+  title: "Evermatter Cloud Support",
   description:
-    "Setup, account, privacy, and incident support for Exomem Cloud — how to reach Substrate Systems OÜ, and what to include so an access or service issue can be resolved quickly.",
+    "Setup, account, privacy, and incident support for Evermatter Cloud — how to reach Substrate Systems OÜ, and what to include so an access or service issue can be resolved quickly.",
   path: "/exomem/support",
 });
 
 export default function ExomemSupportPage() {
   return (
-    <ExomemPublicPage title="Exomem Cloud support" eyebrow="Subscriber support">
+    <ExomemPublicPage title="Evermatter Cloud support" eyebrow="Subscriber support">
       <p>
         For access, setup, privacy, or service issues, email{" "}
         <a href="mailto:founder@substratesystems.io">founder@substratesystems.io</a> with a short
         description and any non-sensitive error or request reference. You can also report a
         reproducible public-client problem in the{" "}
-        <a href="https://github.com/Artexis10/exomem/issues">Exomem issue tracker</a>. Do not send
-        knowledge content, access tokens, invite links, private connection URLs, or screenshots
-        containing them.
+        <a href="https://github.com/substrate-systems/evermatter/issues">
+          Evermatter issue tracker
+        </a>
+        . Do not send knowledge content, access tokens, invite links, private connection URLs, or
+        screenshots containing them.
       </p>
       <h2>Before writing</h2>
       <p>

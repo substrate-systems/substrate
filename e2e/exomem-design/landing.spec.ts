@@ -28,9 +28,9 @@ test("an unavailable session read keeps a neutral entry link usable", async ({ p
     route.fulfill({ status: 503, contentType: "application/json", body: "{}" })
   );
   await page.goto("/exomem");
-  const entry = page.getByRole("link", { name: "Open Exomem", exact: true });
+  const entry = page.getByRole("link", { name: "Open Evermatter", exact: true });
   await expect(entry).toHaveAttribute("href", "/exomem/sign-in");
-  await expect(page.getByRole("link", { name: "Open Exomem →" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Evermatter →" }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
   await entry.click();
   await expect(page).toHaveURL(/\/exomem\/sign-in$/);

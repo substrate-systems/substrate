@@ -24,6 +24,7 @@ const CELL_TOKEN_KEY = Buffer.alloc(32, 7);
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 const CONFIG: ExomemCloudConfig = {
   mcpUrl: RESOURCE,
+  acceptedResources: [RESOURCE],
   mcpPath: "/api/exomem/cloud/mcp/v1",
   cellTokenKey: CELL_TOKEN_KEY,
   artifactSigningKey: privateKey,

@@ -239,8 +239,8 @@ export default function OperatorClient() {
               Alpha access.
             </h1>
             <span className={home.statusLine}>
-              Enter the existing Exomem admin bearer. It stays only in this page and is discarded on
-              refresh.
+              Enter the existing Evermatter admin bearer. It stays only in this page and is
+              discarded on refresh.
             </span>
           </div>
           <form className={styles.form} onSubmit={authenticate}>

@@ -25,7 +25,7 @@ const STOPS = {
   },
   BROWSER_BLOCKED: {
     next: "cancel",
-    text: "This browser does not let Exomem keep the encrypted copy. Private windows often block it.",
+    text: "This browser does not let Evermatter keep the encrypted copy. Private windows often block it.",
   },
   BROWSER_UNSUPPORTED: {
     next: "cancel",

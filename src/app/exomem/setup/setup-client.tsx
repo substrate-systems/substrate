@@ -164,7 +164,7 @@ export default function SetupClient({
   statusPageUrl,
 }: {
   facts: SetupFacts;
-  statusPageUrl: string | null;
+  statusPageUrl: string;
 }) {
   const [focusHeading, setFocusHeading] = useState(false);
   const [phase, setPhase] = useState<Phase>(facts.screen);

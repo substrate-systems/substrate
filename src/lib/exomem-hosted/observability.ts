@@ -35,6 +35,7 @@ const EVENT_NAMES = new Set([
   "exomem.cell-deletions.failed",
   "oauth.authorize.declined",
   "oauth.authorize.kept",
+  "oauth.app_signout.notified",
 ]);
 
 const ERROR_CODES = new Set([

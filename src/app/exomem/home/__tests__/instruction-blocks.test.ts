@@ -24,7 +24,7 @@ describe("each level hands over its own block from the Exomem doc", () => {
     // heading shows here. The off block carries no such line.
     for (const level of INVOLVEMENT_LEVELS.filter((option) => option.key !== "off")) {
       assert.ok(
-        level.block.includes(`Exomem prominence: ${level.key.toUpperCase()}.`),
+        level.block.includes(`Evermatter prominence: ${level.key.toUpperCase()}.`),
         `${level.key} returns another level's block`
       );
     }

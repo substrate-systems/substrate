@@ -33,10 +33,13 @@ import {
   type RenderedExomemAccessEmail,
 } from "@/lib/email-templates/exomem-access";
 import {
+  renderExomemAppSignoutEmail,
   renderExomemConfirmNewEmailEmail,
   renderExomemEmailChangingEmail,
   renderExomemDeletedEmail,
   renderExomemDeletionReminderEmail,
+  renderExomemIncidentResolvedEmail,
+  renderExomemMaintenanceScheduledEmail,
   renderExomemPaymentFailedEmail,
   renderExomemReadyEmail,
   renderExomemSubscriptionEndedEmail,
@@ -56,6 +59,12 @@ import { cloudExportsEnabled } from "./cloud-exports";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
+import { displayNameClaimedByApp } from "./client-platforms";
+import { oauthClientDisplayName } from "./oauth-client-identity";
+import type { OAuthClientDisplayNameSource } from "./client-platforms";
+import { incidentStillResolved, maintenanceStillScheduled } from "./service-notice-emails";
+import { fanOutServiceNoticeEmails } from "./service-notice-fanout";
+import { statusPageUrl } from "./status-page-url";
 import type { ExomemInviteKind } from "./invitation-contract";
 import { normalizeProviderMessageId, pruneProviderEvents } from "./email-provider-events";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
@@ -79,6 +88,13 @@ const MAX_BACKOFF_MINUTES = 60;
 const SETTLED_RECIPIENT_RETENTION_DAYS = 30;
 // Email 07 looks again this often for cellctl to finish a deletion.
 const DELETED_RECHECK_MINUTES = 5;
+/**
+ * The app sign-out notice's recent-use window (notify-owner-of-app-signout):
+ * only an app the owner used this recently can lose reachability unnoticed.
+ * One constant feeds the sweep's eligibility and the send-time recheck, which
+ * must agree — a quiet grant gets no email and a quieter one cancels it.
+ */
+export const SIGNOUT_RECENT_USE_DAYS = 14;
 
 type EmailRenderInput<P, C> = {
   payload: P;
@@ -316,6 +332,11 @@ export type SubscriptionEndedPayload = {
 };
 export type DeletionReminderPayload = { version: 1; cellId: string; endedAt: string };
 export type DeletedPayload = { version: 1; tenantId: string; deletedAt: string };
+
+/** A service notice's email names the notice and the tenant; the facts are read at send. */
+function readServiceNoticePayload(value: Record<string, unknown>) {
+  return readShape(value, { noticeId: "uuid", tenantId: "uuid" });
+}
 
 function supportUrl(publicBaseUrl: string): string {
   return new URL("/exomem/support", `${publicBaseUrl}/`).toString();
@@ -1152,6 +1173,106 @@ const EXOMEM_EMAILS = {
         themeChoice: context.themeChoice ?? themeChoice,
       }),
   }),
+  /**
+   * The app sign-out notice (notify-owner-of-app-signout): an app's last live
+   * token family ended without the owner's action. The sweep claims and
+   * enqueues it; at send time it still holds while the grant is unrevoked
+   * (an owner disconnect revokes it), the account lives, no family is live
+   * again (the owner reconnected) and the app's last use is recent.
+   */
+  app_signout: defineEmail({
+    readPayload: (value) => readShape(value, { grantId: "uuid", familyId: "uuid" }),
+    stillHolds: async (
+      tx,
+      payload
+    ): Promise<{
+      owner: ExomemEmailAddressee;
+      displayName: string;
+      displayNameSource: OAuthClientDisplayNameSource;
+      endedAt: Date;
+    } | null> => {
+      // The marker is the durable record of the ending: the sweep may have
+      // deleted the family row itself between enqueue and send, so the check
+      // anchors on it, not the family. What still has to be true — the grant
+      // lives (an owner disconnect revokes it), the account lives and is no
+      // reviewer's, the app is still one Home would list, no family holds a
+      // usable credential again (the app reconnected) and the last use is
+      // still recent.
+      const { rows } = await tx`
+        /* exomem:email-app-signout-still-out */
+        SELECT owner.email::text AS owner_email, tenant.time_zone, tenant.email_scheme, tenant.theme_choice,
+               client.client_name, client.admission_mode, client.client_platform, client.redirect_uris,
+               notice.ended_at::text AS ended_at
+        FROM exomem_oauth_app_signout_notices AS notice
+        JOIN exomem_oauth_grants AS oauth_grant
+          ON oauth_grant.id = notice.grant_id AND oauth_grant.revoked_at IS NULL
+        JOIN exomem_tenants AS tenant
+          ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
+           AND tenant.status IN ('provisioning', 'active', 'suspended')
+           AND tenant.deleted_at IS NULL
+           AND NOT tenant.marketplace_reviewer_purpose
+        JOIN exomem_users AS owner
+          ON owner.id = tenant.owner_user_id AND owner.deleted_at IS NULL
+        JOIN exomem_oauth_clients AS client
+          ON client.id = oauth_grant.client_id AND client.admission_mode <> 'first_party'
+        JOIN exomem_oauth_grant_usage AS app_use
+          ON app_use.grant_id = oauth_grant.id
+           AND app_use.last_used_at > now() - (${SIGNOUT_RECENT_USE_DAYS} * interval '1 day')
+        WHERE notice.family_id = ${payload.familyId}::uuid
+          AND notice.grant_id = ${payload.grantId}::uuid
+          AND NOT EXISTS (
+            SELECT 1
+            FROM exomem_oauth_token_families AS sibling
+            WHERE sibling.grant_id = notice.grant_id
+              AND sibling.revoked_at IS NULL
+              AND exomem_oauth_family_live_until(sibling.id) > now()
+          )
+      `;
+      const row = rows[0] as
+        | (OwnerRow & {
+            client_name: string | null;
+            admission_mode: string;
+            client_platform: string | null;
+            redirect_uris: string[];
+            ended_at: string;
+          })
+        | undefined;
+      if (!row) return null;
+      // A pre-0034 client row can hold no nameable identity: no name, no
+      // platform, an empty or unparseable redirect list. The email exists to
+      // name the app — one it cannot name is cancelled, not wedged.
+      let named: ReturnType<typeof oauthClientDisplayName>;
+      try {
+        named = oauthClientDisplayName(
+          {
+            clientName: row.client_name,
+            admissionMode: row.admission_mode,
+            platform: row.client_platform,
+          },
+          row.redirect_uris[0] ?? ""
+        );
+      } catch {
+        return null;
+      }
+      return {
+        owner: ownerOf(row),
+        displayName: named.displayName,
+        displayNameSource: named.displayNameSource,
+        endedAt: new Date(row.ended_at),
+      };
+    },
+    addressee: (context) => context.owner,
+    render: ({ context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
+      renderExomemAppSignoutEmail({
+        homeUrl: exomemHomeUrl(publicBaseUrl),
+        appName: context.displayName,
+        appNameClaimed: displayNameClaimedByApp(context.displayNameSource),
+        signedOutAt: context.endedAt,
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
+      }),
+  }),
   /** Email 13, to the inviter: the friend invitation ended unused. */
   invitation_ended: defineEmail({
     readPayload: readInvitationNoticePayload,
@@ -1203,6 +1324,43 @@ const EXOMEM_EMAILS = {
         themeChoice: context.themeChoice ?? themeChoice,
       }),
   }),
+  /**
+   * Announces planned maintenance a notice declared. `claimedLast`: a fan-out
+   * queues one per owner at once, and it must not delay a person's own mail.
+   */
+  maintenance_scheduled: defineEmail({
+    readPayload: readServiceNoticePayload,
+    stillHolds: maintenanceStillScheduled,
+    addressee: (context) => context.owner,
+    claimedLast: true,
+    render: ({ context, timeZone, emailScheme, themeChoice }) =>
+      renderExomemMaintenanceScheduledEmail({
+        summary: context.summary,
+        startsAt: context.startsAt,
+        endsAt: context.endsAt as Date,
+        statusUrl: statusPageUrl(),
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
+      }),
+  }),
+  /** Says an incident the operator resolved is over. `claimedLast` for the same reason. */
+  incident_resolved: defineEmail({
+    readPayload: readServiceNoticePayload,
+    stillHolds: incidentStillResolved,
+    addressee: (context) => context.owner,
+    claimedLast: true,
+    render: ({ context, timeZone, emailScheme, themeChoice }) =>
+      renderExomemIncidentResolvedEmail({
+        summary: context.summary,
+        startedAt: context.startsAt,
+        resolvedAt: context.resolvedAt as Date,
+        statusUrl: statusPageUrl(),
+        timeZone,
+        scheme: emailScheme,
+        themeChoice,
+      }),
+  }),
 };
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;
 /** Every kind the outbox can send; `exomem_email_outbox_kind_check` must allow exactly these. */
@@ -1239,6 +1397,44 @@ export function sealExomemEmailPayload<K extends ExomemEmailKind>(
 }
 
 /**
+ * Writes emails inside the caller's transaction, in one statement whatever
+ * their number. Returns the ids of the rows it wrote: an email whose dedupe
+ * key already exists is left out, so a repeat changes nothing.
+ */
+export async function enqueueExomemEmails<K extends ExomemEmailKind>(
+  tx: ExomemSql,
+  inputs: readonly EnqueueExomemEmailInput<K>[]
+): Promise<string[]> {
+  if (inputs.length === 0) return [];
+  const { rows } = await tx`
+    /* exomem:enqueue-email */
+    INSERT INTO exomem_email_outbox (
+      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
+      payload_ciphertext, not_before, due_at, expires_at
+    )
+    SELECT item.kind, item.dedupe_key, item.recipient, item.time_zone, item.email_scheme, item.theme_choice,
+           item.tenant_id, item.payload::jsonb, COALESCE(item.not_before, now()),
+           COALESCE(item.not_before, now()), item.expires_at
+    FROM unnest(
+      ${inputs.map((input) => input.kind)}::text[],
+      ${inputs.map((input) => input.dedupeKey)}::text[],
+      ${inputs.map((input) => input.recipient)}::text[],
+      ${inputs.map((input) => input.recipientTimeZone)}::text[],
+      ${inputs.map((input) => input.recipientEmailScheme)}::text[],
+      ${inputs.map((input) => input.recipientThemeChoice ?? null)}::text[],
+      ${inputs.map((input) => input.tenantId ?? null)}::uuid[],
+      ${inputs.map((input) => sealExomemEmailPayload(input.kind, input.payload))}::text[],
+      ${inputs.map((input) => input.notBefore?.toISOString() ?? null)}::timestamptz[],
+      ${inputs.map((input) => input.expiresAt?.toISOString() ?? null)}::timestamptz[]
+    ) AS item(kind, dedupe_key, recipient, time_zone, email_scheme, theme_choice, tenant_id, payload,
+              not_before, expires_at)
+    ON CONFLICT (dedupe_key) DO NOTHING
+    RETURNING id
+  `;
+  return rows.map((row) => String(row.id));
+}
+
+/**
  * Writes one email inside the caller's transaction. Returns the new row's id,
  * which a request hands to `dispatchQueuedEmailsSoon` once its transaction
  * commits, or `null` when an email with this dedupe key already exists, so a
@@ -1248,29 +1444,8 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
   tx: ExomemSql,
   input: EnqueueExomemEmailInput<K>
 ): Promise<string | null> {
-  const envelope = sealExomemEmailPayload(input.kind, input.payload);
-  const { rows } = await tx`
-    /* exomem:enqueue-email */
-    INSERT INTO exomem_email_outbox (
-      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
-      payload_ciphertext, not_before, due_at, expires_at
-    ) VALUES (
-      ${input.kind},
-      ${input.dedupeKey},
-      ${input.recipient},
-      ${input.recipientTimeZone},
-      ${input.recipientEmailScheme},
-      ${input.recipientThemeChoice ?? null},
-      ${input.tenantId ?? null}::uuid,
-      ${envelope}::jsonb,
-      COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
-      COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
-      ${input.expiresAt?.toISOString() ?? null}::timestamptz
-    )
-    ON CONFLICT (dedupe_key) DO NOTHING
-    RETURNING id
-  `;
-  return rows.length === 1 ? String(rows[0]!.id) : null;
+  const [id] = await enqueueExomemEmails(tx, [input]);
+  return id ?? null;
 }
 
 type AnyDefinition = EmailDefinition<unknown, unknown>;
@@ -1622,6 +1797,8 @@ export type ExomemEmailDrainResult = {
   providerEventsPruned: number | null;
   /** Emails 03 queued this tick; `null` when that pass failed. */
   readyEnqueued: number | null;
+  /** Service notice emails queued this tick; `null` when that pass failed. */
+  serviceNoticeEnqueued: number | null;
   claimed: number;
   sent: number;
   retryScheduled: number;
@@ -1721,7 +1898,7 @@ async function deliverClaim(
     answer = await deps.sendEmail({
       to: email.recipient,
       ...EXOMEM_SENDER,
-      // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
+      // "Evermatter", or "<name> via Evermatter" when a person sent it; the address stays.
       senderName: rendered.senderName,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
@@ -1773,6 +1950,14 @@ export async function drainExomemEmailOutbox(
       (ready) => ready.enqueued,
       () => {
         console.error("exomem: ready email pass failed");
+        return null;
+      }
+    ),
+    // Same place and same rule as the ready pass above.
+    serviceNoticeEnqueued: await fanOutServiceNoticeEmails().then(
+      (queued) => queued.enqueued,
+      () => {
+        console.error("exomem: service notice pass failed");
         return null;
       }
     ),

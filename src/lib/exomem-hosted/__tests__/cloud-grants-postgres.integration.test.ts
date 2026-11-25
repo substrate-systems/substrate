@@ -14,6 +14,7 @@ import { applyCloudReleaseChanges, getCloudRolloutView } from "../cloud-release"
 import { findCloudOAuthAccessToken, findCloudOAuthLogin, recordCloudAppUse } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { digestSecret, generateExternalToken } from "../security";
+import { loadOpenServiceNotices } from "../service-notice-header";
 import { assertCellAcceptsGrant } from "./cell-grant-rules";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -878,6 +879,40 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     }
   });
 
+  // add-exomem-service-notices D3: the gateway runs the notice lookup itself.
+  it("runs the gateway's real notice lookup AS exomem_gateway, which can read the notices and change none", async () => {
+    const notice = await ownerPool!.query<{ id: string }>(
+      `INSERT INTO exomem_service_notices (kind, summary, starts_at, ends_at, announce_from)
+       VALUES ('maintenance', 'Grant probe.', now() + interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')
+       RETURNING id`
+    );
+    await ownerPool!.query(
+      "INSERT INTO exomem_service_notice_cells (notice_id, cell_id) VALUES ($1, $2)",
+      [notice.rows[0]!.id, "bbbbbbbbbbbbbbbb"]
+    );
+    __setExomemSqlForTests(taggedSql(gatewayPool!));
+    try {
+      const open = await loadOpenServiceNotices();
+      const found = open.find((candidate) => candidate.id === notice.rows[0]!.id);
+      assert.deepEqual(found?.cellIds, ["bbbbbbbbbbbbbbbb"]);
+    } finally {
+      __setExomemSqlForTests(null);
+    }
+    for (const statement of [
+      "UPDATE exomem_service_notices SET cancelled_at = now()",
+      "DELETE FROM exomem_service_notices",
+      "INSERT INTO exomem_service_notice_cells (notice_id, cell_id) VALUES (gen_random_uuid(), 'cccccccccccccccc')",
+    ]) {
+      await assert.rejects(gatewayPool!.query(statement), /permission denied/);
+    }
+    // The cell controller has no use for notices.
+    await assert.rejects(cellctlPool!.query("SELECT 1 FROM exomem_service_notices"), /permission denied/);
+    // The control plane declares them.
+    await appPool!.query("UPDATE exomem_service_notices SET cancelled_at = now() WHERE id = $1", [
+      notice.rows[0]!.id,
+    ]);
+  });
+
   // Security review finding 3: the gateway connects to Postgres directly
   // (never through PgBouncer) and runs findCloudOAuthAccessToken itself --
   // this proves the column-scoped OAuth grants the script gives
@@ -985,7 +1020,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
       __setExomemSqlForTests(taggedSql(gatewayPool!));
       try {
-        const found = await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE);
+        const found = await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]);
         assert.ok(found, "exomem_gateway should be able to run the real lookup query");
         assert.equal(found!.tenantId, tenantId);
         assert.equal(found!.cellDesiredState, "running");
@@ -1000,14 +1035,14 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         assert.equal(recorded.rowCount, 1);
         // A delegated upload names its login family instead of a token, through the same role.
         const login = { familyId: family.rows[0]!.id, grantId: grant.rows[0]!.id };
-        assert.equal((await findCloudOAuthLogin(login, CLOUD_RESOURCE))?.tenantId, tenantId);
+        assert.equal((await findCloudOAuthLogin(login, [CLOUD_RESOURCE]))?.tenantId, tenantId);
         if (reviewerPurpose) {
           await ownerPool!.query(
             "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",
             [tenantId],
           );
-          assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
-          assert.equal(await findCloudOAuthLogin(login, CLOUD_RESOURCE), null);
+          assert.equal(await findCloudOAuthAccessToken(accessDigest, [CLOUD_RESOURCE]), null);
+          assert.equal(await findCloudOAuthLogin(login, [CLOUD_RESOURCE]), null);
         }
       } finally {
         __setExomemSqlForTests(null);
@@ -1578,7 +1613,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       const bearer = new Headers(init.headers).get("authorization")!.slice("Bearer ".length);
       __setExomemSqlForTests(taggedSql(gatewayPool!));
       try {
-        routed = (await findCloudOAuthAccessToken(digestSecret(bearer), CLOUD_RESOURCE)) ?? undefined;
+        routed = (await findCloudOAuthAccessToken(digestSecret(bearer), [CLOUD_RESOURCE])) ?? undefined;
       } finally {
         __setExomemSqlForTests(taggedSql(appPool!));
       }

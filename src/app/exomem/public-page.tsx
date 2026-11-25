@@ -25,7 +25,7 @@ export function ExomemPublicPage({
           className="exo-link-ts"
           style={{ fontFamily: "var(--font-mono-exo)", fontSize: "12px" }}
         >
-          ← Exomem
+          ← Evermatter
         </Link>
         <p
           style={{
@@ -61,7 +61,7 @@ export function ExomemPublicPage({
           {children}
         </div>
         <nav
-          aria-label="Exomem information"
+          aria-label="Evermatter information"
           style={{
             display: "flex",
             flexWrap: "wrap",

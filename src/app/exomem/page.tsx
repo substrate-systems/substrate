@@ -16,13 +16,14 @@ import { proofFigures } from "./landing/proof";
 import recallBenchmarks from "./landing/recall-benchmarks.json";
 import responsive from "./landing/responsive.module.css";
 import styles from "./landing/landing.module.css";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 const HERO_TEXT =
-  "Exomem is the knowledge base all your assistants share. Claude, ChatGPT, Claude Code, Codex and every session you connect read from it and add to it. When something changes, it keeps what was true, why it changed and what replaced it, as plain Markdown you own.";
+  "Evermatter (formerly Exomem) is the knowledge base all your assistants share. Claude, ChatGPT, Claude Code, Codex and every session you connect read from it and add to it. When something changes, it keeps what was true, why it changed and what replaced it, as plain Markdown you own.";
 
 // The phone lede; its first two sentences are also the page's search description.
 const PHONE_LEDE_START =
-  "The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it";
+  "The knowledge base all your assistants share, in every session. When something changes, Evermatter (formerly Exomem) keeps what was true, why it changed and what replaced it";
 const proof = proofFigures(recallBenchmarks);
 
 export const metadata = buildExomemMetadata({
@@ -30,12 +31,16 @@ export const metadata = buildExomemMetadata({
   // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
   // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
   // flagged over-long titles elsewhere.
-  title: "Exomem — MCP memory server over your Markdown knowledge base",
+  title: "Evermatter — MCP memory server for a Markdown knowledge base",
   description: `${PHONE_LEDE_START}.`,
   path: "/exomem",
 });
 
-const GITHUB = "https://github.com/Artexis10/exomem";
+// The header logo's height (the canon's one logo position). The brand row takes the
+// same height, so the byline's descent cannot pull the logo off its 29 px top edge.
+const HEADER_WORDMARK_HEIGHT = 17;
+
+const GITHUB = "https://github.com/substrate-systems/evermatter";
 const PYPI = "https://pypi.org/project/exomem/";
 const README = `${GITHUB}#readme`;
 const ASSISTANTS = Object.entries(CLIENT_FAMILY_NAMES)
@@ -45,11 +50,11 @@ const ASSISTANTS = Object.entries(CLIENT_FAMILY_NAMES)
 const softwareJsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "Exomem",
+  name: "Evermatter",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Windows, macOS, Linux",
   description: `Source-available MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at ${proof.scaleNotes} notes, measured, with local OCR, ASR, and image indexing.`,
-  url: `${siteConfig.url}/exomem`,
+  url: productPageUrl("/exomem"),
   downloadUrl: PYPI,
   installUrl: PYPI,
   offers: {
@@ -69,7 +74,7 @@ const softwareJsonLd = {
   // belong to SoftwareSourceCode, and emitting them here invalidated the entire item.
   isBasedOn: {
     "@type": "SoftwareSourceCode",
-    name: "Exomem",
+    name: "Evermatter",
     description:
       "Source-available MCP server exposing a Markdown or Obsidian vault as a governed, searchable knowledge substrate.",
     codeRepository: GITHUB,
@@ -80,7 +85,7 @@ const softwareJsonLd = {
 
 const breadcrumb = breadcrumbJsonLd([
   { name: "Home", path: "/" },
-  { name: "Exomem", path: "/exomem" },
+  { name: "Evermatter", path: "/exomem" },
 ]);
 
 const external = { target: "_blank", rel: "noopener noreferrer" } as const;
@@ -171,7 +176,7 @@ export default function ExomemPage() {
     { desk: "Start with your email; no password", phone: "Start with your email" },
     { desk: "Subscribe; your vault is ready in a minute", phone: "Subscribe; ready in a minute" },
     {
-      desk: "Add Exomem in Claude’s connectors or ChatGPT’s plugins",
+      desk: "Add it in Claude’s connectors or ChatGPT’s plugins",
       phone: "Add it to Claude or ChatGPT",
     },
   ];
@@ -224,18 +229,18 @@ export default function ExomemPage() {
 
       <div className={styles.main}>
         <header className={styles.header}>
-          <div className={styles.brand}>
+          <div className={styles.brand} style={{ height: HEADER_WORDMARK_HEIGHT }}>
             <span className={`${styles.wordmark} ${responsive.deskOnly}`}>
-              <Wordmark height={17} />
+              <Wordmark height={HEADER_WORDMARK_HEIGHT} />
             </span>
             <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
-              <Wordmark height={17} />
+              <Wordmark height={HEADER_WORDMARK_HEIGHT} />
             </span>
             <Link href="/" className={`exo-link-ts ${styles.byline} ${responsive.deskOnly}`}>
               by Substrate Systems
             </Link>
           </div>
-          <nav className={styles.nav} aria-label="Exomem">
+          <nav className={styles.nav} aria-label="Evermatter">
             <a
               href="#lp-true"
               className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
@@ -352,7 +357,7 @@ export default function ExomemPage() {
               </h2>
               <p className={styles.body}>
                 <Copy
-                  desk="In your Exomem account: click any note to see what supports it, what it replaced and where it came from. Scrub back in time. Watch your assistants recall, live."
+                  desk="In your Evermatter account: click any note to see what supports it, what it replaced and where it came from. Scrub back in time. Watch your assistants recall, live."
                   phone="Click any note to see what supports it and what it replaced. Scrub back in time. Watch your assistants recall, live."
                 />
               </p>
@@ -485,7 +490,7 @@ export default function ExomemPage() {
           <span className={styles.wordmark}>
             <Wordmark height={15} />
           </span>
-          <nav className={styles.footerLinks} aria-label="Exomem pages">
+          <nav className={styles.footerLinks} aria-label="Evermatter pages">
             {footerLinks.map(({ label, href, external: isExternal }) =>
               href.startsWith("/") ? (
                 <Link key={label} href={href} className={`exo-link-ts ${phone.hitArea}`}>

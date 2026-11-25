@@ -1,5 +1,6 @@
 import { loadExomemCloudResource } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { OAUTH_FAMILY_END_REASON } from "./oauth-family-end";
 import {
   marketplaceReviewerAccessEnabled,
   validateMarketplaceReviewerExpiry,
@@ -77,7 +78,7 @@ async function revokeProviderLineage(
       WHERE reviewer_credential_id IN (SELECT id FROM revoked) OR grant_id IN (SELECT id FROM grants) RETURNING id
     ), families AS (
       UPDATE exomem_oauth_token_families SET revoked_at = COALESCE(revoked_at, now()),
-        revoked_reason = COALESCE(revoked_reason, 'reviewer_credential_revoked')
+        revoked_reason = COALESCE(revoked_reason, ${OAUTH_FAMILY_END_REASON.reviewerCredentialRevoked})
       WHERE reviewer_credential_id IN (SELECT id FROM revoked) OR grant_id IN (SELECT id FROM grants) RETURNING id
     ), refresh AS (
       UPDATE exomem_oauth_refresh_tokens SET consumed_at = COALESCE(consumed_at, now())
@@ -185,7 +186,7 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
   expiresAt: Date;
 }): Promise<{ sessionId: string } | null> {
   if (!cloudReviewerAccessEnabled()) return null;
-  const resource = loadExomemCloudResource().mcpUrl;
+  const acceptedResources = loadExomemCloudResource().acceptedResources;
   return withExomemTransaction(async (tx) => {
     const locked = await tx`
       SELECT tenant.id FROM exomem_tenants AS tenant
@@ -205,7 +206,7 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
         CROSS JOIN credential
         WHERE transaction.transaction_digest = ${input.transactionDigest}
-          AND transaction.resource = ${resource} AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+          AND transaction.resource = ANY(${[...acceptedResources]}::text[]) AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND transaction.candidate_id IS NULL AND transaction.reviewer_bootstrap_authority_id IS NULL
           AND (transaction.reviewer_credential_id IS NULL OR transaction.reviewer_credential_id = credential.id)
           AND client.enabled = true

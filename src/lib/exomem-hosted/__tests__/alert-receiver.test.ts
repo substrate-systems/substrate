@@ -494,8 +494,8 @@ describe("deliverClaimedAlert", () => {
     assert.equal(outcome.skipped, false);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].to, "founder@substratesystems.io");
-    assert.equal(sent[0].senderName, "Exomem");
-    assert.equal(sent[0].senderEmail, "exomem@substratesystems.io");
+    assert.equal(sent[0].senderName, "Evermatter");
+    assert.equal(sent[0].senderEmail, "hello@evermatter.ai");
     assert.match(sent[0].subject, /FIRING: scheduler_missed_run \(exomem-reconcile\)/);
     assert.equal(table.get(TRANSITION_ID)?.notification_state, "delivered");
   });

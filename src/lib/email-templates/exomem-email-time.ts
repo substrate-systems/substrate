@@ -57,6 +57,19 @@ export function emailShortDateTime(at: Date, timeZone: EmailTimeZone): string {
   return `${date(at, timeZone, "short")}, ${clock(at, timeZone)}`;
 }
 
+/**
+ * A span of time: "14 October, 09:20 to 10:40" within one day and "14 October,
+ * 22:00 to 15 October, 01:00" across two. When the zone is unknown, "UTC"
+ * follows once at the end.
+ */
+export function emailTimeSpan(from: Date, to: Date, timeZone: EmailTimeZone): string {
+  const start = `${date(from, timeZone, "long")}, ${clock(from, timeZone)}`;
+  const end = emailSameDay(from, to, timeZone)
+    ? clock(to, timeZone)
+    : `${date(to, timeZone, "long")}, ${clock(to, timeZone)}`;
+  return labelled(`${start} to ${end}`, timeZone, "suffix");
+}
+
 /** Whether two instants fall on the same calendar day for the reader. */
 export function emailSameDay(a: Date, b: Date, timeZone: EmailTimeZone): boolean {
   const day = new Intl.DateTimeFormat("en-CA", {

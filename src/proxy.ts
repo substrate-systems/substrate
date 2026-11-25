@@ -10,7 +10,9 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     return NextResponse.rewrite(new URL("/api/tidewave", req.url));
   }
   const response = NextResponse.next();
-  // Exomem HTML routes have no file extension; assets never need an account read.
+  // Exomem HTML routes have no file extension; assets never need an account read. The product
+  // site's root pages are left out: the matcher below cannot name a configured host, and those
+  // public pages read the last snapshot, which every signed-in visit to an /exomem page refreshes.
   if (
     req.method === "GET" &&
     isExomemPath(req.nextUrl.pathname) &&

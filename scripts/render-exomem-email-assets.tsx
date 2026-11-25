@@ -1,14 +1,15 @@
 /**
- * Renders the images every Exomem email loads: the six state bands, each in
- * the dark and the light scheme, as 1200 × 240 PNGs, and the wordmark in both
- * schemes at three times its 16 px height. Gmail strips SVG, so emails need
- * PNGs; this keeps them in step with the design.
+ * Renders the state bands every Evermatter email loads, each in the dark and
+ * the light scheme, as 1200 × 240 PNGs. Gmail strips SVG, so emails need PNGs;
+ * this keeps them in step with the design.
  *
  * The bands come from the "The band follows the account" row of the R28 board
  * (docs/exomem-design/reference/boards/R28-Emails.dc.html), drawn in the ink
- * and amber tokens of each scheme on the scheme's page ground. The wordmark is
- * the Wordmark component itself. Run it after a board or token change, then
- * commit the images:
+ * and amber tokens of each scheme on the scheme's page ground. They land in the
+ * brand kit's email folder (public/evermatter/email). The wordmark PNGs in that
+ * folder are not drawn here: the brand kit renders them from its wordmark SVG
+ * (docs/exomem-design/brand/evermatter-brand-kit/README.md). Run this after a
+ * board or token change, then commit the images:
  *
  *   npx tsx scripts/render-exomem-email-assets.tsx
  *
@@ -16,27 +17,17 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
-import type { ReactElement } from "react";
 import { JSDOM } from "jsdom";
 import { chromium } from "@playwright/test";
-import { Wordmark } from "../src/components/exomem/Wordmark";
 import { exomemTokens } from "../src/lib/exomem/design-tokens";
 import {
   EXOMEM_EMAIL_ASSET_PATH,
   EXOMEM_EMAIL_BANDS,
-  EXOMEM_EMAIL_WORDMARK,
   exomemEmailBandFile,
-  exomemEmailWordmarkFile,
   type ExomemEmailBand,
   type ExomemEmailScheme,
 } from "../src/lib/email-templates/exomem-email";
-
-// The repository has no react-dom types; this script needs one function from it.
-const { renderToStaticMarkup } = createRequire(__filename)("react-dom/server") as {
-  renderToStaticMarkup: (element: ReactElement) => string;
-};
 
 const BOARD = path.join(process.cwd(), "docs/exomem-design/reference/boards/R28-Emails.dc.html");
 const OUT = path.join(process.cwd(), "public", EXOMEM_EMAIL_ASSET_PATH);
@@ -84,8 +75,8 @@ function inScheme(svg: SVGSVGElement, ink: string, amber: string): string {
   return copy.outerHTML;
 }
 
-function page(ground: string, content: string, style = ""): string {
-  return `<!doctype html><html><body style="margin: 0; background: ${ground};"><div id="shot" style="display: inline-block; line-height: 0; ${style}">${content}</div></body></html>`;
+function page(ground: string, content: string): string {
+  return `<!doctype html><html><body style="margin: 0; background: ${ground};"><div id="shot" style="display: inline-block; line-height: 0;">${content}</div></body></html>`;
 }
 
 async function main(): Promise<void> {
@@ -111,21 +102,6 @@ async function main(): Promise<void> {
         console.log(`wrote ${path.relative(process.cwd(), file)}`);
       }
       await bandPage.close();
-
-      const { width, height } = EXOMEM_EMAIL_WORDMARK;
-      const markPage = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 3 });
-      const mark = renderToStaticMarkup(<Wordmark height={height} />);
-      await markPage.setContent(
-        page(
-          ground,
-          mark,
-          `width: ${width}px; height: ${height}px; color: ${ink}; --exo-amber: ${amber};`
-        )
-      );
-      const file = path.join(OUT, exomemEmailWordmarkFile(scheme));
-      writeFileSync(file, await markPage.locator("#shot").screenshot());
-      console.log(`wrote ${path.relative(process.cwd(), file)}`);
-      await markPage.close();
     }
   } finally {
     await browser.close();

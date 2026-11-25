@@ -74,6 +74,7 @@ function app(overrides: Partial<HomeApp> = {}): HomeApp {
     connectedAt: "2026-10-05T09:00:00Z",
     lastAuthorizedAt: "2026-10-05T09:00:00Z",
     lastUsedAt: null,
+    session: { state: "signed_in", since: null },
     ...overrides,
   };
 }
@@ -111,7 +112,7 @@ describe("which Home the owner sees", () => {
     const unread: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
     assert.deepEqual(homeMode(unread, account(), "known"), { kind: "home", variant: "unread" });
     assert.deepEqual(statusCopy("unread", false, null, clock), {
-      headline: "Can’t reach Exomem.",
+      headline: "Can’t reach Evermatter.",
       statusLine: null,
     });
   });
@@ -138,7 +139,7 @@ describe("which Home the owner sees", () => {
     assert.deepEqual(homeMode(READY, null, "loading"), { kind: "loading" });
     assert.deepEqual(homeMode(READY, null, "failed"), { kind: "home", variant: "unknown" });
     const unknown = statusCopy("unknown", false, null, clock);
-    assert.equal(unknown.headline, "Your Exomem");
+    assert.equal(unknown.headline, "Your Evermatter");
     assert.deepEqual(planView("unknown", null, null, clock), {
       name: "Plan",
       meta: "not available right now",
@@ -326,11 +327,47 @@ describe("a Home that can't reach Exomem", () => {
 
 describe("the app rows", () => {
   it("says on which day the app last reached the Exomem, and nothing before its first call", () => {
-    const meta = (lastUsedAt: string | null) => appMeta(app({ lastUsedAt }), clock, false);
-    assert.equal(meta("2026-10-12T08:00:00Z"), "connected 5 October · used today");
-    assert.equal(meta("2026-10-11T22:00:00Z"), "connected 5 October · used yesterday");
-    assert.equal(meta("2026-10-08T12:00:00Z"), "connected 5 October · used 8 October");
-    assert.equal(meta(null), "connected 5 October");
+    const meta = (lastUsedAt: string | null) => appMeta(app({ lastUsedAt }), clock, false, true);
+    assert.equal(meta("2026-10-12T08:00:00Z"), "signed in · connected 5 October · used today");
+    assert.equal(meta("2026-10-11T22:00:00Z"), "signed in · connected 5 October · used yesterday");
+    assert.equal(meta("2026-10-10T12:00:00Z"), "signed in · connected 5 October · used 10 October");
+    assert.equal(meta(null), "signed in · connected 5 October");
+  });
+
+  it("says since when a signed-in app has been quiet for three days, counted in hours", () => {
+    const meta = (lastUsedAt: string) => appMeta(app({ lastUsedAt }), clock, false, true);
+    // Friday 10:00:01 to Monday 10:00 is three calendar days but not three days of silence.
+    assert.equal(meta("2026-10-09T10:00:01Z"), "signed in · connected 5 October · used 9 October");
+    assert.equal(
+      meta("2026-10-09T10:00:00Z"),
+      "signed in · connected 5 October · not used since 9 October" +
+        " · reconnect it in the app if that’s unexpected"
+    );
+  });
+
+  it("says nothing of silence while the cell serves no calls", () => {
+    // A paused or suspended cell refuses every call before its use is recorded.
+    const paused = appMeta(app({ lastUsedAt: "2026-10-01T09:00:00Z" }), clock, false, false);
+    assert.equal(paused, "signed in · connected 5 October · used 1 October");
+  });
+
+  it("calls only a signed-in app quiet", () => {
+    const out = app({
+      lastUsedAt: "2026-10-01T09:00:00Z",
+      session: { state: "signed_out", since: "2026-10-09T15:00:00Z" },
+    });
+    assert.equal(
+      appMeta(out, clock, false, true),
+      "signed out since 9 October · open Claude and connect again"
+    );
+    const unknown = app({
+      lastUsedAt: "2026-10-01T09:00:00Z",
+      session: { state: "unknown", since: null },
+    });
+    assert.equal(
+      appMeta(unknown, clock, false, true),
+      "sign-in unknown · connected 5 October · used 1 October"
+    );
   });
 
   it("counts the day in the reader's zone, not the server's", () => {
@@ -338,14 +375,60 @@ describe("the app rows", () => {
     // was already 01:00 on 12 October.
     const auckland = { now: NOW, timeZone: "Pacific/Auckland" };
     const used = app({ lastUsedAt: "2026-10-11T12:00:00Z" });
-    assert.equal(appMeta(used, auckland, false), "connected 5 October · used today");
-    assert.equal(appMeta(used, clock, false), "connected 5 October · used yesterday");
+    assert.equal(
+      appMeta(used, auckland, false, true),
+      "signed in · connected 5 October · used today"
+    );
+    assert.equal(
+      appMeta(used, clock, false, true),
+      "signed in · connected 5 October · used yesterday"
+    );
   });
 
   it("says an app connected just now, while a reviewer's row keeps the date", () => {
     const fresh = app({ connectedAt: "2026-10-12T09:59:30Z" });
-    assert.equal(appMeta(fresh, clock, false), "connected just now");
-    assert.equal(appMeta(fresh, clock, true), "connected 12 October · during review");
+    assert.equal(appMeta(fresh, clock, false, true), "signed in · connected just now");
+    assert.equal(
+      appMeta(fresh, clock, true, true),
+      "signed in · connected 12 October · during review"
+    );
+  });
+
+  it("leads a signed-out app with when it lost access and what reconnecting takes", () => {
+    const out = app({
+      session: { state: "signed_out", since: "2026-10-09T15:00:00Z" },
+    });
+    assert.equal(
+      appMeta(out, clock, false, true),
+      "signed out since 9 October · open Claude and connect again"
+    );
+    const withoutDay = app({ session: { state: "signed_out", since: null } });
+    assert.equal(
+      appMeta(withoutDay, clock, false, true),
+      "signed out · open Claude and connect again"
+    );
+  });
+
+  it("keeps the self-declared-name marker and access destination on a signed-out row", () => {
+    const out = app({
+      session: { state: "signed_out", since: "2026-10-09T15:00:00Z" },
+      displayName: "My App",
+      displayNameSource: "client_metadata",
+      kind: "web",
+      redirectHosts: ["app.example.com"],
+    });
+    assert.equal(
+      appMeta(out, clock, false, true),
+      "signed out since 9 October · open My App and connect again" +
+        " · name from the app · sends access to app.example.com"
+    );
+  });
+
+  it("shows an unreadable sign-in state as unknown, never as signed in", () => {
+    const unknown = app({ session: { state: "unknown", since: null } });
+    const meta = appMeta(unknown, clock, false, true);
+    assert.match(meta, /^sign-in unknown · connected 5 October/);
+    assert.doesNotMatch(meta, /signed in/);
   });
 });
 
@@ -363,48 +446,51 @@ describe("notices and the account banner", () => {
 
   it("warns at 80% and marks a full disk without offering an unavailable purchase", () => {
     assert.deepEqual(
-      notices("on", account(), disk(7_900_000_000), true, false, false).map((notice) => notice.key),
+      notices("on", account(), disk(7_900_000_000), true, false).map((notice) => notice.key),
       []
     );
-    const filling = notices("on", account(), disk(8_500_000_000), true, false, false);
-    assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works.");
+    const filling = notices("on", account(), disk(8_500_000_000), true, false);
+    assert.equal(filling[0]?.text, "Your Evermatter is 85% full. Everything works.");
     assert.deepEqual(filling[0]?.actions, []);
     // A disk with room left never reads as 100% full.
-    const nearly = notices("on", account(), disk(9_996_000_000), true, false, false);
-    assert.equal(nearly[0]?.text, "Your Exomem is 99% full. Everything works.");
-    const full = notices("on", account(), disk(10_000_000_000), true, false, false);
+    const nearly = notices("on", account(), disk(9_996_000_000), true, false);
+    assert.equal(nearly[0]?.text, "Your Evermatter is 99% full. Everything works.");
+    const full = notices("on", account(), disk(10_000_000_000), true, false);
     assert.equal(full[0]?.attention, true);
-    assert.match(full[0]?.text ?? "", /^Your Exomem is full \(10 GB\)\./);
+    assert.match(full[0]?.text ?? "", /^Your Evermatter is full \(10 GB\)\./);
     assert.deepEqual(full[0]?.actions, []);
   });
 
   it("asks for storage in words only beside the action that adds it", () => {
-    const filling = notices("on", account(), disk(8_500_000_000), true, false, true);
-    assert.equal(filling[0]?.text, "Your Exomem is 85% full. Everything works. Add storage now.");
+    const filling = notices("on", account(), disk(8_500_000_000), true, true);
+    assert.equal(
+      filling[0]?.text,
+      "Your Evermatter is 85% full. Everything works. Add storage now."
+    );
     assert.deepEqual(filling[0]?.actions, ["storage"]);
-    const full = notices("on", account(), disk(10_000_000_000), true, false, true);
+    const full = notices("on", account(), disk(10_000_000_000), true, true);
     assert.equal(
       full[0]?.text,
-      "Your Exomem is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
+      "Your Evermatter is full (10 GB). Recall works; new saves wait for room. Add storage and they carry on. Nothing is ever deleted to make space."
     );
   });
 
   for (const used of [8_500_000_000, 10_000_000_000]) {
     it(`offers manual storage from the warning at ${used} bytes when purchases are available`, () => {
-      const [warning] = notices("on", account(), disk(used), true, false, true);
+      const [warning] = notices("on", account(), disk(used), true, true);
       assert.deepEqual(warning?.actions, ["storage"]);
     });
   }
 
   it("shows the support reference with a way to copy it when the cell has trouble", () => {
-    const [trouble] = notices("trouble", account(), { state: "unknown" }, true, false, false);
+    const [trouble] = notices("trouble", account(), { state: "unknown" }, true, false);
     assert.match(trouble?.text ?? "", /Support reference: EX-7Q4M\./);
-    assert.deepEqual(trouble?.actions, ["copy_reference"]);
+    assert.deepEqual(trouble?.actions, ["copy_reference", "status_page"]);
   });
 
-  it("links the status page from the trouble notice only when one is configured", () => {
-    const [trouble] = notices("trouble", account(), { state: "unknown" }, true, true, false);
-    assert.deepEqual(trouble?.actions, ["copy_reference", "status_page"]);
+  it("always links the status page from the trouble notice, even without a support reference", () => {
+    const [trouble] = notices("trouble", null, { state: "unknown" }, true, false);
+    assert.deepEqual(trouble?.actions, ["status_page"]);
   });
 
   it("drops a read-only end date it cannot know instead of guessing one", () => {
@@ -496,10 +582,10 @@ describe("notices and the account banner", () => {
       banner("ended", ended, open, clock, false)?.text,
       "Kept until 10 November. Resubscribe to get it all back."
     );
-    const [copy] = notices("ended", ended, { state: "unknown" }, false, false, false);
+    const [copy] = notices("ended", ended, { state: "unknown" }, false, false);
     assert.equal(copy?.text, "For a copy of your memory, write to support and quote EX-7Q4M.");
     assert.deepEqual(copy?.actions, ["support"]);
-    assert.deepEqual(notices("ended", ended, { state: "unknown" }, true, false, false), []);
+    assert.deepEqual(notices("ended", ended, { state: "unknown" }, true, false), []);
   });
 
   it("gives a reviewer the access end date and no billing", () => {
@@ -686,7 +772,7 @@ describe("involvement levels", () => {
     const view = levelsView({ state: "unavailable", reason: "CELL_STOPPED" });
     assert.deepEqual(view, {
       state: "unavailable",
-      text: "Levels can’t be read while your Exomem is stopped.",
+      text: "Levels can’t be read while your Evermatter is stopped.",
     });
     assert.deepEqual(levelsView({ state: "unavailable", reason: "CELL_NOT_READY" }), {
       state: "unavailable",
@@ -737,22 +823,24 @@ describe("a connected app's name", () => {
       appMeta(
         app({ ...local, displayName: "Claude Code", displayNameSource: "client_metadata" }),
         clock,
-        false
+        false,
+        true
       ),
-      "connected 5 October · name from the app · sends access to this computer"
+      "signed in · connected 5 October · name from the app · sends access to this computer"
     );
     // A local app that declared no name is shown by its host, which is no claim.
     assert.equal(
       appMeta(
         app({ ...local, displayName: "127.0.0.1", displayNameSource: "redirect_host" }),
         clock,
-        false
+        false,
+        true
       ),
-      "connected 5 October"
+      "signed in · connected 5 October"
     );
     assert.equal(
-      appMeta(app({ displayNameSource: "operator" }), clock, false),
-      "connected 5 October"
+      appMeta(app({ displayNameSource: "operator" }), clock, false, true),
+      "signed in · connected 5 October"
     );
   });
 });

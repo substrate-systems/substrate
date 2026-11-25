@@ -5,9 +5,9 @@ import { buildExomemMetadata } from "@/lib/exomem/metadata";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildExomemMetadata({
-  title: "Exomem Cloud Privacy Policy",
+  title: "Evermatter Cloud Privacy Policy",
   description:
-    "How Substrate Systems OÜ collects, processes, and protects data in Exomem Cloud, covering your knowledge store, account records, OAuth session metadata, and your rights as a data subject.",
+    "How Substrate Systems OÜ collects, processes, and protects data in Evermatter Cloud, covering your knowledge store, account records, OAuth session metadata, and your rights as a data subject.",
   path: "/exomem/privacy",
 });
 
@@ -17,12 +17,12 @@ export default function ExomemPrivacyPage() {
   // page is static, so it reads the flag at build, and a flag change takes a deploy.
   const exportOffered = cloudExportsEnabled();
   return (
-    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 20 November 2026">
+    <ExomemPublicPage title="Evermatter Cloud privacy" eyebrow="Revised 20 November 2026">
       <p>
-        This policy covers the Exomem Cloud service and its public product, account, OAuth, and
-        support pages. The data controller is Substrate Systems OÜ (Estonian registry code
-        17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia. Privacy questions and rights
-        requests can be sent to{" "}
+        This policy covers the Evermatter Cloud service (formerly Exomem Cloud) and its public
+        product, account, OAuth, and support pages. The data controller is Substrate Systems OÜ
+        (Estonian registry code 17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia. Privacy
+        questions and rights requests can be sent to{" "}
         <a href="mailto:founder@substratesystems.io">founder@substratesystems.io</a>.
       </p>
 
@@ -37,7 +37,7 @@ export default function ExomemPrivacyPage() {
         </li>
         <li>
           <strong>Your knowledge store:</strong> Markdown, media, links, metadata, searches, and
-          changes you send through an authorized Exomem client. Search indexes and caches are
+          changes you send through an authorized Evermatter client. Search indexes and caches are
           derived from this content.
         </li>
         <li>
@@ -49,7 +49,7 @@ export default function ExomemPrivacyPage() {
         </li>
         <li>
           <strong>Billing data:</strong> Paddle customer, transaction, subscription, product, and
-          status identifiers. Paddle handles payment-card details; Exomem does not receive them.
+          status identifiers. Paddle handles payment-card details; Evermatter does not receive them.
         </li>
         <li>
           <strong>Support data:</strong> messages and content-free diagnostics you choose to send
@@ -62,22 +62,23 @@ export default function ExomemPrivacyPage() {
       <p>
         We process account and knowledge-store data to provide the service you request and perform
         our agreement with you. We process limited security, reliability, support, and abuse data
-        for our legitimate interests in operating and protecting Exomem and its users. We process
-        billing and business records where necessary for our agreement and legal obligations. If we
-        ask for optional consent, you can withdraw it without affecting earlier lawful processing.
+        for our legitimate interests in operating and protecting Evermatter and its users. We
+        process billing and business records where necessary for our agreement and legal
+        obligations. If we ask for optional consent, you can withdraw it without affecting earlier
+        lawful processing.
       </p>
 
       <h2>The security boundary</h2>
       <p>
-        Each Exomem Cloud account runs in its own isolated cell. Other accounts cannot reach your
-        data. Your knowledge store and its backups are encrypted at rest. Connections from your
+        Each Evermatter Cloud account runs in its own isolated cell. Other accounts cannot reach
+        your data. Your knowledge store and its backups are encrypted at rest. Connections from your
         client to the service are encrypted in transit. Inside our private server network, traffic
         from our edge to our gateway and from the gateway to your cell is not yet encrypted; it
         does not cross the public internet. The internet-facing edge that receives connections cannot read the keys that
         protect your stored data.
       </p>
       <p>
-        Exomem Cloud is not zero-knowledge or end-to-end encrypted. To search and serve your
+        Evermatter Cloud is not zero-knowledge or end-to-end encrypted. To search and serve your
         knowledge, your cell processes it in plaintext, and our edge and gateway see requests and
         responses as they pass through. We hold the encryption keys for your cell&apos;s storage and
         backups, on the server that runs it and in encrypted recovery copies whose key we keep off
@@ -102,23 +103,23 @@ export default function ExomemPrivacyPage() {
       <h2>AI clients and service providers</h2>
       <p>
         When you connect Claude, ChatGPT, Codex, or another MCP client, that client sends authorized
-        tool requests to Exomem and receives the requested results. The client provider processes
-        those prompts and results under its own terms and privacy policy; disconnecting the client
-        revokes its future Exomem access but does not delete data already handled by that provider.
+        tool requests to Evermatter and receives the requested results. The client provider
+        processes those prompts and results under its own terms and privacy policy; disconnecting
+        the client revokes its future Evermatter access but does not delete data already handled by
+        that provider.
       </p>
       <p>
-        We use service providers only as needed to operate Exomem: Vercel for the public web,
+        We use service providers only as needed to operate Evermatter: Vercel for the public web,
         sign-in and account service, including the content that Home shows you when you browse or
         ask your memory there; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
         region, and for imports and exports until they expire; Cloudflare for DNS and Turnstile bot
-        protection;
-        Brevo for transactional email; and Paddle as merchant of record. Until 10 October 2026, Neon
-        also held a frozen copy of the account database from before it moved to our own servers;
-        that copy is now deleted. The public site may use privacy-filtered Vercel/PostHog analytics;
-        Exomem account identifiers, email, knowledge content, tokens, and private routes are
-        filtered from those events. Providers may process data outside the EEA under the safeguards
-        required by applicable data-protection law.
+        protection; Brevo for transactional email; and Paddle as merchant of record. Until 10
+        October 2026, Neon also held a frozen copy of the account database from before it moved to
+        our own servers; that copy is now deleted. The public site may use privacy-filtered
+        Vercel/PostHog analytics; Evermatter account identifiers, email, knowledge content, tokens,
+        and private routes are filtered from those events. Providers may process data outside the
+        EEA under the safeguards required by applicable data-protection law.
       </p>
       <p>
         Turnstile checks technical signals such as your IP address, browser information and
@@ -164,20 +165,20 @@ export default function ExomemPrivacyPage() {
         knowledge store.
       </p>
       <p>
-        When you ask to start Exomem, we keep your email address with your place on the waitlist or
-        with your start link. If you do not open an account, we delete it 180 days after your last
-        request or after your last start link expires, whichever is later. We keep the address and
-        content of each email we send you for 30 days after we send it or stop trying, and then we
-        remove them.
+        When you ask to start Evermatter, we keep your email address with your place on the waitlist
+        or with your start link. If you do not open an account, we delete it 180 days after your
+        last request or after your last start link expires, whichever is later. We keep the address
+        and content of each email we send you for 30 days after we send it or stop trying, and then
+        we remove them.
       </p>
 
       <h2>Your choices and rights</h2>
       <p>
         Depending on applicable law, you can ask to access, correct, delete, restrict, or receive a
         portable copy of your personal data, and object to processing based on legitimate interests.
-        You can withdraw consent where processing relies on it. We do not use Exomem data for solely
-        automated decisions with legal or similarly significant effects. You may also complain to
-        the Estonian Data Protection Inspectorate or your local supervisory authority.
+        You can withdraw consent where processing relies on it. We do not use Evermatter data for
+        solely automated decisions with legal or similarly significant effects. You may also
+        complain to the Estonian Data Protection Inspectorate or your local supervisory authority.
       </p>
 
       <h2>Changes and contact</h2>

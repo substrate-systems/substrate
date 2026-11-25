@@ -20,10 +20,12 @@
  * (src/lib/exomem/design-tokens.ts). Server only.
  */
 
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { effectiveExomemTheme, type ExomemThemeChoice } from "@/lib/exomem/theme";
 
 import { exomemTokens, type ExomemTokenMap } from "@/lib/exomem/design-tokens";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 /** The account's state, as the web in slot 3 shows it (R28 "The band follows the account"). */
 export const EXOMEM_EMAIL_BANDS = ["arrive", "live", "readonly", "kept", "fading", "gone"] as const;
@@ -53,19 +55,19 @@ export function exomemEmailSchemeQuery(scheme: ExomemEmailScheme): string {
   return `(prefers-color-scheme: ${scheme})`;
 }
 
-/** Where the state bands and the wordmark are served, under the public base URL. */
-export const EXOMEM_EMAIL_ASSET_PATH = "/exomem/email";
+/** Where the state bands and the wordmark are served, under the public base URL: the brand kit's email folder. */
+export const EXOMEM_EMAIL_ASSET_PATH = "/evermatter/email";
 
 export function exomemEmailBandFile(band: ExomemEmailBand, scheme: ExomemEmailScheme): string {
   return `band-${band}-${scheme}.png`;
 }
 
-export function exomemEmailWordmarkFile(scheme: ExomemEmailScheme): string {
+function exomemEmailWordmarkFile(scheme: ExomemEmailScheme): string {
   return `wordmark-${scheme}.png`;
 }
 
-/** The wordmark's drawn size in CSS pixels: 16 px tall, the E-initial wordmark's aspect. */
-export const EXOMEM_EMAIL_WORDMARK = { width: 79, height: 16 } as const;
+/** The wordmark's drawn size in CSS pixels: half the kit PNG's 399 × 48 pixels, so it is sharp at 2x. */
+const EXOMEM_EMAIL_WORDMARK = { width: 199.5, height: 24 } as const;
 
 export type ExomemEmailFact = {
   label: string;
@@ -82,7 +84,7 @@ export type ExomemEmailSlots = {
    */
   base: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
-  /** Slot 1: "Exomem", or "<name> via Exomem" when a person sent it. */
+  /** Slot 1: "Evermatter", or "<name> via Evermatter" when a person sent it. */
   sentBy?: { personName: string } | null;
   /** Slot 1: 45 characters or fewer, except named friend invitations (design.md). */
   subject: string;
@@ -121,9 +123,11 @@ export type RenderedExomemEmail = {
   senderName: string;
 };
 
-const FOOTER = "Exomem by Substrate Systems";
-const SENDER = "Exomem";
-const WORDMARK_URL = "https://substratesystems.io/exomem";
+const FOOTER = "Evermatter by Substrate Systems";
+// The product name every Cloud email is sent as; mail-sender.ts holds it with the address.
+const SENDER = EXOMEM_SENDER.senderName;
+// Computed per email, not at import, so the configured origin is read when the email renders.
+const wordmarkUrl = (): string => productPageUrl("/exomem");
 
 // The board's delivery note: web fonts often don't load in mail, so IBM Plex
 // Mono falls back to Menlo or Consolas, and Inter to Helvetica or Arial.
@@ -142,10 +146,10 @@ function escapeHtml(value: string): string {
 const MAX_SENDER_NAME = 60;
 
 /**
- * A person's name as a sender display name: "<name> via Exomem". Control and
+ * A person's name as a sender display name: "<name> via Evermatter". Control and
  * format characters (line breaks, bidi overrides) and the characters that
  * delimit an address header are dropped, whitespace collapses, and the name
- * is cut to 60 characters. An empty result sends as "Exomem".
+ * is cut to 60 characters. An empty result sends as the product name alone.
  */
 export function exomemSenderName(personName: string | null | undefined): string {
   // A format check on one header field, not a reading of what the name means.
@@ -317,11 +321,13 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       scheme,
       { dark: exomemEmailWordmarkFile("dark"), light: exomemEmailWordmarkFile("light") },
       {
-        ...EXOMEM_EMAIL_WORDMARK,
-        alt: "Exomem",
+        // HTML size attributes are whole pixels, and Outlook sizes images from them; the style keeps the exact half-pixel size.
+        width: Math.round(EXOMEM_EMAIL_WORDMARK.width),
+        height: Math.round(EXOMEM_EMAIL_WORDMARK.height),
+        alt: "Evermatter",
         style: `display: block; border: 0; width: ${EXOMEM_EMAIL_WORDMARK.width}px; height: ${EXOMEM_EMAIL_WORDMARK.height}px;`,
       },
-      WORDMARK_URL,
+      wordmarkUrl(),
       automatic
     ),
     "line-height: 0; font-size: 0;"
@@ -420,7 +426,7 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
       alt: "",
       style: "display: block; border: 0; width: 100%; max-width: 600px; height: auto;",
     },
-    slots.action?.url ?? WORDMARK_URL,
+    slots.action?.url ?? wordmarkUrl(),
     automatic
   );
 

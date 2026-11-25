@@ -249,7 +249,8 @@ type MintRefusal = Extract<
  */
 async function mintHomeAccessToken(
   principal: CloudHomePrincipal,
-  resource: string
+  resource: string,
+  acceptedResources: readonly string[]
 ): Promise<{ token: SensitiveSecret } | { refused: MintRefusal }> {
   try {
     await assertPrincipalOwnsCloudCell(principal.tenantId);
@@ -284,7 +285,7 @@ async function mintHomeAccessToken(
         AND home_client.admission_mode = 'first_party'
         AND oauth_grant.user_id = ${principal.userId}::uuid
         AND oauth_grant.tenant_id = ${principal.tenantId}::uuid
-        AND oauth_grant.resource = ${resource}
+        AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
         AND oauth_grant.revoked_at IS NULL
         AND (
           oauth_grant.reviewer_credential_id IS DISTINCT FROM ${reviewerCredentialId}::uuid
@@ -373,8 +374,8 @@ async function callHomeTool(
   call: HomeToolCall | CloudViewerToolCall,
   dependencies: CloudHomeDependencies
 ): Promise<CellAnswer> {
-  const { mcpUrl } = loadExomemCloudResource(dependencies.env);
-  const minted = await mintHomeAccessToken(principal, mcpUrl);
+  const { mcpUrl, acceptedResources } = loadExomemCloudResource(dependencies.env);
+  const minted = await mintHomeAccessToken(principal, mcpUrl, acceptedResources);
   if ("refused" in minted) {
     logUnavailable(call.name, minted.refused);
     return { kind: "unavailable", view: unavailable(minted.refused) };

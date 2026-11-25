@@ -11,6 +11,7 @@ import { CLOUD_DISCOVERY_PATH, CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./
 import { FAVICON, FAVICON_HEADERS, FAVICON_PATH } from "./favicon";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import { assertCloudResourceList } from "../lib/exomem-hosted/cloud-resource-list";
 
 const CACHE_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
@@ -47,6 +48,7 @@ export function validateGatewayEnvironment(
   const missing = REQUIRED_GATEWAY_ENV.filter((name) => !environment[name]?.trim());
   if (missing.length)
     throw new Error(`Missing required gateway environment: ${missing.join(", ")}`);
+  assertCloudResourceList(environment);
 }
 
 type GatewayServerState = {
@@ -186,7 +188,9 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           response.writeHead(404, CACHE_HEADERS).end();
           return;
         }
-        const body = JSON.stringify(buildCloudProtectedResourceMetadata(loadExomemCloudConfig()));
+        const body = JSON.stringify(
+          buildCloudProtectedResourceMetadata(loadExomemCloudConfig(), request.headers.host)
+        );
         response.writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" }).end(body);
         return;
       }

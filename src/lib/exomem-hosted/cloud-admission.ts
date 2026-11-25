@@ -13,11 +13,17 @@ import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { recordCellDeletionGrant } from "./cloud-deletion-grants";
-import { executeExomemSql, initializeExomemTheme, withExomemTransaction, type ExomemSql } from "./db";
+import {
+  executeExomemSql,
+  initializeExomemTheme,
+  withExomemTransaction,
+  type ExomemSql,
+} from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 import { FIRST_PAYMENT_SOURCE_STATES, LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import { recordInvitationUse } from "./invites";
+import { OAUTH_FAMILY_END_REASON } from "./oauth-family-end";
 import {
   cancelExomemCheckoutTransaction,
   paddleTransportUntil,
@@ -56,7 +62,7 @@ function cloudAdmissionClosed(): ExomemHostedError {
     message: "hosted admission is temporarily closed",
     retryable: true,
     remediation:
-      "Your invitation is still valid and has not been used. Exomem Cloud is not admitting " +
+      "Your invitation is still valid and has not been used. Evermatter Cloud is not admitting " +
       "new accounts until more capacity is published. Open the link again later, or tell " +
       "whoever invited you.",
   });
@@ -190,7 +196,12 @@ async function resolveCloudAdmissionOwner(
     WHERE email = ${email} AND deleted_at IS NULL
   `;
   // Allocate without locking a principal before its tenant; insertion follows the tenant check.
-  return (rows[0] as CloudAdmissionOwner | undefined) ?? { id: randomUUID(), created_at: new Date().toISOString() };
+  return (
+    (rows[0] as CloudAdmissionOwner | undefined) ?? {
+      id: randomUUID(),
+      created_at: new Date().toISOString(),
+    }
+  );
 }
 
 /** Lock the tenant first, as deletion does, then recheck the verified address. */
@@ -225,7 +236,7 @@ export type RedeemCloudInviteInput = {
   timeZone?: string | null;
   /** The redeeming page's email scheme, already normalized. An invitation records none. */
   emailScheme?: ExomemEmailScheme | null;
-    themeChoice?: ExomemThemeChoice | null;
+  themeChoice?: ExomemThemeChoice | null;
 };
 
 export type RedeemedCloudAccess = {
@@ -424,7 +435,7 @@ const REFUSED = Symbol("cloud-readmission-refused");
 async function ownerHasAdmissionBlock(tx: ExomemSql, ownerUserId: string): Promise<boolean> {
   const { rows } = await tx`
     SELECT 1 FROM exomem_oauth_account_blocks
-    WHERE owner_user_id = ${ownerUserId}::uuid AND blocked_reason <> 'lifecycle_deleted'
+    WHERE owner_user_id = ${ownerUserId}::uuid AND blocked_reason <> ${OAUTH_FAMILY_END_REASON.lifecycleDeleted}
   `;
   return rows.length > 0;
 }
@@ -437,7 +448,7 @@ async function ownerHasAdmissionBlock(tx: ExomemSql, ownerUserId: string): Promi
 async function clearLifecycleDeletionBlock(tx: ExomemSql, tenantId: string): Promise<void> {
   await tx`
     DELETE FROM exomem_oauth_account_blocks
-    WHERE tenant_id = ${tenantId}::uuid AND blocked_reason = 'lifecycle_deleted'
+    WHERE tenant_id = ${tenantId}::uuid AND blocked_reason = ${OAUTH_FAMILY_END_REASON.lifecycleDeleted}
   `;
 }
 
@@ -505,7 +516,11 @@ export type RedeemedCloudBrowserAccess = RedeemedCloudAccess & SessionMaterial;
  */
 export async function redeemCloudInvite(
   token: string,
-  options: { timeZone?: string | null; emailScheme?: ExomemEmailScheme | null; themeChoice?: ExomemThemeChoice | null } = {}
+  options: {
+    timeZone?: string | null;
+    emailScheme?: ExomemEmailScheme | null;
+    themeChoice?: ExomemThemeChoice | null;
+  } = {}
 ): Promise<RedeemedCloudBrowserAccess> {
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
@@ -558,7 +573,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   timeZone?: string | null;
   /** The redeeming page's email scheme, already normalized. */
   emailScheme?: ExomemEmailScheme | null;
-    themeChoice?: ExomemThemeChoice | null;
+  themeChoice?: ExomemThemeChoice | null;
 }): Promise<CloudOAuthInviteAdmission | null> {
   try {
     // Security review finding 15: without this, an OAuth transaction minted
@@ -567,7 +582,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     // whatever resource that transaction actually named. Loaded once,
     // outside the transaction, so a misconfigured Cloud deployment fails
     // this call the same way every other Cloud entry point does.
-    const cloudResource = loadExomemCloudResource().mcpUrl;
+    const acceptedResources = loadExomemCloudResource().acceptedResources;
     return await withExomemTransaction(async (tx: ExomemSql) => {
       if (!(await liveInviteExists(tx, input.inviteDigest)))
         throw new CloudOAuthAdmissionRejected();
@@ -605,7 +620,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         ) AS admitted_host ON true
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
-          AND transaction.resource = ${cloudResource}
+          AND transaction.resource = ANY(${[...acceptedResources]}::text[])
           AND exomem_oauth_client_admitted(
             client.admission_mode, client.enabled, client.metadata_document_digest,
             client.metadata_fetched_at, client.metadata_ttl_seconds, client.metadata_expires_at,
@@ -719,7 +734,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         recipient: invite.email_normalized,
         recipientTimeZone: timeZone,
         recipientEmailScheme: emailScheme,
-      recipientThemeChoice: input.themeChoice,
+        recipientThemeChoice: input.themeChoice,
         // See redeemCloudInviteAtomic's matching call.
         inviterName: null,
       });
@@ -781,7 +796,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   } catch (error) {
     if (error instanceof ExomemHostedError) throw error;
     if (error instanceof CloudOAuthAdmissionRejected) return null;
-    if (typeof error === "object" && error && "code" in error && error.code === "23505") return null;
+    if (typeof error === "object" && error && "code" in error && error.code === "23505")
+      return null;
     throw error;
   }
 }

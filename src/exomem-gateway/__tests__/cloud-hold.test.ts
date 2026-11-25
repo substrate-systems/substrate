@@ -22,6 +22,7 @@ import { HOLD_OFF_ENV } from "./upstream-fixture";
 
 const CONFIG: ExomemCloudConfig = {
   mcpUrl: "https://cloud.example.test/mcp/v1",
+  acceptedResources: ["https://cloud.example.test/mcp/v1"],
   mcpPath: "/mcp/v1",
   cellTokenKey: Buffer.alloc(32, 7),
 };
@@ -71,6 +72,8 @@ function deps(
     takeRateLimit: async () => true,
     upstream: settings,
     cellOrigin: () => `http://127.0.0.1:${port}`,
+    // These tests are not about service notices; the real lookup would reach for a database.
+    serviceNoticeHeader: async () => null,
   };
 }
 

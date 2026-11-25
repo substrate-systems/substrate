@@ -15,7 +15,7 @@ import {
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
-import { statusPageUrl } from "../_journey/status-page";
+import { statusPageUrl } from "@/lib/exomem-hosted/status-page-url";
 import AuthorizeClient, { type AccountFacts, type RequestApp } from "./authorize-client";
 import { consentScreen } from "./consent-screen";
 
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Authorize Exomem",
+  title: "Authorize Evermatter",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };
@@ -108,7 +108,7 @@ export default async function ExomemAuthorizePage({
         request={null}
         expiredApp={view.app ? requestApp(view.app) : null}
         requestLife={requestLife()}
-        statusPageUrl={null}
+        statusPageUrl={statusPageUrl()}
       />
     );
   }

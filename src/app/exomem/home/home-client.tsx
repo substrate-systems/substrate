@@ -54,6 +54,7 @@ import {
   exportView,
   firstNoteLine,
   homeMode,
+  appsServed,
   isLive,
   keepLiveRead,
   levelRefusalText,
@@ -104,8 +105,8 @@ export default function HomeClient({
    * Home asks neither and leaves both out (design.md deviation (u)).
    */
   channelOn: boolean;
-  /** "Status page ↗" on the trouble notice; null when none is configured. */
-  statusPageUrl: string | null;
+  /** "Status page ↗" on the trouble notice: always offered, `statusPageUrl()` supplies the address. */
+  statusPageUrl: string;
   storageOffered?: boolean;
   accessLogOffered?: boolean;
   viewerOffered?: boolean;
@@ -656,14 +657,7 @@ export default function HomeClient({
   const canAddStorage =
     storageOffered && !reviewer && variant === "on" && billing?.source === "paddle";
   const openStorage = () => setStorageOpen(true);
-  const homeNotices = notices(
-    variant,
-    account,
-    storage,
-    exportOffered,
-    statusPageUrl !== null,
-    canAddStorage
-  );
+  const homeNotices = notices(variant, account, storage, exportOffered, canAddStorage);
   const first = isLive(variant) ? firstNoteLine(facts, clock) : null;
   const accountBanner = banner(variant, account, billing, clock, exportOffered);
   const exportSummary = status?.exportSummary;
@@ -703,7 +697,7 @@ export default function HomeClient({
             lostAt === null
               ? status_.headline
               : !lostTime || variant === "unread"
-                ? "Can’t reach Exomem."
+                ? "Can’t reach Evermatter."
                 : variant === "on"
                   ? `Your memory, as of ${lostTime}`
                   : `${status_.headline} · as of ${lostTime}`
@@ -728,7 +722,7 @@ export default function HomeClient({
                   </Button>
                 }
               >
-                Can’t reach Exomem. {lostTime ? `Showing what you saw at ${lostTime}. ` : null}
+                Can’t reach Evermatter. {lostTime ? `Showing what you saw at ${lostTime}. ` : null}
                 {statusRetryAt
                   ? `Trying again in ${Math.max(0, Math.ceil((statusRetryAt - now) / 1000))}\u00a0s.`
                   : "Trying again."}
@@ -757,7 +751,7 @@ export default function HomeClient({
                               <span>{referenceCopied ? "Copied" : "Copy reference"}</span>
                             </span>
                           </Button>
-                        ) : action === "status_page" && statusPageUrl ? (
+                        ) : action === "status_page" ? (
                           <ButtonLink
                             key={action}
                             size="detail"
@@ -831,6 +825,7 @@ export default function HomeClient({
               apps={apps}
               failed={appsFailed}
               ended={variant === "ended"}
+              served={appsServed(variant)}
               checkoutAvailable={billing?.checkoutAvailable ?? false}
               disconnected={disconnected}
               onDisconnect={onDisconnect}
@@ -927,16 +922,16 @@ const NOT_HOME_COPY: Record<
   "loading" | "subscribe" | "preparing" | "deleting" | "deleted",
   { headline: string; line: string | null }
 > = {
-  loading: { headline: "One moment.", line: "Checking your Exomem…" },
+  loading: { headline: "One moment.", line: "Checking your Evermatter…" },
   // The line carries the price when Paddle previews it: subscribeView writes it.
   subscribe: { headline: "Subscribe to finish setting up", line: null },
   preparing: { headline: inviteCopy.accepting.title, line: inviteCopy.accepting.lede },
   deleting: {
-    headline: "Closing your Exomem.",
+    headline: "Closing your Evermatter.",
     line: "Access is now closed while the private vault and its backups are removed.",
   },
   deleted: {
-    headline: "This Exomem has been removed.",
-    line: "Your Exomem Cloud account is gone. Any other Substrate account or product is unaffected.",
+    headline: "This Evermatter has been removed.",
+    line: "Your Evermatter Cloud account is gone. Any other Substrate account or product is unaffected.",
   },
 };

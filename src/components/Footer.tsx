@@ -7,7 +7,7 @@ const navLinks = [
   { label: "Photography", href: "/photography" },
   { label: "Q", href: "/q" },
   { label: "Endstate", href: "/endstate" },
-  { label: "Exomem", href: "/exomem" },
+  { label: "Evermatter", href: "/exomem" },
   { label: "GitHub", href: "https://github.com/Artexis10", external: true },
   { label: "LinkedIn", href: "https://www.linkedin.com/company/substratesystems/", external: true },
 ];

@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next";
 import { getPublishedPostsMeta } from "@/lib/blog";
+import { PRODUCT_PUBLIC_PAGES, type ProductPublicPage } from "@/lib/exomem/product-pages";
+import { productPageUrl } from "@/lib/exomem/product-site";
 
 const baseUrl = "https://substratesystems.io";
 
@@ -8,20 +10,27 @@ const baseUrl = "https://substratesystems.io";
 // teaches crawlers the field is noise and gets it discounted site-wide —
 // including for the blog entries below, where the date is real. An absent
 // lastmod is better than a false one; the field is optional in the protocol.
-const staticRoutes: Array<{
+type Route = {
   path: string;
   changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"];
   priority: number;
-}> = [
+};
+
+// One entry per public product page: the type makes a page missing here a build error.
+const productPages: Record<ProductPublicPage, Omit<Route, "path">> = {
+  docs: { changeFrequency: "monthly", priority: 0.5 },
+  benchmarks: { changeFrequency: "monthly", priority: 0.7 },
+  privacy: { changeFrequency: "yearly", priority: 0.3 },
+  terms: { changeFrequency: "yearly", priority: 0.3 },
+  support: { changeFrequency: "monthly", priority: 0.4 },
+};
+
+const staticRoutes: Route[] = [
   { path: "", changeFrequency: "monthly", priority: 1 },
   { path: "/endstate", changeFrequency: "weekly", priority: 0.9 },
   { path: "/exomem", changeFrequency: "monthly", priority: 0.8 },
   { path: "/q", changeFrequency: "monthly", priority: 0.7 },
-  { path: "/exomem/privacy", changeFrequency: "yearly", priority: 0.3 },
-  { path: "/exomem/terms", changeFrequency: "yearly", priority: 0.3 },
-  { path: "/exomem/support", changeFrequency: "monthly", priority: 0.4 },
-  { path: "/exomem/docs", changeFrequency: "monthly", priority: 0.5 },
-  { path: "/exomem/benchmarks", changeFrequency: "monthly", priority: 0.7 },
+  ...PRODUCT_PUBLIC_PAGES.map((page) => ({ path: `/exomem/${page}`, ...productPages[page] })),
   { path: "/endstate/apps", changeFrequency: "weekly", priority: 0.7 },
   { path: "/endstate/why", changeFrequency: "monthly", priority: 0.7 },
   { path: "/endstate/supporters", changeFrequency: "monthly", priority: 0.4 },
@@ -48,7 +57,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   });
 
   const staticEntries: MetadataRoute.Sitemap = staticRoutes.map((route) => ({
-    url: `${baseUrl}${route.path}`,
+    // Product pages carry their canonical URL, which moves to the product site when it is on.
+    url: route.path.startsWith("/exomem") ? productPageUrl(route.path) : `${baseUrl}${route.path}`,
     changeFrequency: route.changeFrequency,
     priority: route.priority,
   }));
