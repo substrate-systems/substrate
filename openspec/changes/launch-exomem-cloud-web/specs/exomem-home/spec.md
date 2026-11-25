@@ -239,12 +239,12 @@ When an export will stop a cell that serves assistants, which is a running or re
 
 ### Requirement: Levels on Home read and write the same store the assistant uses
 
-Home SHALL show the level for each context (chat apps and coding agents) and SHALL let the owner change it. Home SHALL read and write the same preference as the assistant's `configure_memory` tool, for the owner audience. A write SHALL carry the revision it read, and the system SHALL refuse a stale revision with the current state. Home SHALL show an operator override and SHALL NOT overwrite it. When the cell is unavailable, Home SHALL say so and SHALL offer no switch.
+Home SHALL show the level for each context (chat apps and coding agents) and SHALL let the owner change it. Home SHALL read and write the same preference as the assistant's settings operations, for the owner audience. A write SHALL carry the revision it read, and the system SHALL refuse a stale revision with the current state. Home SHALL show an operator override and SHALL NOT overwrite it. When the cell is unavailable, Home SHALL say so and SHALL offer no switch.
 
 #### Scenario: Owner sets a level on Home
 
 - **WHEN** an owner sets chat apps to Light on Home
-- **THEN** the assistant's next `configure_memory` read for the same tenant shows that level
+- **THEN** the assistant's next settings read for the same tenant shows that level
 
 #### Scenario: Assistant sets a level
 
