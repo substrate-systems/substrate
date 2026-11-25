@@ -49,5 +49,5 @@
   - `docs/runbooks/exomem-cloud-operations.md`: CIMD admission now admits via allowlist or lane; lane enable widens to arbitrary CIMD hosts; lane withdrawal also stops unlisted-host CIMD clients; the stored-context enable precondition is marked done; deploy order notes the new function must precede the gateway image that calls it.
 - [x] 6.2 Tests
   - Postgres integration: lane-off unlisted CIMD refuses with no fetch; lane-on registers to the generic partition, authorizes, exchanges, refreshes and is admitted by the gateway lookup; lane flipped off afterwards refuses at every stage; allowlisted hosts and pinned clients unchanged; Grok-style public redirect and loopback redirect register under the lane with the right stored context; generic lane clients cannot redeem reviewer credentials; owner context changes only their own app and survive re-registration. Unit: SSRF address classes, fixtures updated for the new non-null columns.
-- [ ] 6.3 Archive after release
-  - This change stays unarchived until it ships.
+- [x] 6.3 Archive after release
+  - Shipped in #318 (merged 2026-11-23, b1e2bc9c) and released to production; archived after admit-generic-mcp-clients, whose requirements its MODIFIED blocks refine.
