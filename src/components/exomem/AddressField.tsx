@@ -2,20 +2,10 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import styles from "./AddressField.module.css";
+import { splitAtHost } from "./mcp-address";
 import phone from "./phone.module.css";
 
 const COPIED_MS = 1600;
-
-/** Splits a URL after its host ("https://substratesystems.io/"), the one place it may wrap. */
-function splitAfterHost(address: string): [string, string] | null {
-  try {
-    const url = new URL(address);
-    const head = `${url.origin}/`;
-    return address.startsWith(head) ? [head, address.slice(head.length)] : null;
-  } catch {
-    return null;
-  }
-}
 
 type AddressFieldProps = {
   label: string;
@@ -61,7 +51,9 @@ export function AddressField({
     );
   };
 
-  const parts = splitAfterHost(address);
+  // The field wraps only after the host ("https://substratesystems.io/"), never after "//".
+  const split = splitAtHost(address);
+  const parts = split && [`${split.scheme}${split.host}`, split.path];
   return (
     <div className={size === "row" ? `${styles.field} ${styles.row}` : styles.field}>
       <span className={labelHidden ? styles.labelHidden : styles.label} id={id}>

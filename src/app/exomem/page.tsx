@@ -8,6 +8,7 @@ import {
 } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { LandingAccountLink, LandingSession } from "./landing/LandingSession";
+import { McpAddressCode } from "@/components/exomem/mcp-address";
 import { ThemeToggle } from "@/components/exomem/ThemeToggle";
 import { Wordmark } from "@/components/exomem/Wordmark";
 import { CLIENT_FAMILY_NAMES } from "@/lib/exomem-hosted/client-platforms";
@@ -190,7 +191,7 @@ export default function ExomemPage() {
       desk: (
         <>
           Add it in Claude’s connectors or ChatGPT’s plugins, or give any MCP client{" "}
-          {mcpAddress ? <code>{mcpAddress}</code> : "the address Home shows"}
+          {mcpAddress ? <McpAddressCode address={mcpAddress} /> : "the address Home shows"}
         </>
       ),
       phone: "Add it to Claude, ChatGPT or any MCP client",

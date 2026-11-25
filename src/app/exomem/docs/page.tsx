@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { INVOLVEMENT_LEVELS } from "@/components/exomem/involvement-levels";
+import { McpAddressCode } from "@/components/exomem/mcp-address";
 import { CLIENT_PLATFORM_LISTING_URLS } from "@/lib/exomem-hosted/client-platforms";
 import { exomemCloudMcpUrlOrNull } from "@/lib/exomem-hosted/cloud-config";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
@@ -22,7 +23,11 @@ export default function ExomemDocsPage() {
   const levelsOnHome = cloudHomeChannelEnabled();
   const levels = INVOLVEMENT_LEVELS.map((level) => `“${level.label}”`).join(", ");
   const home = <Link href="/exomem/home">Home</Link>;
-  const theAddress = address ? <code>{address}</code> : <>the address that {home} shows</>;
+  const theAddress = address ? (
+    <McpAddressCode address={address} />
+  ) : (
+    <>the address that {home} shows</>
+  );
   return (
     <ExomemPublicPage title="Evermatter Cloud documentation" eyebrow="Connect and use Evermatter">
       <p>
