@@ -17,15 +17,16 @@ const REQUIRED_UNDER_PRODUCT_PREFIX = {
   EVERMATTER_CLOUD_CELL_TOKEN_KEY: "cell-token-key",
 };
 
-test("a chart that names every setting with the product prefix starts the gateway", () => {
+test("a chart that names every required setting with the product prefix passes the gateway environment check", () => {
   const environment: Record<string, string | undefined> = { ...REQUIRED_UNDER_PRODUCT_PREFIX };
   adoptSettingAliases(environment, () => assert.fail("no conflict expected"));
   validateGatewayEnvironment(environment);
   assert.equal(environment.EXOMEM_PUBLIC_BASE_URL, "https://mcp.example.test");
+  assert.equal(environment.EVERMATTER_PUBLIC_BASE_URL, undefined);
 });
 
 test("a set internal name wins over a different product-prefix value, and the conflict is named", () => {
-  const warnings: string[] = [];
+  const warnings: Record<string, string>[] = [];
   const environment: Record<string, string | undefined> = {
     EXOMEM_GATEWAY_MAX_INFLIGHT: "16",
     EVERMATTER_GATEWAY_MAX_INFLIGHT: "64",
@@ -33,6 +34,10 @@ test("a set internal name wins over a different product-prefix value, and the co
   adoptSettingAliases(environment, (message) => warnings.push(message));
   assert.equal(environment.EXOMEM_GATEWAY_MAX_INFLIGHT, "16");
   assert.deepEqual(warnings, [
-    "EVERMATTER_GATEWAY_MAX_INFLIGHT and EXOMEM_GATEWAY_MAX_INFLIGHT are both set to different values; using EXOMEM_GATEWAY_MAX_INFLIGHT",
+    {
+      event: "exomem_setting_alias_conflict",
+      alias: "EVERMATTER_GATEWAY_MAX_INFLIGHT",
+      internal: "EXOMEM_GATEWAY_MAX_INFLIGHT",
+    },
   ]);
 });
