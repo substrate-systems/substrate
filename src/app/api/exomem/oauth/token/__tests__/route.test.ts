@@ -288,6 +288,34 @@ describe("POST /api/exomem/oauth/token", () => {
     });
   }
 
+  // Go's golang.org/x/oauth2 sends no `resource` on refresh, which RFC 8707
+  // allows. Requiring it signed every such client out when its access token
+  // expired. The route must hand the store no resource, so the store keeps the
+  // grant's own instead of trusting one the request did not name.
+  it("refreshes a token whose request names no resource, keeping the grant's resource", async () => {
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "generic-client",
+      resource: RESOURCE,
+      scopes: ["exomem.read", "exomem.write"],
+    };
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "generic-client",
+        })
+      )
+    );
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { access_token?: string; refresh_token?: string };
+    assert.ok(body.access_token && body.refresh_token);
+    assert.equal(rotatedResource, null);
+  });
+
   // A connector's metadata document is cached for a day, and refresh needs it
   // fresh. Before the re-fetch, every ChatGPT connector had to be connected
   // again a day after its last authorization.
