@@ -130,6 +130,12 @@ export const exomemErrors = {
       message: "access email delivery is temporarily unavailable",
       retryable: true,
     }),
+  cloudConfigurationInvalid: () =>
+    new ExomemHostedError({
+      code: "CLOUD_CONFIGURATION_INVALID",
+      status: 500,
+      message: "Evermatter Cloud configuration is missing or malformed",
+    }),
   controlPlaneKeyInvalid: () =>
     new ExomemHostedError({
       code: "CONTROL_PLANE_KEY_INVALID",

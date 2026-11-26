@@ -1455,12 +1455,13 @@ image. The deploy token, `EXOMEM_DEPLOY_TOKEN`, may only do these two things:
 - send `PUT /api/exomem/admin/cloud-release` with exactly `cellImage` and
   `release`.
 
-| Answer                      | Meaning                                                                                               |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `409 CELL_IMAGE_SEEN`       | The deploy token sent a digest that was `cell_image` before. Nothing changed.                         |
-| `409 CELL_RELEASE_OLDER`    | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.       |
-| `403 OPERATOR_SCOPE_DENIED` | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed. |
-| `401` on the full `GET`     | The full view names every cell and tenant, so only the admin token reads it.                          |
+| Answer                            | Meaning                                                                                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `409 CELL_IMAGE_SEEN`             | The deploy token sent a digest that was `cell_image` before. Nothing changed.                                                                                          |
+| `409 CELL_RELEASE_OLDER`          | The deploy token sent a release older than the current `cell_image`'s release. Nothing changed.                                                                        |
+| `403 OPERATOR_SCOPE_DENIED`       | The deploy token sent a field other than `cellImage` and `release`, or left one out. Nothing changed.                                                                  |
+| `401` on the full `GET`           | The full view names every cell and tenant, so only the admin token reads it.                                                                                           |
+| `500 CLOUD_CONFIGURATION_INVALID` | A Cloud setting is missing or malformed, such as an image repository with a tag or capitals. The `operator.control` log event's `variables` names it. Nothing changed. |
 
 The rollout view holds no cell ID and no tenant ID, and its size does not grow
 with the fleet. It returns `cell_image` and its `release`, `paused` and

@@ -38,8 +38,8 @@ describe("Cloud cell image repository", () => {
     assert.equal(accepts(`${PREVIOUS}${DIGEST}`, env), false);
   });
 
-  it("refuses a malformed previous repository instead of silently refusing every old image", () => {
-    for (const previous of [
+  it("refuses a malformed repository instead of silently refusing every image", () => {
+    for (const malformed of [
       "Registry.Example.Test/Old-Name",
       "registry.example.test/old-name:v1",
     ]) {
@@ -47,8 +47,12 @@ describe("Cloud cell image repository", () => {
         () =>
           loadCloudCellImageRepositories({
             EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY: CURRENT,
-            EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS: previous,
+            EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS: malformed,
           }),
+        ExomemCloudConfigurationError
+      );
+      assert.throws(
+        () => loadCloudCellImageRepositories({ EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY: malformed }),
         ExomemCloudConfigurationError
       );
     }
