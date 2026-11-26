@@ -175,8 +175,9 @@ export function startFakeCell(options: {
         const bearer = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
         const access = await findCloudOAuthAccessToken(digestSecret(bearer), [options.resource]);
         if (!access) return json(response, 401, { error: "ACCESS_TOKEN_INVALID" });
-        // Like the real cell's Streamable HTTP transport: a POST must accept both answer
-        // formats, and the answer comes back as one event-stream message.
+        // Like the real cell's Streamable HTTP transport, a POST must accept both answer
+        // formats. The real transport answers as JSON or as an event stream; this fake
+        // always streams, and the integration tests' default fake answers as JSON.
         const accepts = (request.headers.accept ?? "").toLowerCase();
         if (!accepts.includes("application/json") || !accepts.includes("text/event-stream")) {
           return json(response, 406, { error: "NOT_ACCEPTABLE" });

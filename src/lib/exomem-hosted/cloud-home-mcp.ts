@@ -440,7 +440,13 @@ async function readCellAnswer(
   const parser = createParser({
     onEvent: (event) => {
       if (event.event !== undefined && event.event !== "message") return;
-      const message: unknown = JSON.parse(event.data);
+      // A resumable server's priming event carries no data; only a JSON message can answer.
+      let message: unknown;
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        return;
+      }
       if (message && typeof message === "object" && "id" in message && message.id === requestId)
         answer = message;
     },
