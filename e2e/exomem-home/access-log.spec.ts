@@ -1,8 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test as base } from "@playwright/test";
 import { createDeletionLink, createOwner, pool, setCell, signIn, tenantStatus } from "./seed";
 import { homeE2eEnvironment } from "./environment";
 
-test.afterAll(async () => pool.end());
+// The suite runs fully parallel, so a worker can run this file's tests one after another;
+// the seed's pool closes once, when the worker stops, not after each test.
+const test = base.extend<object, { database: void }>({
+  database: [
+    async ({}, use) => {
+      await use();
+      await pool.end();
+    },
+    { scope: "worker", auto: true },
+  ],
+});
 
 test("retrying an interrupted log read clears the failure and shows the real received window", async ({
   page,

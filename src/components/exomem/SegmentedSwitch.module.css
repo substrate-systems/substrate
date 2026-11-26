@@ -31,9 +31,12 @@
   cursor: pointer;
 }
 
+/* A row label keeps one line ("Coding agent"); the segment grows to fit it. */
 .row .segment {
   min-height: 36px;
+  padding: 0 10px;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .segment[aria-pressed="true"] {

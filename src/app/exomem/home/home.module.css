@@ -128,10 +128,13 @@
   color: var(--fg-secondary);
 }
 
+/* The email and Sign out sit one step below the header's 15 px, at the secondary mono size,
+   so they read as account details rather than at the wordmark's weight. */
 .account {
   min-width: 0;
   display: flex;
   align-items: baseline;
+  font-size: 13.5px;
 }
 
 /* The signed-in email and its "·", one space either side; a long address ends in an ellipsis. */
@@ -321,8 +324,21 @@
   border-bottom: 0;
 }
 
+/* An app row carries a segmented switch and a Disconnect. When they would leave the name less
+   than 140 px, as on a phone or in the narrow column between the breakpoints, they move to
+   their own line under the row, and wrap there if a very narrow row still cannot hold them. */
 .appRow {
+  flex-wrap: wrap;
   padding: 14px 0;
+}
+
+.appRow .rowText {
+  flex-basis: 140px;
+}
+
+.appRow .rowActions {
+  flex-shrink: 1;
+  flex-wrap: wrap;
 }
 
 /* The add row runs straight into its panel, without a rule. */
@@ -910,17 +926,6 @@
 
   .levelSwitch {
     width: auto;
-  }
-
-  /* An app row carries a segmented control and a Disconnect; on a phone they
-     wrap under the title, past the glyph, instead of squeezing it away. */
-  .appRow {
-    flex-wrap: wrap;
-  }
-
-  .appRow .rowActions {
-    flex-basis: 100%;
-    padding-left: 48px;
   }
 }
 
