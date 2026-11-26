@@ -271,7 +271,8 @@ describe("the live line and the note count", () => {
       NOW
     );
     assert.equal(liveLine(facts, [], NONE, clock)?.text, "Your app saved notes · 1 minute ago");
-    assert.equal(statusCopy("on", false, facts, clock, false).statusLine, "Last saved 1 minute ago");
+    // The live line carries the save, so the status line has nothing left to say.
+    assert.equal(statusCopy("on", false, facts, clock, true).statusLine, null);
   });
 
   it("names the exact grant when two apps share a provider, without guessing a disconnected actor", () => {
