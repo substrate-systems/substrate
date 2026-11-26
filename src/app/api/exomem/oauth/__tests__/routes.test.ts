@@ -273,7 +273,7 @@ before(() => {
         replacementRefreshDigest: Buffer;
         accessDigest: Buffer;
         clientId: string;
-        resource: string;
+        resource: string | null;
       }) => {
         tokenStoreCalls++;
         const credential = refreshCredentials.get(digestKey(input.refreshDigest));
@@ -283,7 +283,7 @@ before(() => {
           !family ||
           family.revoked ||
           credential.clientId !== input.clientId ||
-          credential.resource !== input.resource
+          (input.resource !== null && credential.resource !== input.resource)
         ) {
           return null;
         }
