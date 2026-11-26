@@ -4,7 +4,7 @@
 // export rows cellctl moves along. Nothing here touches the web server's code.
 
 import { randomBytes, randomUUID } from "node:crypto";
-import type { BrowserContext } from "@playwright/test";
+import { test as base, type BrowserContext } from "@playwright/test";
 import { Pool } from "pg";
 import {
   generateMarketplaceReviewerCredential,
@@ -17,6 +17,18 @@ import type { SentEmail } from "./fake-brevo";
 
 const environment = homeE2eEnvironment();
 export const pool = new Pool({ connectionString: environment.databaseUrl, max: 4 });
+
+/** The test every Home spec uses. The suite runs fully parallel, so a worker runs tests from
+ * several files one after another: the pool closes once, when the worker stops. */
+export const test = base.extend<object, { database: void }>({
+  database: [
+    async ({}, use) => {
+      await use();
+      await pool.end();
+    },
+    { scope: "worker", auto: true },
+  ],
+});
 
 export type Owner = {
   userId: string;

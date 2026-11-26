@@ -2,21 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { expect, test as base } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { Decrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import { createTarDecoder } from "modern-tar";
-import { createOwner, pool, signIn } from "./seed";
+import { createOwner, pool, signIn, test } from "./seed";
 import { homeE2eEnvironment } from "./environment";
-
-const test = base.extend<object, { database: void }>({
-  database: [
-    async ({}, use) => {
-      await use();
-      await pool.end();
-    },
-    { scope: "worker", auto: true },
-  ],
-});
 
 test("Home offers imports only while the cell permits starting one", async ({ page, context }) => {
   const owner = await createOwner();

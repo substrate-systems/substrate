@@ -1,18 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { expect, test as base } from "@playwright/test";
+import { expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { createOwner, pool, signIn } from "./seed";
+import { createOwner, pool, signIn, test } from "./seed";
 import { homeE2eEnvironment } from "./environment";
-
-const test = base.extend<object, { database: void }>({
-  database: [
-    async ({}, use) => {
-      await use();
-      await pool.end();
-    },
-    { scope: "worker", auto: true },
-  ],
-});
 
 async function payingOwner() {
   const owner = await createOwner({

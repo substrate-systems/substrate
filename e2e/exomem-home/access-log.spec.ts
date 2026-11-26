@@ -1,8 +1,6 @@
-import { expect, test } from "@playwright/test";
-import { createDeletionLink, createOwner, pool, setCell, signIn, tenantStatus } from "./seed";
+import { expect } from "@playwright/test";
+import { createDeletionLink, createOwner, pool, setCell, signIn, tenantStatus, test } from "./seed";
 import { homeE2eEnvironment } from "./environment";
-
-test.afterAll(async () => pool.end());
 
 test("retrying an interrupted log read clears the failure and shows the real received window", async ({
   page,
