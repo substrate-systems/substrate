@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { loadCloudCellImageRepositories } from "../cloud-config";
+import { ExomemCloudConfigurationError, loadCloudCellImageRepositories } from "../cloud-config";
 import { assertValidCloudCellImage, InvalidCloudCellImageError } from "../cloud-release";
 
 const CURRENT = "registry.example.test/new-name";
@@ -36,5 +36,28 @@ describe("Cloud cell image repository", () => {
     const env = { EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY: CURRENT };
     assert.equal(accepts(`${CURRENT}${DIGEST}`, env), true);
     assert.equal(accepts(`${PREVIOUS}${DIGEST}`, env), false);
+  });
+
+  it("refuses a malformed previous repository instead of silently refusing every old image", () => {
+    for (const previous of [
+      "Registry.Example.Test/Old-Name",
+      "registry.example.test/old-name:v1",
+    ]) {
+      assert.throws(
+        () =>
+          loadCloudCellImageRepositories({
+            EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY: CURRENT,
+            EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS: previous,
+          }),
+        ExomemCloudConfigurationError
+      );
+    }
+    assert.deepEqual(
+      loadCloudCellImageRepositories({
+        EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY: CURRENT,
+        EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS: "registry.example.test:5000/old_name",
+      }),
+      [CURRENT, "registry.example.test:5000/old_name"]
+    );
   });
 });
