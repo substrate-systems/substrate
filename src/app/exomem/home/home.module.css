@@ -455,6 +455,12 @@
   gap: 6px;
 }
 
+/* The line sits over the graph band: a solid ground keeps the band's lines and its
+   amber walker from crossing the labels. */
+.whatsNewActions > button {
+  background: var(--bg-base);
+}
+
 .whatsNewError {
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
