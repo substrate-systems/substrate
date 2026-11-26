@@ -683,7 +683,11 @@ export default function HomeClient({
     !disconnected.has(apps[pulseAppIndex].id)
       ? apps[pulseAppIndex]
       : null;
-  const status_ = statusCopy(variant, reviewer, facts, clock);
+  const shownLiveLine =
+    variant === "ended" || (activityReadFailed && lostAt === null)
+      ? null
+      : liveLine(facts, apps ?? [], disconnected, clock);
+  const status_ = statusCopy(variant, reviewer, facts, clock, shownLiveLine !== null);
   // The time of the read that the lost state's numbers come from (Home board).
   const lostTime = lost?.time ?? null;
   const storage =
@@ -740,11 +744,7 @@ export default function HomeClient({
                   : `${status_.headline} · as of ${lostTime}`
           }
           statusLine={status_.statusLine}
-          liveLine={
-            variant === "ended" || (activityReadFailed && lostAt === null)
-              ? null
-              : liveLine(facts, apps ?? [], disconnected, clock)
-          }
+          liveLine={shownLiveLine}
           activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
         />
         <div className={styles.columns}>
