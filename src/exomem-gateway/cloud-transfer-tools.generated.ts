@@ -4,7 +4,7 @@
 export const CLOUD_TRANSFER_TOOLS_SOURCE = {
   repo: "exomem",
   path: "tests/fixtures/mcp_cloud_only_tool_schemas.json",
-  commit: "813dbfe8d7562a66c0f13189eb7047aaee4c32d2",
+  commit: "ec33713a973147dfc07e3fdec30bdd47f60c84c8",
 } as const;
 
 export const CLOUD_TRANSFER_TOOLS = {
