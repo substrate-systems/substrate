@@ -330,7 +330,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       )
         return invalidRequest("refresh_fields", {
           field_names: Object.keys(form).sort().join(",") || "none",
-          resource_matches: !resourceNamed || resource !== null,
+          resource_named: resourceNamed,
+          resource_matches: resource !== null,
         });
       const refreshDigest = tokenDigest(form.refresh_token);
       if (!refreshDigest) return invalidGrant("refresh_shape");

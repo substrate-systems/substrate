@@ -931,6 +931,30 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       [digest(134)]
     );
     assert.equal(minted.rows[0]?.resource, resource);
+
+    // Once the grant's resource is no longer accepted, a refresh that names none
+    // is refused and spends nothing, instead of minting for the retired resource.
+    process.env.EXOMEM_CLOUD_MCP_URL = "https://gateway-next.example.test/mcp";
+    try {
+      const retired = await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(133),
+        replacementRefreshDigest: digest(137),
+        accessDigest: digest(138),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId,
+        resource: null,
+      });
+      assert.equal(retired, null);
+    } finally {
+      process.env.EXOMEM_CLOUD_MCP_URL = resource;
+    }
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NULL",
+        [digest(133)]
+      ),
+      1
+    );
     await pruneExpiredOAuthState();
     assert.equal(
       await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
