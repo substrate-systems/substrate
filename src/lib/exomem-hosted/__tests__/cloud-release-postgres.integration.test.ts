@@ -348,6 +348,31 @@ describe("Exomem Cloud release control PostgreSQL integration", { skip: !databas
     assert.equal(await cellImage(), IMAGE_V3);
   });
 
+  it("refuses a deploy-token digest already in history under the other repository", async () => {
+    await resetFleet();
+    const previousRepository = "registry.example.test/exomem-cell-previous";
+    const priorPrevious = process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS;
+    process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS = previousRepository;
+    try {
+      // v1.0.0 was published, and withdrawn, under the previous repository.
+      await setImageAsAdmin(`${previousRepository}@sha256:${"1".repeat(64)}`, "v1.0.0");
+      await setImageAsAdmin(IMAGE_V2, "v2.0.0");
+
+      await assert.rejects(
+        applyCloudReleaseChanges({ cellImage: IMAGE_V1, release: "v3.0.0" }, "deploy"),
+        CloudImageSeenError
+      );
+      assert.equal(await cellImage(), IMAGE_V2);
+      assert.equal((await historyRows()).length, 2);
+    } finally {
+      if (priorPrevious === undefined) {
+        delete process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS;
+      } else {
+        process.env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS = priorPrevious;
+      }
+    }
+  });
+
   it("lets the admin token set an earlier digest", async () => {
     await resetFleet();
     await setImageAsAdmin(IMAGE_V1, "v1.0.0");

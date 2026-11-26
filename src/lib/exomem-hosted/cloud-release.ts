@@ -75,7 +75,7 @@ export type CloudCellImageValidationDependencies = {
 
 /**
  * Security review finding 10: `cell_image` and a cell's `desired_image`
- * override accept only the configured repository pinned to a sha256 digest
+ * override accept only a configured repository (current or previous) pinned to a sha256 digest
  * -- never a mutable tag. Called from both setters below, so nothing can
  * write a tag-based image through this module regardless of entry point;
  * exported so a caller that wants to validate ahead of the write (e.g. the
@@ -113,7 +113,16 @@ async function writeReleaseImage(
     SELECT release_tag FROM exomem_cloud_image_history WHERE image = ${image}
   `;
   if (principal === "deploy") {
-    if (known.rows.length > 0) throw new CloudImageSeenError();
+    // The digest alone decides "seen": the same digest under the previous and the current
+    // repository is one release. The history holds one row per published release (a few
+    // hundred), so the unindexed digest comparison is a cheap sequential scan.
+    const seen = await sql`
+      /* exomem-cloud:release-digest-seen */
+      SELECT 1 FROM exomem_cloud_image_history
+      WHERE split_part(image, '@', 2) = split_part(${image}, '@', 2)
+      LIMIT 1
+    `;
+    if (seen.rows.length > 0) throw new CloudImageSeenError();
     // The current image's tag. An untagged current image (seeded, matching no
     // published release) has nothing to compare, so only the history check applies.
     const current = await sql`

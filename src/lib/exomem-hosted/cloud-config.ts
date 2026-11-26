@@ -335,12 +335,13 @@ function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
 }
 
 /**
- * The cell image repository D5's release control (cloud-release.ts)
- * validates against (security review finding 10): `cell_image` and a cell's
- * `desired_image` override must be exactly `<this repository>@sha256:<64
- * lowercase hex>`, never a mutable tag -- a tag can be repointed after the
- * fact, so pinning to one would let the image a cell actually runs drift
- * silently out from under an operator's own release record. Its own env var,
+ * The current cell image repository, one of those D5's release control
+ * (cloud-release.ts) validates against (security review finding 10):
+ * `cell_image` and a cell's `desired_image` override must be exactly `<a
+ * configured repository (current or previous)>@sha256:<64 lowercase hex>`,
+ * never a mutable tag -- a tag can be repointed after the fact, so pinning
+ * to one would let the image a cell actually runs drift silently out from
+ * under an operator's own release record. Its own env var,
  * not a field on `ExomemCloudConfig`: only the release module needs it, and
  * folding it into the shared config would force every one of that type's
  * many other callers (the gateway, OAuth routes, status) to carry a value
@@ -354,6 +355,9 @@ function loadCloudCellImageRepository(env: EnvironmentSource = process.env): str
   return repository;
 }
 
+/** A lowercase registry path with an optional `:port` on the host; no tag and no `@digest`. */
+const CELL_IMAGE_REPOSITORY_PATTERN = /^[a-z0-9._-]+(:[0-9]+)?(\/[a-z0-9._-]+)*$/;
+
 /**
  * The repositories a cell image may come from: the current one, and the
  * optional `EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS` that published the
@@ -363,6 +367,10 @@ function loadCloudCellImageRepository(env: EnvironmentSource = process.env): str
  */
 export function loadCloudCellImageRepositories(env: EnvironmentSource = process.env): string[] {
   const previous = env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS?.trim();
+  // Checks shape, not meaning: a mixed-case or tagged value would silently refuse every old image.
+  if (previous && !CELL_IMAGE_REPOSITORY_PATTERN.test(previous)) {
+    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY_PREVIOUS"]);
+  }
   return [loadCloudCellImageRepository(env), ...(previous ? [previous] : [])];
 }
 
