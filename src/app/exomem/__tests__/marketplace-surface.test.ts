@@ -52,6 +52,27 @@ describe("Exomem marketplace public surface", () => {
       boundary,
       /zero-knowledge (service|product|encryption)|end-to-end encrypted service/i
     );
+    // The privacy requirement of add-cloud-media-store (cloud-operator-access): the media store's
+    // standard-mode custody is disclosed, with no tenant-held or operator-unreadable claim.
+    assert.match(boundary, /encrypts each original before it leaves the cell/i);
+    assert.match(boundary, /wrapped under the same per-cell root key/i);
+    assert.match(boundary, /We can unwrap that root key, so we could deliberately decrypt/i);
+    assert.match(boundary, /make no claim that only you can read them/i);
+    assert.match(boundary, /an export is a plain ZIP/i);
+    assert.doesNotMatch(boundary, /(unreadable|inaccessible) to (us|operators?)/i);
+    // Stored originals are deleted by the system (cloud-cell-storage-deletion), so no manual step is
+    // promised, and the backups' EU region is not claimed for them.
+    assert.match(boundary, /delete the stored copies with no manual step/i);
+    assert.doesNotMatch(boundary, /operator-run/i);
+    // The retired keys survive in database backups until those expire, so "unreadable" is conditional.
+    assert.match(
+      boundary,
+      /unreadable without keys that survive only in encrypted database backups until they expire/i
+    );
+    assert.match(
+      boundary,
+      /encrypted backups, held in its EU region, and separately for stored originals/i
+    );
     assert.doesNotMatch(boundary, /Neon for PostgreSQL|Cloudflare for protected networking/i);
     assert.doesNotMatch(privacy, /Hosted/);
     assert.match(privacy, /founder@substratesystems\.io/);

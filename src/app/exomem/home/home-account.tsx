@@ -4,9 +4,37 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Collapse } from "@/components/exomem/Transitions";
 import { HOME_YOUR_DATA_ANCHOR } from "@/lib/exomem/home-anchors";
-import type { ExportView, PlanView, StorageView } from "./home-view";
+import type { ExportView, PlanView, StorageFigureView, StorageView } from "./home-view";
 import { Section } from "./home-chrome";
 import styles from "./home.module.css";
+
+function StorageBar({ fraction }: { fraction: number }) {
+  return (
+    <div
+      className={styles.bar}
+      role="img"
+      aria-label={`${Math.floor(Math.min(1, fraction) * 100)}% used`}
+    >
+      <div
+        className={`${styles.barFill} ${fraction >= 0.8 ? styles.barFull : ""}`}
+        style={{ width: `${Math.min(100, fraction * 100).toFixed(1)}%` }}
+      />
+    </div>
+  );
+}
+
+// One figure of a media-store cell, with its own bar. A figure the cell could not read says so.
+function StorageFigureRow({ title, figure }: { title: string; figure: StorageFigureView }) {
+  return (
+    <>
+      <div className={styles.storageLine}>
+        <span className={styles.muted}>{title}</span>
+        <span>{figure.state === "known" ? figure.line : "unknown"}</span>
+      </div>
+      {figure.state === "known" && <StorageBar fraction={figure.fraction} />}
+    </>
+  );
+}
 
 export function PlanAndAccount({
   plan,
@@ -46,36 +74,45 @@ export function PlanAndAccount({
         </div>
       </Collapse>
       <div className={styles.storage}>
-        <div className={styles.storageLine}>
-          <span className={styles.muted}>Storage</span>
-          <span className={styles.storageActions}>
-            <span>
-              {storage.state === "known"
-                ? storage.line
-                : storage.state === "unread"
-                  ? "can’t be read right now"
-                  : "not measured yet"}
-            </span>
-            {onStorage && (
-              <Button size="line" onClick={onStorage}>
-                Add storage
-              </Button>
-            )}
-          </span>
-        </div>
-        {storage.state === "known" && (
+        {storage.state === "split" ? (
           <>
-            <div
-              className={styles.bar}
-              role="img"
-              aria-label={`${Math.floor(Math.min(1, storage.fraction) * 100)}% used`}
-            >
-              <div
-                className={`${styles.barFill} ${storage.fraction >= 0.8 ? styles.barFull : ""}`}
-                style={{ width: `${Math.min(100, storage.fraction * 100).toFixed(1)}%` }}
-              />
+            <StorageFigureRow title="Vault storage" figure={storage.vault} />
+            <StorageFigureRow title="Media storage" figure={storage.media} />
+            {/* "Add storage" buys volume, which only the vault figure is measured against. */}
+            <div className={styles.storageLine}>
+              <span className={styles.measured}>{storage.measured}</span>
+              {onStorage && (
+                <Button size="line" onClick={onStorage}>
+                  Add storage
+                </Button>
+              )}
             </div>
-            <span className={styles.measured}>{storage.measured}</span>
+          </>
+        ) : (
+          <>
+            <div className={styles.storageLine}>
+              <span className={styles.muted}>Storage</span>
+              <span className={styles.storageActions}>
+                <span>
+                  {storage.state === "known"
+                    ? storage.line
+                    : storage.state === "unread"
+                      ? "can’t be read right now"
+                      : "not measured yet"}
+                </span>
+                {onStorage && (
+                  <Button size="line" onClick={onStorage}>
+                    Add storage
+                  </Button>
+                )}
+              </span>
+            </div>
+            {storage.state === "known" && (
+              <>
+                <StorageBar fraction={storage.fraction} />
+                <span className={styles.measured}>{storage.measured}</span>
+              </>
+            )}
           </>
         )}
       </div>

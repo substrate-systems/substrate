@@ -2301,5 +2301,63 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         /exomem_cloud_cells_usage_check/
       );
     });
+
+    it("reports the vault and media figures each against its own limit, unknown as unknown, and refuses a figure with no read time", async () => {
+      const alice = await owner();
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET used_bytes = 5000000000, filesystem_bytes = 10737418240, usage_observed_at = '2026-10-12T03:00:00Z' WHERE cell_id = $1",
+        [alice.cellId]
+      );
+      // Every media column NULL: the cell has no media store and the storage reads as before.
+      assert.deepEqual((await getOwnerCloudHomeStatus(alice.tenantId)).storage, {
+        state: "known",
+        used_bytes: 5000000000,
+        filesystem_bytes: 10737418240,
+        observed_at: "2026-10-12T03:00:00.000Z",
+      });
+
+      await pool.query(
+        `UPDATE exomem_cloud_cells SET vault_used_bytes = 1288490189, media_used_bytes = 3500000000,
+           media_allowance_bytes = 100000000000, media_usage_observed_at = '2026-10-12T04:00:00Z'
+         WHERE cell_id = $1`,
+        [alice.cellId]
+      );
+      const known = (await getOwnerCloudHomeStatus(alice.tenantId)).storage;
+      assert.deepEqual(known.media, {
+        observed_at: "2026-10-12T04:00:00.000Z",
+        vault: { state: "known", used_bytes: 1288490189, limit_bytes: 10737418240 },
+        media: { state: "known", used_bytes: 3500000000, limit_bytes: 100000000000 },
+      });
+
+      // A figure cellctl could not read is unknown, never 0, while the other stays known.
+      await pool.query(
+        "UPDATE exomem_cloud_cells SET media_used_bytes = NULL, media_allowance_bytes = NULL WHERE cell_id = $1",
+        [alice.cellId]
+      );
+      const partial = (await getOwnerCloudHomeStatus(alice.tenantId)).storage.media;
+      assert.deepEqual(partial?.media, { state: "unknown" });
+      assert.equal(partial?.vault.state, "known");
+
+      await assert.rejects(
+        pool.query(
+          "UPDATE exomem_cloud_cells SET media_usage_observed_at = NULL WHERE cell_id = $1",
+          [alice.cellId]
+        ),
+        /exomem_cloud_cells_media_usage_check/
+      );
+      await assert.rejects(
+        pool.query("UPDATE exomem_cloud_cells SET media_used_bytes = -1 WHERE cell_id = $1", [
+          alice.cellId,
+        ]),
+        /exomem_cloud_cells_media_usage_bounds_check/
+      );
+      // cellctl turns the media store off by writing all four back to NULL.
+      await pool.query(
+        `UPDATE exomem_cloud_cells SET vault_used_bytes = NULL, media_used_bytes = NULL,
+           media_allowance_bytes = NULL, media_usage_observed_at = NULL WHERE cell_id = $1`,
+        [alice.cellId]
+      );
+      assert.equal((await getOwnerCloudHomeStatus(alice.tenantId)).storage.media, undefined);
+    });
   });
 });

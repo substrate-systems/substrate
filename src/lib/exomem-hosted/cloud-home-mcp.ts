@@ -35,7 +35,7 @@ import {
   type WhatsNewRelease,
 } from "./cloud-home-whats-new";
 import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
-import { executeExomemSql, withExomemTransaction } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
 import { readBoundedBytes, readBoundedJsonRequest } from "./http";
 import { digestSecret, generateExternalToken, SensitiveSecret } from "./security";
@@ -244,7 +244,11 @@ export type CellAnswer =
   | { kind: "refused"; code: string }
   | { kind: "unavailable"; view: CloudHomeUnavailable };
 
-type ServingCell = { state: "serving"; desiredState: "running" | "read_only" };
+export type ServingCell = {
+  state: "serving";
+  cellId: string;
+  desiredState: "running" | "read_only";
+};
 
 /** Release flag: off until the cell rollout that answers these calls is done. */
 export function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
@@ -267,12 +271,12 @@ function logUnavailable(
  * The cell state Home may call, from the database only. A stopped or
  * not-ready cell answers no request, so this saves the mint and the network.
  */
-async function servingCell(
+export async function servingCell(
   principal: CloudHomePrincipal
 ): Promise<ServingCell | CloudHomeUnavailable> {
   const { rows } = await executeExomemSql`
     /* exomem-cloud:home-serving-cell */
-    SELECT cell.desired_state, cell.ready
+    SELECT cell.cell_id, cell.desired_state, cell.ready
     FROM exomem_cloud_cells AS cell
     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
     WHERE cell.tenant_id = ${principal.tenantId}::uuid
@@ -281,13 +285,13 @@ async function servingCell(
       AND cell.desired_state <> 'deleted'
     LIMIT 1
   `;
-  const row = rows[0] as { desired_state: string; ready: boolean } | undefined;
+  const row = rows[0] as { cell_id: string; desired_state: string; ready: boolean } | undefined;
   if (!row) return unavailable("CELL_NOT_READY");
   if (row.desired_state !== "running" && row.desired_state !== "read_only") {
     return unavailable("CELL_STOPPED");
   }
   if (!row.ready) return unavailable("CELL_NOT_READY");
-  return { state: "serving", desiredState: row.desired_state };
+  return { state: "serving", cellId: row.cell_id, desiredState: row.desired_state };
 }
 
 /** Why the mint wrote no token; Home shows each as unavailable, never as an error. */
@@ -295,6 +299,143 @@ type MintRefusal = Extract<
   CloudHomeUnavailableReason,
   "HOME_CLIENT_DISABLED" | "ACCOUNT_ACCESS_CLOSED"
 >;
+
+/** The owner's first-party Home login: the grant and token family that a credential names. */
+export type HomeLogin = { grantId: string; familyId: string };
+
+/**
+ * Upserts the tenant's Home grant and reuses or opens its token family, inside
+ * the caller's transaction. An access token (`mintHomeAccessToken`) and a
+ * download ticket (`openHomeLoginForTicket`) both name this login, so the
+ * gateway's one lookup decides both: a revoked grant, an account block and a
+ * deletion end each of them. `minimumFamilyLifeSeconds` is how long the
+ * returned family must still live: the gateway's lookup also ends at the
+ * family's own expiry, so a credential that outlives the family would die early.
+ */
+async function openHomeLogin(
+  tx: ExomemSql,
+  principal: CloudHomePrincipal,
+  resource: string,
+  acceptedResources: readonly string[],
+  minimumFamilyLifeSeconds: number
+): Promise<(HomeLogin & { clientId: string }) | { refused: MintRefusal }> {
+  const reviewerCredentialId = principal.reviewerCredentialId ?? null;
+  const homeClient = await tx`
+    SELECT id FROM exomem_oauth_clients WHERE admission_mode = 'first_party' AND enabled
+  `;
+  const homeClientId = (homeClient.rows[0] as { id: string } | undefined)?.id;
+  if (!homeClientId) return { refused: "HOME_CLIENT_DISABLED" };
+  // One active grant per owner, client and resource, so the mint reuses
+  // only a grant that it could have written itself. It retires first a
+  // Home grant from a reviewer credential that this session no longer
+  // carries, which the upsert below would otherwise refuse on every call.
+  // It also retires a grant that an interactive authorization wrote: one
+  // that allows refresh, or holds a live access token issued for longer
+  // than this mint issues. The check reads each token's own lifetime, so a
+  // concurrent mint's fresh token never retires the grant. Revoking the
+  // grant ends its families and tokens at the gateway's lookup.
+  await tx`
+    UPDATE exomem_oauth_grants AS oauth_grant
+    SET revoked_at = now(), updated_at = now()
+    FROM exomem_oauth_clients AS home_client
+    WHERE home_client.id = oauth_grant.client_id
+      AND home_client.admission_mode = 'first_party'
+      AND oauth_grant.user_id = ${principal.userId}::uuid
+      AND oauth_grant.tenant_id = ${principal.tenantId}::uuid
+      AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
+      AND oauth_grant.revoked_at IS NULL
+      AND (
+        oauth_grant.reviewer_credential_id IS DISTINCT FROM ${reviewerCredentialId}::uuid
+        OR oauth_grant.refresh_allowed
+        OR EXISTS (
+          SELECT 1 FROM exomem_oauth_access_tokens AS token
+          WHERE token.grant_id = oauth_grant.id AND token.expires_at > now()
+            AND token.expires_at - token.created_at
+              > make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS})
+        )
+      )
+  `;
+  // The grant upsert locks the grant row, so concurrent mints for one
+  // tenant reuse one family instead of racing to open two.
+  const granted = await tx`
+    /* exomem-cloud:home-grant */
+    WITH principal AS (
+      SELECT tenant.id AS tenant_id, tenant.owner_user_id AS user_id
+      FROM exomem_tenants AS tenant
+      WHERE tenant.id = ${principal.tenantId}::uuid
+        AND tenant.owner_user_id = ${principal.userId}::uuid
+        AND tenant.status NOT IN ('deletion_pending', 'deleted')
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
+        )
+    )
+    INSERT INTO exomem_oauth_grants (
+      user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id
+    )
+    SELECT principal.user_id, principal.tenant_id, ${homeClientId}::uuid, ${resource},
+           ${HOME_SCOPES}::text[], false, ${reviewerCredentialId}::uuid
+    FROM principal
+    ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
+    DO UPDATE SET updated_at = now()
+    RETURNING id, client_id
+  `;
+  const grant = granted.rows[0] as { id: string; client_id: string } | undefined;
+  // The session lookup refuses a blocked or deleting account, so this is the
+  // window after it: an OAuth block or a deletion that began since then.
+  if (!grant) return { refused: "ACCOUNT_ACCESS_CLOSED" };
+  const reused = await tx`
+    /* exomem-cloud:home-family */
+    SELECT id FROM exomem_oauth_token_families
+    WHERE grant_id = ${grant.id}::uuid AND client_id = ${grant.client_id}::uuid
+      AND revoked_at IS NULL AND candidate_id IS NULL
+      AND reviewer_credential_id IS NOT DISTINCT FROM ${reviewerCredentialId}::uuid
+      AND expires_at > now() + make_interval(secs => ${minimumFamilyLifeSeconds})
+    ORDER BY expires_at DESC
+    LIMIT 1
+  `;
+  let familyId = (reused.rows[0] as { id: string } | undefined)?.id;
+  if (!familyId) {
+    const opened = await tx`
+      INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at, reviewer_credential_id)
+      VALUES (${grant.id}::uuid, ${grant.client_id}::uuid, now() + interval '30 days',
+              ${reviewerCredentialId}::uuid)
+      RETURNING id
+    `;
+    familyId = (opened.rows[0] as { id: string }).id;
+  }
+  return { grantId: grant.id, familyId, clientId: grant.client_id };
+}
+
+/**
+ * The login a download ticket will name, for a session's principal, in its own
+ * transaction. Its family outlives the ticket by the access-token margin, so
+ * the family's expiry never ends a live ticket; only the grant, the account or
+ * the cell do.
+ */
+export async function openHomeLoginForTicket(
+  principal: CloudHomePrincipal,
+  resource: string,
+  acceptedResources: readonly string[],
+  ticketLifetimeSeconds: number
+): Promise<HomeLogin | { refused: MintRefusal }> {
+  try {
+    await assertPrincipalOwnsCloudCell(principal.tenantId);
+  } catch (error) {
+    if (error instanceof CloudPrincipalHasNoCellError) return { refused: "ACCOUNT_ACCESS_CLOSED" };
+    throw error;
+  }
+  const login = await withExomemTransaction((tx) =>
+    openHomeLogin(
+      tx,
+      principal,
+      resource,
+      acceptedResources,
+      ticketLifetimeSeconds + CLOUD_HOME_TOKEN_TTL_SECONDS
+    )
+  );
+  return "refused" in login ? login : { grantId: login.grantId, familyId: login.familyId };
+}
 
 /**
  * Mints one Home access token in one transaction: upsert the tenant's Home
@@ -317,95 +458,19 @@ async function mintHomeAccessToken(
   const token = new SensitiveSecret(generateExternalToken());
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
   return withExomemTransaction(async (tx) => {
-    const homeClient = await tx`
-      SELECT id FROM exomem_oauth_clients WHERE admission_mode = 'first_party' AND enabled
-    `;
-    const homeClientId = (homeClient.rows[0] as { id: string } | undefined)?.id;
-    if (!homeClientId) return { refused: "HOME_CLIENT_DISABLED" };
-    // One active grant per owner, client and resource, so the mint reuses
-    // only a grant that it could have written itself. It retires first a
-    // Home grant from a reviewer credential that this session no longer
-    // carries, which the upsert below would otherwise refuse on every call.
-    // It also retires a grant that an interactive authorization wrote: one
-    // that allows refresh, or holds a live access token issued for longer
-    // than this mint issues. The check reads each token's own lifetime, so a
-    // concurrent mint's fresh token never retires the grant. Revoking the
-    // grant ends its families and tokens at the gateway's lookup.
-    await tx`
-      UPDATE exomem_oauth_grants AS oauth_grant
-      SET revoked_at = now(), updated_at = now()
-      FROM exomem_oauth_clients AS home_client
-      WHERE home_client.id = oauth_grant.client_id
-        AND home_client.admission_mode = 'first_party'
-        AND oauth_grant.user_id = ${principal.userId}::uuid
-        AND oauth_grant.tenant_id = ${principal.tenantId}::uuid
-        AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
-        AND oauth_grant.revoked_at IS NULL
-        AND (
-          oauth_grant.reviewer_credential_id IS DISTINCT FROM ${reviewerCredentialId}::uuid
-          OR oauth_grant.refresh_allowed
-          OR EXISTS (
-            SELECT 1 FROM exomem_oauth_access_tokens AS token
-            WHERE token.grant_id = oauth_grant.id AND token.expires_at > now()
-              AND token.expires_at - token.created_at
-                > make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS})
-          )
-        )
-    `;
-    // The grant upsert locks the grant row, so concurrent mints for one
-    // tenant reuse one family instead of racing to open two.
-    const granted = await tx`
-      /* exomem-cloud:home-grant */
-      WITH principal AS (
-        SELECT tenant.id AS tenant_id, tenant.owner_user_id AS user_id
-        FROM exomem_tenants AS tenant
-        WHERE tenant.id = ${principal.tenantId}::uuid
-          AND tenant.owner_user_id = ${principal.userId}::uuid
-          AND tenant.status NOT IN ('deletion_pending', 'deleted')
-          AND NOT EXISTS (
-            SELECT 1 FROM exomem_oauth_account_blocks AS block
-            WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
-          )
-      )
-      INSERT INTO exomem_oauth_grants (
-        user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id
-      )
-      SELECT principal.user_id, principal.tenant_id, ${homeClientId}::uuid, ${resource},
-             ${HOME_SCOPES}::text[], false, ${reviewerCredentialId}::uuid
-      FROM principal
-      ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
-      DO UPDATE SET updated_at = now()
-      RETURNING id, client_id
-    `;
-    const grant = granted.rows[0] as { id: string; client_id: string } | undefined;
-    // The session lookup refuses a blocked or deleting account, so this is the
-    // window after it: an OAuth block or a deletion that began since then.
-    if (!grant) return { refused: "ACCOUNT_ACCESS_CLOSED" };
-    const reused = await tx`
-      /* exomem-cloud:home-family */
-      SELECT id FROM exomem_oauth_token_families
-      WHERE grant_id = ${grant.id}::uuid AND client_id = ${grant.client_id}::uuid
-        AND revoked_at IS NULL AND candidate_id IS NULL
-        AND reviewer_credential_id IS NOT DISTINCT FROM ${reviewerCredentialId}::uuid
-        AND expires_at > now() + make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS})
-      ORDER BY expires_at DESC
-      LIMIT 1
-    `;
-    let familyId = (reused.rows[0] as { id: string } | undefined)?.id;
-    if (!familyId) {
-      const opened = await tx`
-        INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at, reviewer_credential_id)
-        VALUES (${grant.id}::uuid, ${grant.client_id}::uuid, now() + interval '30 days',
-                ${reviewerCredentialId}::uuid)
-        RETURNING id
-      `;
-      familyId = (opened.rows[0] as { id: string }).id;
-    }
+    const login = await openHomeLogin(
+      tx,
+      principal,
+      resource,
+      acceptedResources,
+      CLOUD_HOME_TOKEN_TTL_SECONDS
+    );
+    if ("refused" in login) return login;
     // Home mints one token per call and nothing in production prunes expired
     // access tokens, so each mint removes its own grant's expired ones.
     await tx`
       DELETE FROM exomem_oauth_access_tokens
-      WHERE grant_id = ${grant.id}::uuid AND expires_at <= now()
+      WHERE grant_id = ${login.grantId}::uuid AND expires_at <= now()
     `;
     await tx`
       /* exomem-cloud:home-access-token */
@@ -413,8 +478,8 @@ async function mintHomeAccessToken(
         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at,
         reviewer_credential_id
       ) VALUES (
-        ${digestSecret(token.reveal())}, ${grant.id}::uuid, ${familyId}::uuid,
-        ${grant.client_id}::uuid, ${resource}, ${HOME_SCOPES}::text[],
+        ${digestSecret(token.reveal())}, ${login.grantId}::uuid, ${login.familyId}::uuid,
+        ${login.clientId}::uuid, ${resource}, ${HOME_SCOPES}::text[],
         now() + make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS}), ${reviewerCredentialId}::uuid
       )
     `;

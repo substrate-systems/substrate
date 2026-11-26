@@ -15,6 +15,7 @@ import type {
   ActivityClientFamily,
   CloudHomeUnavailableReason,
 } from "@/lib/exomem-hosted/cloud-home-mcp";
+import type { CloudMediaFigure } from "@/lib/exomem-hosted/cloud-status";
 import type {
   HomeAccount,
   HomeActivity,
@@ -506,23 +507,24 @@ export function notices(
       actions: ["support"],
     });
   }
-  if (storage.state === "known" && storage.fraction >= 1) {
+  const volume = volumeShare(storage);
+  if (volume && volume.fraction >= 1) {
     list.push({
       key: "full",
       // The board's sentence about adding storage shows only with its "Add storage" action.
-      text: `Your Evermatter is full (${storage.total} GB). Recall works; new saves wait for room.${
+      text: `Your Evermatter is full (${volume.total} GB). Recall works; new saves wait for room.${
         canAddStorage ? " Add storage and they carry on." : ""
       } Nothing is ever deleted to make space.`,
       attention: true,
       actions: canAddStorage ? ["storage"] : [],
     });
-  } else if (storage.state === "known" && storage.fraction >= 0.8) {
+  } else if (volume && volume.fraction >= 0.8) {
     list.push({
       key: "filling",
       // Floor: a disk that is not full never reads as 100%.
       // Storage grows only by hand (design.md (as)), so the board's "or let it grow
       // automatically" is left out.
-      text: `Your Evermatter is ${Math.floor(storage.fraction * 100)}% full. Everything works.${
+      text: `Your Evermatter is ${Math.floor(volume.fraction * 100)}% full. Everything works.${
         canAddStorage ? " Add storage now." : ""
       }`,
       attention: false,
@@ -797,6 +799,11 @@ export function planView(
 
 // --- Storage: the real disk ---
 
+/** One of a media-store cell's two figures, against its own limit. */
+export type StorageFigureView =
+  | { state: "known"; line: string; total: string; fraction: number }
+  | { state: "unknown" };
+
 export type StorageView =
   | { state: "unknown" }
   // No status read reached Exomem, so the disk was not read either.
@@ -807,9 +814,49 @@ export type StorageView =
       total: string;
       fraction: number;
       measured: string;
+    }
+  // A cell with a media store: the vault against the volume, the stored originals against
+  // their allowance. Either figure can be unknown while the other is known.
+  | {
+      state: "split";
+      vault: StorageFigureView;
+      media: StorageFigureView;
+      measured: string;
     };
 
+function figureView(figure: CloudMediaFigure): StorageFigureView {
+  if (figure.state !== "known") return { state: "unknown" };
+  const total = gigabytes(figure.limit_bytes);
+  return {
+    state: "known",
+    line: `${gigabytes(figure.used_bytes)} of ${total} GB`,
+    total,
+    // Against an allowance of zero any use is over it, and no use is none.
+    fraction:
+      figure.limit_bytes > 0
+        ? figure.used_bytes / figure.limit_bytes
+        : figure.used_bytes > 0
+          ? 1
+          : 0,
+  };
+}
+
+/** The volume's share and size when Home can say it: what the full-disk notices read. */
+function volumeShare(storage: StorageView): { fraction: number; total: string } | null {
+  if (storage.state === "known") return storage;
+  if (storage.state === "split" && storage.vault.state === "known") return storage.vault;
+  return null;
+}
+
 export function storageView(storage: HomeStorage | null, clock: Clock): StorageView {
+  if (storage?.media) {
+    return {
+      state: "split",
+      vault: figureView(storage.media.vault),
+      media: figureView(storage.media.media),
+      measured: `measured ${shortDateTime(storage.media.observed_at, clock.timeZone)}`,
+    };
+  }
   if (!storage || storage.state !== "known") return { state: "unknown" };
   const total = gigabytes(storage.filesystem_bytes);
   return {

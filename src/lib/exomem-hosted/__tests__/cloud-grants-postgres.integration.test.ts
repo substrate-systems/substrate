@@ -1375,7 +1375,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
   // and a rerun, so a column added later without a grant decision shows up.
   it("holds each role to exactly its C6 columns, and gives the gateway nothing on C6", async () => {
     await ownerPool!.query(
-      "GRANT ALL ON exomem_cloud_exports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+      "GRANT ALL ON exomem_cloud_exports, exomem_cloud_cells TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
     );
     await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
 
@@ -1436,13 +1436,27 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       assert.equal(rows[0]!.can_delete, false, `${role} must not delete export rows`);
     }
 
-    const usage = ["filesystem_bytes", "usage_observed_at", "used_bytes"];
+    // Migration 0066's whole-volume figures and migration 0096's vault and media figures.
+    const usage = [
+      "filesystem_bytes",
+      "media_allowance_bytes",
+      "media_usage_observed_at",
+      "media_used_bytes",
+      "usage_observed_at",
+      "used_bytes",
+      "vault_used_bytes",
+    ];
     const cellctlUpdates = await columnPrivileges("exomem_cellctl", "exomem_cloud_cells", "UPDATE");
     assert.deepEqual(cellctlUpdates.filter((column) => usage.includes(column)), usage);
     const appUpdates = await columnPrivileges("substrate_app", "exomem_cloud_cells", "UPDATE");
     assert.deepEqual(appUpdates.filter((column) => usage.includes(column)), []);
     const gatewayReads = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "SELECT");
     assert.deepEqual(gatewayReads.filter((column) => usage.includes(column)), []);
+    const gatewayUpdates = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "UPDATE");
+    assert.deepEqual(gatewayUpdates.filter((column) => usage.includes(column)), []);
+    // Home reads the figures as the application role.
+    const appReads = await columnPrivileges("substrate_app", "exomem_cloud_cells", "SELECT");
+    assert.deepEqual(appReads.filter((column) => usage.includes(column)), usage);
   });
 
   // contain-cloud-controller-compromise D4: cellctl relays the signed grant to the Job and must not

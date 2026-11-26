@@ -79,6 +79,13 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 30,
     windowSeconds: 10 * 60,
   },
+  // A download link from Home mints one ticket. A video element can ask again after
+  // a seek, but a person plays a few recordings a minute, never 120.
+  ownerMediaTicketTenant: {
+    scope: "exomem:owner-media-ticket:tenant",
+    limit: 120,
+    windowSeconds: 60,
+  },
   oauthAuthorizeIp: {
     scope: "exomem:oauth-authorize:ip",
     limit: 60,
