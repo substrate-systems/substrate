@@ -138,6 +138,7 @@ export default function HomeClient({
   const [whatsNewBusy, setWhatsNewBusy] = useState(false);
   const [whatsNewFailed, setWhatsNewFailed] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [whatsNewLeaving, setWhatsNewLeaving] = useState(false);
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
   const [activityPulse, setActivityPulse] = useState<ActivityEvent | null>(null);
@@ -482,14 +483,20 @@ export default function HomeClient({
     setWhatsNewFailed(false);
     try {
       if (await dismissWhatsNew(version)) {
-        // The drawer closes first; the line leaves once it has (the Collapse's 450 ms).
-        const closing = whatsNewOpen;
+        // The drawer closes first and the line leaves once it has: the Collapse's
+        // --dur-swap (450 ms), or at once when the owner asked for reduced motion. Until
+        // then the line offers nothing to press.
+        setWhatsNewLeaving(true);
         setWhatsNewOpen(false);
-        const clear = () => {
-          if (mounted.current) setWhatsNew({ state: "live", version, releases: [] });
-        };
-        if (closing) window.setTimeout(clear, 450);
-        else clear();
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        window.setTimeout(
+          () => {
+            if (!mounted.current) return;
+            setWhatsNew({ state: "live", version, releases: [] });
+            setWhatsNewLeaving(false);
+          },
+          reduced ? 0 : 450
+        );
       } else setWhatsNewFailed(true);
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
@@ -761,8 +768,11 @@ export default function HomeClient({
               view={whatsNewSection}
               open={whatsNewOpen}
               working={whatsNewBusy}
+              leaving={whatsNewLeaving}
               failed={whatsNewFailed}
-              onToggle={() => setWhatsNewOpen((value) => !value)}
+              onToggle={() => {
+                if (!whatsNewLeaving) setWhatsNewOpen((value) => !value);
+              }}
               onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
             />
           )}

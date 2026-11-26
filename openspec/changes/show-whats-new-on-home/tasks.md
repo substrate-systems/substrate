@@ -12,7 +12,8 @@
 - [x] 2.1 The What's new section and "Got it", inspected at desktop and phone widths in light and dark.
   - Evidence: `next dev` against a fresh migrated Postgres 16 and the e2e fake cell, rendered in Playwright Chromium at 1440 and 390 px in both colour schemes with two releases and three notes. The section matches the other Home cards and carries no explanatory text. Chrome DevTools was not available in the session; the inspection used Playwright screenshots.
 
-- [ ] 2.2 The redesign from the Claude Design commission (direction B, "In the status"): a line under the status opens a drawer of changes grouped by release day, with older days folded; inspected against the design boards at desktop and phone, light and dark.
+- [x] 2.2 The redesign from the Claude Design commission (direction B, "In the status"): a line under the status opens a drawer of changes grouped by release day, with older days folded; inspected against the design boards at desktop and phone, light and dark.
+  - Evidence: CI production builds of `main` and of the redesign, served by the Home end-to-end stand-ins with a disposable PostgreSQL 16, rendered in Playwright Chromium at 1440 and 390 px in both colour schemes, with 9 notes over two days and 31 notes over six days: one line under the status, the drawer by day, the fold and "Show", and both failed-dismissal lines. Design source: `docs/exomem-design/reference/boards/whats-new-b/`.
 
 ## 3. Acceptance
 

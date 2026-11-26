@@ -1008,6 +1008,18 @@ describe("what's new", () => {
     assert.equal(view?.line, "Updated 9 Oct · 5 changes");
   });
 
+  it("orders days by date, so a backported release cannot turn the range around", () => {
+    const view = whatsNewView(
+      live([
+        { version: "1.3.0", released_on: "2026-10-05", notes: ["A."] },
+        { version: "1.2.1", released_on: "2026-10-09", notes: ["B."] },
+      ]),
+      clock
+    );
+    assert.equal(view?.line, "Updated 9 Oct · 2 changes");
+    assert.equal(view?.title, "What’s new · 5 Oct – 9 Oct");
+  });
+
   it("says one change, and names a single day once", () => {
     const view = whatsNewView(
       live([{ version: "1.3.0", released_on: "2026-10-09", notes: ["Search finds more."] }]),

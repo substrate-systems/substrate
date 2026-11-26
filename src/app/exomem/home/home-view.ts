@@ -704,7 +704,7 @@ export type WhatsNewSectionView = {
   version: string;
   /** The line under the status: "Updated 26 Nov · 9 changes". */
   line: string;
-  /** The drawer's title: "What’s new · 25 – 26 Nov", or the one day. */
+  /** The drawer's title: "What’s new · 25 Nov – 26 Nov", or the one day. */
   title: string;
   /** The newest days, shown in full. */
   openDays: WhatsNewDay[];
@@ -751,6 +751,9 @@ export function whatsNewView(
       });
   }
   if (days.length === 0) return null;
+  // Newest day first by date, so a release numbered higher but dated earlier cannot turn
+  // the range around. ISO dates sort as text.
+  days.sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
   const total = days.reduce((sum, day) => sum + day.notes.length, 0);
   const openDays = days.slice(0, WHATS_NEW_OPEN_DAYS);
   const folded = days.slice(WHATS_NEW_OPEN_DAYS);

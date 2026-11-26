@@ -7,6 +7,7 @@ import type { WhatsNewDay, WhatsNewSectionView } from "./home-view";
 import styles from "./home.module.css";
 
 const DRAWER_ID = "home-whats-new";
+const OLDER_ID = "home-whats-new-older";
 
 /** "Got it", which reads "Saving…" while the dismissal is on its way and keeps its width. */
 function GotIt({
@@ -51,6 +52,7 @@ export function WhatsNewLine({
   view,
   open,
   working,
+  leaving,
   failed,
   onToggle,
   onDismiss,
@@ -59,6 +61,8 @@ export function WhatsNewLine({
   open: boolean;
   /** The dismissal is on its way to the server. */
   working: boolean;
+  /** The dismissal saved and the line is about to go: nothing is left to press. */
+  leaving: boolean;
   /** The last dismissal did not save; the line stays until one does. */
   failed: boolean;
   onToggle: () => void;
@@ -71,9 +75,9 @@ export function WhatsNewLine({
           {view.line}
           <Chevron open={open} />
         </Button>
-        {!open && <GotIt ghost working={working} onDismiss={onDismiss} />}
+        {!open && !leaving && <GotIt ghost working={working} onDismiss={onDismiss} />}
       </div>
-      {/* Reserved, so the page below does not move when the error appears. */}
+      {/* Drawn in the gap under the line, so the page below does not move when it appears. */}
       <span className={styles.whatsNewError} role="alert">
         {failed && !open ? "Couldn’t save. Try Got it again." : null}
       </span>
@@ -128,21 +132,26 @@ export function WhatsNewDrawer({
           </span>
         </div>
         <Days days={view.openDays} />
-        {view.older && !olderOpen && (
-          <div className={styles.whatsNewFold}>
-            <span className={styles.rowMeta}>{view.older.label}</span>
-            <Button variant="ghost" aria-expanded={false} onClick={() => setOlderOpen(true)}>
-              Show
-              <Chevron open={false} />
-            </Button>
-          </div>
-        )}
         {view.older && (
-          <Collapse open={olderOpen}>
-            <div className={styles.whatsNewOlder}>
-              <Days days={view.older.days} />
+          <>
+            <div className={styles.whatsNewFold}>
+              <span className={styles.rowMeta}>{view.older.label}</span>
+              <Button
+                variant="ghost"
+                aria-expanded={olderOpen}
+                aria-controls={OLDER_ID}
+                onClick={() => setOlderOpen((value) => !value)}
+              >
+                {olderOpen ? "Hide" : "Show"}
+                <Chevron open={olderOpen} />
+              </Button>
             </div>
-          </Collapse>
+            <Collapse open={olderOpen}>
+              <div id={OLDER_ID}>
+                <Days days={view.older.days} />
+              </div>
+            </Collapse>
+          </>
         )}
       </section>
     </Collapse>

@@ -443,6 +443,7 @@
 /* --- What's new: a line under the status, and the drawer it opens (board B) --- */
 
 .whatsNewLine {
+  position: relative;
   display: flex;
   flex-direction: column;
   margin-top: 6px;
@@ -467,9 +468,12 @@
   color: var(--fg-primary);
 }
 
-/* The closed line's error sits in space the line keeps, so nothing below moves. */
+/* The closed line's error sits in the column's 30 px gap under the status block, so it
+   takes no row and nothing below moves (board B). */
 .whatsNewLine > .whatsNewError {
-  min-height: 1.5em;
+  position: absolute;
+  top: 100%;
+  left: 0;
   margin-top: 4px;
 }
 
@@ -560,8 +564,7 @@
   overflow-wrap: anywhere;
 }
 
-.whatsNewFold,
-.whatsNewOlder {
+.whatsNewFold {
   border-top: 1px solid var(--exo-rule);
 }
 
