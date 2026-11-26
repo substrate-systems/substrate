@@ -118,7 +118,7 @@ describe("which Home the owner sees", () => {
   it("shows a status it never read as unread, not as trouble or a failed account read", () => {
     const unread: Lifecycle = { state: "unread", code: "STATUS_UNREAD", retryable: true };
     assert.deepEqual(homeMode(unread, account(), "known"), { kind: "home", variant: "unread" });
-    assert.deepEqual(statusCopy("unread", false, null, clock), {
+    assert.deepEqual(statusCopy("unread", false, null, clock, false), {
       headline: "Can’t reach Evermatter.",
       statusLine: null,
     });
@@ -145,7 +145,7 @@ describe("which Home the owner sees", () => {
     // Before the account is read, a reviewer's Home would look like an owner's, with Delete.
     assert.deepEqual(homeMode(READY, null, "loading"), { kind: "loading" });
     assert.deepEqual(homeMode(READY, null, "failed"), { kind: "home", variant: "unknown" });
-    const unknown = statusCopy("unknown", false, null, clock);
+    const unknown = statusCopy("unknown", false, null, clock, false);
     assert.equal(unknown.headline, "Your Evermatter");
     assert.deepEqual(planView("unknown", null, null, clock), {
       name: "Plan",
@@ -213,7 +213,7 @@ describe("the live line and the note count", () => {
   it("shows nothing, never zero, when the cell cannot answer", () => {
     const facts = activityFacts({ state: "unavailable", reason: "CELL_UNREACHABLE" }, NOW);
     assert.equal(liveLine(facts, [app()], NONE, clock), null);
-    const status = statusCopy("on", false, facts, clock);
+    const status = statusCopy("on", false, facts, clock, false);
     assert.equal(status.statusLine, null);
   });
 
@@ -221,7 +221,7 @@ describe("the live line and the note count", () => {
     const facts = activityFacts(activity({ note_count: 0 }), NOW);
     assert.equal(liveLine(facts, [app()], NONE, clock), null);
     assert.equal(
-      statusCopy("on", false, facts, clock).statusLine,
+      statusCopy("on", false, facts, clock, false).statusLine,
       "No notes yet · ask your assistant to remember something"
     );
   });
@@ -238,8 +238,27 @@ describe("the live line and the note count", () => {
     );
     assert.equal(liveLine(facts, [], NONE, clock)?.text, "Claude Code recalled 4 notes · 12 s ago");
     assert.equal(
-      statusCopy("on", false, facts, clock).statusLine,
+      statusCopy("on", false, facts, clock, true).statusLine,
       "11,402 notes · last saved 2 minutes ago"
+    );
+  });
+
+  it("says when the memory last changed once, when the newest event is the last save", () => {
+    const facts = activityFacts(
+      activity({
+        events: [
+          { client: null, action: "saved", items: null, at: "2026-10-12T02:00:00Z" },
+          { client: "claude-code", action: "recalled", items: 4, at: "2026-10-12T01:00:00Z" },
+        ],
+      }),
+      NOW
+    );
+    assert.equal(liveLine(facts, [], NONE, clock)?.text, "Your app saved notes · 8 h ago");
+    assert.equal(statusCopy("on", false, facts, clock, true).statusLine, "11,402 notes");
+    // Without the live line on screen, the status line keeps the time.
+    assert.equal(
+      statusCopy("on", false, facts, clock, false).statusLine,
+      "11,402 notes · last saved 8 h ago"
     );
   });
 
@@ -252,7 +271,7 @@ describe("the live line and the note count", () => {
       NOW
     );
     assert.equal(liveLine(facts, [], NONE, clock)?.text, "Your app saved notes · 1 minute ago");
-    assert.equal(statusCopy("on", false, facts, clock).statusLine, "Last saved 1 minute ago");
+    assert.equal(statusCopy("on", false, facts, clock, false).statusLine, "Last saved 1 minute ago");
   });
 
   it("names the exact grant when two apps share a provider, without guessing a disconnected actor", () => {

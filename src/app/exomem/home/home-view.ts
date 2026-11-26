@@ -326,16 +326,25 @@ function line(parts: (string | null | false)[]): string | null {
   return text ? capitalise(text) : null;
 }
 
+/**
+ * The headline and the status line. `liveLineShown` says whether the live line is on screen:
+ * when its event is the last save, it already says when the memory last changed, so the
+ * status line leaves out "last saved" and the time shows once.
+ */
 export function statusCopy(
   variant: HomeVariant,
   reviewer: boolean,
   facts: ActivityFacts | null,
-  clock: Clock
+  clock: Clock,
+  liveLineShown: boolean
 ): { headline: string; statusLine: string | null } {
   const n = facts?.noteCount ?? null;
-  const saved = facts?.lastSave
-    ? `last saved ${ago(facts.lastSave.at, cellNow(facts, clock))}`
-    : null;
+  // activityFacts takes both from the same event list, so the same event is the same object.
+  const saveOnLiveLine = liveLineShown && facts?.newest != null && facts.newest === facts.lastSave;
+  const saved =
+    facts?.lastSave && !saveOnLiveLine
+      ? `last saved ${ago(facts.lastSave.at, cellNow(facts, clock))}`
+      : null;
   switch (variant) {
     case "on":
       if (reviewer) {
