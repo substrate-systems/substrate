@@ -31,10 +31,11 @@
   cursor: pointer;
 }
 
-/* A row label keeps one line ("Coding agent"); the segment grows to fit it. */
+/* A row label keeps one line ("Coding agent"); the segment grows to fit it. The 6 px padding
+   still fits Home's four-level switches at 320 px. */
 .row .segment {
   min-height: 36px;
-  padding: 0 10px;
+  padding: 0 6px;
   font-size: 12px;
   white-space: nowrap;
 }

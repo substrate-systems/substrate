@@ -332,7 +332,8 @@
   padding: 14px 0;
 }
 
-.appRow .rowText {
+/* The add row holds only Set up, which stays beside its text. */
+.appRow:not(.addRow) .rowText {
   flex-basis: 140px;
 }
 

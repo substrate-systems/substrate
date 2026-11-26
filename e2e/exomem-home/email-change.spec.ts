@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { expect, test as base, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { homeE2eEnvironment } from "./environment";
-import { connectApp, createOwner, emailsTo, grantRevoked, pool, signIn, type Owner } from "./seed";
-
-const test = base.extend<object, { database: void }>({
-  database: [
-    async ({}, use) => {
-      await use();
-      await pool.end();
-    },
-    { scope: "worker", auto: true },
-  ],
-});
+import {
+  connectApp,
+  createOwner,
+  emailsTo,
+  grantRevoked,
+  pool,
+  signIn,
+  type Owner,
+  test,
+} from "./seed";
 
 function accountPanel(page: Page) {
   return page.locator("section").filter({

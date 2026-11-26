@@ -4,7 +4,7 @@
 
 import { reviewerCopy, startCopy } from "../../src/app/exomem/_journey/copy";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test as base, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { digestSecret, generateExternalToken } from "../../src/lib/exomem-hosted/security";
 import { HOME_YOUR_DATA_ANCHOR } from "../../src/lib/exomem/home-anchors";
 import { EXOMEM_THEME_COOKIE_PREFIX } from "../../src/lib/exomem/theme-binding";
@@ -25,6 +25,7 @@ import {
   cellState,
   emailsTo,
   refuseEmailTo,
+  test,
 } from "./seed";
 import { homeE2eEnvironment } from "./environment";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
@@ -51,18 +52,6 @@ async function seriousViolations(page: Page) {
 function panel(page: Page, title: string) {
   return page.locator("section").filter({ has: page.getByRole("heading", { name: title }) });
 }
-
-// A worker runs tests from this file in any order, so the seed's pool closes once, when
-// the worker stops, not after a group of tests.
-const test = base.extend<object, { database: void }>({
-  database: [
-    async ({}, use) => {
-      await use();
-      await pool.end();
-    },
-    { scope: "worker", auto: true },
-  ],
-});
 
 test("late HTML from the old account cannot replace the new account's first theme", async ({
   page,

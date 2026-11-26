@@ -1,8 +1,8 @@
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test as base } from "@playwright/test";
-import { createOwner, pool, setCell, signIn } from "./seed";
+import { expect } from "@playwright/test";
+import { createOwner, setCell, signIn, test } from "./seed";
 import { storeTheme, switchTheme } from "../exomem-design/accessibility";
 
 const sourceRef = "exomem://memory/12345678-1234-4234-8234-123456789012";
@@ -77,16 +77,6 @@ const sourceNote = {
   mtime: 1_792_022_400,
   body: "# First observation\n\nA **visible finding**.\n\n[Unsafe link](javascript:alert(1))\n\n![Chart](https://image.example.test/tracker)\n\n<script>window.noteScriptRuns = true</script>",
 };
-
-const test = base.extend<object, { database: void }>({
-  database: [
-    async ({}, use) => {
-      await use();
-      await pool.end();
-    },
-    { scope: "worker", auto: true },
-  ],
-});
 
 test("the read-only viewer filters source relations, searches and safely reads a note", async ({
   page,
