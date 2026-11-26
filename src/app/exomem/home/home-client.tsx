@@ -46,7 +46,7 @@ import { HomeHeader, HomeWeb, StatusBlock } from "./home-chrome";
 import { DeleteDialog, type DeleteStep, SignedOutDialog } from "./home-dialogs";
 import type { Clock } from "./home-format";
 import { InvolvementLevels } from "./home-levels";
-import { WhatsNew } from "./home-whats-new";
+import { WhatsNewDrawer, WhatsNewLine } from "./home-whats-new";
 import { createSingleFlight, type Lifecycle, nextStatusPollDelayMs } from "./home-state";
 import {
   type AccountRead,
@@ -137,6 +137,7 @@ export default function HomeClient({
   );
   const [whatsNewBusy, setWhatsNewBusy] = useState(false);
   const [whatsNewFailed, setWhatsNewFailed] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
   const [activityPulse, setActivityPulse] = useState<ActivityEvent | null>(null);
@@ -480,8 +481,16 @@ export default function HomeClient({
     setWhatsNewBusy(true);
     setWhatsNewFailed(false);
     try {
-      if (await dismissWhatsNew(version)) setWhatsNew({ state: "live", version, releases: [] });
-      else setWhatsNewFailed(true);
+      if (await dismissWhatsNew(version)) {
+        // The drawer closes first; the line leaves once it has (the Collapse's 450 ms).
+        const closing = whatsNewOpen;
+        setWhatsNewOpen(false);
+        const clear = () => {
+          if (mounted.current) setWhatsNew({ state: "live", version, releases: [] });
+        };
+        if (closing) window.setTimeout(clear, 450);
+        else clear();
+      } else setWhatsNewFailed(true);
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
       else setWhatsNewFailed(true);
@@ -746,7 +755,27 @@ export default function HomeClient({
           statusLine={status_.statusLine}
           liveLine={shownLiveLine}
           activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
-        />
+        >
+          {whatsNewSection && (
+            <WhatsNewLine
+              view={whatsNewSection}
+              open={whatsNewOpen}
+              working={whatsNewBusy}
+              failed={whatsNewFailed}
+              onToggle={() => setWhatsNewOpen((value) => !value)}
+              onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
+            />
+          )}
+        </StatusBlock>
+        {whatsNewSection && (
+          <WhatsNewDrawer
+            view={whatsNewSection}
+            open={whatsNewOpen}
+            working={whatsNewBusy}
+            failed={whatsNewFailed}
+            onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
+          />
+        )}
         <div className={styles.columns}>
           <div className={styles.primaryColumn}>
             {message}
@@ -857,14 +886,6 @@ export default function HomeClient({
                   </div>
                 )}
               </div>
-            )}
-            {whatsNewSection && (
-              <WhatsNew
-                view={whatsNewSection}
-                working={whatsNewBusy}
-                failed={whatsNewFailed}
-                onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
-              />
             )}
             <ConnectedApps
               apps={apps}

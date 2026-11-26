@@ -423,15 +423,18 @@ test("What’s new shows the cell's notes until the owner presses Got it, and st
     },
   });
   await openHome(page, owner);
-  const notes = panel(page, "What’s new");
-  await expect(notes.getByText("Search finds more of what you saved.")).toBeVisible();
+  const update = page.getByRole("button", { name: /^Updated .* · 1 change/ });
+  await expect(update).toHaveAttribute("aria-expanded", "false");
+  await update.click();
+  const drawer = page.locator("#home-whats-new");
+  await expect(drawer.getByText("Search finds more of what you saved.")).toBeVisible();
 
-  await notes.getByRole("button", { name: "Got it" }).click();
+  await drawer.getByRole("button", { name: "Got it" }).click();
 
-  await expect(notes).toHaveCount(0);
+  await expect(update).toHaveCount(0);
   await page.reload();
   await expect(panel(page, "How much Evermatter joins in")).toBeVisible();
-  await expect(notes).toHaveCount(0);
+  await expect(update).toHaveCount(0);
 });
 
 test("in forced colours the level in use still stands out from its track", async ({ page }) => {

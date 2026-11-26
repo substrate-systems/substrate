@@ -696,30 +696,75 @@ export function levelRefusalText(code: string): string {
 
 // --- What's new ---
 
+/** One release day: releases that shipped on the same day read as one. */
+export type WhatsNewDay = { key: string; label: string; notes: string[] };
+
 export type WhatsNewSectionView = {
   /** The running version Home rendered: what "Got it" records. */
   version: string;
-  releases: { key: string; label: string; notes: string[] }[];
+  /** The line under the status: "Updated 26 Nov · 9 changes". */
+  line: string;
+  /** The drawer's title: "What’s new · 25 – 26 Nov", or the one day. */
+  title: string;
+  /** The newest days, shown in full. */
+  openDays: WhatsNewDay[];
+  /** Every older day, folded into one row until the owner opens it. */
+  older: { label: string; days: WhatsNewDay[] } | null;
 };
+
+/** How many of the newest days the drawer shows before it folds the rest. */
+const WHATS_NEW_OPEN_DAYS = 2;
+
+function changes(n: number): string {
+  return `${count(n)} change${n === 1 ? "" : "s"}`;
+}
+
+function dayRange(days: WhatsNewDay[]): string {
+  // Days run newest first, so the range reads from the last to the first.
+  const newest = days[0].label;
+  const oldest = days[days.length - 1].label;
+  return newest === oldest ? newest : `${oldest} – ${newest}`;
+}
 
 /**
  * The section's content. Null when Home shows no section: before the read, when
  * the cell serves no notes, or when no release qualifies. The notes are the
- * cell's own text; Home adds only each release's date.
+ * cell's own text; Home groups them by release day, newest first, and adds only
+ * the dates and the count.
  */
 export function whatsNewView(
   whatsNew: HomeWhatsNew | typeof NOT_RELEASED | null,
   clock: Clock
 ): WhatsNewSectionView | null {
   if (whatsNew === null || whatsNew === "not_released" || whatsNew.state !== "live") return null;
-  if (whatsNew.releases.length === 0) return null;
+  const days: WhatsNewDay[] = [];
+  // The cell lists releases newest first; a day keeps its releases in that order.
+  for (const release of whatsNew.releases) {
+    if (release.notes.length === 0) continue;
+    const day = days.find((known) => known.key === release.released_on);
+    if (day) day.notes.push(...release.notes);
+    else
+      days.push({
+        key: release.released_on,
+        label: releaseDay(release.released_on, clock),
+        notes: [...release.notes],
+      });
+  }
+  if (days.length === 0) return null;
+  const total = days.reduce((sum, day) => sum + day.notes.length, 0);
+  const openDays = days.slice(0, WHATS_NEW_OPEN_DAYS);
+  const folded = days.slice(WHATS_NEW_OPEN_DAYS);
   return {
     version: whatsNew.version,
-    releases: whatsNew.releases.map((release) => ({
-      key: release.version,
-      label: releaseDay(release.released_on, clock),
-      notes: release.notes,
-    })),
+    line: `Updated ${days[0].label} · ${changes(total)}`,
+    title: `What’s new · ${dayRange(days)}`,
+    openDays,
+    older: folded.length
+      ? {
+          label: `${dayRange(folded)} · ${changes(folded.reduce((sum, day) => sum + day.notes.length, 0))}`,
+          days: folded,
+        }
+      : null,
   };
 }
 

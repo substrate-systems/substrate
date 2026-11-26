@@ -966,21 +966,55 @@ describe("what's new", () => {
   const live = (releases: { version: string; released_on: string; notes: string[] }[]) =>
     ({ state: "live", version: "1.3.0", releases }) as const;
 
-  it("labels each release by its date, with the year only when it is not this one", () => {
+  it("reads releases of one day as one day, newest first, and counts every change", () => {
     const view = whatsNewView(
       live([
         { version: "1.3.0", released_on: "2026-10-09", notes: ["Search finds more."] },
-        { version: "1.2.0", released_on: "2025-12-30", notes: ["Faster saves."] },
+        { version: "1.2.1", released_on: "2026-10-09", notes: ["Saves no longer stall."] },
+        { version: "1.2.0", released_on: "2026-10-08", notes: ["Faster saves.", "Fewer retries."] },
       ]),
       clock
     );
-    assert.deepEqual(view, {
-      version: "1.3.0",
-      releases: [
-        { key: "1.3.0", label: "9 Oct", notes: ["Search finds more."] },
-        { key: "1.2.0", label: "30 Dec 2025", notes: ["Faster saves."] },
-      ],
-    });
+    assert.equal(view?.line, "Updated 9 Oct · 4 changes");
+    assert.equal(view?.title, "What’s new · 8 Oct – 9 Oct");
+    assert.deepEqual(view?.openDays, [
+      {
+        key: "2026-10-09",
+        label: "9 Oct",
+        notes: ["Search finds more.", "Saves no longer stall."],
+      },
+      { key: "2026-10-08", label: "8 Oct", notes: ["Faster saves.", "Fewer retries."] },
+    ]);
+    assert.equal(view?.older, null);
+  });
+
+  it("folds every day after the newest two into one row with its own count", () => {
+    const view = whatsNewView(
+      live([
+        { version: "1.4.0", released_on: "2026-10-09", notes: ["A."] },
+        { version: "1.3.0", released_on: "2026-10-05", notes: ["B."] },
+        { version: "1.2.0", released_on: "2026-10-01", notes: ["C.", "D."] },
+        { version: "1.1.0", released_on: "2025-12-30", notes: ["E."] },
+      ]),
+      clock
+    );
+    assert.deepEqual(
+      view?.openDays.map((day) => day.label),
+      ["9 Oct", "5 Oct"]
+    );
+    // An older year names its year.
+    assert.equal(view?.older?.label, "30 Dec 2025 – 1 Oct · 3 changes");
+    assert.equal(view?.older?.days.length, 2);
+    assert.equal(view?.line, "Updated 9 Oct · 5 changes");
+  });
+
+  it("says one change, and names a single day once", () => {
+    const view = whatsNewView(
+      live([{ version: "1.3.0", released_on: "2026-10-09", notes: ["Search finds more."] }]),
+      clock
+    );
+    assert.equal(view?.line, "Updated 9 Oct · 1 change");
+    assert.equal(view?.title, "What’s new · 9 Oct");
   });
 
   it("draws no section before the read, while unreleased, when unavailable, or with no release", () => {

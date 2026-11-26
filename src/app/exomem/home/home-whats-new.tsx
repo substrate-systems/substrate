@@ -1,47 +1,150 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/exomem/Button";
-import { Section } from "./home-chrome";
-import type { WhatsNewSectionView } from "./home-view";
+import { Collapse } from "@/components/exomem/Transitions";
+import type { WhatsNewDay, WhatsNewSectionView } from "./home-view";
 import styles from "./home.module.css";
 
-export function WhatsNew({
+const DRAWER_ID = "home-whats-new";
+
+/** "Got it", which reads "Saving…" while the dismissal is on its way and keeps its width. */
+function GotIt({
+  working,
+  onDismiss,
+  ghost,
+}: {
+  working: boolean;
+  onDismiss: () => void;
+  ghost: boolean;
+}) {
+  return (
+    <Button
+      size={ghost ? "panel" : "detail"}
+      variant={ghost ? "ghost" : "secondary"}
+      working={working}
+      onClick={onDismiss}
+    >
+      <span className={styles.copyLabel}>
+        <span className={styles.copyReserve} aria-hidden="true">
+          Saving…
+        </span>
+        <span>{working ? "Saving…" : "Got it"}</span>
+      </span>
+    </Button>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <span className={open ? styles.chevronOpen : styles.chevron} aria-hidden="true">
+      ›
+    </span>
+  );
+}
+
+/**
+ * The line under the status: when Evermatter last updated and how many changes,
+ * which opens the drawer, and "Got it" while the drawer is closed.
+ */
+export function WhatsNewLine({
   view,
+  open,
+  working,
+  failed,
+  onToggle,
+  onDismiss,
+}: {
+  view: WhatsNewSectionView;
+  open: boolean;
+  /** The dismissal is on its way to the server. */
+  working: boolean;
+  /** The last dismissal did not save; the line stays until one does. */
+  failed: boolean;
+  onToggle: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className={styles.whatsNewLine}>
+      <div className={styles.whatsNewActions}>
+        <Button size="line" aria-expanded={open} aria-controls={DRAWER_ID} onClick={onToggle}>
+          {view.line}
+          <Chevron open={open} />
+        </Button>
+        {!open && <GotIt ghost working={working} onDismiss={onDismiss} />}
+      </div>
+      {/* Reserved, so the page below does not move when the error appears. */}
+      <span className={styles.whatsNewError} role="alert">
+        {failed && !open ? "Couldn’t save. Try Got it again." : null}
+      </span>
+    </div>
+  );
+}
+
+function Days({ days }: { days: WhatsNewDay[] }) {
+  return (
+    <ul className={days.length === 1 ? styles.whatsNewOneDay : styles.whatsNewDays}>
+      {days.map((day) => (
+        <li key={day.key} className={styles.whatsNewDay}>
+          <span className={styles.whatsNewDayLabel}>{day.label}</span>
+          <ul className={styles.whatsNewNotes}>
+            {day.notes.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The drawer the line opens: the changes by release day, older days folded. */
+export function WhatsNewDrawer({
+  view,
+  open,
   working,
   failed,
   onDismiss,
 }: {
   view: WhatsNewSectionView;
-  /** The dismissal is on its way to the server. */
+  open: boolean;
   working: boolean;
-  /** The last dismissal did not save; the section stays until one does. */
   failed: boolean;
   onDismiss: () => void;
 }) {
+  const [olderOpen, setOlderOpen] = useState(false);
   return (
-    <Section title="What’s new">
-      {view.releases.map((release) => (
-        <div className={styles.row} key={release.key}>
-          <div className={styles.rowText}>
-            <span className={styles.rowMeta}>{release.label}</span>
-            <ul className={styles.whatsNewNotes}>
-              {release.notes.map((note, index) => (
-                <li key={index}>{note}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      ))}
-      <div className={styles.whatsNewFoot}>
-        {failed && (
-          <span className={styles.rowMeta} role="alert">
-            Couldn’t save. Try again.
+    <Collapse open={open} className={styles.whatsNewDrawer}>
+      <section id={DRAWER_ID} className={`${styles.panel} ${styles.whatsNewPanel}`}>
+        <div className={styles.whatsNewHead}>
+          <h2 className={styles.sectionTitle}>{view.title}</h2>
+          <span className={styles.whatsNewHeadEnd}>
+            {failed && open && (
+              <span className={styles.whatsNewError} role="alert">
+                Couldn’t save. Try again.
+              </span>
+            )}
+            <GotIt ghost={false} working={working} onDismiss={onDismiss} />
           </span>
+        </div>
+        <Days days={view.openDays} />
+        {view.older && !olderOpen && (
+          <div className={styles.whatsNewFold}>
+            <span className={styles.rowMeta}>{view.older.label}</span>
+            <Button variant="ghost" aria-expanded={false} onClick={() => setOlderOpen(true)}>
+              Show
+              <Chevron open={false} />
+            </Button>
+          </div>
         )}
-        <Button size="detail" working={working} onClick={onDismiss}>
-          Got it
-        </Button>
-      </div>
-    </Section>
+        {view.older && (
+          <Collapse open={olderOpen}>
+            <div className={styles.whatsNewOlder}>
+              <Days days={view.older.days} />
+            </div>
+          </Collapse>
+        )}
+      </section>
+    </Collapse>
   );
 }

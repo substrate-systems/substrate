@@ -440,7 +440,105 @@
   color: var(--fg-secondary);
 }
 
-/* --- What's new: the cell's notes under each release's date --- */
+/* --- What's new: a line under the status, and the drawer it opens (board B) --- */
+
+.whatsNewLine {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+
+.whatsNewActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.whatsNewError {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-primary);
+}
+
+/* The closed line's error sits in space the line keeps, so nothing below moves. */
+.whatsNewLine > .whatsNewError {
+  min-height: 1.5em;
+  margin-top: 4px;
+}
+
+.chevron,
+.chevronOpen {
+  display: inline-block;
+  margin-left: 6px;
+  transition: transform var(--dur-state) var(--ease-settle);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+/* Closed, the drawer takes no space: it cancels the column's 30 px gap. Open, it sits
+   20 px under the status block (board B). */
+.whatsNewDrawer {
+  margin-top: -30px;
+}
+
+.whatsNewPanel {
+  margin-top: 20px;
+  padding: 4px 20px 8px;
+}
+
+.whatsNewHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 10px;
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.whatsNewHead .sectionTitle {
+  margin: 0;
+}
+
+.whatsNewHeadEnd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.whatsNewDays,
+.whatsNewOneDay {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  column-gap: 32px;
+}
+
+.whatsNewDays {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.whatsNewOneDay {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.whatsNewDay {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.whatsNewDayLabel {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  line-height: 21px;
+  color: var(--fg-muted);
+}
 
 .whatsNewNotes {
   margin: 0;
@@ -448,18 +546,39 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 14.5px;
-  line-height: 1.45;
+  gap: 8px;
+  max-width: 60ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg-body);
   overflow-wrap: anywhere;
 }
 
-.whatsNewFoot {
+.whatsNewFold,
+.whatsNewOlder {
+  border-top: 1px solid var(--exo-rule);
+}
+
+.whatsNewFold {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  padding: 12px 0;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 6px;
+}
+
+@media (max-width: 640px), (max-height: 480px) {
+  .whatsNewHead {
+    flex-wrap: wrap;
+  }
+
+  .whatsNewDays {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whatsNewDay + .whatsNewDay {
+    border-top: 1px solid var(--exo-rule);
+  }
 }
 
 /* --- Add another app --- */
