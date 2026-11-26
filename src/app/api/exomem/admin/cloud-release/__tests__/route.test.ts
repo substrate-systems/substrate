@@ -51,7 +51,7 @@ let setCloudReleaseImageCalls: string[] = [];
 let clearPausedCloudRolloutCalls = 0;
 let setCloudCellDesiredImageCalls: Array<{ cellId: string; image: string | null }> = [];
 let principals: string[] = [];
-let releaseRefusal: "seen" | "older" | null = null;
+let releaseRefusal: "seen" | "older" | "configuration" | null = null;
 
 const MISSING_CELL_ID = "zzzzzzzzzzzzzzzz";
 
@@ -104,6 +104,11 @@ before(() => {
         principals.push(principal);
         if (releaseRefusal === "seen") throw new MockCloudImageSeenError("seen");
         if (releaseRefusal === "older") throw new MockCloudReleaseOlderError("older");
+        if (releaseRefusal === "configuration") {
+          const { ExomemCloudConfigurationError } =
+            await import("@/lib/exomem-hosted/cloud-config");
+          throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY"]);
+        }
         const prefix = `${CELL_REPOSITORY}@sha256:`;
         for (const image of [changes.cellImage, changes.cellDesiredImage?.image]) {
           if (image === undefined || image === null) continue;
@@ -258,7 +263,12 @@ describe("Exomem Cloud owner release route", () => {
     setCloudCellDesiredImageCalls = [];
     const { PUT } = await import("../route");
     for (const body of [
-      { cellImage: IMAGE_V2, clearRolloutPause: true, cellId: "abcdefghijklmnop", cellDesiredImage: "x:tag" },
+      {
+        cellImage: IMAGE_V2,
+        clearRolloutPause: true,
+        cellId: "abcdefghijklmnop",
+        cellDesiredImage: "x:tag",
+      },
       { cellImage: IMAGE_V2, cellId: MISSING_CELL_ID, cellDesiredImage: null },
       { cellImage: IMAGE_V2, clearRolloutPause: "yes" },
     ]) {
@@ -361,6 +371,18 @@ describe("Exomem Cloud owner release route", () => {
         assert.equal(response.status, 409);
         assert.equal((await response.json()).error.code, code);
       }
+      releaseRefusal = null;
+    });
+
+    // Catches a missing or malformed setting answered as an unnamed internal error, which
+    // leaves the deploy run's failure alert with nothing to act on.
+    it("answers a configuration error with its own code", async () => {
+      resetCalls();
+      releaseRefusal = "configuration";
+      const { PUT } = await import("../route");
+      const response = await PUT(putRequest(deploy, { cellImage: IMAGE_V2, release: "v2.0.0" }));
+      assert.equal(response.status, 500);
+      assert.equal((await response.json()).error.code, "CLOUD_CONFIGURATION_INVALID");
       releaseRefusal = null;
     });
   });
