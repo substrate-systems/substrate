@@ -1279,6 +1279,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
  *
  * Every rotation holds the tenant row lock, so two simultaneous presentations
  * of one token run one after the other: the first spends it, the second reuses.
+ *
+ * A null `resource` means the request named none, which RFC 8707 section 2.2
+ * allows on refresh: the rotation keeps the grant's own resource, provided it
+ * is still an accepted Cloud resource.
  */
 export async function rotateOAuthRefreshTokenAtomic(input: {
   refreshDigest: Buffer;
@@ -1286,7 +1290,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
   accessDigest: Buffer;
   accessExpiresAt: Date;
   clientId: string;
-  resource: string;
+  resource: string | null;
   sessionPolicy?: OAuthSessionPolicy;
 }): Promise<OAuthRefreshRotation | null> {
   const acceptedResources = loadExomemCloudResource().acceptedResources;
@@ -1302,7 +1306,8 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
     WHERE token.refresh_digest = ${input.refreshDigest}
       AND client.client_id = ${input.clientId}
-      AND oauth_grant.resource = ${input.resource}
+      AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
+      AND (${input.resource}::text IS NULL OR oauth_grant.resource = ${input.resource})
     FOR UPDATE OF tenant
   `;
     if (!tenantLock.rows[0]) return null;
@@ -1317,7 +1322,8 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       JOIN exomem_oauth_clients AS client ON client.id = family.client_id
       JOIN exomem_oauth_grants AS oauth_grant
         ON oauth_grant.id = family.grant_id
-       AND oauth_grant.resource = ${input.resource}
+       AND oauth_grant.resource = ANY(${[...acceptedResources]}::text[])
+       AND (${input.resource}::text IS NULL OR oauth_grant.resource = ${input.resource})
       LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
         ON reviewer_credential.id = COALESCE(token.reviewer_credential_id, oauth_grant.reviewer_credential_id)
        AND reviewer_credential.revoked_at IS NULL

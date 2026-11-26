@@ -915,15 +915,22 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       1
     );
 
+    // A refresh that names no resource (RFC 8707 section 2.2) keeps the grant's.
     const rotated = await rotateOAuthRefreshTokenAtomic({
       refreshDigest: digest(131),
       replacementRefreshDigest: digest(133),
       accessDigest: digest(134),
       accessExpiresAt: new Date(Date.now() + 60_000),
       clientId,
-      resource,
+      resource: null,
     });
     assert.equal(rotated?.familyId, offlineResult!.familyId);
+    assert.equal(rotated?.kind === "issued" ? rotated.resource : null, resource);
+    const minted = await pool!.query(
+      "SELECT resource FROM exomem_oauth_access_tokens WHERE access_digest = $1",
+      [digest(134)]
+    );
+    assert.equal(minted.rows[0]?.resource, resource);
     await pruneExpiredOAuthState();
     assert.equal(
       await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [

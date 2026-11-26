@@ -312,16 +312,25 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
     if (form.grant_type === "refresh_token") {
-      const resource = resolveRequestedResource(form.resource);
+      // RFC 8707 section 2.2 lets a refresh omit `resource`; the new token then
+      // keeps its grant's resource. Go's golang.org/x/oauth2 never sends it on
+      // refresh, so requiring it signed such clients out at every expiry.
+      const resourceNamed = form.resource !== undefined;
+      const resource = resourceNamed ? resolveRequestedResource(form.resource) : null;
       if (
-        !hasExactFields(form, ["grant_type", "refresh_token", "client_id", "resource"]) ||
+        !hasExactFields(
+          form,
+          resourceNamed
+            ? ["grant_type", "refresh_token", "client_id", "resource"]
+            : ["grant_type", "refresh_token", "client_id"]
+        ) ||
         !form.refresh_token ||
         !form.client_id ||
-        resource === null
+        (resourceNamed && resource === null)
       )
         return invalidRequest("refresh_fields", {
           field_names: Object.keys(form).sort().join(",") || "none",
-          resource_matches: resource !== null,
+          resource_matches: !resourceNamed || resource !== null,
         });
       const refreshDigest = tokenDigest(form.refresh_token);
       if (!refreshDigest) return invalidGrant("refresh_shape");
