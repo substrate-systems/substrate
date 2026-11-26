@@ -340,9 +340,8 @@ open -- deleting the allowlist row only removes the platform binding, and
 disabling the client's row is undone by its next `/authorize` contact, which
 re-registers and re-enables it. The one broad withdrawal is closing the lane
 (`exomem_oauth_generic_client_lane`), which cuts every generic and unlisted
-CIMD client at once. A per-host block list is a tracked follow-up in
-`admit-standard-mcp-clients`; until it ships, weigh that cost before enabling
-the lane.
+CIMD client at once. No per-host block list exists. Propose one as its own
+OpenSpec change when a single host needs blocking while the lane stays open.
 
 Cached metadata lives 24 hours. When it lapses, the sweep disables the row, and
 token issuance, refresh and MCP calls need unexpired metadata. A self-registered

@@ -198,6 +198,35 @@ The bound on stored OAuth clients SHALL be partitioned so that clients created b
 - **WHEN** a live auto-registered client re-registers into a different partition, such as an allowlisted client whose host was delisted while the generic lane is enabled
 - **THEN** the server SHALL admit it only when the target partition has a free slot
 
+### Requirement: Dynamic Client Registration Is Bounded And Non-Enumerating
+
+Registration SHALL follow RFC 7591 and register every client as a public client using the PKCE authorization code flow, with `token_endpoint_auth_method` of `none`. A request for a client-secret method SHALL be answered with `none`, as RFC 7591 permits; a request for a method that needs a client-held key SHALL be refused. Every redirect URI SHALL be an already-canonical https URL without credentials or fragment and within a bounded length, additionally permitting loopback http for local clients that are served from no host. The response SHALL report only what the server honours for the client.
+
+Registration SHALL be rate limited per requesting address, keying an IPv6 address by its /64, and SHALL occupy the generic population partition, separate from operator-registered and allowlisted auto-registered CIMD clients, so that an anonymous flood exhausts only that partition. Lane-admitted CIMD clients count in the same generic partition.
+
+A registration request SHALL NOT be able to create, modify, enable or rewrite a client of any other admission mode. Every failure SHALL return one indistinguishable response, disclosing nothing about existing clients, admitted hosts, or whether the lane is enabled.
+
+#### Scenario: An unknown client registers and then authorizes
+
+- **WHEN** a previously unseen MCP client registers with a valid https or loopback redirect while the lane is enabled
+- **THEN** it receives a client identifier and may immediately begin one authorization transaction
+
+#### Scenario: Registration is flooded
+
+- **WHEN** registrations arrive beyond the per-address rate limit or beyond the generic population bound
+- **THEN** further registrations are refused, and so are new lane-admitted CIMD clients, which share the generic partition
+- **AND** operator and allowlisted CIMD client capacity remain unaffected
+
+#### Scenario: Registration targets an existing client
+
+- **WHEN** a registration request names or collides with an operator-managed, bootstrap-pinned, or auto-registered CIMD client
+- **THEN** that client is left exactly as it was, and the response is indistinguishable from any other refusal
+
+#### Scenario: Registration declares an unsafe redirect
+
+- **WHEN** a registration declares a non-https non-loopback redirect, a redirect carrying credentials or a fragment, or an over-long redirect
+- **THEN** registration fails and no client row is written
+
 ## ADDED Requirements
 
 ### Requirement: An OAuth Client Carries A Stored Context

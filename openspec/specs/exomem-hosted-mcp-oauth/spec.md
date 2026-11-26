@@ -255,10 +255,17 @@ email SHALL send per grant per 24 h.
 
 A client admitted by Client ID Metadata Document SHALL be eligible on the strength of the host that serves its document. The allowlist of admitted hosts, keyed by host and platform, SHALL be server state that the shared admission rule reads itself, so that every admission decision evaluates one identical predicate. Admission SHALL also require an enabled client row and validated, unexpired metadata whose time to live lies between five minutes and seven days. Admission SHALL read no client artifact, certification or cohort state. Pinned registrations SHALL remain eligible without metadata or host checks.
 
+While the generic client lane is enabled, the shared admission rule SHALL also admit a CIMD client whose host and platform are not on the allowlist. Such a lane-admitted client SHALL carry no platform and no platform configuration digest. Disabling the lane SHALL stop every lane-admitted client at every stage. An allowlisted CIMD client SHALL stay admitted while the lane is in either state.
+
 #### Scenario: A previously unseen connector on an admitted host authorizes
 
 - **WHEN** a client that was never registered identifies by a valid metadata document served from an allowlisted host
 - **THEN** the authorization endpoint registers it, and authorization proceeds in the same request
+
+#### Scenario: A connector on an unlisted host authorizes while the lane is enabled
+
+- **WHEN** a client that was never registered identifies by a valid metadata document served from an HTTPS host outside the allowlist, while the generic client lane is enabled
+- **THEN** the authorization endpoint registers it with no platform, the shared admission rule admits it through the lane, and authorization proceeds in the same request
 
 #### Scenario: Two distinct connectors from the same admitted host both authorize
 
@@ -284,9 +291,17 @@ A client admitted by Client ID Metadata Document SHALL be eligible on the streng
 - **THEN** the transaction rechecks the client and its host under a key-share lock and refuses admission
 - **AND** it does not consume the invite or create a tenant, entitlement, grant or cell row
 
+#### Scenario: Lane is withdrawn after a lane-admitted client connected
+
+- **WHEN** an operator disables the generic client lane while a lane-admitted CIMD client holds live grants
+- **THEN** that client stops being admitted at authorization, consent, token exchange, refresh and the MCP lookup, without any per-client action
+- **AND** allowlisted CIMD and pinned clients are unaffected
+
 ### Requirement: First Authorization Registers An Allowlisted CIMD Client
 
 The authorization endpoint SHALL register an unknown CIMD client on its first authorization attempt when the presented `client_id` is an HTTPS URL without credentials or a fragment whose host is on the admitted-host allowlist. The endpoint SHALL look the host up before any metadata fetch and, while the generic client lane is disabled, SHALL refuse an unlisted host without a fetch. Registration SHALL fetch and validate the document through the same path as operator registration, and SHALL store the client with its document digest, fetch time, time to live, host and platform. Registration SHALL rewrite only client rows that this path created.
+
+While the generic client lane is enabled, the endpoint SHALL also register a client whose host is not on the allowlist. That registration SHALL store the serving host, no platform and no platform configuration digest, and SHALL take its slot in the generic partition. The statement that writes the row SHALL recheck the lane, so that a lane disabled after the host lookup leaves no row.
 
 Because this is an unauthenticated write path, it SHALL be rate limited per client address, it MUST NOT create, modify, or disclose user, tenant, entitlement, invite, or grant state, and every refusal SHALL be indistinguishable from an unknown client.
 
@@ -295,6 +310,17 @@ Because this is an unauthenticated write path, it SHALL be rate limited per clie
 - **WHEN** an unrecognized `client_id` is an HTTPS URL on an allowlisted host and its metadata document validates
 - **THEN** exactly one client row is created with CIMD admission, the allowlist's platform, and the document's digest, fetch time and time to live
 - **AND** the authorization request continues without a second round trip from the client
+
+#### Scenario: Unknown connector on an unlisted host authorizes while the lane is enabled
+
+- **WHEN** an unrecognized `client_id` is an HTTPS URL on a host outside the allowlist, the generic client lane is enabled, and its metadata document validates
+- **THEN** exactly one client row is created with CIMD admission, the serving host, no platform and no platform configuration digest
+- **AND** the row takes a slot in the generic partition
+
+#### Scenario: Unknown connector on an unlisted host authorizes while the lane is disabled
+
+- **WHEN** an unrecognized `client_id` is an HTTPS URL on a host outside the allowlist and the generic client lane is disabled
+- **THEN** no metadata fetch is attempted, no client row is created, and the response is indistinguishable from an unknown client
 
 #### Scenario: Registration is attempted repeatedly from one address
 
@@ -340,13 +366,19 @@ Redirect binding at authorization SHALL stay exact, with one exception required 
 
 ### Requirement: Auto-Registered Clients Cannot Exhaust Operator Client Capacity
 
-The bound on stored OAuth clients SHALL be partitioned so that clients created by unauthenticated first-authorization registration are counted separately from operator-managed clients. A retired client SHALL hold no slot, and re-registering a live client SHALL need no new slot in its own partition. Exhausting the auto-registration partition MUST NOT prevent an operator from registering or updating a client, and MUST NOT disable, evict, or rewrite any existing operator-managed client.
+The bound on stored OAuth clients SHALL be partitioned so that clients created by unauthenticated first-authorization registration are counted separately from operator-managed clients. A retired client SHALL hold no slot, and re-registering a live client SHALL need no new slot in its own partition. Lane-admitted CIMD clients SHALL count in the generic partition with dynamic registrations, apart from allowlisted CIMD clients. Exhausting the auto-registration or the generic partition MUST NOT prevent an operator from registering or updating a client, and MUST NOT disable, evict, or rewrite any existing operator-managed client.
 
 #### Scenario: Auto-registration partition is full
 
 - **WHEN** the number of allowlisted auto-registered CIMD clients reaches its bound and a new unknown client authorizes on such a host
 - **THEN** registration is refused, and the response is indistinguishable from an unknown client
 - **AND** operator client registration and every already-admitted client continue to work
+
+#### Scenario: Generic partition is full of lane-admitted CIMD clients
+
+- **WHEN** lane-admitted CIMD clients and dynamic registrations together reach the generic bound, and a new dynamic registration or an unknown client on a host outside the allowlist arrives
+- **THEN** registration is refused
+- **AND** allowlisted CIMD registration, operator registration and every already-admitted client continue to work
 
 #### Scenario: Operator registers a client while auto-registrations exist
 
@@ -515,3 +547,131 @@ The check that a client may take a slot in its population partition SHALL cost t
 
 - **WHEN** a write bypassed the counting triggers
 - **THEN** the next hourly recount sets the exact count and the sweep reports the drift it corrected
+
+### Requirement: Generic MCP Clients Are Admitted Without Certification
+
+A client that no marketplace distributes SHALL be admissible without a configuration digest or a platform. Such a client SHALL carry admission mode `generic` and no `client_platform`, or, as a lane-admitted CIMD client, admission mode `cimd` and no `client_platform`. Its admission SHALL read no artifact, certification or cohort state.
+
+The generic arm SHALL be part of the shared admission rule that authorization, consent, owner attachment, invite admission, token exchange, bearer use, the MCP lookup and refresh apply, so that a client admitted at one stage is admitted at all of them. Marketplace reviewer credential redemption SHALL exclude the generic arm and the lane, and SHALL admit only pinned and allowlisted clients.
+
+Pinned and host-allowlist admission SHALL be unchanged in behaviour. Apart from lane-admitted CIMD clients, the generic arm SHALL NOT admit a client of any other mode.
+
+#### Scenario: A generic client authorizes and calls MCP
+
+- **WHEN** an enabled generic client presents an exact redirect, resource, scopes, state and PKCE challenge, and the authenticated identity already owns a tenant
+- **THEN** the client is admitted, a grant is issued, and the same client is admitted at token exchange, bearer use, the MCP lookup and refresh
+
+#### Scenario: A generic client is refused without an invite
+
+- **WHEN** a generic client authorizes for an identity that holds neither an unspent invite nor an existing tenant
+- **THEN** no tenant, entitlement, grant or token is created, and the refusal does not disclose whether that identity is known
+
+#### Scenario: Certified admission is unaffected
+
+- **WHEN** a pinned or host-allowlist client authorizes while the generic lane is enabled
+- **THEN** it is admitted on exactly the terms it was before
+- **AND** withdrawing its host stops a host-allowlist client at every stage while the lane is disabled, and leaves it admitted through the lane while the lane is enabled
+
+#### Scenario: A generic client is admitted where no platform cohort exists
+
+- **WHEN** a generic client authorizes while no certified artifact exists for any platform
+- **THEN** admission succeeds on the generic arm, which reads only the client's admission mode, its enabled flag and the lane state
+
+#### Scenario: A lane-admitted CIMD client redeems no reviewer credential
+
+- **WHEN** a client that only the generic lane admits begins a marketplace reviewer credential redemption
+- **THEN** the redemption refuses it, because reviewer redemption admits only pinned and allowlisted clients
+
+### Requirement: Generic Admission Is Disabled Until Deliberately Enabled
+
+The generic lane SHALL be governed by authoritative server state that the admission predicates read directly, not by process configuration alone, so that one operator action enables or withdraws it everywhere atomically. It SHALL be disabled by default.
+
+While disabled, the authorization server metadata document SHALL NOT advertise a `registration_endpoint`, the registration endpoint SHALL refuse every request indistinguishably from an unknown route, and no previously registered generic client SHALL be admitted at any stage. No CIMD client from a host outside the allowlist SHALL be registered or admitted either, and the server SHALL fetch no metadata for it.
+
+#### Scenario: The lane is disabled
+
+- **WHEN** any generic client authorizes, exchanges, refreshes or calls MCP while the lane is disabled
+- **THEN** every stage refuses, and metadata advertises no registration endpoint
+
+#### Scenario: An unlisted CIMD client arrives while the lane is disabled
+
+- **WHEN** a client identifies by an HTTPS metadata document on a host outside the allowlist while the lane is disabled
+- **THEN** authorization fails without fetching that host's document, registering a client, or disclosing the lane's state
+
+#### Scenario: The lane is withdrawn after clients registered
+
+- **WHEN** an operator disables the lane while generic or lane-admitted CIMD clients hold live grants
+- **THEN** those clients stop being admitted at every stage without any per-client action
+- **AND** pinned and allowlisted CIMD clients are unaffected
+
+### Requirement: Dynamic Client Registration Is Bounded And Non-Enumerating
+
+Registration SHALL follow RFC 7591 and register every client as a public client using the PKCE authorization code flow, with `token_endpoint_auth_method` of `none`. A request for a client-secret method SHALL be answered with `none`, as RFC 7591 permits; a request for a method that needs a client-held key SHALL be refused. Every redirect URI SHALL be an already-canonical https URL without credentials or fragment and within a bounded length, additionally permitting loopback http for local clients that are served from no host. The response SHALL report only what the server honours for the client.
+
+Registration SHALL be rate limited per requesting address, keying an IPv6 address by its /64, and SHALL occupy the generic population partition, separate from operator-registered and allowlisted auto-registered CIMD clients, so that an anonymous flood exhausts only that partition. Lane-admitted CIMD clients count in the same generic partition.
+
+A registration request SHALL NOT be able to create, modify, enable or rewrite a client of any other admission mode. Every failure SHALL return one indistinguishable response, disclosing nothing about existing clients, admitted hosts, or whether the lane is enabled.
+
+#### Scenario: An unknown client registers and then authorizes
+
+- **WHEN** a previously unseen MCP client registers with a valid https or loopback redirect while the lane is enabled
+- **THEN** it receives a client identifier and may immediately begin one authorization transaction
+
+#### Scenario: Registration is flooded
+
+- **WHEN** registrations arrive beyond the per-address rate limit or beyond the generic population bound
+- **THEN** further registrations are refused, and so are new lane-admitted CIMD clients, which share the generic partition
+- **AND** operator and allowlisted CIMD client capacity remain unaffected
+
+#### Scenario: Registration targets an existing client
+
+- **WHEN** a registration request names or collides with an operator-managed, bootstrap-pinned, or auto-registered CIMD client
+- **THEN** that client is left exactly as it was, and the response is indistinguishable from any other refusal
+
+#### Scenario: Registration declares an unsafe redirect
+
+- **WHEN** a registration declares a non-https non-loopback redirect, a redirect carrying credentials or a fragment, or an over-long redirect
+- **THEN** registration fails and no client row is written
+
+### Requirement: An OAuth Client Carries A Stored Context
+
+Every OAuth client SHALL carry a `client_context` of `coding` or `conversation`, set at registration from redirect shape — all-loopback redirects mean `coding`, otherwise `conversation` — and read, not re-derived, by the gateway, transfer tools and Home. The grant's owner SHALL be able to override it for their own grant only, through an owner-authorized mutation answering malformed, unknown and foreign app identifiers indistinguishably; re-registration SHALL preserve the stored choice.
+
+#### Scenario: Registration stores the derived context
+
+- **WHEN** a client registers with only loopback redirects, or with any non-loopback redirect, under any admission mode
+- **THEN** the stored row carries `coding` or `conversation` respectively
+
+#### Scenario: The owner changes an app's context
+
+- **WHEN** the owner of the grant's tenant sets a connected app's context through the authorized route
+- **THEN** that grant's stored override changes, and the gateway's next lookup for that grant and the owner's Home app list reflect it
+
+#### Scenario: Another owner's context is unaffected
+
+- **WHEN** two owners hold grants to the same client and one changes the context
+- **THEN** the other owner's app list and gateway lookups keep the registration-derived context
+
+#### Scenario: A non-owner changes an app's context
+
+- **WHEN** an authenticated identity that does not own the grant's tenant targets an app, or the app ID is malformed or unknown
+- **THEN** the response is indistinguishable from an unknown app and no row changes
+
+#### Scenario: Re-registration preserves the owner's choice
+
+- **WHEN** a self-registering client whose context the owner changed re-registers or refreshes its registration
+- **THEN** the stored context remains the owner's choice, not the derived default
+
+### Requirement: A Client's Verified Host Is Shown Apart From Its Claimed Name
+
+For a client admitted by Client ID Metadata Document, the consent page and app surfaces SHALL present the verified host that serves the client's document (`cimd_host`) as the vouching identity, and SHALL present the client's self-declared `client_name` only as the client's own claim. No surface SHALL imply that a self-declared name proves product identity. For a client with no metadata host, the self-declared name SHALL continue to be shown as a claim alone.
+
+#### Scenario: A lane-admitted CIMD client asks for consent
+
+- **WHEN** the consent page renders for a CIMD client whose host is not allowlisted
+- **THEN** it shows the verified serving host separately from the client-supplied name
+
+#### Scenario: A CIMD client declares a famous name
+
+- **WHEN** a CIMD client's document names itself after another product
+- **THEN** the consent page shows that name as the client's own claim beside the host that served the document, never as verified identity
