@@ -1498,6 +1498,38 @@ describe("Exomem Cloud protected-resource metadata", () => {
       else process.env.EXOMEM_PUBLIC_BASE_URL = previous;
     }
   });
+
+  // move-cloud-to-evermatter-hosts D4: moving a connection's issuer later is a disconnect, so each
+  // MCP host names the issuer of the site it sits under, whatever the gateway's base says.
+  it("names each MCP host's own issuer, whatever the gateway's base URL says", () => {
+    const OLD_HOST = "https://exomem.substratesystems.io/api/exomem/cloud/mcp/v1";
+    const NEW_HOST = "https://mcp.evermatter.ai/api/exomem/cloud/mcp/v1";
+    const config = { ...TEST_CONFIG, mcpUrl: OLD_HOST, acceptedResources: [OLD_HOST, NEW_HOST] };
+    const saved = {
+      base: process.env.EXOMEM_PUBLIC_BASE_URL,
+      site: process.env.EVERMATTER_SITE_ORIGIN,
+    };
+    const issuer = (host: string) =>
+      buildCloudProtectedResourceMetadata(config, host).authorization_servers;
+    process.env.EVERMATTER_SITE_ORIGIN = "https://evermatter.ai";
+    try {
+      for (const base of ["https://substratesystems.io", "https://evermatter.ai"]) {
+        process.env.EXOMEM_PUBLIC_BASE_URL = base;
+        assert.deepEqual(issuer("exomem.substratesystems.io"), [
+          "https://substratesystems.io/api/exomem/oauth",
+        ]);
+        assert.deepEqual(issuer("mcp.evermatter.ai"), ["https://evermatter.ai/api/exomem/oauth"]);
+      }
+    } finally {
+      for (const [name, value] of [
+        ["EXOMEM_PUBLIC_BASE_URL", saved.base],
+        ["EVERMATTER_SITE_ORIGIN", saved.site],
+      ] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
 });
 
 // add-cloud-service-credentials (D2/D4/D6): `exs_` bearers resolve only

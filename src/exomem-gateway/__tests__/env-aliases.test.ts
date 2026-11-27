@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { exomemHomeUrl } from "../../lib/exomem-hosted/public-origin";
 import { adoptSettingAliases } from "../env-aliases";
 import { validateGatewayEnvironment } from "../server";
 
@@ -26,21 +25,27 @@ test("a chart that names every required setting with the product prefix passes t
   assert.equal(environment.EVERMATTER_PUBLIC_BASE_URL, undefined);
 });
 
-// Startup renames the setting before a tool reply builds its Home link.
-test("the product site setting still gives the gateway's Home links their root address", () => {
-  const environment: Record<string, string | undefined> = {
+// Startup renames the setting before readiness pairs each MCP host with its issuer.
+test("readiness pairs an MCP host under the product site only once the product site setting is set", () => {
+  const withNewHost = {
     ...REQUIRED_UNDER_PRODUCT_PREFIX,
-    EVERMATTER_PUBLIC_BASE_URL: "https://evermatter.ai",
-    EVERMATTER_SITE_ORIGIN: "https://evermatter.ai",
+    EVERMATTER_CLOUD_MCP_URLS: "https://mcp.example.test/mcp,https://mcp.product.example.test/mcp",
   };
-  adoptSettingAliases(environment, () => assert.fail("no conflict expected"));
-  validateGatewayEnvironment(environment);
-  assert.equal(
-    exomemHomeUrl("https://evermatter.ai", "your-data", environment),
-    "https://evermatter.ai/home#your-data"
+  const unset: Record<string, string | undefined> = { ...withNewHost };
+  adoptSettingAliases(unset, () => assert.fail("no conflict expected"));
+  assert.throws(
+    () => validateGatewayEnvironment(unset),
+    /mcp\.product\.example\.test\/mcp .*EVERMATTER_SITE_ORIGIN/
   );
-  environment.EXOMEM_SITE_ORIGIN = "https://evermatter.ai/app";
-  assert.throws(() => validateGatewayEnvironment(environment), /EVERMATTER_SITE_ORIGIN/);
+
+  const set: Record<string, string | undefined> = {
+    ...withNewHost,
+    EVERMATTER_SITE_ORIGIN: "https://product.example.test",
+  };
+  adoptSettingAliases(set, () => assert.fail("no conflict expected"));
+  validateGatewayEnvironment(set);
+  set.EXOMEM_SITE_ORIGIN = "https://product.example.test/app";
+  assert.throws(() => validateGatewayEnvironment(set), /EVERMATTER_SITE_ORIGIN/);
 });
 
 test("a set internal name wins over a different product-prefix value, and the conflict is named", () => {

@@ -43,6 +43,7 @@ import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { verifyDownloadTicket } from "../lib/exomem-hosted/cloud-download-ticket";
 import {
   CLOUD_CELL_ID_PATTERN,
+  cloudIssuerOrigin,
   cloudResourceForHost,
   loadExomemCloudConfig,
   type ExomemCloudConfig,
@@ -62,12 +63,13 @@ import {
   type ActiveCloudServiceCredential,
 } from "../lib/exomem-hosted/cloud-service-credentials";
 import { SERVICE_CREDENTIAL_PREFIX } from "../lib/exomem-hosted/service-credential-format";
-import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
+import { ADVERTISED_SCOPES, issuerUrl, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
 import {
   oauthClientDisplayName,
   type OAuthClientIdentity,
 } from "../lib/exomem-hosted/oauth-client-identity";
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
+import { appOrigins } from "../lib/exomem/product-site";
 import { currentNoticeHeader, NOTICE_HEADER } from "../lib/exomem-hosted/service-notice-header";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";
 import { controlPlaneKeyFromEnv, digestSecret } from "../lib/exomem-hosted/security";
@@ -415,10 +417,14 @@ export function buildCloudProtectedResourceMetadata(
   config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath" | "acceptedResources">,
   host?: string | null
 ): Record<string, unknown> {
-  const issuer = `${exomemPublicBaseUrlFromEnv()}/api/exomem/oauth`;
+  const resource = cloudResourceForHost(config, host);
+  const base = exomemPublicBaseUrlFromEnv();
+  // Each MCP host names the issuer of the app origin it sits under; readiness refuses a host that
+  // sits under none (validateGatewayEnvironment), so the base is only a type-level fallback.
+  const issuerOrigin = cloudIssuerOrigin(resource, appOrigins(base)) ?? base;
   return {
-    resource: cloudResourceForHost(config, host),
-    authorization_servers: [issuer],
+    resource,
+    authorization_servers: [issuerUrl(issuerOrigin)],
     bearer_methods_supported: ["header"],
     // Security review finding 2: the Cloud resource document must advertise
     // its scopes too, exactly like the hosted one already does — a client

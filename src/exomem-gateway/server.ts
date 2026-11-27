@@ -11,10 +11,15 @@ import {
 import { CLOUD_DISCOVERY_PATH, CLOUD_DOWNLOAD_PATH, CLOUD_UPLOAD_PATH } from "./cloud-origin";
 import { FAVICON, FAVICON_HEADERS, FAVICON_PATH } from "./favicon";
 import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health";
-import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
+import {
+  cloudIssuerPairingProblem,
+  loadExomemCloudConfig,
+  loadExomemCloudResource,
+} from "../lib/exomem-hosted/cloud-config";
 import { downloadTicketLifetimeSeconds } from "../lib/exomem-hosted/cloud-download-ticket";
 import { assertCloudResourceList } from "../lib/exomem-hosted/cloud-resource-list";
-import { productSiteOrigin } from "../lib/exomem-hosted/public-origin";
+import { parseExomemPublicBaseUrl, productSiteOrigin } from "../lib/exomem-hosted/public-origin";
+import { appOrigins } from "../lib/exomem/product-site";
 
 const CACHE_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
@@ -52,8 +57,17 @@ export function validateGatewayEnvironment(
   if (missing.length)
     throw new Error(`Missing required gateway environment: ${missing.join(", ")}`);
   assertCloudResourceList(environment);
-  // Optional: set, the Home links in tool replies take the product site's root addresses.
+  // Set, the Home links in tool replies name the product site's Home, which serves in either
+  // sign-in state; an MCP host under the product site also needs it for its issuer below.
   productSiteOrigin(environment);
+  // An MCP host that pairs with no app origin would name the base's issuer, and moving that
+  // connection's issuer later is a disconnect (move-cloud-to-evermatter-hosts D4).
+  const base = parseExomemPublicBaseUrl(environment.EXOMEM_PUBLIC_BASE_URL);
+  const pairing = cloudIssuerPairingProblem(
+    loadExomemCloudResource(environment).acceptedResources,
+    appOrigins(base, environment)
+  );
+  if (pairing) throw new Error(pairing);
 }
 
 type GatewayServerState = {

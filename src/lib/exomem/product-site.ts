@@ -18,6 +18,8 @@ import {
 } from "../exomem-hosted/public-origin";
 import { PRODUCT_APP_PAGES, PRODUCT_PUBLIC_PAGES } from "./product-pages";
 
+// The product's legacy host: a protocol constant that stored links, checkouts and the old MCP
+// host's issuer still name; it retires with that host (move-cloud-to-evermatter-hosts D2).
 const COMPANY_ORIGIN = "https://substratesystems.io";
 
 type Env = Record<string, string | undefined>;

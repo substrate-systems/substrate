@@ -113,7 +113,7 @@ export class OAuthProtocolError extends Error {
   }
 }
 
-function issuerUrl(baseUrl: string): string {
+export function issuerUrl(baseUrl: string): string {
   return `${parseExomemPublicBaseUrl(baseUrl)}${OAUTH_PATH}`;
 }
 

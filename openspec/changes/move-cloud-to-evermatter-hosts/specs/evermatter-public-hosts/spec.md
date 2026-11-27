@@ -113,7 +113,7 @@ base origin on any other host.
 
 #### Scenario: An existing connection after the switch
 
-- **WHEN** the web app's `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai`, the gateway's is `https://substratesystems.io`, and a client connected before the switch refreshes through its stored token endpoint on `substratesystems.io` and then discovers afresh from its MCP URL
+- **WHEN** the web app's `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai`, and a client connected on the old MCP host before the switch refreshes through its stored token endpoint on `substratesystems.io` and then discovers afresh from its MCP URL
 - **THEN** the refresh issues a token bound to the same resource, the protected-resource metadata names `https://substratesystems.io/api/exomem/oauth`, and the metadata fetched under that issuer names the same issuer
 
 #### Scenario: Metadata on the old host after the switch
@@ -125,6 +125,37 @@ base origin on any other host.
 
 - **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a client fetches the authorization-server metadata on `evermatter.ai`
 - **THEN** its issuer is `https://evermatter.ai/api/exomem/oauth`
+
+### Requirement: Each MCP host names its own issuer
+
+The protected-resource metadata of each accepted MCP host SHALL name the issuer of the app origin
+whose host it is or sits under, whatever the sign-in state and the gateway's base URL. The
+gateway SHALL refuse to report ready while an accepted MCP host sits under no app origin.
+
+#### Scenario: The old MCP host
+
+- **WHEN** a client fetches the protected-resource metadata on `exomem.substratesystems.io`, before or after the switch
+- **THEN** it names `https://substratesystems.io/api/exomem/oauth`
+
+#### Scenario: A new connection before the switch
+
+- **WHEN** the web app's `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a new client connects to `https://mcp.evermatter.ai/mcp`
+- **THEN** the metadata names `https://evermatter.ai/api/exomem/oauth`, authorize on `evermatter.ai` gets a 307 to `substratesystems.io`, consent completes there, and the code exchanged on `evermatter.ai` gives a token for `https://mcp.evermatter.ai/mcp`
+
+#### Scenario: A new MCP host without the product site setting
+
+- **WHEN** the gateway's `EXOMEM_CLOUD_MCP_URLS` lists `https://mcp.evermatter.ai/mcp` and the gateway lacks `EVERMATTER_SITE_ORIGIN`
+- **THEN** the gateway readiness check fails and names that resource
+
+### Requirement: Tool replies link Home on the product site
+
+The gateway's tool replies SHALL link Home on the product site's origin while
+`EVERMATTER_SITE_ORIGIN` is set, and on the gateway's public base origin otherwise.
+
+#### Scenario: A Home link in a tool reply
+
+- **WHEN** the gateway's `EVERMATTER_SITE_ORIGIN` is `https://evermatter.ai` and a transfer reply links Home, before or after the switch
+- **THEN** the link is `https://evermatter.ai/home#your-data`, and the command in the same reply keeps the gateway's `--api-base-url`
 
 ### Requirement: Checkouts and the start form survive the sign-in move
 
