@@ -66,8 +66,11 @@ export type RunSummary = {
    * `null` when no month was built, or the month closed before its list was ever tried.
    */
   releaseList: "read" | ListStatus | null;
-  /** Releases still without readable notes that the operator has not accepted without. */
-  missingReleases: number;
+  /**
+   * Releases still without readable notes that the operator has not accepted without. `null`
+   * when that is unknown: no month was built, or its release list was not read at the last try.
+   */
+  missingReleases: number | null;
   lapsedMonths: number;
 };
 
@@ -198,7 +201,7 @@ export async function runWhatsNewDigestSelection(options: RunOptions = {}): Prom
       firstMonth: config.firstMonth,
       firstMonthMalformed: config.firstMonthMalformed,
       releaseList: null,
-      missingReleases: 0,
+      missingReleases: null,
       lapsedMonths: 0,
     };
   }
@@ -216,14 +219,21 @@ export async function runWhatsNewDigestSelection(options: RunOptions = {}): Prom
   }
   if (!record)
     throw new Error("what's new digest: the month's record is missing after it was created");
+  // A failed read is stored only while the month waits for notes (migration 0097's CHECK), so a
+  // month that moved on never reports one. A list that was not read has no count to give.
+  const releaseList = record.listStatus ?? (record.releasesListedAt ? "read" : null);
   const missing =
-    record.state === "waiting_for_notes" ? missingReleases(await listReleases(month)).length : 0;
+    record.state !== "waiting_for_notes"
+      ? 0
+      : record.listStatus || !record.releasesListedAt
+        ? null
+        : missingReleases(await listReleases(month)).length;
   return {
     month,
     state: record.state,
     firstMonth: config.firstMonth,
     firstMonthMalformed: config.firstMonthMalformed,
-    releaseList: record.listStatus ?? (record.releasesListedAt ? "read" : null),
+    releaseList,
     missingReleases: missing,
     lapsedMonths,
   };

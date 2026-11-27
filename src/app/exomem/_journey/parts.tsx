@@ -33,10 +33,25 @@ export function StepHeading({ title, lede }: { title: string; lede?: ReactNode }
   );
 }
 
-/** A quiet text link under a step's controls. */
-export function StepLink({ href, children }: { href: string; children: ReactNode }) {
+/**
+ * A quiet text link under a step's controls. `newTab` keeps the step open: a step that holds
+ * something in memory only (the invitation's token) must not be left for the link.
+ */
+export function StepLink({
+  href,
+  newTab = false,
+  children,
+}: {
+  href: string;
+  newTab?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <a className={`${styles.stepLink} ${phone.hitArea}`} href={href}>
+    <a
+      className={`${styles.stepLink} ${phone.hitArea}`}
+      href={href}
+      {...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    >
       {children}
     </a>
   );

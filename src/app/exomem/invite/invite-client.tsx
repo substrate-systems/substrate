@@ -275,7 +275,9 @@ export default function InviteClient() {
             checked={monthlyUpdateEmail}
             onChange={setMonthlyUpdateEmail}
           />
-          <StepLink href="/exomem/privacy#monthly-update-email">About this email</StepLink>
+          <StepLink href="/exomem/privacy#monthly-update-email" newTab>
+            About this email
+          </StepLink>
           <StepActions
             primary={{
               label: mode.kind === "accepting" ? inviteCopy.accepting.title : inviteCopy.accept,

@@ -18,6 +18,7 @@ import {
 } from "../oauth-continuity";
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
 import { tokenDigest } from "../security";
+import { setMonthlyUpdateEmail } from "../whats-new-digest/setting";
 import type { PaddleTransport } from "../paddle-billing";
 import type { ExomemPaddleConfig } from "../paddle-config";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -825,6 +826,60 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(entitlement.rows[0]!.provider_environment, null);
     assert.equal(entitlement.rows[0]!.provider_transaction_ref, null);
   });
+
+  for (const oauth of [false, true]) {
+    it(`re-admits an owner who turned the monthly update email off, with the switch on, through ${oauth ? "OAuth" : "browser"} admission`, async () => {
+      await resetFleet();
+      await configureCapacity(2);
+      const email = `cloud-readmit-digest-${randomUUID()}@example.test`;
+      const first = await createInvite("complimentary", email);
+      const admitted = await redeemCloudInviteAtomic({
+        ...redemptionInput(first.tokenDigest),
+        monthlyUpdateEmail: true,
+      });
+      assert.ok(admitted);
+      const { tenantId } = admitted;
+      const owner = await pool!.query("SELECT owner_user_id FROM exomem_tenants WHERE id = $1", [
+        tenantId,
+      ]);
+      assert.equal(
+        (await setMonthlyUpdateEmail({ tenantId, userId: owner.rows[0]!.owner_user_id }, false))
+          ?.enabled,
+        false
+      );
+      // The unpaid tenant expires: its cell is gone and the tenant stays `provisioning`.
+      await pool!.query(
+        "UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1",
+        [admitted.cellId]
+      );
+      await pool!.query(
+        "UPDATE exomem_entitlements SET source = 'paddle', source_state = 'awaiting_checkout' WHERE tenant_id = $1",
+        [tenantId]
+      );
+
+      const fixture = oauth
+        ? await createCloudOAuthFixture(email)
+        : await createInvite("complimentary", email);
+      const digest = "inviteDigest" in fixture ? fixture.inviteDigest : fixture.tokenDigest;
+      const input = { ...redemptionInput(digest), monthlyUpdateEmail: true };
+      const readmitted = oauth
+        ? await admitFirstCloudOAuthInviteAtomic({
+            ...input,
+            inviteDigest: digest,
+            transactionDigest: (fixture as { transactionDigest: Buffer }).transactionDigest,
+            codeDigest: randomBytes(32),
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          })
+        : await redeemCloudInviteAtomic(input);
+      assert.ok(readmitted);
+      assert.equal(readmitted.tenantId, tenantId);
+      const row = await pool!.query(
+        "SELECT whats_new_digest AS on, whats_new_digest_off_since AS off_since FROM exomem_tenants WHERE id = $1",
+        [tenantId]
+      );
+      assert.deepEqual([row.rows[0]!.on, row.rows[0]!.off_since], [true, null]);
+    });
+  }
 
   it("refuses Cloud OAuth re-admission for a tenant whose deletion is still pending", async () => {
     await resetFleet();

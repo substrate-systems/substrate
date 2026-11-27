@@ -29,7 +29,8 @@ CREATE TABLE exomem_whats_new_digest_months (
   releases_listed_at timestamptz,
   last_checked_at timestamptz,
   -- Why the last attempt to read the release list failed, and when. All three
-  -- are NULL while the list was read at the last try.
+  -- are NULL while the list was read at the last try, and once the month
+  -- stopped waiting for notes: a skipped or lapsed month reports no failure.
   --   not_configured  no GitHub token is configured; no call was made
   --   unavailable     GitHub did not answer, or answered with an error; the
   --                   detail is the reason as the code words it (no secret in it)
@@ -109,7 +110,8 @@ CREATE TABLE exomem_whats_new_digest_months (
   CONSTRAINT exomem_whats_new_digest_months_model_reported_check
     CHECK (model_reported IS NULL OR model_selection IS NOT NULL),
   CONSTRAINT exomem_whats_new_digest_months_list_failure_check
-    CHECK ((list_status IS NULL) = (list_failed_at IS NULL) AND (list_detail IS NULL OR list_status IS NOT NULL))
+    CHECK ((list_status IS NULL) = (list_failed_at IS NULL) AND (list_detail IS NULL OR list_status IS NOT NULL)
+           AND (list_status IS NULL OR state = 'waiting_for_notes'))
 );
 
 -- One row per release of a month. The notes file is kept as fetched and is

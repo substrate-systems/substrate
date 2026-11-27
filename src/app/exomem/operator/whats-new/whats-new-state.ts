@@ -175,7 +175,14 @@ export function switchFigure(overview: DigestOverview): Figure {
     };
   if (measurement.withdrawn)
     return { label, value: "Withdrawn: a later month scored under two thirds" };
-  if (measurement.complete) return { label, value: "Not offered: a month scored under two thirds" };
+  // Complete and every month passed, yet not offered: the model or prompt changed since the months were ranked.
+  if (measurement.complete)
+    return {
+      label,
+      value: measurement.allPass
+        ? "Not offered: the model or prompt changed since the measured months"
+        : "Not offered: a month scored under two thirds",
+    };
   const left = Math.max(0, measurement.monthsToMeasure - measurement.measured.length);
   return {
     label,

@@ -44,14 +44,19 @@ type Principal = { userId: string; tenantId: string };
  * who names the tenant and leaves `operatorDigest` as the record of who acted.
  * A reviewer account has no such setting and a deleted account none to
  * change: no row, `null`. `offSinceBefore` is when the owner had turned the
- * setting off before this write, `null` when they had not.
+ * setting off before this write, `null` when they had not; `dismissedBefore` is
+ * whether they had dismissed Home's invitation.
  */
 async function writeSetting(input: {
   tenantId: string;
   ownerUserId: string | null;
   enabled: boolean;
   operatorDigest: Buffer | null;
-}): Promise<{ view: MonthlyUpdateEmailView; offSinceBefore: Date | null } | null> {
+}): Promise<{
+  view: MonthlyUpdateEmailView;
+  offSinceBefore: Date | null;
+  dismissedBefore: boolean;
+} | null> {
   const { rows } = await executeExomemSql`
     /* exomem:whats-new-digest-set-setting */
     UPDATE exomem_tenants AS tenant
@@ -61,18 +66,19 @@ async function writeSetting(input: {
           WHEN tenant.whats_new_digest THEN now()
           ELSE tenant.whats_new_digest_off_since END,
         whats_new_digest_invitation = CASE
-          WHEN ${input.enabled}::boolean AND whats_new_digest_invitation IN ('open', 'dismissed') THEN 'accepted'
-          ELSE whats_new_digest_invitation END,
+          WHEN ${input.enabled}::boolean AND tenant.whats_new_digest_invitation IN ('open', 'dismissed') THEN 'accepted'
+          ELSE tenant.whats_new_digest_invitation END,
         whats_new_digest_operator_on_at = CASE
-          WHEN ${input.operatorDigest}::bytea IS NOT NULL THEN now() ELSE whats_new_digest_operator_on_at END,
-        whats_new_digest_operator_on_by = COALESCE(${input.operatorDigest}::bytea, whats_new_digest_operator_on_by)
-    FROM (SELECT id, whats_new_digest_off_since FROM exomem_tenants WHERE id = ${input.tenantId}::uuid FOR UPDATE) AS before
+          WHEN ${input.operatorDigest}::bytea IS NOT NULL THEN now() ELSE tenant.whats_new_digest_operator_on_at END,
+        whats_new_digest_operator_on_by = COALESCE(${input.operatorDigest}::bytea, tenant.whats_new_digest_operator_on_by)
+    FROM (SELECT id, whats_new_digest_off_since, whats_new_digest_invitation FROM exomem_tenants WHERE id = ${input.tenantId}::uuid FOR UPDATE) AS before
     WHERE tenant.id = before.id
       AND (${input.ownerUserId}::uuid IS NULL OR tenant.owner_user_id = ${input.ownerUserId}::uuid)
       AND tenant.status NOT IN ('deletion_pending', 'deleted')
       AND NOT tenant.marketplace_reviewer_purpose
     RETURNING tenant.whats_new_digest, tenant.whats_new_digest_invitation,
-              before.whats_new_digest_off_since AS off_since_before
+              before.whats_new_digest_off_since AS off_since_before,
+              before.whats_new_digest_invitation AS invitation_before
   `;
   return rows[0]
     ? {
@@ -80,6 +86,7 @@ async function writeSetting(input: {
         offSinceBefore: rows[0].off_since_before
           ? new Date(rows[0].off_since_before as string | Date)
           : null,
+        dismissedBefore: rows[0].invitation_before === "dismissed",
       }
     : null;
 }
@@ -130,19 +137,27 @@ export async function unsubscribeMonthlyUpdateEmail(tenantId: string): Promise<v
 /**
  * The operator's audited action (`send-monthly-whats-new-digest`, Decided):
  * turns the setting on for one existing owner who asked, and records when and
- * under which operator principal on the owner's own row. It does not refuse an
- * owner who unsubscribed; it reports when they did, so the operator knows. `null`
- * when no live owner account has that tenant id.
+ * under which operator principal on the owner's own row. It refuses no owner who
+ * said no before: it reports when they unsubscribed, and whether they dismissed
+ * Home's invitation, so the operator knows. A signup that left the switch off is
+ * not reported: the row cannot tell it from a signup that never showed the switch
+ * (`monthlyUpdateEmail` absent writes off too). `null` when no live owner account
+ * has that tenant id.
  */
 export async function operatorTurnOnMonthlyUpdateEmail(
   tenantId: string,
   principalDigest: Buffer
-): Promise<{ earlierUnsubscribedAt: Date | null } | null> {
+): Promise<{ earlierUnsubscribedAt: Date | null; earlierDismissedInvitation: boolean } | null> {
   const written = await writeSetting({
     tenantId,
     ownerUserId: null,
     enabled: true,
     operatorDigest: principalDigest,
   });
-  return written ? { earlierUnsubscribedAt: written.offSinceBefore } : null;
+  return written
+    ? {
+        earlierUnsubscribedAt: written.offSinceBefore,
+        earlierDismissedInvitation: written.dismissedBefore,
+      }
+    : null;
 }

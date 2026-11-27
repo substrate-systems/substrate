@@ -8,6 +8,7 @@ import {
   selectionAllowed,
   setupFigures,
   stateLabel,
+  switchFigure,
   toggled,
 } from "../whats-new-state";
 
@@ -99,6 +100,33 @@ describe("a release list that was not read", () => {
       stateLabel(waiting({ listedAt: "2026-11-27T19:04:00.000Z", failure: null }, 2), true, 0),
     ];
     assert.equal(new Set(labels).size, 3);
+  });
+});
+
+describe("why sending without approval is not offered", () => {
+  const figure = (measurement: Partial<DigestOverview["measurement"]>) =>
+    switchFigure({
+      switch: { sendWithoutApproval: false, recordedAt: null, applies: true },
+      measurement: {
+        measured: [],
+        monthsToMeasure: 3,
+        complete: true,
+        allPass: false,
+        withdrawn: false,
+        offered: false,
+        ...measurement,
+      },
+    } as unknown as DigestOverview).value;
+
+  it("says a month scored low only when one did, and a changed model or prompt when all three passed", () => {
+    const low = figure({ allPass: false });
+    const changed = figure({ allPass: true });
+    assert.ok(low.includes("under two thirds"));
+    assert.ok(changed.includes("model or prompt changed") && !changed.includes("two thirds"));
+    // Fewer than three counted months is still counting, not a failure.
+    assert.ok(
+      figure({ complete: false, measured: [{}] as never }).includes("2 more counted months")
+    );
   });
 });
 

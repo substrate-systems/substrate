@@ -318,6 +318,9 @@ export async function redeemCloudInviteAtomic(
         SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
             time_zone = COALESCE(${timeZone}, time_zone),
             whats_new_digest = ${input.monthlyUpdateEmail === true},
+            -- The setting and the record of when it went off agree: on clears it, off keeps it.
+            whats_new_digest_off_since = CASE WHEN ${input.monthlyUpdateEmail === true}::boolean THEN NULL
+              ELSE whats_new_digest_off_since END,
             whats_new_digest_invitation = 'none'
         WHERE id = ${existing.id}::uuid
       `;
@@ -680,6 +683,9 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
           SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
               time_zone = COALESCE(${timeZone}, time_zone),
               whats_new_digest = ${input.monthlyUpdateEmail === true},
+              -- The setting and the record of when it went off agree: on clears it, off keeps it.
+              whats_new_digest_off_since = CASE WHEN ${input.monthlyUpdateEmail === true}::boolean THEN NULL
+                ELSE whats_new_digest_off_since END,
               whats_new_digest_invitation = 'none'
           WHERE id = ${existing.id}::uuid
         `;

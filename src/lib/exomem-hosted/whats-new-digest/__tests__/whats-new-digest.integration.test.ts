@@ -19,6 +19,7 @@ import {
 import type { DigestOverview, MonthDetail } from "../approval";
 import { monthStart } from "../github";
 import { WHATS_NEW_PROMPT_VERSION } from "../model";
+import { recordListFailure } from "../months";
 import { previousMonth, runWhatsNewDigestSelection } from "../run";
 
 // The monthly selection against real PostgreSQL, a stand-in GitHub server and a stand-in model
@@ -150,7 +151,7 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
         success: boolean;
         month: string;
         state: string;
-        missingReleases: number;
+        missingReleases: number | null;
         releaseList: string | null;
         error?: { code: string };
       },
@@ -198,6 +199,7 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
       [run.status, run.body.success, run.body.state, run.body.releaseList, run.body.error?.code],
       [503, false, "waiting_for_notes", "not_configured", "WHATS_NEW_GITHUB_NOT_CONFIGURED"]
     );
+    assert.equal(run.body.missingReleases, null);
     assert.equal(github.requests.length, 0);
     assert.equal((await overview()).githubConfigured, false);
     const { releaseList } = await detail(target);
@@ -214,6 +216,7 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
       [run.status, run.body.success, run.body.state, run.body.releaseList, run.body.error?.code],
       [503, false, "waiting_for_notes", "unavailable", "WHATS_NEW_RELEASES_NOT_READ"]
     );
+    assert.equal(run.body.missingReleases, null);
     const month = await detail(target);
     // Not read is not "0 releases": the month says when it tried and what GitHub answered.
     assert.equal(month.releaseList.listedAt, null);
@@ -707,6 +710,28 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
     assert.equal(stopped.body.month.finalSelection?.length, 3);
     assert.equal((await act({ action: "stop", month: "2039-10" })).status, 409);
     assert.equal((await act({ action: "approve", month: "2039-10" })).status, 409);
+  });
+
+  it("reports an unread release list only while the month waits for notes", async () => {
+    publish("2039-08", threeNotes());
+    github.listStatus = 403;
+    const failed = await build("2039-08");
+    // Not read: no count of missing releases, not a 0.
+    assert.deepEqual(
+      [failed.state, failed.releaseList, failed.missingReleases],
+      ["waiting_for_notes", "unavailable", null]
+    );
+    assert.equal((await detail("2039-08")).releaseList.failure?.status, "unavailable");
+
+    // The operator skips the month: the failure goes with the wait, and a later run does not report it.
+    await act({ action: "skip", month: "2039-08" });
+    assert.equal((await detail("2039-08")).releaseList.failure, null);
+    const moved = await build("2039-08");
+    assert.deepEqual([moved.state, moved.releaseList, moved.missingReleases], ["skipped", null, 0]);
+    // A failure that lands after the skip is not stored either.
+    await recordListFailure("2039-08", "unavailable", "releases list answered 403");
+    assert.equal((await detail("2039-08")).releaseList.failure, null);
+    github.listStatus = null;
   });
 
   it("stops early on a spent time budget, leaves the month waiting, and resumes from the record on the next run", async () => {

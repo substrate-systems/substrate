@@ -791,6 +791,7 @@ describe(
         const principalDigest = createHash("sha256").update("operator").digest();
         assert.deepEqual(await operatorTurnOnMonthlyUpdateEmail(asking.tenantId, principalDigest), {
           earlierUnsubscribedAt: null,
+          earlierDismissedInvitation: false,
         });
         const turned = (
           await query(
@@ -811,12 +812,35 @@ describe(
         ).rows[0].at;
         assert.ok(unsubscribedAt instanceof Date);
         const comeBack = await operatorTurnOnMonthlyUpdateEmail(left.tenantId, principalDigest);
-        assert.deepEqual(comeBack, { earlierUnsubscribedAt: unsubscribedAt });
+        assert.deepEqual(comeBack, {
+          earlierUnsubscribedAt: unsubscribedAt,
+          earlierDismissedInvitation: false,
+        });
         assert.equal((await read(left.tenantId)).on, true);
         // On again, the record of the turn-off is cleared: a second ask has nothing earlier to report.
         assert.deepEqual(await operatorTurnOnMonthlyUpdateEmail(left.tenantId, principalDigest), {
           earlierUnsubscribedAt: null,
+          earlierDismissedInvitation: false,
         });
+
+        // An owner who dismissed Home's invitation and then asks: the action says so, once.
+        const dismissed = await seedOwner({ digest: false });
+        await query(
+          "UPDATE exomem_tenants SET whats_new_digest_invitation = 'open' WHERE id = $1",
+          [dismissed.tenantId]
+        );
+        await dismissMonthlyUpdateInvitation({
+          tenantId: dismissed.tenantId,
+          userId: await ownerOf(dismissed.tenantId),
+        });
+        assert.deepEqual(
+          await operatorTurnOnMonthlyUpdateEmail(dismissed.tenantId, principalDigest),
+          { earlierUnsubscribedAt: null, earlierDismissedInvitation: true }
+        );
+        assert.deepEqual(
+          await operatorTurnOnMonthlyUpdateEmail(dismissed.tenantId, principalDigest),
+          { earlierUnsubscribedAt: null, earlierDismissedInvitation: false }
+        );
 
         // A reviewer's tenant and a deleted account are not owners with such a setting.
         const reviewer = await seedOwner({ reviewer: true, digest: false });
@@ -854,7 +878,11 @@ describe(
         assert.equal(await setting(target.tenantId), false);
         const answered = await call(ADMIN_TOKEN, { tenantId: target.tenantId });
         assert.equal(answered.status, 200);
-        assert.equal((await answered.json()).earlierUnsubscribedAt, null);
+        const answer = await answered.json();
+        assert.deepEqual(
+          [answer.earlierUnsubscribedAt, answer.earlierDismissedInvitation],
+          [null, false]
+        );
         assert.equal(await setting(target.tenantId), true);
 
         const unauthenticated = await homeSettingPut(

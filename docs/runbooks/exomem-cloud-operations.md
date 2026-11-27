@@ -1491,7 +1491,12 @@ Before the first real send, read the received test message's headers: its `DKIM-
 To turn the setting on for one existing owner who asked for the email, POST the
 owner's tenant id with the admin token. The owner's row keeps when it happened
 and the operator principal's digest, and the log shows `operator.control` and
-`whats_new_digest.owner_turned_on` for the request:
+`whats_new_digest.owner_turned_on` for the request. The action turns the setting
+on whatever the owner did before. Its answer carries `earlierUnsubscribedAt`, the
+time an owner unsubscribed or turned it off, and `earlierDismissedInvitation`,
+true for an owner who dismissed Home's invitation. Read them before you act: an
+owner who said no earlier may not have meant to ask now. A signup that left the
+switch off is not recorded, so the answer cannot report it:
 
 ```bash
 curl -sS -X POST https://substratesystems.io/api/exomem/admin/monthly-update-email \

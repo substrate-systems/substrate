@@ -20,8 +20,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
  * for it (`send-monthly-whats-new-digest`, Decided). The body is `{ "tenantId": <uuid> }`.
  * The owner's row keeps when it happened and the operator principal's digest,
  * and the log line names the tenant and the request. It never touches a
- * reviewer or a deleted account. It does not refuse an owner who unsubscribed
- * earlier: the answer's `earlierUnsubscribedAt` says when they did, or is `null`.
+ * reviewer or a deleted account. It does not refuse an owner who said no before:
+ * the answer's `earlierUnsubscribedAt` says when they unsubscribed, or is `null`,
+ * and `earlierDismissedInvitation` says whether they dismissed Home's invitation.
+ * A signup that left the switch off is not recorded, so it is not reported.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
@@ -57,6 +59,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         tenantId,
         monthlyUpdateEmail: true,
         earlierUnsubscribedAt: turnedOn.earlierUnsubscribedAt?.toISOString() ?? null,
+        earlierDismissedInvitation: turnedOn.earlierDismissedInvitation,
         requestId,
       },
       { headers: { "cache-control": "no-store" } }
