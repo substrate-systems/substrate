@@ -68,7 +68,9 @@ details.body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .noteTitle {
