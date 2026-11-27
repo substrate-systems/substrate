@@ -20,7 +20,10 @@ describe("Exomem operator page", () => {
   });
 
   it("keeps the bearer in React memory and reuses the existing admin APIs", () => {
-    const source = readFileSync("src/app/exomem/operator/operator-client.tsx", "utf8");
+    // The page's calls and the one request function that sends the bearer, which every operator page shares.
+    const source = ["operator-client.tsx", "operator-request.ts"]
+      .map((file) => readFileSync(`src/app/exomem/operator/${file}`, "utf8"))
+      .join("\n");
     assert.match(source, /\/api\/exomem\/admin\/capacity/);
     assert.match(source, /\/api\/exomem\/admin\/invites/);
     assert.match(source, /Authorization:\s*`Bearer \$\{bearer\}`/);

@@ -1,7 +1,10 @@
 import { exomemThemeChoice } from "@/lib/exomem/theme";
 import { NextRequest, NextResponse } from "next/server";
 import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
-import { admitFirstCloudOAuthInviteAtomic, redeemCloudInvite } from "@/lib/exomem-hosted/cloud-admission";
+import {
+  admitFirstCloudOAuthInviteAtomic,
+  redeemCloudInvite,
+} from "@/lib/exomem-hosted/cloud-admission";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
 import {
@@ -56,11 +59,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       typeof body.token !== "string" ||
       body.token.length === 0 ||
       Object.keys(body).some(
-        (key) => key !== "token" && key !== "timeZone" && key !== "emailScheme" && key !== "themeChoice"
-      )
+        (key) =>
+          key !== "token" &&
+          key !== "timeZone" &&
+          key !== "emailScheme" &&
+          key !== "themeChoice" &&
+          key !== "monthlyUpdateEmail"
+      ) ||
+      // The signup's choice on the monthly update email, when the client shows the switch.
+      (body.monthlyUpdateEmail !== undefined && typeof body.monthlyUpdateEmail !== "boolean")
     ) {
       throw exomemErrors.invalidRequest();
     }
+    // Only a client that showed the owner the switch may opt them in: a request that does not state the choice starts it off.
+    const monthlyUpdateEmail = body.monthlyUpdateEmail === true;
     const timeZone = normalizeTimeZone(body.timeZone);
     const emailScheme = exomemEmailScheme(body.emailScheme);
     const themeChoice = exomemThemeChoice(body.themeChoice);
@@ -93,6 +105,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         timeZone,
         emailScheme,
         themeChoice,
+        monthlyUpdateEmail,
       });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       // A paid invite is admitted without a code. The continuation stays open, and
@@ -113,7 +126,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = await redeemCloudInvite(body.token, { timeZone, emailScheme, themeChoice });
+    const redeemed = await redeemCloudInvite(body.token, {
+      timeZone,
+      emailScheme,
+      themeChoice,
+      monthlyUpdateEmail,
+    });
     const response = NextResponse.json(
       {
         success: true,

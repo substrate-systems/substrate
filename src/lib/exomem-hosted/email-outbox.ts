@@ -64,6 +64,12 @@ import { oauthClientDisplayName } from "./oauth-client-identity";
 import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import { incidentStillResolved, maintenanceStillScheduled } from "./service-notice-emails";
 import { fanOutServiceNoticeEmails } from "./service-notice-fanout";
+import {
+  readWhatsNewDigestPayload,
+  renderWhatsNewDigest,
+  whatsNewDigestStillHolds,
+} from "./whats-new-digest/digest-email";
+import { fanOutWhatsNewDigestEmails } from "./whats-new-digest/fan-out";
 import { statusPageUrl } from "./status-page-url";
 import type { ExomemInviteKind } from "./invitation-contract";
 import { normalizeProviderMessageId, pruneProviderEvents } from "./email-provider-events";
@@ -126,6 +132,11 @@ class NotYet {
   constructor(readonly until: Date) {}
 }
 
+/** A rendered email, with the custom headers that the kind sends along (`List-Unsubscribe`). */
+type RenderedOutboxEmail = RenderedExomemAccessEmail & {
+  headers?: Readonly<Record<string, string>>;
+};
+
 type EmailDefinition<P, C> = {
   /** Checks the decrypted payload's shape. `null` fails the row. */
   readPayload: (value: Record<string, unknown>) => P | null;
@@ -146,9 +157,7 @@ type EmailDefinition<P, C> = {
    * Renders the email after the claim, outside its transaction, so it may
    * wait on a fact the claim must not hold its lock for, such as Paddle's price.
    */
-  render: (
-    input: EmailRenderInput<P, C>
-  ) => RenderedExomemAccessEmail | Promise<RenderedExomemAccessEmail>;
+  render: (input: EmailRenderInput<P, C>) => RenderedOutboxEmail | Promise<RenderedOutboxEmail>;
   afterSent?: (tx: ExomemSql, payload: P) => Promise<void>;
   /** `errorCode` is the one the row records, so a linked record can name the same cause. */
   afterFailed?: (tx: ExomemSql, payload: P, errorCode: string) => Promise<void>;
@@ -157,6 +166,12 @@ type EmailDefinition<P, C> = {
    * cause for any address, so a flood of it never delays anyone else's mail.
    */
   claimedLast?: true;
+  /**
+   * Claimed after every other kind, `claimedLast` ones included: bulk mail
+   * that nobody waits for (the monthly digest). The claim order has three
+   * tiers: every other kind, then `claimedLast`, then this.
+   */
+  lowestPriority?: true;
   /**
    * A provider refusal fails it at once instead of retrying it until its
    * deadline. Only for a kind without `afterFailed`, whose failure takes
@@ -1361,11 +1376,37 @@ const EXOMEM_EMAILS = {
         themeChoice,
       }),
   }),
+  /**
+   * The monthly What's new digest (`send-monthly-whats-new-digest`). Bulk mail
+   * that nobody waits for, so `lowestPriority`: every other kind, the health
+   * canary's waitlist emails included, is claimed first. It holds while the
+   * owner's setting is on and the month still sends (`whatsNewDigestStillHolds`).
+   * A refused send is retried, like the other kinds with an owner's address.
+   */
+  whats_new_digest: defineEmail({
+    readPayload: readWhatsNewDigestPayload,
+    stillHolds: whatsNewDigestStillHolds,
+    addressee: (context) => context.owner,
+    lowestPriority: true,
+    render: ({ payload, context, emailScheme, themeChoice, publicBaseUrl }) =>
+      renderWhatsNewDigest({ payload, context, emailScheme, themeChoice, publicBaseUrl }),
+  }),
 };
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;
 /** Every kind the outbox can send; `exomem_email_outbox_kind_check` must allow exactly these. */
 export const EXOMEM_EMAIL_KINDS = Object.keys(EXOMEM_EMAILS) as ExomemEmailKind[];
-const CLAIMED_LAST_KINDS = EXOMEM_EMAIL_KINDS.filter((kind) => EXOMEM_EMAILS[kind].claimedLast);
+
+/**
+ * The send tier a kind's rows carry (`exomem_email_outbox.send_tier`): 0 for
+ * every kind without a tier of its own, 1 for `claimedLast` kinds, 2 for
+ * `lowestPriority` kinds. It is set at insert, so the claim's ORDER BY reads an
+ * index instead of sorting every pending row (migration 0098). The kind's
+ * definition above is the one place that says which tier it belongs to.
+ */
+export function exomemEmailSendTier(kind: ExomemEmailKind): 0 | 1 | 2 {
+  const definition: Pick<AnyDefinition, "claimedLast" | "lowestPriority"> = EXOMEM_EMAILS[kind];
+  return definition.lowestPriority ? 2 : definition.claimedLast ? 1 : 0;
+}
 
 type PayloadOf<K extends ExomemEmailKind> = NonNullable<
   ReturnType<(typeof EXOMEM_EMAILS)[K]["readPayload"]>
@@ -1409,14 +1450,15 @@ export async function enqueueExomemEmails<K extends ExomemEmailKind>(
   const { rows } = await tx`
     /* exomem:enqueue-email */
     INSERT INTO exomem_email_outbox (
-      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
-      payload_ciphertext, not_before, due_at, expires_at
+      kind, send_tier, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice,
+      tenant_id, payload_ciphertext, not_before, due_at, expires_at
     )
-    SELECT item.kind, item.dedupe_key, item.recipient, item.time_zone, item.email_scheme, item.theme_choice,
-           item.tenant_id, item.payload::jsonb, COALESCE(item.not_before, now()),
+    SELECT item.kind, item.send_tier, item.dedupe_key, item.recipient, item.time_zone, item.email_scheme,
+           item.theme_choice, item.tenant_id, item.payload::jsonb, COALESCE(item.not_before, now()),
            COALESCE(item.not_before, now()), item.expires_at
     FROM unnest(
       ${inputs.map((input) => input.kind)}::text[],
+      ${inputs.map((input) => exomemEmailSendTier(input.kind))}::smallint[],
       ${inputs.map((input) => input.dedupeKey)}::text[],
       ${inputs.map((input) => input.recipient)}::text[],
       ${inputs.map((input) => input.recipientTimeZone)}::text[],
@@ -1426,8 +1468,8 @@ export async function enqueueExomemEmails<K extends ExomemEmailKind>(
       ${inputs.map((input) => sealExomemEmailPayload(input.kind, input.payload))}::text[],
       ${inputs.map((input) => input.notBefore?.toISOString() ?? null)}::timestamptz[],
       ${inputs.map((input) => input.expiresAt?.toISOString() ?? null)}::timestamptz[]
-    ) AS item(kind, dedupe_key, recipient, time_zone, email_scheme, theme_choice, tenant_id, payload,
-              not_before, expires_at)
+    ) AS item(kind, send_tier, dedupe_key, recipient, time_zone, email_scheme, theme_choice, tenant_id,
+              payload, not_before, expires_at)
     ON CONFLICT (dedupe_key) DO NOTHING
     RETURNING id
   `;
@@ -1517,9 +1559,13 @@ type OutboxRow = {
 };
 
 /**
- * The row the drain takes next: ready first, anyone's flood of `claimedLast`
- * kinds last. A row under a live lease is not ready, so a row that a request is
- * sending is not the drain's until its lease ends.
+ * The row the drain takes next, in three tiers: every other kind first, then
+ * anyone's flood of `claimedLast` kinds, then the `lowestPriority` bulk mail.
+ * Within a tier the order is the one the outbox always had, `not_before` then
+ * `created_at`. The ORDER BY is the columns of `exomem_email_outbox_claim_idx`,
+ * so the claim stops at the first ready row however many digests wait. A row
+ * under a live lease is not ready, so a row that a request is sending is not
+ * the drain's until its lease ends.
  */
 async function selectNextRow(tx: ExomemSql): Promise<OutboxRow | undefined> {
   const { rows } = await tx`
@@ -1529,7 +1575,7 @@ async function selectNextRow(tx: ExomemSql): Promise<OutboxRow | undefined> {
     FROM exomem_email_outbox
     WHERE (state = 'pending' AND not_before <= now())
        OR (state = 'leased' AND lease_expires_at <= now())
-    ORDER BY kind = ANY(${CLAIMED_LAST_KINDS}::text[]), not_before, created_at
+    ORDER BY send_tier, not_before, created_at
     FOR UPDATE SKIP LOCKED
     LIMIT 1
   `;
@@ -1799,6 +1845,8 @@ export type ExomemEmailDrainResult = {
   readyEnqueued: number | null;
   /** Service notice emails queued this tick; `null` when that pass failed. */
   serviceNoticeEnqueued: number | null;
+  /** Monthly digest emails queued this tick; `null` when that pass failed. */
+  whatsNewDigestEnqueued: number | null;
   claimed: number;
   sent: number;
   retryScheduled: number;
@@ -1879,7 +1927,7 @@ async function deliverClaim(
     if (state !== "lost") reportEmailSettled(email.kind, state, { errorCode, requestId });
     return state;
   };
-  let rendered: RenderedExomemAccessEmail;
+  let rendered: RenderedOutboxEmail;
   try {
     rendered = await email.definition.render({
       payload: email.payload,
@@ -1903,6 +1951,7 @@ async function deliverClaim(
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,
+      headers: rendered.headers,
     });
   } catch {
     answer = null;
@@ -1958,6 +2007,14 @@ export async function drainExomemEmailOutbox(
       (queued) => queued.enqueued,
       () => {
         console.error("exomem: service notice pass failed");
+        return null;
+      }
+    ),
+    // Same place and same rule: the digest's pass, a bounded page of owners a tick.
+    whatsNewDigestEnqueued: await fanOutWhatsNewDigestEmails().then(
+      (queued) => queued.enqueued,
+      () => {
+        console.error("exomem: what's new digest pass failed");
         return null;
       }
     ),

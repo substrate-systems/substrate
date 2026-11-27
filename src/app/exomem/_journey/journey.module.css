@@ -155,6 +155,24 @@
   width: 100%;
 }
 
+/* A quiet text link under a step's controls. */
+.stepLink {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.stepLink:hover {
+  color: var(--fg-primary);
+}
+
+.stepLink:focus-visible {
+  outline: 2px solid var(--fg-primary);
+  outline-offset: 2px;
+}
+
 /* Transient failures reserve a text row; the factual notices keep their cards. */
 .errorNotice {
   font-size: 13.5px;

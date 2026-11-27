@@ -237,6 +237,8 @@ export type RedeemCloudInviteInput = {
   /** The redeeming page's email scheme, already normalized. An invitation records none. */
   emailScheme?: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
+  /** The new owner's "Monthly update email" setting: on only when the signup showed the switch and left it on. Absent is off. */
+  monthlyUpdateEmail?: boolean;
 };
 
 export type RedeemedCloudAccess = {
@@ -314,15 +316,20 @@ export async function redeemCloudInviteAtomic(
       await tx`
         UPDATE exomem_tenants
         SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
-            time_zone = COALESCE(${timeZone}, time_zone)
+            time_zone = COALESCE(${timeZone}, time_zone),
+            whats_new_digest = ${input.monthlyUpdateEmail === true},
+            -- The setting and the record of when it went off agree: on clears it, off keeps it.
+            whats_new_digest_off_since = CASE WHEN ${input.monthlyUpdateEmail === true}::boolean THEN NULL
+              ELSE whats_new_digest_off_since END,
+            whats_new_digest_invitation = 'none'
         WHERE id = ${existing.id}::uuid
       `;
       await clearLifecycleDeletionBlock(tx, existing.id);
       tenantId = existing.id;
     } else {
       const tenantResult = await tx`
-        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme)
-        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme})
+        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme, whats_new_digest)
+        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme}, ${input.monthlyUpdateEmail === true})
         RETURNING id
       `;
       const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -520,6 +527,7 @@ export async function redeemCloudInvite(
     timeZone?: string | null;
     emailScheme?: ExomemEmailScheme | null;
     themeChoice?: ExomemThemeChoice | null;
+    monthlyUpdateEmail?: boolean;
   } = {}
 ): Promise<RedeemedCloudBrowserAccess> {
   const digest = tokenDigest(token);
@@ -533,6 +541,7 @@ export async function redeemCloudInvite(
     timeZone: options.timeZone ?? null,
     emailScheme: options.emailScheme ?? null,
     themeChoice: options.themeChoice ?? null,
+    monthlyUpdateEmail: options.monthlyUpdateEmail,
   });
   if (!row) throw exomemErrors.accessTokenInvalid();
   return { ...row, ...session };
@@ -574,6 +583,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   /** The redeeming page's email scheme, already normalized. */
   emailScheme?: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
+  /** The new owner's "Monthly update email" setting: on only when the signup showed the switch and left it on. Absent is off. */
+  monthlyUpdateEmail?: boolean;
 }): Promise<CloudOAuthInviteAdmission | null> {
   try {
     // Security review finding 15: without this, an OAuth transaction minted
@@ -670,15 +681,20 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         await tx`
           UPDATE exomem_tenants
           SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
-              time_zone = COALESCE(${timeZone}, time_zone)
+              time_zone = COALESCE(${timeZone}, time_zone),
+              whats_new_digest = ${input.monthlyUpdateEmail === true},
+              -- The setting and the record of when it went off agree: on clears it, off keeps it.
+              whats_new_digest_off_since = CASE WHEN ${input.monthlyUpdateEmail === true}::boolean THEN NULL
+                ELSE whats_new_digest_off_since END,
+              whats_new_digest_invitation = 'none'
           WHERE id = ${existing.id}::uuid
         `;
         await clearLifecycleDeletionBlock(tx, existing.id);
         tenantId = existing.id;
       } else {
         const tenantResult = await tx`
-          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme)
-          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme})
+          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme, whats_new_digest)
+          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme}, ${input.monthlyUpdateEmail === true})
           RETURNING id
         `;
         const tenant = tenantResult.rows[0] as { id: string } | undefined;

@@ -33,6 +33,11 @@ grants. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                                                                                                                                                                                                                                                                                | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256`                                                                                                                                                                                                                                                                                    | SHA-256 of the object-store key watcher's own capability. It may report only job `b2-key-watcher`, and the scheduler capability may never report that job. Setting it enables the daily `KEY_WATCHER_STALE` check (`/api/cron/exomem-key-watcher`), which runs daily and fires when the last hourly run is more than two hours old, so a stopped watcher is caught within about a day.                                                                                                                                                                                                  |
 | `EXOMEM_KEY_WATCHER_ALERT_TOKEN_SHA256_PREVIOUS`                                                                                                                                                                                                                                                                           | Optional overlap during key-watcher capability rotation. A malformed value is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `ANTHROPIC_API_KEY`                                                                                                                                                                                                                                                                                                        | The key for the monthly What's new ranking (`/api/cron/whats-new-digest`), one model call a month. Unset leaves the month waiting in "model not configured" on the approval page (`/exomem/operator/whats-new`), and no call is made. `ANTHROPIC_BASE_URL` overrides the API address and is unset in production.                                                                                                                                                                                                                                                                        |
+| `EXOMEM_WHATS_NEW_MODEL`                                                                                                                                                                                                                                                                                                   | Optional. The model for that ranking; the default is `claude-haiku-5-5`. A change of this name, of the model the API reports, or of the prompt restarts the measurement that can lift the operator's approval.                                                                                                                                                                                                                                                                                                                                                                          |
+| `EXOMEM_WHATS_NEW_GITHUB_TOKEN`, `EXOMEM_WHATS_NEW_GITHUB_API_URL`                                                                                                                                                                                                                                                         | Required to build a month. A read-only token for Evermatter's public releases and the API address (default `https://api.github.com`). Unset makes no GitHub call: the month waits in "GitHub token not configured", the daily route answers 503, and the approval page says so.                                                                                                                                                                                                                                                                                                         |
+| `EXOMEM_WHATS_NEW_FIRST_MONTH`                                                                                                                                                                                                                                                                                             | Required to build a month. The first month the daily route builds, as `YYYY-MM`: the month before the one in which Evermatter's notes-file change ships, because that change attaches the file to every release published since the start of the previous UTC month. Until it ships a month waits and names the releases without a file. Unset builds nothing, and the approval page (`/exomem/operator/whats-new`) says so.                                                                                                                                                            |
+| `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY`                                                                                                                                                                                                                                                                                         | Required to send a month. The key that signs the digest's unsubscribe links: exactly 32 random bytes as unpadded base64url, on the web app only, and never the control-plane key. Unset queues nothing, and the approval page says so. Rotate it with `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS` (see "Monthly What's new email"). A key that is set but malformed queues nothing, and so does a malformed `..._PREVIOUS`. Generate it as the control-plane key is generated (see "External scheduler").                                                                               |
 | `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256`                                                                                                                                                                                                                                                                                   | SHA-256 of the release automation's own alert capability. It may report only job `cloud-deploy`, and no other capability may report that job. It runs on each release and once a day. No missed-run check watches it.                                                                                                                                                                                                                                                                                                                                                                   |
 | `EXOMEM_CLOUD_DEPLOY_ALERT_TOKEN_SHA256_PREVIOUS`                                                                                                                                                                                                                                                                          | Optional overlap during cloud-deploy capability rotation. A malformed value is ignored.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `EXOMEM_DEPLOY_TOKEN`                                                                                                                                                                                                                                                                                                      | Production only. The release automation's token, separate from `EXOMEM_ADMIN_TOKEN`. It reads the rollout view and sets `cellImage` with its `release`, and nothing else. Seed the image history before you set it. See "Cloud releases" below.                                                                                                                                                                                                                                                                                                                                         |
@@ -1440,6 +1445,64 @@ expected to be down. `--no-mirror` skips the status page.
   sends no notice and serves every request as before. It tries again once every
   30 seconds, and requests carry no notice until a lookup works. Check the grants
   and the database connection.
+
+## Monthly What's new email
+
+Once a month each owner whose setting is on gets one email of the month's
+most noticeable changes, only those that their cell already runs. The daily
+route `/api/cron/whats-new-digest` builds the previous month; the operator
+approves it on `/exomem/operator/whats-new`; the per-minute delivery job
+(`/api/cron/exomem-access-delivery`) then queues the owners, 200 a tick, and the
+outbox sends each digest after every other queued email.
+
+Before the first month sends:
+
+1. Set `EXOMEM_WHATS_NEW_FIRST_MONTH` to the month before the one in which
+   Evermatter's notes-file change ships. That change attaches the file to every
+   release published since the start of the previous UTC month, so it heals the
+   older releases of that month. The change is still in review in Evermatter; a
+   month that is built before it ships waits and names the releases without a file.
+2. Set `EXOMEM_WHATS_NEW_GITHUB_TOKEN`.
+3. Set `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY`.
+4. Open `/exomem/operator/whats-new` and check that its Setup rows name no
+   setting as not set or malformed.
+
+To rotate the unsubscribe key:
+
+1. Generate a new key as the control-plane key is generated.
+2. In Vercel, set the new value as `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY` and the old value as `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS`, then redeploy.
+3. Open a recent digest's unsubscribe link and check that the page accepts it.
+4. Remove `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS` only when no owner needs the links of older emails; they carry no expiry.
+
+Only the current key signs a new link. Both keys verify while the previous one is set. A previous key that is malformed is ignored when links are checked, as the other `_PREVIOUS` keys are, so links signed with the current key keep working. The approval page names it, and an approved month queues nothing until the key is fixed or removed. Expected result: an old link and a new link both turn the setting off.
+
+Each owner has a "Monthly update email" setting on Home. It is off for every
+owner who existed before the email shipped, and Home invites each of them once.
+It starts on for a new owner whose signup showed the switch and left it on; a signup request that states no choice starts it off. Every digest carries
+a one-click unsubscribe (`List-Unsubscribe` and `List-Unsubscribe-Post`). A POST
+to its address turns the setting off; a GET changes nothing.
+
+The operator can stop a month that is ready to queue or queued with "Stop sending this month" on the page. The month becomes skipped, the delivery job queues no more of it, and a digest still waiting in the outbox is cancelled when it would send. A digest that Brevo already accepted cannot be recalled. With the operator's switch on, a built month waits 24 hours as "ready, sends after <time>" before anything queues, so the stop window opens before the first digest.
+
+The daily route stops calling GitHub and the model before its 60-second function limit (the Vercel Hobby ceiling) and leaves the month waiting; the next daily run resumes from the month's record. A month that waits is visible on the page with its last check time.
+
+Before the first real send, read the received test message's headers: its `DKIM-Signature` `h=` list must cover `List-Unsubscribe` and `List-Unsubscribe-Post`, and the message must carry one `List-Unsubscribe` header, not a second one from Brevo. RFC 8058 needs both, or a mailbox provider ignores the one-click.
+
+To turn the setting on for one existing owner who asked for the email, POST the
+owner's tenant id with the admin token. The owner's row keeps when it happened
+and the operator principal's digest, and the log shows `operator.control` and
+`whats_new_digest.owner_turned_on` for the request. The action turns the setting
+on whatever the owner did before. Its answer carries `earlierUnsubscribedAt`, the
+time an owner unsubscribed or turned it off, and `earlierDismissedInvitation`,
+true for an owner who dismissed Home's invitation. Read them before you act: an
+owner who said no earlier may not have meant to ask now. A signup that left the
+switch off is not recorded, so the answer cannot report it:
+
+```bash
+curl -sS -X POST https://substratesystems.io/api/exomem/admin/monthly-update-email \
+  -H "authorization: Bearer $EXOMEM_ADMIN_TOKEN" -H "content-type: application/json" \
+  -d '{"tenantId":"<tenant id>"}'
+```
 
 ## Cloud releases
 

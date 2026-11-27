@@ -22,14 +22,38 @@ import {
 import phone from "@/components/exomem/phone.module.css";
 import styles from "./journey.module.css";
 
-export function StepHeading({ title, lede }: { title: string; lede: ReactNode }) {
+export function StepHeading({ title, lede }: { title: string; lede?: ReactNode }) {
   return (
     <div className={styles.heading}>
       <h1 className={styles.title} tabIndex={-1}>
         <Swap k={title}>{title}</Swap>
       </h1>
-      <p className={styles.lede}>{lede}</p>
+      {lede === undefined ? null : <p className={styles.lede}>{lede}</p>}
     </div>
+  );
+}
+
+/**
+ * A quiet text link under a step's controls. `newTab` keeps the step open: a step that holds
+ * something in memory only (the invitation's token) must not be left for the link.
+ */
+export function StepLink({
+  href,
+  newTab = false,
+  children,
+}: {
+  href: string;
+  newTab?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      className={`${styles.stepLink} ${phone.hitArea}`}
+      href={href}
+      {...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    >
+      {children}
+    </a>
   );
 }
 
