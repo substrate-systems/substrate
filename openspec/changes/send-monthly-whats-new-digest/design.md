@@ -2,11 +2,23 @@
 
 ## Context
 
-User notes are one plain sentence per user-visible change, written in each Evermatter pull request (`user-notes/`). The release build assigns them to releases and bakes the notes file into the cell image (Evermatter change `tell-users-whats-new`). Home reads them from the owner's cell. Substrate records each cell's running release (`running_release`) and already sends fleet emails through the outbox with one dedupe key per fact (`exomem-service-notices`).
+A user note is a short title and one plain sentence per user-visible change, written in each Evermatter pull request (`user-notes/`; the title arrives with Evermatter's notes file schema 2). The release build assigns them to releases and bakes the notes file into the cell image (Evermatter change `tell-users-whats-new`). Home reads them from the owner's cell. Substrate records each cell's running release (`running_release`) and already sends fleet emails through the outbox with one dedupe key per fact (`exomem-service-notices`).
 
 The product's load target is 10,000 tenants (`docs/runbooks/exomem-cloud-operations.md`). A month can hold 20 to 60 notes when several releases ship each week.
 
 ## Decisions
+
+### D0. One authored note feeds three places
+
+The title and sentence that the pull request's author writes are the only text about a change that a person reads. Three outputs read them and add nothing of their own:
+
+- Home's What's new lists each title, which opens its sentence.
+- Each Evermatter GitHub release starts with a "What's new" section: each note's title, then its sentence. The release build writes it from the same notes file, above the technical changelog. A release with no note gets no section.
+- The monthly email lists the month's most noticeable changes, each as its title and sentence.
+
+So a wording fix is one edit to the note file, and the next release carries it everywhere.
+
+Alternative: a separate summary written for the email or the release page. Rejected: two texts about one change drift apart.
 
 ### D1. The digest reads the published notes file, not the cells
 
@@ -14,9 +26,9 @@ Each Evermatter release attaches the same notes file it bakes into the image as 
 
 Alternative: read notes from each owner's cell. Rejected for the cost above.
 
-### D2. A model picks and shortens; a structured schema reads its answer
+### D2. A model picks and ranks; it writes nothing
 
-Which change an owner notices most is a judgement that no field in the notes holds. Once a month, one model call receives that month's notes and returns, through a structured-output schema, at most 6 selected notes, each with a headline of at most 70 characters. It returns an empty selection when fewer than 3 notes would interest a typical owner. Notes stay the source text; a headline that names a term the note does not contain is rejected.
+Which change an owner notices most is a judgement that no field in the notes holds. Once a month, one model call receives that month's notes and returns, through a structured-output schema, the identifiers of at most 6 notes in order of how much an owner would notice them. It returns an empty selection when fewer than 3 notes would interest a typical owner. The email shows each picked note's own title and sentence, so the model cannot change or exaggerate what a change does.
 
 Alternatives: an author-set rank in each note file (rejected: every author rates their own change high, and it adds a field to every pull request), and an operator pick each month (rejected: manual work each month).
 
@@ -40,7 +52,7 @@ Until the operator approves, the route builds the month's selection and stops be
 
 ## Risks
 
-- A wrong or exaggerated headline reaches every owner. Mitigation: D6 for the first month, and the headline check in D2.
+- A poor pick reaches every owner. Mitigation: D6 for the first month; the text itself is the reviewed note (D2).
 - An owner who never asked for email may mark it as spam. Mitigation: the monthly cap, the skip rule, and a one-click unsubscribe in every email.
 
 ## Open questions for the operator

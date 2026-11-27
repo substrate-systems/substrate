@@ -6,11 +6,12 @@
 ## 1. Notes source
 
 - [ ] 1.1 Evermatter: each release attaches its notes file as a release asset.
-- [ ] 1.2 The cron route fetches and validates the newest notes file, with a timeout.
+- [ ] 1.2 Evermatter: each GitHub release with notes starts with a "What's new" section of each note's title and sentence, built from the same notes file.
+- [ ] 1.3 The cron route fetches and validates the newest notes file, with a timeout.
 
 ## 2. Selection
 
-- [ ] 2.1 The monthly model call with a structured-output schema, the 3-change bar and the headline check.
+- [ ] 2.1 The monthly model call with a structured-output schema that returns ranked note identifiers, and the 3-change bar.
 - [ ] 2.2 A real-model check on past months' notes picks the model.
 
 ## 3. Sending

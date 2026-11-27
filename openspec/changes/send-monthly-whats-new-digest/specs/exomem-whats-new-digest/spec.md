@@ -2,12 +2,12 @@
 
 ### Requirement: The month's changes are picked once, and only when enough clear the bar
 
-The system SHALL, once a month, select from the user notes of that month's releases at most 6 changes that a typical owner would notice, each with a headline of at most 70 characters. When fewer than 3 changes qualify, the system SHALL select none and send no digest that month.
+The system SHALL, once a month, select from the user notes of that month's releases at most 6 changes that a typical owner would notice, ranked. The email SHALL show each selected note's own title and sentence. When fewer than 3 changes qualify, the system SHALL select none and send no digest that month.
 
 #### Scenario: A month with many changes
 
 - **WHEN** a month's releases carry 40 user notes
-- **THEN** the selection holds between 3 and 6 of them, each with one headline
+- **THEN** the selection holds between 3 and 6 of them, each shown as its note's title and sentence
 
 #### Scenario: A quiet month
 
