@@ -25,12 +25,17 @@ The digest SHALL show each selected change as its note's own title and sentence,
 
 ### Requirement: Missing release notes stay visible
 
-The system SHALL treat a release whose notes cannot be read as notes missing, never as no notes. The approval page SHALL name each such release.
+The system SHALL treat a release whose notes cannot be read as notes missing, never as no notes. The approval page SHALL name each such release. A month with a missing release MUST NOT send unless the operator accepts it without that release.
 
 #### Scenario: One release lacks its notes
 
 - **WHEN** one of the month's releases has no readable notes
-- **THEN** the approval page names that release, and the next daily run tries it again
+- **THEN** the month waits, the approval page names that release, and the next daily run tries it again
+
+#### Scenario: The operator accepts a month with a missing release
+
+- **WHEN** the operator accepts the month without a named missing release
+- **THEN** the month's selection is built from the other releases
 
 ### Requirement: Each owner receives at most one digest a month, about what their cell runs
 
@@ -77,6 +82,11 @@ Every digest SHALL carry the `List-Unsubscribe` and `List-Unsubscribe-Post` head
 ### Requirement: The operator approves the pick until a measurement replaces approval
 
 The system MUST NOT queue a month's digests before the operator approves that month's selection, for at least the first three months.
+
+#### Scenario: The operator's pick comes first
+
+- **WHEN** the operator opens a month's approval page
+- **THEN** the page takes the operator's own pick before it shows the model's ranking
 
 #### Scenario: Before approval
 

@@ -26,7 +26,9 @@ Alternative: a separate summary written for the email or the release page. Rejec
 
 Each Evermatter release attaches `release-notes.json`, which holds only that release's notes: version, date, and each note's title and sentence. A month's releases come from the GitHub releases list, paginated. The digest fetches each release's asset with a timeout and validates it against the notes schema.
 
-A release without the asset counts as "notes missing", never as "no notes". The approval screen (D6) names each one, and the route tries again the next day. Evermatter's part, the asset and the release-page section, is its own OpenSpec change in that repository.
+Every release attaches the file, also a release with no notes (an empty list), so a missing file always means notes missing, never no notes. Evermatter's part makes the asset a required step of every release, writes the release-page section once, and is its own OpenSpec change in that repository.
+
+A month's selection waits until every release of the month has its file. The route tries again each day, reading the GitHub API with a read-only token and keeping each fetched file with the month's record, since a release asset never changes. The approval page names each release still missing; the operator can accept the month without it. A month with a missing release never sends without that acceptance. The first month a digest can cover is the first full month after Evermatter's change ships, because older releases carry no file.
 
 Alternatives: the 20-release file inside the image (rejected: it covers about a week), and asking each cell (rejected: 10,000 calls a month, and a stopped cell answers nothing).
 
@@ -36,7 +38,7 @@ Which change an owner notices most is a judgement that no field in the notes hol
 
 This is Substrate's first model call. It runs with a timeout and one retry. On an outage the month waits, and the next day's run tries again.
 
-The operator approves each month's selection for the first three months (D6). Each approval or change becomes an answer key from the operator's own choice. After three months, a real-model check against those keys decides whether later months send without approval.
+The operator approves each month's selection for the first three months (D6). Before the page shows the model's ranking, it asks the operator to pick up to 6 notes from the month's list. That blind pick is the answer key, so the key never comes from the model's output. After three months, a real-model check compares the model's picks with the three blind picks. Later months send without approval only when the model's 6 hold at least 4 of the operator's 6 in each of the three months; otherwise approval stays.
 
 Alternative: an author-set flag per note. Rejected: it adds a field to every pull request, and the authors are agents that cannot judge what owners notice across a month.
 
@@ -62,7 +64,7 @@ The setting is a column on the tenant's account record. Home's account section c
 
 ### D6. The operator approves the selection on an approval page
 
-An operator page shows the month's selection, the notes left out, any release whose notes are missing, and the rendered email in light and dark. Approving it lets the next daily run queue the month. The first three months wait for this approval; later months follow D2's measurement.
+An operator page first takes the operator's blind pick (D2), then shows the model's selection, the notes left out, any release whose notes are missing, and the rendered email in light and dark. Approving it lets the next daily run queue the month. The first three months wait for this approval; later months follow D2's measurement.
 
 ## Risks
 
@@ -76,4 +78,4 @@ An operator page shows the month's selection, the notes left out, any release wh
 
 ## Open question for the operator
 
-- Is the email on by default? Existing owners were never offered an opt-out for product-update email when they signed up, and the account database is in the EU, where a "soft opt-in" needs that offer. The privacy page lists only transactional email today. Recommendation: off for existing owners, with one invitation on Home; on for new owners whose signup offers the opt-out and whose privacy page names the email.
+- Is the email on by default? Existing owners were never offered an opt-out for product-update email when they signed up, and the account database is in the EU, where a "soft opt-in" needs that offer. The privacy page lists only transactional email today. Recommendation: off for existing owners, with one invitation on Home; on for new owners whose signup offers the opt-out and whose privacy page names the email. The migration's default, the Home invitation and the signup change follow the answer (task 3.5).
