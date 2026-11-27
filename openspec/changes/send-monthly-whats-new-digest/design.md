@@ -2,9 +2,11 @@
 
 ## Context
 
-A user note is a short title and one plain sentence per user-visible change, written in each Evermatter pull request (`user-notes/`; the title arrives with Evermatter's notes file schema 2). The release build assigns them to releases and bakes the notes file into the cell image (Evermatter change `tell-users-whats-new`). Home reads them from the owner's cell. Substrate records each cell's running release (`running_release`) and already sends fleet emails through the outbox with one dedupe key per fact (`exomem-service-notices`).
+A user note is a short title and one plain sentence per user-visible change, written in each Evermatter pull request (`user-notes/`). The release build assigns each note to the first release that contains it. The cell image carries the notes of the 20 newest releases that have notes (`KEEP_RELEASES`), and Home reads them from the owner's cell.
 
-The product's load target is 10,000 tenants (`docs/runbooks/exomem-cloud-operations.md`). A month can hold 20 to 60 notes when several releases ship each week.
+Evermatter releases two to three times a day: 96 releases in October 2026 and 66 in November up to the 26th. Most releases now carry notes, about five notes a day on main in late November. So a month holds about 100 notes, and the 20-release file covers about a week.
+
+Substrate records each cell's running release (`running_release`, which can be null). Fleet emails go through the outbox. The delivery job drains 20 rows a minute (`MAX_EMAILS_PER_TICK`), and `service-notice-fanout.ts` queues a fleet notice 200 rows per pass. The product's load target is 10,000 tenants (`docs/runbooks/exomem-cloud-operations.md`). Substrate has no model provider integration today.
 
 ## Decisions
 
@@ -13,49 +15,65 @@ The product's load target is 10,000 tenants (`docs/runbooks/exomem-cloud-operati
 The title and sentence that the pull request's author writes are the only text about a change that a person reads. Three outputs read them and add nothing of their own:
 
 - Home's What's new lists each title, which opens its sentence.
-- Each Evermatter GitHub release starts with a "What's new" section: each note's title, then its sentence. The release build writes it from the same notes file, above the technical changelog. A release with no note gets no section.
-- The monthly email lists the month's most noticeable changes, each as its title and sentence.
+- Each Evermatter GitHub release starts with a "What's new" section: each note's title, then its sentence, above the technical changelog. A release with no note gets no section.
+- The monthly email lists the month's most noticeable changes, each as its title and sentence. A note without a title shows its sentence alone.
 
-So a wording fix is one edit to the note file, and the next release carries it everywhere.
+A reword of a note file reaches Home after the owner's next rollout and every later digest. A published release page, its assets and sent emails stay as they were.
 
 Alternative: a separate summary written for the email or the release page. Rejected: two texts about one change drift apart.
 
-### D1. The digest reads the published notes file, not the cells
+### D1. Each release publishes its own notes, and the digest reads the whole month
 
-Each Evermatter release attaches the same notes file it bakes into the image as a release asset. The cron route fetches the newest release's asset once, with a timeout, and validates it against the notes schema (`release_notes_format`). Asking 10,000 cells for their notes would add 10,000 calls a month and would fail for every cell that is stopped.
+Each Evermatter release attaches `release-notes.json`, which holds only that release's notes: version, date, and each note's title and sentence. A month's releases come from the GitHub releases list, paginated. The digest fetches each release's asset with a timeout and validates it against the notes schema.
 
-Alternative: read notes from each owner's cell. Rejected for the cost above.
+A release without the asset counts as "notes missing", never as "no notes". The approval screen (D6) names each one, and the route tries again the next day. Evermatter's part, the asset and the release-page section, is its own OpenSpec change in that repository.
 
-### D2. A model picks and ranks; it writes nothing
+Alternatives: the 20-release file inside the image (rejected: it covers about a week), and asking each cell (rejected: 10,000 calls a month, and a stopped cell answers nothing).
 
-Which change an owner notices most is a judgement that no field in the notes holds. Once a month, one model call receives that month's notes and returns, through a structured-output schema, the identifiers of at most 6 notes in order of how much an owner would notice them. It returns an empty selection when fewer than 3 notes would interest a typical owner. The email shows each picked note's own title and sentence, so the model cannot change or exaggerate what a change does.
+### D2. A model ranks; the operator approves until a measurement says otherwise
 
-Alternatives: an author-set rank in each note file (rejected: every author rates their own change high, and it adds a field to every pull request), and an operator pick each month (rejected: manual work each month).
+Which change an owner notices most is a judgement that no field in the notes holds. Once a month, one model call receives the month's notes, each identified by release version and position. Through a structured-output schema it returns at most 6 identifiers, ranked. It returns none when fewer than 3 notes would interest a typical owner. The email shows each picked note's own text, so the model cannot change what a change does.
 
-The choice of model follows the measurement rules: the cheapest model that passes a real-model check on past months' notes. One call a month costs well under one cent.
+This is Substrate's first model call. It runs with a timeout and one retry. On an outage the month waits, and the next day's run tries again.
+
+The operator approves each month's selection for the first three months (D6). Each approval or change becomes an answer key from the operator's own choice. After three months, a real-model check against those keys decides whether later months send without approval.
+
+Alternative: an author-set flag per note. Rejected: it adds a field to every pull request, and the authors are agents that cannot judge what owners notice across a month.
 
 ### D3. Each owner gets only what their cell runs
 
-The selection is per month and fleet-wide. Each owner's email keeps only the selected notes from releases at or below their cell's running release. An owner left with fewer than 3 gets no email that month. An owner whose cell is stopped, paused or deleted gets none.
+Each owner's email keeps only the selected notes from releases at or below their cell's running release. An owner left with fewer than 3 gets no email that month. So does an owner whose running release is unknown, or whose cell is stopped, paused or deleted.
 
-### D4. Sending uses the outbox, once per owner and month
+### D4. A daily route, a bounded fan-out and the lowest send priority
 
-The cron route queues one `whats_new_digest` row per eligible owner, with the dedupe key `whats-new-digest:<YYYY-MM>:<tenant>`. The outbox's existing re-check at send time drops a row whose owner turned the setting off since it was queued. The route runs on the 2nd of each month, so releases on the last day of the month are included.
+The route runs every day and is safe to repeat. On each run it:
 
-### D5. One setting, two ways to change it
+1. builds the previous month's selection, if none exists yet;
+2. stops while that selection waits for approval;
+3. queues the month's digests 200 rows per pass, as `service-notice-fanout.ts` does.
 
-The setting is a column on the tenant's account record, on by default. Home's account section changes it. The email's unsubscribe link carries a signed, single-purpose token and changes the same column with one POST (RFC 8058 `List-Unsubscribe-Post`). The link opens a page that confirms it and offers to turn it back on.
+The dedupe key is `whats-new-digest:<YYYY-MM>:<tenant>`. A missed day heals on the next run.
 
-### D6. The first month waits for the operator
+The `whats_new_digest` kind gets a new lowest send priority, below every existing kind and below the health canary's kinds. So invites, payment and deletion emails, maintenance notices and the canary never wait behind a digest. At the load target the queue sends about 8 hours of digests at the drain rate, all of it behind other mail.
 
-Until the operator approves, the route builds the month's selection and stops before queueing. The operator sees the selection and a rendered email, then approves. Later months send without approval.
+### D5. One setting; only a POST unsubscribes
+
+The setting is a column on the tenant's account record. Home's account section changes it. The email carries `List-Unsubscribe` and `List-Unsubscribe-Post` (RFC 8058) with a signed, single-purpose token; the mail client's one-click POST turns the setting off. The link in the email body opens a page with a button that sends the same POST. A GET request never changes the setting, so link scanners cannot unsubscribe anyone. `sendTransactionalEmail` gains the two headers.
+
+### D6. The operator approves the selection on an approval page
+
+An operator page shows the month's selection, the notes left out, any release whose notes are missing, and the rendered email in light and dark. Approving it lets the next daily run queue the month. The first three months wait for this approval; later months follow D2's measurement.
 
 ## Risks
 
-- A poor pick reaches every owner. Mitigation: D6 for the first month; the text itself is the reviewed note (D2).
-- An owner who never asked for email may mark it as spam. Mitigation: the monthly cap, the skip rule, and a one-click unsubscribe in every email.
+- A poor pick reaches every owner. Mitigation: the operator approves the first three months; the text is always the reviewed note.
+- An owner who never asked for email may mark it as spam. Mitigation: the monthly cap, the skip rule, one-click unsubscribe, and the default in the open question.
+- Brevo volume at the load target, about 10,000 extra emails a month, is not yet checked against the plan.
 
-## Open questions for the operator
+## Decided
 
-- On by default for every paying owner, or off until the owner turns it on?
-- The draft email's design comes from a Claude Design commission before the build.
+- The email's design comes from a Claude Design commission, before the build.
+
+## Open question for the operator
+
+- Is the email on by default? Existing owners were never offered an opt-out for product-update email when they signed up, and the account database is in the EU, where a "soft opt-in" needs that offer. The privacy page lists only transactional email today. Recommendation: off for existing owners, with one invitation on Home; on for new owners whose signup offers the opt-out and whose privacy page names the email.
