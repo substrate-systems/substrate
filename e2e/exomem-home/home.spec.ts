@@ -418,20 +418,28 @@ test("What’s new shows the cell's notes until the owner presses Got it, and st
           version: "1.3.0",
           released_on: new Date().toISOString().slice(0, 10),
           notes: ["Search finds more of what you saved."],
+          items: [{ title: "Better search", text: "Search finds more of what you saved." }],
         },
       ],
     },
   });
   await openHome(page, owner);
-  const notes = panel(page, "What’s new");
-  await expect(notes.getByText("Search finds more of what you saved.")).toBeVisible();
+  const update = page.getByRole("button", { name: /^Updated .* · 1 change/ });
+  await expect(update).toHaveAttribute("aria-expanded", "false");
+  await update.click();
+  const drawer = page.locator("#home-whats-new");
+  const change = drawer.getByRole("button", { name: "Better search" });
+  await expect(change).toHaveAttribute("aria-expanded", "false");
+  await change.click();
+  await expect(change).toHaveAttribute("aria-expanded", "true");
+  await expect(drawer.getByText("Search finds more of what you saved.")).toBeVisible();
 
-  await notes.getByRole("button", { name: "Got it" }).click();
+  await drawer.getByRole("button", { name: "Got it" }).click();
 
-  await expect(notes).toHaveCount(0);
+  await expect(update).toHaveCount(0);
   await page.reload();
   await expect(panel(page, "How much Evermatter joins in")).toBeVisible();
-  await expect(notes).toHaveCount(0);
+  await expect(update).toHaveCount(0);
 });
 
 test("in forced colours the level in use still stands out from its track", async ({ page }) => {
@@ -601,7 +609,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
 
   await page.getByRole("button", { name: "Permanently delete my Evermatter" }).click();
 
-  await expect(page.getByRole("status")).toHaveText(
+  await expect(page.getByRole("status")).toContainText(
     "Your shared Substrate identity and any other product remain untouched."
   );
   // A complimentary account has no billing to cancel, so deletion may already be finished.
@@ -635,7 +643,9 @@ test("a seeded reviewer signs in on the web and sees the sample account without 
   ).toBeVisible();
   await expect(page.getByText(`complimentary · ends ${ends}`)).toBeVisible();
   await expect(
-    panel(page, "Connected apps").getByText(/^signed in · connected \d{1,2} \w+ · during review$/)
+    panel(page, "Connected apps").getByText(
+      /^signed in · connected \d{1,2} \w+ · during review · joins in: \w+$/
+    )
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /billing/i })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete…" })).toHaveCount(0);

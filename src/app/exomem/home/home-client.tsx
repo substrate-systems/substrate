@@ -46,7 +46,7 @@ import { HomeHeader, HomeWeb, StatusBlock } from "./home-chrome";
 import { DeleteDialog, type DeleteStep, SignedOutDialog } from "./home-dialogs";
 import type { Clock } from "./home-format";
 import { InvolvementLevels } from "./home-levels";
-import { WhatsNew } from "./home-whats-new";
+import { WhatsNewDrawer, WhatsNewLine } from "./home-whats-new";
 import { createSingleFlight, type Lifecycle, nextStatusPollDelayMs } from "./home-state";
 import {
   type AccountRead,
@@ -64,6 +64,8 @@ import {
   levelRefusalText,
   type LiveRead,
   lostRead,
+  appContextOptions,
+  appsByContext,
   levelsView,
   whatsNewView,
   liveLine,
@@ -137,6 +139,8 @@ export default function HomeClient({
   );
   const [whatsNewBusy, setWhatsNewBusy] = useState(false);
   const [whatsNewFailed, setWhatsNewFailed] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [whatsNewLeaving, setWhatsNewLeaving] = useState(false);
   // The browser's time when the activity arrived: ages are read on the cell's clock.
   const [activityAt, setActivityAt] = useState(0);
   const [activityPulse, setActivityPulse] = useState<ActivityEvent | null>(null);
@@ -480,8 +484,22 @@ export default function HomeClient({
     setWhatsNewBusy(true);
     setWhatsNewFailed(false);
     try {
-      if (await dismissWhatsNew(version)) setWhatsNew({ state: "live", version, releases: [] });
-      else setWhatsNewFailed(true);
+      if (await dismissWhatsNew(version)) {
+        // The drawer closes first and the line leaves once it has: the Collapse's
+        // --dur-swap (450 ms), or at once when the owner asked for reduced motion. Until
+        // then the line offers nothing to press.
+        setWhatsNewLeaving(true);
+        setWhatsNewOpen(false);
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        window.setTimeout(
+          () => {
+            if (!mounted.current) return;
+            setWhatsNew({ state: "live", version, releases: [] });
+            setWhatsNewLeaving(false);
+          },
+          reduced ? 0 : 450
+        );
+      } else setWhatsNewFailed(true);
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
       else setWhatsNewFailed(true);
@@ -746,7 +764,30 @@ export default function HomeClient({
           statusLine={status_.statusLine}
           liveLine={shownLiveLine}
           activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
-        />
+        >
+          {whatsNewSection && (
+            <WhatsNewLine
+              view={whatsNewSection}
+              open={whatsNewOpen}
+              working={whatsNewBusy}
+              leaving={whatsNewLeaving}
+              failed={whatsNewFailed}
+              onToggle={() => {
+                if (!whatsNewLeaving) setWhatsNewOpen((value) => !value);
+              }}
+              onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
+            />
+          )}
+        </StatusBlock>
+        {whatsNewSection && (
+          <WhatsNewDrawer
+            view={whatsNewSection}
+            open={whatsNewOpen}
+            working={whatsNewBusy}
+            failed={whatsNewFailed}
+            onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
+          />
+        )}
         <div className={styles.columns}>
           <div className={styles.primaryColumn}>
             {message}
@@ -858,14 +899,6 @@ export default function HomeClient({
                 )}
               </div>
             )}
-            {whatsNewSection && (
-              <WhatsNew
-                view={whatsNewSection}
-                working={whatsNewBusy}
-                failed={whatsNewFailed}
-                onDismiss={() => void onWhatsNewDismiss(whatsNewSection.version)}
-              />
-            )}
             <ConnectedApps
               apps={apps}
               failed={appsFailed}
@@ -875,6 +908,7 @@ export default function HomeClient({
               disconnected={disconnected}
               onDisconnect={onDisconnect}
               onContext={onContext}
+              contextOptions={appContextOptions(levelState)}
               connectorUrl={status?.connectorUrl ?? null}
               startLevel={codingLevel}
               reviewer={reviewer}
@@ -883,6 +917,7 @@ export default function HomeClient({
             />
             <InvolvementLevels
               view={levelState}
+              appNames={appsByContext(apps, disconnected)}
               pending={levelPending}
               message={levelMessage}
               onChange={(context, level, revision) => void onLevel(context, level, revision)}

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B2 · Headlines</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="home.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:inherit}
+.st-board{display:flex;flex-direction:column;gap:64px;padding:48px 40px 64px;background:var(--bg-base)}
+.st-row{display:flex;flex-direction:column;gap:16px}
+.st-cap{font-family:var(--font-mono);font-size:13px;color:var(--fg-primary)}
+.st-sub{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.st-frames{display:flex;gap:80px;align-items:flex-start}
+.st-frame{border:1px dashed var(--exo-border-input);border-radius:12px;overflow:hidden}
+.st-frame .hp{min-height:0}
+.st-frame .hp-col{margin-top:28px;padding-bottom:28px;gap:24px}
+.b-update{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.b-open{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--exo-border-input);border-radius:var(--r-ctl);background:transparent;color:var(--fg-primary);font-family:var(--font-mono);font-size:12px;cursor:pointer}
+.b-num{color:var(--fg-primary)}
+.b-sep{color:var(--fg-muted)}
+.b-drawer .hp-panel{padding:4px 20px 10px}
+.b-dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 10px;border-bottom:1px solid var(--exo-border-card)}
+.h-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:32px}
+.h-group{display:flex;flex-direction:column;min-width:0}
+.h-glabel{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted);padding:12px 0 2px}
+.h-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);column-gap:32px}
+.h-list.is-flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+.h-item{border-bottom:1px solid var(--exo-rule)}
+.h-btn{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:44px;padding:0;border:0;background:transparent;color:var(--fg-primary);font-family:var(--font-sans);font-size:14.5px;text-align:left;cursor:pointer}
+.h-btn .wn-chev{color:var(--fg-muted);font-family:var(--font-mono)}
+.h-detail{padding:0 0 12px;font-size:13px;line-height:1.55;color:var(--fg-secondary);max-width:56ch}
+.h-more{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 2px}
+.hp.phone .h-groups,.hp.phone .h-list.is-flow{grid-template-columns:minmax(0,1fr)}
+.b-err{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-primary)}
+</style>
+</helmet>
+<div class="hp {{themeClass}}" data-theme="{{theme}}" style="width: 1686px">
+<div class="st-board">
+  <sc-for list="{{states}}" as="s" hint-placeholder-count="5">
+    <div class="st-row">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span class="st-cap">{{s.caption}}</span>
+        <span class="st-sub">{{s.sub}}</span>
+      </div>
+      <div class="st-frames">
+        <sc-for list="{{s.frames}}" as="f" hint-placeholder-count="2">
+          <div class="st-frame" style="width: {{f.width}}">
+            <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}">
+              <div class="hp-col">
+                <div class="hp-status">
+                  <div class="hp-tile" aria-hidden="true">E</div>
+                  <div class="hp-stext">
+                    <h1 class="hp-headline">Your memory is on</h1>
+                    <span class="hp-sline">1,200 notes</span>
+                    <span class="hp-live"><span class="hp-dot"></span>Your app saved notes · 8 h ago</span>
+                    <div class="b-update">
+                      <button class="b-open" aria-expanded="{{s.openStr}}">{{s.lineLabel}} <span class="wn-chev {{s.chevClass}}" aria-hidden="true">›</span></button>
+                      <sc-if value="{{s.closedDismiss}}" hint-placeholder-val="{{ true }}">
+                        <button class="btn btn-ghost">Got it</button>
+                      </sc-if>
+                    </div>
+                    <sc-if value="{{s.closedError}}" hint-placeholder-val="{{ false }}">
+                      <span class="b-err" role="alert" style="margin-top: 4px">Couldn’t save. Try Got it again.</span>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <sc-if value="{{s.open}}" hint-placeholder-val="{{ true }}">
+                  <section class="hp-section b-drawer" aria-label="What’s new">
+                    <div class="hp-panel">
+                      <div class="b-dhead">
+                        <span class="hp-stitle">What’s new · {{s.window}}</span>
+                        <button class="btn">Got it</button>
+                      </div>
+                      <div class="{{s.groupsClass}}">
+                        <sc-for list="{{s.groups}}" as="g" hint-placeholder-count="2">
+                          <div class="h-group">
+                            <sc-if value="{{g.label}}" hint-placeholder-val="{{ true }}">
+                              <span class="h-glabel">{{g.label}}</span>
+                            </sc-if>
+                            <ul class="h-list {{g.listClass}}">
+                              <sc-for list="{{g.items}}" as="it" hint-placeholder-count="4">
+                                <li class="h-item">
+                                  <button class="h-btn" aria-expanded="{{it.openStr}}">{{it.title}} <span class="wn-chev {{it.chevClass}}" aria-hidden="true">›</span></button>
+                                  <sc-if value="{{it.open}}" hint-placeholder-val="{{ false }}">
+                                    <div class="h-detail">{{it.text}}</div>
+                                  </sc-if>
+                                </li>
+                              </sc-for>
+                            </ul>
+                            <sc-if value="{{g.more}}" hint-placeholder-val="{{ false }}">
+                              <div class="h-more">
+                                <span class="hp-rmeta">{{g.more}}</span>
+                                <button class="btn btn-ghost">Show <span class="wn-chev" aria-hidden="true" style="margin-left: 6px">›</span></button>
+                              </div>
+                            </sc-if>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </section>
+                </sc-if>
+
+                <section class="hp-section">
+                  <h2 class="hp-stitle">Connected apps</h2>
+                  <div class="hp-panel"><div class="hp-row"><div class="hp-rtext"><span class="hp-rtitle">Claude</span><span class="hp-rmeta">Chat app · used 8 h ago</span></div></div></div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"variant":{"editor":"enum","options":["titles","titles-and-kind"],"default":"titles"},"$preview":{"width":1686,"height":3400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const withKind = (this.props.variant ?? 'titles') === 'titles-and-kind';
+    /* title and kind are the data need: the note author writes both per PR. These are this session's drafts. */
+    const notes = [
+      { day: '26 Nov', kind: 'fixed', title: 'Batch moves and renames finish', text: 'Asking your assistant to move or rename a batch of pages now finishes, instead of stopping partway and repeating itself.' },
+      { day: '26 Nov', kind: 'new', title: 'Speakers remembered in recordings', text: 'Your assistant can now save who spoke in a recording after the fact, and you can keep a voice from it, so later recordings name that person for you.' },
+      { day: '26 Nov', kind: 'new', title: 'Imported exports are searchable', text: 'Your assistant can now search and read collections filled from imported exports, such as fitness or health portal exports, the same way it reads your other records.' },
+      { day: '26 Nov', kind: 'fixed', title: 'Collections stay during big saves', text: 'Your record collections now stay in your assistant’s answers while another chat is saving many records at once, instead of briefly disappearing.' },
+      { day: '25 Nov', kind: 'fixed', title: 'Fast record search in large vaults', text: 'Record searches now stay fast in large vaults. While links are still being indexed, a reply can mark some links as not yet checked, or ask you to retry a search by link shortly.' },
+      { day: '25 Nov', kind: 'fixed', title: 'No duplicate folders by letter case', text: 'What you save no longer goes into a second copy of a folder whose name differs only by capital letters, and your assistant can merge the copies so a full export can work again.' },
+      { day: '25 Nov', kind: 'new', title: 'Uploads are filed for you', text: 'Files you upload from Home are now filed for you without asking an assistant, and each one remembers where it came from and when it was last changed.' },
+      { day: '25 Nov', kind: 'fixed', title: 'Memory holds when a page is unavailable', text: 'Your assistant no longer loses your whole memory for a turn when one of your record pages is briefly unavailable. It skips that page and uses the rest.' },
+      { day: '25 Nov', kind: 'new', title: 'See what changed after each update', text: 'You can now see what changed after each update, on Home and once in your assistant’s reply.' }
+    ];
+    const item = (n, open) => Object.assign({}, n, { open: !!open, openStr: open ? 'true' : 'false', chevClass: open ? 'is-open' : '' });
+    const frames = [{ width: '1136px', phoneClass: '' }, { width: '390px', phoneClass: 'phone' }];
+    const countLine = (ns, extra) => {
+      const total = ns.length + (extra || 0);
+      if (!withKind) return 'Updated 26 Nov · ' + (total === 1 ? '1 change' : total + ' changes');
+      const nNew = ns.filter((n) => n.kind === 'new').length, nFix = ns.length - nNew + (extra || 0);
+      return 'Updated 26 Nov · ' + [nNew ? nNew + ' new' : null, nFix ? nFix + ' fixed' : null].filter(Boolean).join(' · ');
+    };
+    const groupsFor = (ns, openIdx, moreCount) => {
+      const its = ns.map((n, i) => item(n, i === openIdx));
+      if (!withKind) return { groupsClass: '', groups: [{ label: '', listClass: 'is-flow', items: its, more: moreCount ? moreCount + ' more · 6 Nov – 20 Nov' : '' }] };
+      return { groupsClass: 'h-groups', groups: [
+        { label: 'New', listClass: '', items: its.filter((n) => n.kind === 'new'), more: '' },
+        { label: 'Fixed', listClass: '', items: its.filter((n) => n.kind === 'fixed'), more: moreCount ? moreCount + ' more · 6 Nov – 20 Nov' : '' }
+      ].filter((g) => g.items.length || g.more) };
+    };
+    const mk = (s) => Object.assign({ frames, open: false, closedDismiss: true, closedError: false, chevClass: '', openStr: 'false', window: '25 – 26 Nov', groupsClass: '', groups: [] }, s);
+    const nine = groupsFor(notes, -1, 0);
+    const oneOpen = groupsFor(notes, 1, 0);
+    const many = groupsFor(notes, -1, 22);
+    const single = groupsFor([notes[8]], -1, 0);
+    const states = [
+      mk({ caption: '1 · Closed', sub: withKind ? 'At a glance: what kind of change, and how many.' : 'At a glance: how many changes.', lineLabel: countLine(notes) }),
+      mk({ caption: '2 · Open: one short title per change', sub: 'No sentences on screen. A title opens its full note in place.', lineLabel: countLine(notes), open: true, closedDismiss: false, chevClass: 'is-open', openStr: 'true', groupsClass: nine.groupsClass, groups: nine.groups }),
+      mk({ caption: '3 · One change opened', sub: 'The full note, as the cell serves it today, under its title.', lineLabel: countLine(notes), open: true, closedDismiss: false, chevClass: 'is-open', openStr: 'true', groupsClass: oneOpen.groupsClass, groups: oneOpen.groups }),
+      mk({ caption: '4 · About 30 changes', sub: 'The newest two days list their titles; older ones fold into a count. “22 more” is sample data.', lineLabel: countLine(notes, 22), open: true, closedDismiss: false, chevClass: 'is-open', openStr: 'true', window: '6 – 26 Nov', groupsClass: many.groupsClass, groups: many.groups }),
+      mk({ caption: '5 · One change', sub: 'A single release with one note.', lineLabel: withKind ? 'Updated 25 Nov · 1 new' : 'Updated 25 Nov · 1 change', open: true, closedDismiss: false, chevClass: 'is-open', openStr: 'true', window: '25 Nov', groupsClass: single.groupsClass, groups: single.groups }),
+      mk({ caption: '6 · Failed dismissal', sub: 'Saving, failure and after-dismissal behave as on the B · States boards.', lineLabel: countLine(notes), closedError: true })
+    ];
+    return { theme, themeClass: theme === 'light' ? 't-light' : 't-dark', states };
+  }
+}
+</script>
+</body>
+</html>

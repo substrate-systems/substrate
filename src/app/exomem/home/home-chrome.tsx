@@ -149,6 +149,7 @@ export function StatusBlock({
   statusLine,
   liveLine,
   activityNote = null,
+  children,
 }: {
   live: boolean;
   headline: string;
@@ -156,6 +157,8 @@ export function StatusBlock({
   liveLine: { text: string; key: string; client?: ActivityClientFamily | null } | null;
   /** Said in place of the live line when the cell could not report activity. */
   activityNote?: string | null;
+  /** A line under the status, such as What's new. */
+  children?: ReactNode;
 }) {
   return (
     <div className={styles.status}>
@@ -185,6 +188,7 @@ export function StatusBlock({
           </span>
         )}
         {!liveLine && activityNote && <span className={styles.statusLine}>{activityNote}</span>}
+        {children}
       </div>
     </div>
   );

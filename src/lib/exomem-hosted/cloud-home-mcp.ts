@@ -107,6 +107,12 @@ const ActivityPayload = z.object({
 // contract states the bare payload. Both carry the same fields.
 const ActivityAnswer = z.union([z.object({ activity: ActivityPayload }), ActivityPayload]);
 
+// One titled note. A cell lists each release's sentences in `notes`; a newer one adds
+// `items`, the same notes with a short title each. Home reads `items` when present.
+const WhatsNewItem = z
+  .object({ title: z.string().nullable(), text: z.string() })
+  .transform(({ title, text }) => ({ title: title?.trim() ? title : null, text }));
+
 // The cell's release notes: the running version and the newest 20 releases that
 // have notes, newest first. The strings are text for a person; Home renders them
 // as text only.
@@ -114,11 +120,17 @@ const WhatsNewPayload = z.object({
   version: z.string(),
   releases: z
     .array(
-      z.object({
-        version: z.string(),
-        released_on: z.iso.date(),
-        notes: z.array(z.string()),
-      })
+      z
+        .object({
+          version: z.string(),
+          released_on: z.iso.date(),
+          notes: z.array(z.string()),
+          items: z.array(WhatsNewItem).optional(),
+        })
+        .transform(({ notes, items, ...release }) => ({
+          ...release,
+          notes: items ?? notes.map((text) => ({ title: null, text })),
+        }))
     )
     .max(20),
 });

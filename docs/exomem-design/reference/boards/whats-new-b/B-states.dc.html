@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B · States</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="home.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:inherit}
+.st-board{display:flex;flex-direction:column;gap:72px;padding:48px 40px 64px;background:var(--bg-base)}
+.st-row{display:flex;flex-direction:column;gap:16px}
+.st-cap{font-family:var(--font-mono);font-size:13px;color:var(--fg-primary)}
+.st-sub{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.st-frames{display:flex;gap:80px;align-items:flex-start}
+.st-frame{border:1px dashed var(--exo-border-input);border-radius:12px;overflow:hidden}
+.st-frame .hp{min-height:0}
+.st-frame .hp-col{margin-top:28px;padding-bottom:28px;gap:24px}
+.b-update{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.b-open{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--exo-border-input);border-radius:var(--r-ctl);background:transparent;color:var(--fg-primary);font-family:var(--font-mono);font-size:12px;cursor:pointer}
+.b-drawer .hp-panel{padding:4px 20px 8px}
+.b-dhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 10px;border-bottom:1px solid var(--exo-border-card)}
+.b-dend{display:flex;align-items:center;gap:12px}
+.b-days{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:32px}
+.b-days.is-one{grid-template-columns:minmax(0,1fr)}
+.b-days .wn-day{grid-template-columns:minmax(0,1fr);gap:6px;border-top:0}
+.b-older{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 6px;border-top:1px solid var(--exo-rule)}
+.b-err{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-primary)}
+.b-working{opacity:.6;cursor:progress}
+.hp.phone .b-days{grid-template-columns:minmax(0,1fr)}
+.hp.phone .b-days .wn-day+.wn-day{border-top:1px solid var(--exo-rule)}
+.hp.phone .b-dhead{flex-wrap:wrap}
+.st-spec{max-width:900px;font-family:var(--font-mono);font-size:12px;line-height:1.7;color:var(--fg-secondary);white-space:pre-line}
+</style>
+</helmet>
+<div class="hp {{themeClass}}" data-theme="{{theme}}" style="width: 1686px">
+<div class="st-board">
+  <sc-for list="{{states}}" as="s" hint-placeholder-count="7">
+    <div class="st-row">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span class="st-cap">{{s.caption}}</span>
+        <span class="st-sub">{{s.sub}}</span>
+      </div>
+      <div class="st-frames">
+        <sc-for list="{{s.frames}}" as="f" hint-placeholder-count="2">
+          <div class="st-frame" style="width: {{f.width}}">
+            <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}">
+              <div class="hp-col">
+                <div class="hp-status">
+                  <div class="hp-tile" aria-hidden="true">E</div>
+                  <div class="hp-stext">
+                    <h1 class="hp-headline">Your memory is on</h1>
+                    <span class="hp-sline">1,200 notes</span>
+                    <span class="hp-live"><span class="hp-dot"></span>Your app saved notes · 8 h ago</span>
+                    <sc-if value="{{s.line}}" hint-placeholder-val="{{ true }}">
+                      <div class="b-update">
+                        <button class="b-open" aria-expanded="{{s.openStr}}">Updated {{s.latest}} · {{s.countLabel}} <span class="wn-chev {{s.chevClass}}" aria-hidden="true">›</span></button>
+                        <sc-if value="{{s.closedDismiss}}" hint-placeholder-val="{{ true }}">
+                          <button class="btn btn-ghost {{s.workingClass}}">{{s.dismissLabel}}</button>
+                        </sc-if>
+                      </div>
+                      <sc-if value="{{s.closedError}}" hint-placeholder-val="{{ false }}">
+                        <span class="b-err" role="alert" style="margin-top: 4px">Couldn’t save. Try Got it again.</span>
+                      </sc-if>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <sc-if value="{{s.open}}" hint-placeholder-val="{{ true }}">
+                  <section class="hp-section b-drawer" aria-label="What’s new">
+                    <div class="hp-panel">
+                      <div class="b-dhead">
+                        <span class="hp-stitle">What’s new · {{s.window}}</span>
+                        <span class="b-dend">
+                          <sc-if value="{{s.openError}}" hint-placeholder-val="{{ false }}">
+                            <span class="b-err" role="alert">Couldn’t save. Try again.</span>
+                          </sc-if>
+                          <button class="btn {{s.workingClass}}">{{s.dismissLabel}}</button>
+                        </span>
+                      </div>
+                      <ul class="wn-list b-days {{s.daysClass}}">
+                        <sc-for list="{{s.days}}" as="day" hint-placeholder-count="2">
+                          <li class="wn-day">
+                            <span class="wn-daylabel">{{day.label}}</span>
+                            <ul class="wn-notes">
+                              <sc-for list="{{day.notes}}" as="note" hint-placeholder-count="4">
+                                <li class="wn-note">{{note}}</li>
+                              </sc-for>
+                            </ul>
+                          </li>
+                        </sc-for>
+                      </ul>
+                      <sc-if value="{{s.older}}" hint-placeholder-val="{{ false }}">
+                        <div class="b-older">
+                          <span class="hp-rmeta">{{s.older.label}} · {{s.older.count}} changes</span>
+                          <button class="btn btn-ghost">Show <span class="wn-chev" aria-hidden="true" style="margin-left: 6px">›</span></button>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </section>
+                </sc-if>
+
+                <section class="hp-section">
+                  <h2 class="hp-stitle">Connected apps</h2>
+                  <div class="hp-panel"><div class="hp-row"><div class="hp-rtext"><span class="hp-rtitle">Claude</span><span class="hp-rmeta">Chat app · used 8 h ago</span></div></div></div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+
+  <div class="st-row">
+    <span class="st-cap">Motion and reduced motion</span>
+    <div class="st-spec">Open and close: the notes open to their height in place (Collapse, dur-swap 450 ms, ease-settle); the chevron turns 90°.
+Got it: the label reads “Saving…” and the button holds its width; on success the drawer closes, then the update line fades out (Swap) and the status block settles (dur-move 600 ms).
+Failure: the line or the drawer stays; one line appears in space the row already reserves, so nothing below moves.
+Reduced motion: every transition is off. Open, closed, saving and failed still read from the label, the chevron and the line.
+No amber anywhere: an update is news, not a live event. Amber stays for the live line and focus.</div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1686,"height":5200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const n26 = [
+      'Asking your assistant to move or rename a batch of pages now finishes, instead of stopping partway and repeating itself.',
+      'Your assistant can now save who spoke in a recording after the fact, and you can keep a voice from it, so later recordings name that person for you.',
+      'Your assistant can now search and read collections filled from imported exports, such as fitness or health portal exports, the same way it reads your other records.',
+      'Your record collections now stay in your assistant’s answers while another chat is saving many records at once, instead of briefly disappearing.'
+    ];
+    const n25 = [
+      'Record searches now stay fast in large vaults. While links are still being indexed, a reply can mark some links as not yet checked, or ask you to retry a search by link shortly.',
+      'What you save no longer goes into a second copy of a folder whose name differs only by capital letters, and your assistant can merge the copies so a full export can work again.',
+      'Files you upload from Home are now filed for you without asking an assistant, and each one remembers where it came from and when it was last changed.',
+      'Your assistant no longer loses your whole memory for a turn when one of your record pages is briefly unavailable. It skips that page and uses the rest.',
+      'You can now see what changed after each update, on Home and once in your assistant’s reply.'
+    ];
+    const nine = [{ label: '26 Nov', notes: n26 }, { label: '25 Nov', notes: n25 }];
+    const one = [{ label: '25 Nov', notes: [n25[4]] }];
+    const frames = [{ width: '1136px', phoneClass: '' }, { width: '390px', phoneClass: 'phone' }];
+    const base = { line: true, open: false, closedDismiss: true, closedError: false, openError: false, older: null, dismissLabel: 'Got it', workingClass: '', daysClass: '' };
+    const mk = (s) => {
+      const o = Object.assign({}, base, s);
+      const count = (o.days || []).reduce((n, d) => n + d.notes.length, 0) + (o.older ? o.older.count : 0);
+      o.countLabel = count === 1 ? '1 change' : count + ' changes';
+      o.latest = o.days ? o.days[0].label : '';
+      o.window = o.older ? o.older.first + ' – ' + o.latest : (o.days && o.days.length > 1 ? o.days[o.days.length - 1].label + ' – ' + o.latest : o.latest);
+      o.chevClass = o.open ? 'is-open' : '';
+      o.openStr = o.open ? 'true' : 'false';
+      if (o.open) o.closedDismiss = false;
+      o.frames = frames;
+      return o;
+    };
+    const states = [
+      mk({ caption: '1 · One note, closed', sub: 'One release, one sentence.', days: one }),
+      mk({ caption: '1b · One note, open', sub: 'The single day takes the full width.', days: one, open: true, daysClass: 'is-one' }),
+      mk({ caption: '2 · Nine notes, closed', sub: 'The default view an owner sees after the 25–26 Nov releases.', days: nine }),
+      mk({ caption: '2b · Nine notes, open', sub: 'One group per day, not per release. Newest day first.', days: nine, open: true }),
+      mk({ caption: '3 · About 30 notes over 8 releases, open', sub: 'The newest two days show in full; older days fold into one count that opens in place.', days: nine, open: true, older: { label: '6 Nov – 20 Nov', first: '6 Nov', count: 22 } }),
+      mk({ caption: '4 · Dismissing', sub: 'Got it reads Saving… and holds its width until the cell answers.', days: nine, open: true, dismissLabel: 'Saving…', workingClass: 'b-working' }),
+      mk({ caption: '5 · Failed dismissal, open', sub: 'The drawer stays. One line says what failed and what to do.', days: nine, open: true, openError: true }),
+      mk({ caption: '5b · Failed dismissal, closed', sub: 'Dismissed from the closed line: the line stays with the same message under it.', days: nine, closedError: true }),
+      mk({ caption: '6 · After a dismissal', sub: 'Home as it is when nothing is new. The update line returns only after a newer release.', days: nine, line: false })
+    ];
+    return { theme, themeClass: theme === 'light' ? 't-light' : 't-dark', states };
+  }
+}
+</script>
+</body>
+</html>

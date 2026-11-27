@@ -5,7 +5,7 @@ import { isReleaseVersion, selectWhatsNew, type WhatsNewRelease } from "../cloud
 const release = (version: string, released_on: string, ...notes: string[]): WhatsNewRelease => ({
   version,
   released_on,
-  notes,
+  notes: notes.map((text) => ({ title: null, text })),
 });
 const versions = (releases: WhatsNewRelease[]) => releases.map((entry) => entry.version);
 

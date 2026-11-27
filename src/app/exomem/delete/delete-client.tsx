@@ -16,8 +16,9 @@ import { SourceOffer } from "@/components/exomem/SourceOffer";
 
 type State = "checking" | "ready" | "deleting" | "pending" | "error";
 
-// The page the deletion email opens. No board draws it: it keeps the current page's
-// words and steps, set in the Exomem system.
+// The page the deletion email opens (Home fixes board, row 3): Home's frame under the
+// deletion email's "gone" band, so the page and the email look alike, what is removed and what is kept as two labelled rows, and the same
+// one-time confirmation.
 export default function DeleteClient() {
   const startedRef = useRef(false);
   const tokenRef = useRef<string | null>(null);
@@ -59,7 +60,8 @@ export default function DeleteClient() {
 
   return (
     <>
-      <header className={home.header}>
+      <div className={styles.band} aria-hidden="true" />
+      <header className={`${home.header} ${home.homeHeader}`}>
         <span className={home.wordmark}>
           <Wordmark />
         </span>
@@ -73,22 +75,34 @@ export default function DeleteClient() {
           Delete your Evermatter?
         </h1>
         {state === "pending" ? (
-          <>
-            <p className={styles.text}>
-              Deletion is in progress. Access is closed while the vault, its backups and exports,
-              storage, and encryption keys are verified as removed.
-            </p>
-            <p className={styles.status} role="status">
-              Your shared Substrate identity and any other product remain untouched.
-            </p>
-          </>
+          <div role="status">
+            <dl className={`${home.panel} ${styles.facts}`}>
+              <div className={styles.fact}>
+                <dt>Now</dt>
+                <dd>
+                  Deletion is in progress. Access is closed while the vault, its backups and
+                  exports, storage, and encryption keys are verified as removed.
+                </dd>
+              </div>
+              <div className={styles.fact}>
+                <dt>Kept</dt>
+                <dd>Your shared Substrate identity and any other product remain untouched.</dd>
+              </div>
+            </dl>
+          </div>
         ) : (
           <>
-            <p className={styles.text}>
-              This permanently removes your Cloud memory vault, its files, exports, and encryption
-              keys. It does not delete your shared Substrate identity or unrelated products.
-            </p>
-            <div>
+            <dl className={`${home.panel} ${styles.facts}`}>
+              <div className={styles.fact}>
+                <dt>Removed</dt>
+                <dd>Your Cloud memory vault, its files, exports, and encryption keys</dd>
+              </div>
+              <div className={styles.fact}>
+                <dt>Kept</dt>
+                <dd>Your shared Substrate identity and unrelated products</dd>
+              </div>
+            </dl>
+            <div className={styles.actions}>
               <Button
                 variant="primary"
                 size="page"
@@ -98,6 +112,9 @@ export default function DeleteClient() {
               >
                 {state === "deleting" ? "Starting deletion…" : "Permanently delete my Evermatter"}
               </Button>
+              <a className={styles.keep} href="/exomem/home">
+                Keep my Evermatter
+              </a>
             </div>
             <p
               className={styles.status}

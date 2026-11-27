@@ -17,6 +17,8 @@ import {
   exportView,
   homeMode,
   keepLiveRead,
+  appContextOptions,
+  appsByContext,
   levelsView,
   liveLine,
   lostRead,
@@ -271,7 +273,8 @@ describe("the live line and the note count", () => {
       NOW
     );
     assert.equal(liveLine(facts, [], NONE, clock)?.text, "Your app saved notes · 1 minute ago");
-    assert.equal(statusCopy("on", false, facts, clock, false).statusLine, "Last saved 1 minute ago");
+    // The live line carries the save, so the status line has nothing left to say.
+    assert.equal(statusCopy("on", false, facts, clock, true).statusLine, null);
   });
 
   it("names the exact grant when two apps share a provider, without guessing a disconnected actor", () => {
@@ -321,7 +324,7 @@ describe("the live line and the note count", () => {
     const facts = activityFacts(activity({ events: [] }), NOW);
     assert.equal(
       liveLine(facts, [], NONE, clock)?.text,
-      "No assistant activity since 12 Oct, 08:00"
+      "On since 12 Oct, 08:00 · no assistant activity yet"
     );
   });
 });
@@ -917,6 +920,39 @@ describe("involvement levels", () => {
   it("leaves the section out while the Home channel is not released", () => {
     assert.deepEqual(levelsView("not_released"), { state: "hidden" });
   });
+
+  it("names on each app row the level that each kind of app gets, or only the kind when unknown", () => {
+    const view = levelsView({
+      state: "live",
+      revision: "7",
+      writable: true,
+      locked_by: null,
+      levels: {
+        coding: { level: "light", source: "env" },
+        conversation: { level: "balanced", source: "default" },
+      },
+    });
+    assert.deepEqual(appContextOptions(view), [
+      { value: "conversation", level: "Balanced", label: "Balanced, as a chat app" },
+      { value: "coding", level: "Light", label: "Light, as a coding agent" },
+    ]);
+    assert.deepEqual(
+      appContextOptions(levelsView(null)).map((option) => option.label),
+      ["As a chat app", "As a coding agent"]
+    );
+  });
+
+  it("lists under each level the connected apps it applies to, not a disconnected one", () => {
+    const apps = [
+      app({ id: "a", displayName: "Claude", context: "conversation" }),
+      app({ id: "b", displayName: "Claude Code", context: "coding" }),
+      app({ id: "c", displayName: "ChatGPT", context: "conversation" }),
+    ];
+    assert.deepEqual(appsByContext(apps, new Set(["c"])), {
+      conversation: ["Claude"],
+      coding: ["Claude Code"],
+    });
+  });
 });
 
 describe("the deletion link's lifetime", () => {
@@ -962,24 +998,85 @@ describe("a connected app's name", () => {
 });
 
 describe("what's new", () => {
-  const live = (releases: { version: string; released_on: string; notes: string[] }[]) =>
+  type Note = { title: string | null; text: string };
+  const live = (releases: { version: string; released_on: string; notes: Note[] }[]) =>
     ({ state: "live", version: "1.3.0", releases }) as const;
+  const note = (text: string, title: string | null = null): Note => ({ title, text });
 
-  it("labels each release by its date, with the year only when it is not this one", () => {
+  it("lists every change by title, newest day first, keeping a note without a title", () => {
     const view = whatsNewView(
       live([
-        { version: "1.3.0", released_on: "2026-10-09", notes: ["Search finds more."] },
-        { version: "1.2.0", released_on: "2025-12-30", notes: ["Faster saves."] },
+        {
+          version: "1.3.0",
+          released_on: "2026-10-09",
+          notes: [note("Search finds more.", "Better search")],
+        },
+        { version: "1.2.1", released_on: "2026-10-09", notes: [note("Saves no longer stall.")] },
+        {
+          version: "1.2.0",
+          released_on: "2026-10-08",
+          notes: [note("Faster saves.", "Faster saves"), note("Fewer retries.", "Fewer retries")],
+        },
       ]),
       clock
     );
-    assert.deepEqual(view, {
-      version: "1.3.0",
-      releases: [
-        { key: "1.3.0", label: "9 Oct", notes: ["Search finds more."] },
-        { key: "1.2.0", label: "30 Dec 2025", notes: ["Faster saves."] },
-      ],
-    });
+    assert.equal(view?.line, "Updated 9 Oct · 4 changes");
+    assert.equal(view?.title, "What’s new · 8 – 9 Oct");
+    assert.deepEqual(
+      view?.items.map(({ title, text }) => ({ title, text })),
+      [
+        { title: "Better search", text: "Search finds more." },
+        { title: null, text: "Saves no longer stall." },
+        { title: "Faster saves", text: "Faster saves." },
+        { title: "Fewer retries", text: "Fewer retries." },
+      ]
+    );
+    assert.equal(new Set(view?.items.map((item) => item.key)).size, 4);
+    assert.equal(view?.older, null);
+  });
+
+  it("folds every day after the newest two into one row that counts its changes", () => {
+    const view = whatsNewView(
+      live([
+        { version: "1.4.0", released_on: "2026-10-09", notes: [note("A.", "A")] },
+        { version: "1.3.0", released_on: "2026-10-05", notes: [note("B.", "B")] },
+        { version: "1.2.0", released_on: "2026-10-01", notes: [note("C.", "C"), note("D.", "D")] },
+        { version: "1.1.0", released_on: "2025-12-30", notes: [note("E.", "E")] },
+      ]),
+      clock
+    );
+    assert.deepEqual(
+      view?.items.map((item) => item.title),
+      ["A", "B"]
+    );
+    // An older year names its year.
+    assert.equal(view?.older?.label, "3 more · 30 Dec 2025 – 1 Oct");
+    assert.deepEqual(
+      view?.older?.items.map((item) => item.title),
+      ["C", "D", "E"]
+    );
+    assert.equal(view?.line, "Updated 9 Oct · 5 changes");
+  });
+
+  it("orders days by date, so a backported release cannot turn the range around", () => {
+    const view = whatsNewView(
+      live([
+        { version: "1.3.0", released_on: "2026-10-05", notes: [note("A.")] },
+        { version: "1.2.1", released_on: "2026-10-09", notes: [note("B.")] },
+      ]),
+      clock
+    );
+    assert.equal(view?.line, "Updated 9 Oct · 2 changes");
+    assert.equal(view?.title, "What’s new · 5 – 9 Oct");
+  });
+
+  it("says one change, and names a single day once", () => {
+    const view = whatsNewView(
+      live([{ version: "1.3.0", released_on: "2026-10-09", notes: [note("Search finds more.")] }]),
+      clock
+    );
+    assert.equal(view?.line, "Updated 9 Oct · 1 change");
+    assert.equal(view?.title, "What’s new · 9 Oct");
   });
 
   it("draws no section before the read, while unreleased, when unavailable, or with no release", () => {

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home fixes</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="home.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:inherit}
+.st-board{display:flex;flex-direction:column;gap:72px;padding:48px 40px 64px;background:var(--bg-base)}
+.st-row{display:flex;flex-direction:column;gap:16px}
+.st-cap{font-family:var(--font-mono);font-size:13px;color:var(--fg-primary)}
+.st-sub{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted);max-width:900px}
+.st-frames{display:flex;gap:80px;align-items:flex-start;flex-wrap:wrap}
+.st-frame{border:1px dashed var(--exo-border-input);border-radius:12px;overflow:hidden}
+.st-frame .hp{min-height:0}
+.st-frame .hp-col{margin-top:28px;padding-bottom:28px;gap:24px}
+.st-tag{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted);padding:10px 14px 0}
+.ll-old{text-decoration:line-through;text-decoration-color:var(--fg-muted)}
+.lv-ctl{display:flex;align-items:center;gap:8px}
+.lv-label{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted)}
+.lv-select{height:32px;padding:0 28px 0 10px;border:1px solid var(--exo-border-input);border-radius:var(--r-ctl);background:var(--bg-panel);color:var(--fg-primary);font-family:var(--font-mono);font-size:12px;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--fg-muted) 50%),linear-gradient(135deg,var(--fg-muted) 50%,transparent 50%);background-position:calc(100% - 14px) 14px,calc(100% - 10px) 14px;background-size:4px 4px;background-repeat:no-repeat}
+.lv-select:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg-panel),0 0 0 4px var(--exo-amber),0 0 0 7px var(--exo-focus-ring)}
+.lv-seg{display:inline-flex;border:1px solid var(--exo-border-input);border-radius:var(--r-ctl);overflow:hidden}
+.lv-seg span{padding:6px 10px;font-family:var(--font-mono);font-size:12px;color:var(--fg-secondary)}
+.lv-seg span.is-on{background:var(--bg-hover);color:var(--fg-primary)}
+.hp-row .actions{display:flex;align-items:center;gap:10px;flex:none}
+.hp.phone .hp-row{flex-wrap:wrap}
+.del-band{position:absolute;top:0;left:0;width:100%;height:auto;pointer-events:none;display:block}
+.del-col{width:560px;max-width:calc(100% - 32px);margin:56px auto 0;display:flex;flex-direction:column;gap:18px;padding-bottom:56px}
+.del-kicker{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
+.del-facts{display:flex;flex-direction:column}
+.del-fact{display:grid;grid-template-columns:72px minmax(0,1fr);gap:14px;padding:13px 0;border-bottom:1px solid var(--exo-border-card)}
+.del-fact:last-child{border-bottom:0}
+.del-k{font-family:var(--font-mono);font-size:11.5px;color:var(--fg-muted);line-height:21px}
+.del-v{font-size:14px;line-height:1.5}
+.del-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.del-btn{height:46px;padding:0 20px;border:0;border-radius:var(--r-field);background:var(--fg-primary);color:var(--bg-base);font-family:var(--font-mono);font-size:13.5px;font-weight:500;cursor:pointer}
+.del-btn.is-working{opacity:.7;cursor:progress}
+.del-btn:disabled{opacity:.4;cursor:default}
+.del-status{min-height:20px;font-family:var(--font-mono);font-size:12px;color:var(--fg-secondary)}
+.del-status.is-error{color:var(--fg-primary)}
+.hp.phone .del-col{margin-top:28px}
+.hp.phone .del-fact{grid-template-columns:minmax(0,1fr);gap:2px}
+</style>
+</helmet>
+<div class="hp {{themeClass}}" data-theme="{{theme}}" style="width: 1686px">
+<div class="st-board">
+
+  <div class="st-row">
+    <span class="st-cap">1 · Live line with no recorded use</span>
+    <span class="st-sub">The time is when your Evermatter started recording, not a past activity. Leading with “On since” makes it the start of a window, matching “Your memory is on”.</span>
+    <div class="st-frames">
+      <sc-for list="{{frames}}" as="f" hint-placeholder-count="2">
+        <div class="st-frame" style="width: {{f.width}}">
+          <div class="st-tag">Today</div>
+          <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}">
+            <div class="hp-col" style="margin-top: 12px; padding-bottom: 16px">
+              <div class="hp-status"><div class="hp-tile" aria-hidden="true">E</div><div class="hp-stext"><h1 class="hp-headline">Your memory is on</h1><span class="hp-sline">1,200 notes</span><span class="hp-live"><span class="hp-dot"></span><span class="ll-old">No assistant activity since 27 Nov, 04:02</span></span></div></div>
+            </div>
+          </div>
+          <div class="st-tag">Proposed</div>
+          <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}">
+            <div class="hp-col" style="margin-top: 12px">
+              <div class="hp-status"><div class="hp-tile" aria-hidden="true">E</div><div class="hp-stext"><h1 class="hp-headline">Your memory is on</h1><span class="hp-sline">1,200 notes</span><span class="hp-live"><span class="hp-dot"></span>On since 27 Nov, 04:02 · no assistant activity yet</span></div></div>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="st-row">
+    <span class="st-cap">2 · Connected apps: the detected level is a value; changing it is the exception</span>
+    <span class="st-sub">Evermatter already detects each app’s kind when it connects (an app on your own machine is a coding agent, every other app a chat app). So the row shows the level that kind gets, and the override hides behind “Change”, for the rare app detection gets wrong. Each level row names its apps.</span>
+    <div class="st-frames">
+      <sc-for list="{{appFrames}}" as="f" hint-placeholder-count="3">
+        <div class="st-frame" style="width: {{f.width}}">
+          <div class="st-tag">{{f.tag}}</div>
+          <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}">
+            <div class="hp-col" style="margin-top: 12px">
+              <section class="hp-section">
+                <h2 class="hp-stitle">Connected apps</h2>
+                <div class="hp-panel">
+                  <div class="hp-row">
+                    <div class="hp-rtext"><span class="hp-rtitle">Claude</span><span class="hp-rmeta" role="{{f.errRole}}">{{f.claudeMeta}}</span></div>
+                    <span class="actions">
+                      <sc-if value="{{f.changing}}" hint-placeholder-val="{{ false }}">
+                        <label class="lv-ctl"><span class="lv-label">Joins in</span>
+                          <select class="lv-select" aria-label="How much Evermatter joins in for Claude"><option>Balanced, as a chat app</option><option>Light, as a coding agent</option></select>
+                        </label>
+                      </sc-if>
+                      <sc-if value="{{f.notChanging}}" hint-placeholder-val="{{ true }}">
+                        <button class="btn btn-ghost" aria-label="Change how much Evermatter joins in for Claude">Change</button>
+                      </sc-if>
+                      <button class="btn btn-ghost">Disconnect</button>
+                    </span>
+                  </div>
+                  <div class="hp-row">
+                    <div class="hp-rtext"><span class="hp-rtitle">Claude Code</span><span class="hp-rmeta">used 2 d ago · joins in: Light</span></div>
+                    <span class="actions">
+                      <button class="btn btn-ghost" aria-label="Change how much Evermatter joins in for Claude Code">Change</button>
+                      <button class="btn btn-ghost">Disconnect</button>
+                    </span>
+                  </div>
+                </div>
+              </section>
+              <section class="hp-section">
+                <h2 class="hp-stitle">How much Evermatter joins in</h2>
+                <div class="hp-panel">
+                  <div class="hp-row">
+                    <div class="hp-rtext"><span class="hp-rtitle">Chat apps</span><span class="hp-rmeta">Claude</span></div>
+                    <span class="lv-seg" aria-hidden="true"><span>Off</span><span>Light</span><span class="is-on">Balanced</span><span>Maximal</span></span>
+                  </div>
+                  <div class="hp-row">
+                    <div class="hp-rtext"><span class="hp-rtitle">Coding agents</span><span class="hp-rmeta">Claude Code</span></div>
+                    <span class="lv-seg" aria-hidden="true"><span>Off</span><span class="is-on">Light</span><span>Balanced</span><span>Maximal</span></span>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div class="st-row">
+    <span class="st-cap">3 · Delete your Evermatter</span>
+    <span class="st-sub">Same words and the same one-time confirmation. The paragraph becomes two labelled facts, the page sits in Home’s frame, and “Keep my Evermatter” returns to Home. The band is the deletion email’s “gone” web (public/evermatter/email/band-gone-dark.png and -light.png), the same image the email uses, so the page and the email tell one story: a web whose connections are gone. It stays still; nothing on this page moves.</span>
+    <div class="st-frames">
+      <sc-for list="{{delFrames}}" as="f" hint-placeholder-count="4">
+        <div class="st-frame" style="width: {{f.width}}">
+          <div class="st-tag">{{f.tag}}</div>
+          <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}" style="position: relative">
+            <sc-if value="{{isDark}}" hint-placeholder-val="{{ true }}"><img class="del-band" src="/evermatter/email/band-gone-dark.png" alt="" aria-hidden="true"></sc-if>
+            <sc-if value="{{isLight}}" hint-placeholder-val="{{ false }}"><img class="del-band" src="/evermatter/email/band-gone-light.png" alt="" aria-hidden="true"></sc-if>
+            <header class="hp-head"><span class="hp-word">evermatter</span><span class="hp-acct">◐</span></header>
+            <section class="del-col" aria-labelledby="del-title">
+              <span class="del-kicker">Permanent action</span>
+              <h1 class="hp-headline" id="del-title">Delete your Evermatter?</h1>
+              <sc-if value="{{f.pending}}" hint-placeholder-val="{{ false }}">
+                <div class="hp-panel"><div class="del-facts">
+                  <div class="del-fact"><span class="del-k">Now</span><span class="del-v">Deletion is in progress. Access is closed while the vault, its backups and exports, storage, and encryption keys are verified as removed.</span></div>
+                  <div class="del-fact"><span class="del-k">Kept</span><span class="del-v">Your shared Substrate identity and any other product remain untouched.</span></div>
+                </div></div>
+              </sc-if>
+              <sc-if value="{{f.notPending}}" hint-placeholder-val="{{ true }}">
+                <div class="hp-panel"><div class="del-facts">
+                  <div class="del-fact"><span class="del-k">Removed</span><span class="del-v">Your Cloud memory vault, its files, exports, and encryption keys</span></div>
+                  <div class="del-fact"><span class="del-k">Kept</span><span class="del-v">Your shared Substrate identity and unrelated products</span></div>
+                </div></div>
+                <div class="del-actions">
+                  <button class="del-btn {{f.btnClass}}" disabled="{{f.disabled}}">{{f.btnLabel}}</button>
+                  <a class="hp-link" href="#">Keep my Evermatter</a>
+                </div>
+                <span class="del-status {{f.statusClass}}" role="{{f.statusRole}}">{{f.status}}</span>
+              </sc-if>
+            </section>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1686,"height":3700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const theme = this.props.theme ?? 'dark';
+    const frames = [{ width: '1136px', phoneClass: '' }, { width: '390px', phoneClass: 'phone' }];
+    const appFrames = [
+      { width: '760px', phoneClass: '', tag: 'Detected, at rest', claudeMeta: 'used 8 h ago · joins in: Balanced', errRole: '', changing: false, notChanging: true },
+      { width: '760px', phoneClass: '', tag: 'Change opened', claudeMeta: 'used 8 h ago · joins in: Balanced', errRole: '', changing: true, notChanging: false },
+      { width: '760px', phoneClass: '', tag: 'Save failed', claudeMeta: 'That didn’t save. Try again in a minute.', errRole: 'alert', changing: true, notChanging: false },
+      { width: '390px', phoneClass: 'phone', tag: 'Phone', claudeMeta: 'used 8 h ago · joins in: Balanced', errRole: '', changing: false, notChanging: true }
+    ];
+    const d = (o) => Object.assign({ width: '760px', phoneClass: '', pending: false, notPending: true, btnClass: '', disabled: false, btnLabel: 'Permanently delete my Evermatter', status: 'There is no undo after you confirm.', statusClass: '', statusRole: '' }, o);
+    const delFrames = [
+      d({ tag: 'Ready' }),
+      d({ tag: 'Checking', disabled: true, status: 'Checking this one-time confirmation…' }),
+      d({ tag: 'Deleting', btnClass: 'is-working', btnLabel: 'Starting deletion…' }),
+      d({ tag: 'Link expired', disabled: true, status: 'This deletion link is incomplete or has expired.', statusClass: 'is-error', statusRole: 'alert' }),
+      d({ tag: 'In progress', pending: true, notPending: false }),
+      d({ tag: 'Phone', width: '390px', phoneClass: 'phone' })
+    ];
+    return { theme, themeClass: theme === 'light' ? 't-light' : 't-dark', isDark: theme !== 'light', isLight: theme === 'light', frames, appFrames, delFrames };
+  }
+}
+</script>
+</body>
+</html>

@@ -11,11 +11,14 @@ const OPTIONS = INVOLVEMENT_LEVELS.map((level) => ({ value: level.key, label: le
 
 export function InvolvementLevels({
   view,
+  appNames,
   pending,
   message,
   onChange,
 }: {
   view: LevelsView;
+  /** The connected apps each level applies to. */
+  appNames: Record<LevelContext, string[]>;
   /** The context whose write is in flight. */
   pending: LevelContext | null;
   /** What the last refused write means, until the next change. */
@@ -39,7 +42,13 @@ export function InvolvementLevels({
               <div className={styles.rowText}>
                 <span className={styles.levelTitle}>
                   <span className={styles.rowTitle}>{row.title}</span>
-                  {row.isDefault && <span className={styles.levelMeta}>default</span>}
+                  {(row.isDefault || appNames[row.context].length > 0) && (
+                    <span className={styles.levelMeta}>
+                      {[row.isDefault && "default", appNames[row.context].join(", ")]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
                 </span>
                 <span className={styles.levelDescription}>
                   {involvementLevel(row.level).description}
