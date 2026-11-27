@@ -91,10 +91,10 @@ export default function ExomemDocsPage() {
       </p>
       <ol>
         <li>
-          Run <code>/plugin marketplace add substrate-systems/evermatter</code>.
+          Run <code>/plugin marketplace add substrate-systems/evermatter-plugins</code>.
         </li>
         <li>
-          Run <code>/plugin install exomem-cloud@exomem</code>.
+          Run <code>/plugin install evermatter@evermatter</code>.
         </li>
         <li>
           Run <code>/mcp</code>, select <code>exomem</code>, and sign in.
