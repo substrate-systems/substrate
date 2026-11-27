@@ -25,8 +25,8 @@ test("a chart that names every required setting with the product prefix passes t
   assert.equal(environment.EVERMATTER_PUBLIC_BASE_URL, undefined);
 });
 
-// Startup renames the setting before readiness pairs each MCP host with its issuer.
-test("readiness pairs an MCP host under the product site only once the product site setting is set", () => {
+// Startup renames the setting before its check pairs each MCP host with its issuer.
+test("the startup check pairs an MCP host under the product site only once the product site setting is set", () => {
   const withNewHost = {
     ...REQUIRED_UNDER_PRODUCT_PREFIX,
     EVERMATTER_CLOUD_MCP_URLS: "https://mcp.example.test/mcp,https://mcp.product.example.test/mcp",

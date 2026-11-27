@@ -419,8 +419,8 @@ export function buildCloudProtectedResourceMetadata(
 ): Record<string, unknown> {
   const resource = cloudResourceForHost(config, host);
   const base = exomemPublicBaseUrlFromEnv();
-  // Each MCP host names the issuer of the app origin it sits under; readiness refuses a host that
-  // sits under none (validateGatewayEnvironment), so the base is only a type-level fallback.
+  // Each MCP host names the issuer of the app origin it sits under; the startup check refuses a
+  // host that sits under none (validateGatewayEnvironment), so the base is a type-level fallback.
   const issuerOrigin = cloudIssuerOrigin(resource, appOrigins(base)) ?? base;
   return {
     resource,

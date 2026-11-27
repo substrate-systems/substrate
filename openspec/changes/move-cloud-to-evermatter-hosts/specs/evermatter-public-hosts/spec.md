@@ -3,7 +3,9 @@
 ### Requirement: Existing connections survive the host move
 
 A token issued before the new host exists SHALL keep working at the host it was issued for,
-and its refresh SHALL keep succeeding. No client SHALL have to reconnect because of the move.
+and its refresh SHALL keep succeeding. No connection made on the old host SHALL have to sign in
+again because of the move. A client whose configured MCP URL changes to the new host
+makes a new connection, which signs in once; that is not a reconnect of the existing one.
 
 #### Scenario: An existing client keeps calling the old host
 
@@ -130,7 +132,7 @@ base origin on any other host.
 
 The protected-resource metadata of each accepted MCP host SHALL name the issuer of the app origin
 whose host it is or sits under, whatever the sign-in state and the gateway's base URL. The
-gateway SHALL refuse to report ready while an accepted MCP host sits under no app origin.
+gateway SHALL refuse to start while an accepted MCP host sits under no app origin.
 
 #### Scenario: The old MCP host
 
@@ -145,7 +147,7 @@ gateway SHALL refuse to report ready while an accepted MCP host sits under no ap
 #### Scenario: A new MCP host without the product site setting
 
 - **WHEN** the gateway's `EXOMEM_CLOUD_MCP_URLS` lists `https://mcp.evermatter.ai/mcp` and the gateway lacks `EVERMATTER_SITE_ORIGIN`
-- **THEN** the gateway readiness check fails and names that resource
+- **THEN** the gateway's startup check throws and names that resource, and the gateway does not start
 
 ### Requirement: Tool replies link Home on the product site
 

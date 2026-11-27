@@ -16,7 +16,7 @@
 - [x] 2.4 Serve the app pages at the root of `evermatter.ai` once it is the app origin, redirect their `/exomem/` addresses there with a 308, and build every outgoing app link in that form.
 - [x] 2.5 Keep checkout and OAuth discovery working through the switch: a resumed checkout accepts Home under either app origin, and each app host's authorization-server metadata names its own issuer.
 - [x] 2.6 Accept a start-form Turnstile token made on any app host, and refuse one made on any other host.
-- [x] 2.7 Name each MCP host's own issuer in the gateway's protected-resource metadata, refuse gateway readiness for an MCP host under no app origin, and link Home in tool replies on the product site.
+- [x] 2.7 Name each MCP host's own issuer in the gateway's protected-resource metadata, make the gateway's startup check refuse an MCP host under no app origin, and link Home in tool replies on the product site.
 
 ## 3. Email
 
@@ -28,14 +28,17 @@
 - [x] 4.1 Add DNS, TLS and ingress for `mcp.evermatter.ai`. Live 2026-11-27 through platform chart revision 118 (16:13Z); TLS on both MCP hosts verified at 16:16Z.
 - [x] 4.6 Add `evermatter.ai` and `www.evermatter.ai` to the website project. Live since 2026-11-25.
 - [x] 4.7 Set `EVERMATTER_SITE_ORIGIN` to `https://evermatter.ai` on the web app (migration step 5). Live: `https://substratesystems.io/exomem/docs` returns a 308 to `https://evermatter.ai/docs`.
-- [x] 4.2 Configure the accepted-resource set on the web app and the gateway together. Live 2026-11-27: `EXOMEM_CLOUD_MCP_URLS` lists the old URL, then the new one, on the web app (redeployed 12:45Z) and on the gateway (chart revision 118, 16:13Z). Putting the new URL first, as migration step 3 states, waits for 4.8.
+- [x] 4.2 Configure the accepted-resource set on the web app and the gateway together. Live 2026-11-27: `EXOMEM_CLOUD_MCP_URLS` lists the old URL, then the new one, on the web app (redeployed 12:45Z) and on the gateway (chart revision 118, 16:13Z). Putting the new URL first is task 4.9.
 - [ ] 4.3 Prove an existing connection at the old host and a new connection at the new host; record both. Infrastructure half done 2026-11-27 16:16Z: both MCP hosts serve TLS, their own protected-resource metadata and the 401 challenge. Open: a real signed-in new connection on `mcp.evermatter.ai`, after 4.8.
-- [ ] 4.8 Operator grant: deploy each MCP host's own issuer (task 2.7, migration steps 6 and 7) in this order.
+- [ ] 4.8 Operator grant: deploy each MCP host's own issuer (task 2.7, migration steps 6 and 7). This task precedes any client release, setup offer or service notice that points clients at `https://mcp.evermatter.ai/mcp`, including the Cloud plugin's address change in the product repository (`rename-agent-surfaces-to-evermatter` task 3.4, Release C2). Once this change merges, the next gateway image for any reason is step 5.
   1. Deploy the web app with tasks 2.5 to 2.7.
-  2. Build the gateway image from that commit or a later one.
-  3. Roll the platform chart with the new image and `EVERMATTER_SITE_ORIGIN` set to `https://evermatter.ai` on the gateway. The gateway reports ready.
-  4. Fetch the protected-resource metadata on each MCP host. `exomem.substratesystems.io` names `https://substratesystems.io/api/exomem/oauth`, and `mcp.evermatter.ai` names `https://evermatter.ai/api/exomem/oauth`.
-- [ ] 4.4 Operator grant: move sign-in on the web app only (migration step 8). The switch is its own deploy after the web deploy of tasks 2.5 and 2.6, so Vercel Instant Rollback lands on a build that carries them. The gateway keeps `EXOMEM_PUBLIC_BASE_URL` on `https://substratesystems.io`. Every prerequisite holds before the switch: TLS on `evermatter.ai` (4.6), `EVERMATTER_SITE_ORIGIN` on the web app (4.7), tasks 2.5 and 2.6 deployed, and steps 1 to 4 below done. The step does not wait for 3.2, 4.3 or 4.8.
+  2. Fetch `https://evermatter.ai/.well-known/oauth-authorization-server/api/exomem/oauth`. Its issuer is `https://evermatter.ai/api/exomem/oauth`.
+  3. Roll the platform chart with the current gateway image and `EVERMATTER_SITE_ORIGIN` set to `https://evermatter.ai` on the gateway. Confirm that it equals the web app's `EVERMATTER_SITE_ORIGIN`. The live image never reads it, so nothing changes.
+  4. Count the token families whose resource is `https://mcp.evermatter.ai/mcp`, a read of the control database under the operator's production grant. The count is 0. If it is not, those connections sign in once after step 5, and the service notice (4.5) says so.
+  5. Roll the chart again with only the new gateway image, built from step 1's commit or a later one. The rollout completes. If the startup check throws, RollingUpdate keeps the old pods serving and the rollout stalls; roll back this roll alone.
+  6. Fetch the protected-resource metadata on each MCP host, then the authorization-server metadata under each issuer it names. `exomem.substratesystems.io` names `https://substratesystems.io/api/exomem/oauth`, `mcp.evermatter.ai` names `https://evermatter.ai/api/exomem/oauth`, and each issuer's metadata names that same issuer.
+- [ ] 4.9 Operator grant: after 4.8 step 6, and never before it, set `EXOMEM_CLOUD_MCP_URLS` to the new URL first, then the old URL (migration step 3). Redeploy the web app first, then roll the gateway chart with the same list. The setup page then offers `https://mcp.evermatter.ai/mcp`, and a new connection gets it.
+- [ ] 4.4 Operator grant: move sign-in on the web app only (migration step 8). The switch is its own deploy after the web deploy of tasks 2.5 and 2.6, so Vercel Instant Rollback lands on a build that carries them. The gateway keeps `EXOMEM_PUBLIC_BASE_URL` on `https://substratesystems.io`. Every prerequisite holds before the switch: TLS on `evermatter.ai` (4.6), `EVERMATTER_SITE_ORIGIN` on the web app (4.7), tasks 2.5 and 2.6 deployed, and steps 1 to 4 below done. Start steps 1 to 4 now and in parallel: none needs a deploy. The switch does not wait for 3.2, 4.3, 4.8 or 4.9.
   1. Add `evermatter.ai` to the Turnstile widget's hostnames, and confirm that Cloudflare lists it.
   2. Request `evermatter.ai` as a checkout domain in Paddle, live and sandbox. Wait until Paddle reports both approved; live approval is a review that can take days.
   3. If the account-level default payment link names `https://substratesystems.io/exomem/home`, change it to `https://evermatter.ai/home`. Keep any other value.
