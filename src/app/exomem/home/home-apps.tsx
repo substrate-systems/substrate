@@ -124,7 +124,8 @@ function AppRow({
   }, [off, confirming]);
 
   let meta = appMeta(app, clock, reviewer, served);
-  if (level) meta = `${meta} · joins in: ${level}`;
+  // Non-breaking spaces keep "joins in: Balanced" on one line when the meta wraps.
+  if (level) meta = `${meta} · joins\u00a0in:\u00a0${level}`;
   if (ended)
     meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
@@ -193,10 +194,12 @@ function AppRow({
               <span className={styles.joinsInLabel}>Joins in</span>
               <select
                 className={styles.joinsInSelect}
-              // "Change" leaves the row as it opens the choice, so focus moves to the choice.
-              autoFocus
+                // "Change" leaves the row as it opens the choice, so focus moves to the choice.
+                autoFocus
                 aria-label={`How much Evermatter joins in for ${app.displayName}`}
                 value={app.context}
+                // Leaving the choice without a new pick closes it again.
+                onBlur={() => setChanging(false)}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
                   const next = contextOptions.find((option) => option.value === value);
