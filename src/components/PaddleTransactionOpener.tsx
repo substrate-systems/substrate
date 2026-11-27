@@ -3,9 +3,9 @@
 import { type ComponentType, useCallback, useEffect, useRef, useState } from "react";
 import { postPrivateJson, settledCheckoutDestination } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddle } from "@/lib/paddle";
+import { PADDLE_TRANSACTION_ID } from "@/lib/paddle-transaction-id";
 import { AnalyticsEvent, capture } from "@/lib/analytics";
 
-const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
 export const PENDING_TRANSACTION_KEY = "exomem:paddle-return-transaction";
 // Optional email prefill must not block a validated checkout during an account-read outage.
 const EMAIL_PREFILL_WAIT_MS = 2_000;
