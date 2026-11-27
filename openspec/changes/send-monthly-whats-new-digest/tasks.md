@@ -1,6 +1,6 @@
 ## 0. Decisions before the build
 
-- [ ] 0.1 The operator approves this proposal and answers the open question in `design.md`.
+- [x] 0.1 The operator approves this proposal and decides the setting's default (`design.md`, Decided).
 - [ ] 0.2 A Claude Design artifact holds the digest email, in the Evermatter email design, light and dark.
 - [ ] 0.3 Brevo's plan covers about 10,000 extra emails a month at the load target.
 
@@ -21,7 +21,7 @@
 - [ ] 3.2 The `whats_new_digest` outbox kind at the lowest send priority, queued in bounded passes, with its send-time re-check and the template from the design artifact.
 - [ ] 3.3 `List-Unsubscribe` and `List-Unsubscribe-Post` in `sendTransactionalEmail`; the POST-only unsubscribe route and its page; the Home setting.
 - [ ] 3.4 The privacy page names the monthly update email.
-- [ ] 3.5 The setting's default as the operator answers: the migration default for existing owners and, if the recommendation holds, the one Home invitation and the signup opt-out for new owners.
+- [ ] 3.5 The setting's default: off for existing owners with one Home invitation, on for new owners with the signup opt-out; the operator turns it on for the existing owners who asked for it.
 
 ## 4. Acceptance
 

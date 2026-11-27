@@ -16,7 +16,7 @@ The title and sentence that the pull request's author writes are the only text a
 
 - Home's What's new lists each title, which opens its sentence.
 - Each Evermatter GitHub release starts with a "What's new" section: each note's title, then its sentence, above the technical changelog. A release with no note gets no section.
-- The monthly email lists the month's most noticeable changes, each as its title and sentence. A note without a title shows its sentence alone.
+- The monthly email lists the month's most noticeable changes, each as its title and sentence. A note without a title shows its sentence alone. The email ends with a link to Evermatter's public release list (`https://github.com/substrate-systems/evermatter/releases`), where every release's page starts with its "What's new" section, so an owner can see every change, not only the picked ones.
 
 A reword of a note file reaches Home after the owner's next rollout and every later digest. A published release page, its assets and sent emails stay as they were.
 
@@ -75,7 +75,4 @@ An operator page first takes the operator's blind pick (D2), then shows the mode
 ## Decided
 
 - The email's design comes from a Claude Design commission, before the build.
-
-## Open question for the operator
-
-- Is the email on by default? Existing owners were never offered an opt-out for product-update email when they signed up, and the account database is in the EU, where a "soft opt-in" needs that offer. The privacy page lists only transactional email today. Recommendation: off for existing owners, with one invitation on Home; on for new owners whose signup offers the opt-out and whose privacy page names the email. The migration's default, the Home invitation and the signup change follow the answer (task 3.5).
+- The setting's default. Existing owners were never offered an opt-out for product-update email when they signed up, and the account database is in the EU, where a "soft opt-in" needs that offer. So the migration sets the setting off for existing owners, and Home invites each of them once. The operator turns it on for the existing owners who have asked for the email. New owners get the opt-out at signup, the privacy page names the email, and the setting starts on for them. Every owner can turn it off on Home (D5).

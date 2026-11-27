@@ -16,12 +16,17 @@ The system SHALL select, from the user notes of all of a month's releases, at mo
 
 ### Requirement: The digest shows each change as its note
 
-The digest SHALL show each selected change as its note's own title and sentence, and a note without a title as its sentence alone.
+The digest SHALL show each selected change as its note's own title and sentence, and a note without a title as its sentence alone. The digest SHALL end with a link to Evermatter's public release list, where every change appears.
 
 #### Scenario: A note without a title
 
 - **WHEN** a selected note has no title
 - **THEN** the digest shows its sentence alone
+
+#### Scenario: An owner wants every change of the month
+
+- **WHEN** an owner opens the link at the end of a digest
+- **THEN** Evermatter's public release list opens, with each release's notes at the top of its page
 
 ### Requirement: Missing release notes stay visible
 

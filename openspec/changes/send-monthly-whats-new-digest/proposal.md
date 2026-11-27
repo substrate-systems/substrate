@@ -9,8 +9,8 @@ Evermatter Cloud ships two to three releases a day, about 100 user-visible chang
 - Each change's user note (a short title and one sentence, written in its pull request) is the one text about it. Home, each Evermatter GitHub release and this email all show that same title and sentence.
 - Once a month, a model ranks the month's notes and picks the 3 to 6 changes an owner is most likely to notice. Each one shows as its title and sentence. When fewer than 3 clear that bar, the month gets no email.
 - The operator approves each month's pick on an approval page for the first three months. The operator picks blind before seeing the model's ranking; those picks become the answer key for a real-model check, which decides whether later months send without approval.
-- One digest email per eligible owner goes through the existing email outbox, at the lowest send priority. It lists only changes that the owner's cell already runs, links to Home for the rest, and carries a one-click unsubscribe.
-- Owners get a "Monthly update email" setting on Home. The unsubscribe and the setting change the same value. Reviewer accounts never get the email.
+- One digest email per eligible owner goes through the existing email outbox, at the lowest send priority. It lists only changes that the owner's cell already runs, ends with a link to Evermatter's public release list, where every change appears, and carries a one-click unsubscribe.
+- Owners get a "Monthly update email" setting on Home. It is on for new owners, whose signup offers the opt-out, and off for existing owners, whom Home invites once. The unsubscribe and the setting change the same value. Reviewer accounts never get the email.
 
 Out of scope: an email per release, a digest of Substrate's own changes, and translated emails.
 
