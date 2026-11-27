@@ -22,6 +22,7 @@ import {
   SignedInLine,
   StepActions,
   StepHeading,
+  StepLink,
   StepNotice,
 } from "../_journey/parts";
 import { friendPriceOffered, friendPriceUnchecked, inviterOf, pricePanel } from "./invite-view";
@@ -271,10 +272,10 @@ export default function InviteClient() {
           {panel ? <PriceCard {...panel} /> : null}
           <Switch
             label="Monthly update email"
-            description="Once a month, the changes in Evermatter you are most likely to notice. Turn it off here, or any time on Home."
             checked={monthlyUpdateEmail}
             onChange={setMonthlyUpdateEmail}
           />
+          <StepLink href="/exomem/privacy#monthly-update-email">About this email</StepLink>
           <StepActions
             primary={{
               label: mode.kind === "accepting" ? inviteCopy.accepting.title : inviteCopy.accept,

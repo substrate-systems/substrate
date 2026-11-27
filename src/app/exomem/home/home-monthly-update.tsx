@@ -46,9 +46,7 @@ export function MonthlyUpdateEmail({
       <div className={styles.row}>
         <div className={styles.rowText}>
           <span className={styles.rowTitle}>Monthly update email</span>
-          <span className={styles.rowMeta}>
-            {view.enabled ? "On. Once a month, the changes you are most likely to notice." : "Off"}
-          </span>
+          <span className={styles.rowMeta}>{view.enabled ? "On" : "Off"}</span>
         </div>
         <Button
           size="account"
@@ -62,10 +60,7 @@ export function MonthlyUpdateEmail({
       {view.invited && (
         <div className={styles.row}>
           <div className={styles.rowText}>
-            <span className={styles.rowBody}>
-              Want a short email once a month with the changes you are most likely to notice? It
-              stays off until you turn it on.
-            </span>
+            <span className={styles.rowBody}>Turn on the monthly update email?</span>
           </div>
           <button
             type="button"

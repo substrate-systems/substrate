@@ -194,7 +194,7 @@ export default function ExomemPrivacyPage() {
         we remove them.
       </p>
 
-      <h2>Monthly update email</h2>
+      <h2 id="monthly-update-email">Monthly update email</h2>
       <p>
         Once a month we may email the owner of an account about the changes in Evermatter that they
         are most likely to notice. It uses your email address, your email display settings and which

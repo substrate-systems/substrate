@@ -5,13 +5,12 @@ import { Button } from "@/components/exomem/Button";
 import { Switch } from "@/components/exomem/Switch";
 import { TextField } from "@/components/exomem/TextField";
 import type { DigestOverview, MonthDetail } from "@/lib/exomem-hosted/whats-new-digest/approval";
+import { MAX_PICKS, MIN_PICKS } from "@/lib/exomem-hosted/whats-new-digest/pick-bounds";
 import { isOpenState } from "@/lib/exomem-hosted/whats-new-digest/states";
 import home from "../../home/home.module.css";
 import { OperatorHeader } from "../operator-header";
 import { OperatorRequestError, operatorRequest } from "../operator-request";
 import {
-  MAX_NOTES,
-  MIN_NOTES,
   monthTitle,
   moved,
   noteKey,
@@ -19,10 +18,16 @@ import {
   requestMessage,
   listedState,
   lockedReason,
+  measurementFigures,
+  measurementRule,
+  monthFigures,
   selectionAllowed,
-  stateSentence,
+  setupFigures,
+  stateLabel,
+  switchFigure,
   timeLabel,
   toggled,
+  type Figure,
   type NoteRef,
   type NoteView,
 } from "./whats-new-state";
@@ -69,6 +74,16 @@ function NoteLine({
 }
 
 const refs = (notes: readonly NoteView[]): NoteRef[] => notes.map(noteRef);
+
+/** Labelled values, one row each: the page states a value with its label, not in a sentence. */
+function FigureRows({ figures }: { figures: readonly Figure[] }) {
+  return figures.map((figure) => (
+    <div className={`${home.row} ${styles.figureRow}`} key={figure.label}>
+      <dt className={home.rowTitle}>{figure.label}</dt>
+      <dd className={styles.figure}>{figure.value}</dd>
+    </div>
+  ));
+}
 
 export default function WhatsNewClient() {
   const bearerRef = useRef<string | null>(null);
@@ -219,6 +234,9 @@ export default function WhatsNewClient() {
     ? month.notes.filter((note) => !(editing ?? []).some((e) => noteKey(e) === noteKey(note)))
     : [];
   const byKey = new Map((month?.notes ?? []).map((note) => [noteKey(note), note]));
+  // A recorded switch that no longer matches the ranking's identity is not in effect: only clearing it is offered.
+  const switchStale = overview.switch.sendWithoutApproval && !overview.switch.applies;
+  const switchOffered = !switchStale && (shares.offered || overview.switch.sendWithoutApproval);
 
   return (
     <>
@@ -237,11 +255,6 @@ export default function WhatsNewClient() {
             {overview.months.length === 0 ? (
               <div className={`${home.row} ${styles.figureRow}`}>
                 <dt className={home.rowTitle}>No month yet</dt>
-                <dd className={styles.figure}>
-                  {overview.firstMonth === null
-                    ? "No first month is set, so the daily run builds nothing."
-                    : `The daily run builds the previous month, from ${monthTitle(overview.firstMonth)}.`}
-                </dd>
               </div>
             ) : (
               overview.months.map((entry) => (
@@ -266,23 +279,15 @@ export default function WhatsNewClient() {
               ))
             )}
           </dl>
-          {overview.months.length > 0 && overview.firstMonth === null ? (
-            <p className={styles.line}>
-              No first month is set, so the daily run builds no further month.
-            </p>
-          ) : null}
-          {overview.unsubscribeKeys.current === "ok" ? null : (
-            <p className={styles.line}>
-              The unsubscribe key is not set or is malformed, so an approved month queues nothing.
-            </p>
-          )}
-          {overview.unsubscribeKeys.previous === "malformed" ? (
-            <p className={styles.line}>
-              The previous unsubscribe key is malformed, so it is ignored when links are checked and
-              an approved month queues nothing until it is fixed or removed. Links signed with the
-              current key still work.
-            </p>
-          ) : null}
+        </section>
+
+        <section className={home.section} aria-labelledby="digest-setup-title">
+          <h2 className={home.sectionTitle} id="digest-setup-title">
+            Setup
+          </h2>
+          <dl className={home.panel}>
+            <FigureRows figures={setupFigures(overview)} />
+          </dl>
         </section>
 
         {month ? (
@@ -291,20 +296,14 @@ export default function WhatsNewClient() {
               <h2 className={home.sectionTitle} id="digest-month-title">
                 {monthTitle(month.month)}
               </h2>
-              <div className={`${home.panel} ${styles.body}`}>
-                <p className={styles.line}>{stateSentence(month, overview.modelConfigured, now)}</p>
-                <p className={styles.line}>
-                  {month.releases.total} {month.releases.total === 1 ? "release" : "releases"},{" "}
-                  {month.notes.length} {month.notes.length === 1 ? "note" : "notes"}
-                  {month.releases.acceptedWithout > 0
-                    ? `, ${month.releases.acceptedWithout} accepted without notes`
-                    : ""}
-                  .
-                  {month.modelId
-                    ? ` Ranked by ${month.modelId}${month.modelReported && month.modelReported !== month.modelId ? ` (the API reported ${month.modelReported})` : ""}, prompt ${month.promptVersion}.`
-                    : ""}
-                </p>
-              </div>
+              <dl className={home.panel}>
+                <FigureRows
+                  figures={[
+                    { label: "State", value: stateLabel(month, overview.modelConfigured, now) },
+                    ...monthFigures(month),
+                  ]}
+                />
+              </dl>
             </section>
 
             {month.releases.missing.length > 0 ? (
@@ -312,11 +311,11 @@ export default function WhatsNewClient() {
                 <h2 className={home.sectionTitle} id="digest-missing-title">
                   Releases without notes
                 </h2>
-                <div className={`${home.panel} ${styles.body}`}>
-                  <p className={styles.line}>
-                    The month does not send while a release has no readable notes. The daily run
-                    tries again, or you accept the month without a release.
-                  </p>
+                <details className={`${home.panel} ${styles.body}`}>
+                  <summary>
+                    {month.releases.missing.length}{" "}
+                    {month.releases.missing.length === 1 ? "release" : "releases"}
+                  </summary>
                   <ul className={styles.noteList}>
                     {month.releases.missing.map((release) => (
                       <li className={styles.note} key={release.version}>
@@ -324,10 +323,10 @@ export default function WhatsNewClient() {
                           <span className={styles.noteTitle}>{release.version}</span>
                           <span className={styles.noteMeta}>
                             {release.problem === "no_asset"
-                              ? "no notes file attached"
+                              ? "No notes file"
                               : release.problem === "unreadable"
-                                ? "the file is not in the notes format"
-                                : "the file could not be fetched yet"}
+                                ? "Not in the notes format"
+                                : "Not fetched yet"}
                           </span>
                         </span>
                         <Button
@@ -368,7 +367,7 @@ export default function WhatsNewClient() {
                       </Button>
                     </div>
                   ) : null}
-                </div>
+                </details>
               </section>
             ) : null}
 
@@ -378,12 +377,6 @@ export default function WhatsNewClient() {
                   Your pick
                 </h2>
                 <div className={`${home.panel} ${styles.body}`}>
-                  <p className={styles.line}>
-                    Pick {MIN_NOTES} to {MAX_NOTES} notes that owners are most likely to notice, or
-                    none to skip the month. You see the model&rsquo;s ranking after you record this,
-                    and the pick cannot change afterwards. A pick of none skips the month at once;
-                    the model&rsquo;s ranking is still recorded for the measurement.
-                  </p>
                   <ul className={`${styles.noteList} ${styles.scroll}`}>
                     {month.notes.map((note) => (
                       <NoteLine
@@ -397,7 +390,7 @@ export default function WhatsNewClient() {
                             checked={pick.some((entry) => noteKey(entry) === noteKey(note))}
                             disabled={
                               working ||
-                              (pick.length >= MAX_NOTES &&
+                              (pick.length >= MAX_PICKS &&
                                 !pick.some((entry) => noteKey(entry) === noteKey(note)))
                             }
                             onChange={() => setPick(toggled(pick, note))}
@@ -423,7 +416,9 @@ export default function WhatsNewClient() {
                         ? "Pick none and skip the month"
                         : `Record my ${pick.length} picks`}
                     </Button>
-                    <span className={styles.noteMeta}>{pick.length} picked</span>
+                    <span className={styles.noteMeta}>
+                      {pick.length} picked, {MIN_PICKS} to {MAX_PICKS} or none
+                    </span>
                   </div>
                 </div>
               </section>
@@ -434,7 +429,7 @@ export default function WhatsNewClient() {
                 </h2>
                 <div className={`${home.panel} ${styles.body}`}>
                   {month.blindPick.length === 0 ? (
-                    <p className={styles.line}>None. You picked no notes.</p>
+                    <p className={styles.line}>None picked</p>
                   ) : (
                     <ul className={styles.noteList}>
                       {month.blindPick.flatMap((entry) => {
@@ -455,9 +450,7 @@ export default function WhatsNewClient() {
                   </h2>
                   <div className={`${home.panel} ${styles.body}`}>
                     {month.model.selection.length === 0 ? (
-                      <p className={styles.line}>
-                        None. The model found fewer than {MIN_NOTES} notes that owners would notice.
-                      </p>
+                      <p className={styles.line}>None selected</p>
                     ) : (
                       <ol className={styles.noteList}>
                         {month.model.selection.map((note) => (
@@ -547,16 +540,13 @@ export default function WhatsNewClient() {
                   Stop this month
                 </h2>
                 <div className={`${home.panel} ${styles.body}`}>
-                  <p className={styles.line}>
-                    {month.sendAfter && Date.parse(month.sendAfter) > now
-                      ? `Nothing is queued before ${timeLabel(month.sendAfter)}. `
-                      : ""}
-                    Stopping skips the month. Digests that wait in the outbox are cancelled when
-                    they would send; any already sent stay sent.
-                  </p>
+                  {month.sendAfter && Date.parse(month.sendAfter) > now ? (
+                    <p className={styles.line}>Queues after {timeLabel(month.sendAfter)}</p>
+                  ) : null}
                   <div className={styles.rowActions}>
                     <Button
                       disabled={working}
+                      title="Stopping skips the month. Digests waiting in the outbox are cancelled when they would send; any already sent stay sent."
                       onClick={() => send({ action: "stop", month: month.month }, "Stopped.")}
                     >
                       Stop sending this month
@@ -574,10 +564,6 @@ export default function WhatsNewClient() {
                 <div className={`${home.panel} ${styles.body}`}>
                   {editing ? (
                     <>
-                      <p className={styles.line}>
-                        Remove, add or reorder, {MIN_NOTES} to {MAX_NOTES} notes. A note&rsquo;s
-                        text never changes.
-                      </p>
                       <ol className={styles.noteList}>
                         {editing.map((entry, index) => {
                           const note = byKey.get(noteKey(entry));
@@ -618,7 +604,7 @@ export default function WhatsNewClient() {
                           ) : null;
                         })}
                       </ol>
-                      {editing.length < MAX_NOTES ? (
+                      {editing.length < MAX_PICKS ? (
                         <select
                           className={styles.select}
                           aria-label="Add a note"
@@ -655,6 +641,9 @@ export default function WhatsNewClient() {
                         <Button disabled={working} onClick={() => setEditing(null)}>
                           Cancel the edit
                         </Button>
+                        <span className={styles.noteMeta}>
+                          {editing.length} selected, {MIN_PICKS} to {MAX_PICKS}
+                        </span>
                       </div>
                     </>
                   ) : (
@@ -662,7 +651,7 @@ export default function WhatsNewClient() {
                       <Button
                         variant="primary"
                         disabled={
-                          working || !decidable || (month.model?.selection.length ?? 0) < MIN_NOTES
+                          working || !decidable || (month.model?.selection.length ?? 0) < MIN_PICKS
                         }
                         onClick={() =>
                           send({ action: "approve", month: month.month }, "Approved as ranked.")
@@ -694,22 +683,16 @@ export default function WhatsNewClient() {
         ) : null}
 
         <section className={home.section} aria-labelledby="digest-measure-title">
-          <h2 className={home.sectionTitle} id="digest-measure-title">
+          <h2
+            className={home.sectionTitle}
+            id="digest-measure-title"
+            title={measurementRule(shares.monthsToMeasure)}
+          >
             Measurement
           </h2>
           <div className={`${home.panel} ${styles.body}`}>
-            <p className={styles.line}>
-              {shares.run.length === 0
-                ? "No month counts yet."
-                : `${shares.run.length} counted ${shares.run.length === 1 ? "month" : "months"} under ${shares.run[0].modelId} (the API reported ${shares.run[0].modelReported}), prompt ${shares.run[0].promptVersion}; the first ${shares.monthsToMeasure} decide.`}{" "}
-              A month counts when it has your blind pick and the model&rsquo;s ranking, whatever you
-              then decided; a month where both picked none is quiet and does not count. A month
-              where only one picked none scores 0. Otherwise the score is the notes in both picks
-              over the larger of the two pick counts. A change of model, reported model or prompt
-              restarts the count. Two thirds over three months is your accepted risk, not a
-              confidence-bounded measurement.
-            </p>
             <dl>
+              <FigureRows figures={measurementFigures(shares)} />
               {shares.run.map((share) => (
                 <div className={`${home.row} ${styles.figureRow}`} key={share.month}>
                   <dt className={home.rowTitle}>{monthTitle(share.month)}</dt>
@@ -723,30 +706,22 @@ export default function WhatsNewClient() {
                   </dd>
                 </div>
               ))}
+              {switchOffered ? null : <FigureRows figures={[switchFigure(overview)]} />}
             </dl>
-            {overview.switch.sendWithoutApproval && !overview.switch.applies ? (
-              <>
-                <p className={styles.line}>
-                  Sending without approval: recorded
-                  {overview.switch.recordedAt ? ` on ${timeLabel(overview.switch.recordedAt)}` : ""}
-                  , not in effect. The model, the model the API reports or the prompt changed since,
-                  so months need approval until a new measurement.
-                </p>
-                <div className={styles.rowActions}>
-                  <Button
-                    disabled={working}
-                    onClick={() =>
-                      send({ action: "set_switch", on: false }, "The recorded switch is cleared.")
-                    }
-                  >
-                    Clear the recorded switch
-                  </Button>
-                </div>
-              </>
-            ) : shares.offered || overview.switch.sendWithoutApproval ? (
+            {switchStale ? (
+              <div className={styles.rowActions}>
+                <Button
+                  disabled={working}
+                  onClick={() =>
+                    send({ action: "set_switch", on: false }, "The recorded switch is cleared.")
+                  }
+                >
+                  Clear the recorded switch
+                </Button>
+              </div>
+            ) : switchOffered ? (
               <Switch
                 label="Send later months without approval"
-                description="A month goes out a day after it is built, so you can stop it first."
                 checked={overview.switch.sendWithoutApproval}
                 onChange={(on) => {
                   void send(
@@ -755,15 +730,7 @@ export default function WhatsNewClient() {
                   );
                 }}
               />
-            ) : (
-              <p className={styles.line}>
-                {shares.withdrawn
-                  ? "The offer is withdrawn: a counted month after the first three scored under two thirds, so approval stays on."
-                  : shares.complete
-                    ? "At least one of the three months is under two thirds, so approval stays on."
-                    : `Sending without approval is offered after ${shares.monthsToMeasure} counted months that each reach two thirds; ${Math.max(0, shares.monthsToMeasure - shares.measured.length)} to go.`}
-              </p>
-            )}
+            ) : null}
           </div>
         </section>
       </div>

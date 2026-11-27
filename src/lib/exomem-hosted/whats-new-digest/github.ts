@@ -2,7 +2,8 @@
  * A month's Evermatter releases and their notes files, read from the GitHub
  * releases API (`send-monthly-whats-new-digest`, D1). Every call has a timeout.
  * Any failure throws `GitHubUnavailable`; the month then waits for the next
- * daily run, and nothing partial is reported as the whole.
+ * daily run, and nothing partial is reported as the whole. Without a token no
+ * call is made (`GitHubNotConfigured`).
  */
 
 import { readBoundedBytes } from "../bounded-json";
@@ -11,6 +12,8 @@ import { versionTuple } from "./notes";
 import { timeoutWithin } from "./time-budget";
 
 export class GitHubUnavailable extends Error {}
+/** No read-only token is configured, so the digest makes no GitHub call. */
+export class GitHubNotConfigured extends GitHubUnavailable {}
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const PAGE_SIZE = 100;
@@ -47,6 +50,8 @@ function request(
   fetchImpl: Fetch,
   deadlineAt: number | undefined
 ) {
+  // The digest reads GitHub only with a token: unauthenticated calls share a 60-an-hour limit per address, and a hosted run's address is shared.
+  if (!config.githubToken) throw new GitHubNotConfigured("no GitHub token is configured");
   // Out of budget: the month waits for the next daily run.
   const timeout = timeoutWithin(deadlineAt, REQUEST_TIMEOUT_MS);
   if (timeout === null) throw new GitHubUnavailable("the run's time budget is spent");
@@ -55,7 +60,7 @@ function request(
       accept,
       "x-github-api-version": "2022-11-28",
       "user-agent": "substrate-whats-new-digest",
-      ...(config.githubToken ? { authorization: `Bearer ${config.githubToken}` } : {}),
+      authorization: `Bearer ${config.githubToken}`,
     },
     signal: AbortSignal.timeout(timeout),
     // The token stays with the API host: a redirect (an asset's download) drops it.

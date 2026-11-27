@@ -12,9 +12,15 @@
  */
 
 import { whatsNewDigestConfig, type WhatsNewDigestConfig } from "./config";
-import { fetchNotesFileText, GitHubUnavailable, listMonthReleases, monthOf } from "./github";
+import {
+  fetchNotesFileText,
+  GitHubNotConfigured,
+  GitHubUnavailable,
+  listMonthReleases,
+  monthOf,
+} from "./github";
 import { switchApplies } from "./measurement";
-import { MIN_PICKS, rankMonthNotes } from "./model";
+import { rankMonthNotes } from "./model";
 import {
   advanceWhenNotesComplete,
   AUTOMATIC_SEND_DELAY_MS,
@@ -27,6 +33,7 @@ import {
   missingReleases,
   needsRanking,
   notesOfReleases,
+  recordListFailure,
   recordModelStatus,
   recordRanking,
   releasesToFetch,
@@ -34,10 +41,11 @@ import {
   saveListing,
   skipForTooFewNotes,
   skipMonth,
-  touchMonth,
   type FetchedFile,
+  type ListStatus,
 } from "./months";
 import { parseNotesFile } from "./notes";
+import { MIN_PICKS } from "./pick-bounds";
 import type { MonthState } from "./states";
 import { timeoutWithin } from "./time-budget";
 
@@ -49,8 +57,15 @@ export type RunSummary = {
   month: string;
   /** `null` when the run built nothing: no first month is configured, or this month is before it. */
   state: MonthState | null;
-  /** The configured first month (`EXOMEM_WHATS_NEW_FIRST_MONTH`), `null` while unset. */
+  /** The configured first month (`EXOMEM_WHATS_NEW_FIRST_MONTH`), `null` while unset or malformed. */
   firstMonth: string | null;
+  /** The first month is set to something that is not a `YYYY-MM` month, so nothing is built. */
+  firstMonthMalformed: boolean;
+  /**
+   * Whether the month's release list was read at the last try: `read`, or the reason it was not.
+   * `null` when no month was built, or the month closed before its list was ever tried.
+   */
+  releaseList: "read" | ListStatus | null;
   /** Releases still without readable notes that the operator has not accepted without. */
   missingReleases: number;
   lapsedMonths: number;
@@ -71,7 +86,10 @@ export function previousMonth(now: Date): string {
   return monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
 }
 
-/** Reads the month's release list and fetches each missing notes file once. A failure leaves the month waiting. */
+/**
+ * Reads the month's release list and fetches each missing notes file once. A list that cannot
+ * be read is recorded on the month, when and why, and leaves it waiting for the next daily run.
+ */
 async function collectNotes(
   month: string,
   config: WhatsNewDigestConfig,
@@ -84,7 +102,11 @@ async function collectNotes(
     );
   } catch (error) {
     if (!(error instanceof GitHubUnavailable)) throw error;
-    await touchMonth(month);
+    await recordListFailure(
+      month,
+      error instanceof GitHubNotConfigured ? "not_configured" : "unavailable",
+      error.message
+    );
     return;
   }
   const pending = await releasesToFetch(month, FETCHES_PER_RUN);
@@ -174,6 +196,8 @@ export async function runWhatsNewDigestSelection(options: RunOptions = {}): Prom
       month,
       state: null,
       firstMonth: config.firstMonth,
+      firstMonthMalformed: config.firstMonthMalformed,
+      releaseList: null,
       missingReleases: 0,
       lapsedMonths: 0,
     };
@@ -198,6 +222,8 @@ export async function runWhatsNewDigestSelection(options: RunOptions = {}): Prom
     month,
     state: record.state,
     firstMonth: config.firstMonth,
+    firstMonthMalformed: config.firstMonthMalformed,
+    releaseList: record.listStatus ?? (record.releasesListedAt ? "read" : null),
     missingReleases: missing,
     lapsedMonths,
   };

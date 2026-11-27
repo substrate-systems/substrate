@@ -47,6 +47,7 @@ const ENV_KEYS = [
   "EXOMEM_ADMIN_TOKEN",
   "EXOMEM_PUBLIC_BASE_URL",
   "EXOMEM_WHATS_NEW_GITHUB_API_URL",
+  "EXOMEM_WHATS_NEW_GITHUB_TOKEN",
   "EXOMEM_WHATS_NEW_FIRST_MONTH",
   "EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY",
   "EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS",
@@ -234,6 +235,7 @@ describe(
       env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
       env.EXOMEM_PUBLIC_BASE_URL = "https://substratesystems.io";
       env.EXOMEM_WHATS_NEW_GITHUB_API_URL = github.origin;
+      env.EXOMEM_WHATS_NEW_GITHUB_TOKEN = "read-only-token";
       env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2000-01";
       env.EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY = UNSUBSCRIBE_KEY;
       env.ANTHROPIC_BASE_URL = model.origin;
@@ -717,9 +719,10 @@ describe(
       }
 
       // Fixed or removed, the same month queues, for an owner who still has the setting on.
-      await query("UPDATE exomem_tenants SET whats_new_digest = true WHERE id = $1", [
-        owner.tenantId,
-      ]);
+      await query(
+        "UPDATE exomem_tenants SET whats_new_digest = true, whats_new_digest_off_since = NULL WHERE id = $1",
+        [owner.tenantId]
+      );
       assert.equal((await fanOutWhatsNewDigestEmails()).enqueued, 1);
       await applyDigestAction({ action: "stop", month });
     });
@@ -786,10 +789,9 @@ describe(
           [asking.tenantId]
         );
         const principalDigest = createHash("sha256").update("operator").digest();
-        assert.equal(
-          await operatorTurnOnMonthlyUpdateEmail(asking.tenantId, principalDigest),
-          true
-        );
+        assert.deepEqual(await operatorTurnOnMonthlyUpdateEmail(asking.tenantId, principalDigest), {
+          earlierUnsubscribedAt: null,
+        });
         const turned = (
           await query(
             "SELECT whats_new_digest_invitation AS invitation, whats_new_digest_operator_on_by AS by, whats_new_digest_operator_on_at AS at FROM exomem_tenants WHERE id = $1",
@@ -799,11 +801,28 @@ describe(
         assert.deepEqual([(await read(asking.tenantId)).on, turned.invitation], [true, "accepted"]);
         assert.ok(Buffer.from(turned.by).equals(principalDigest) && turned.at instanceof Date);
 
+        // An owner who turned it on and unsubscribed, then asks: the action turns it on and says when they left.
+        const left = await seedOwner({ digest: true });
+        await post(unsubscribeAddressFor(left.tenantId));
+        const unsubscribedAt = (
+          await query("SELECT whats_new_digest_off_since AS at FROM exomem_tenants WHERE id = $1", [
+            left.tenantId,
+          ])
+        ).rows[0].at;
+        assert.ok(unsubscribedAt instanceof Date);
+        const comeBack = await operatorTurnOnMonthlyUpdateEmail(left.tenantId, principalDigest);
+        assert.deepEqual(comeBack, { earlierUnsubscribedAt: unsubscribedAt });
+        assert.equal((await read(left.tenantId)).on, true);
+        // On again, the record of the turn-off is cleared: a second ask has nothing earlier to report.
+        assert.deepEqual(await operatorTurnOnMonthlyUpdateEmail(left.tenantId, principalDigest), {
+          earlierUnsubscribedAt: null,
+        });
+
         // A reviewer's tenant and a deleted account are not owners with such a setting.
         const reviewer = await seedOwner({ reviewer: true, digest: false });
         assert.equal(
           await operatorTurnOnMonthlyUpdateEmail(reviewer.tenantId, principalDigest),
-          false
+          null
         );
         assert.equal(
           await setMonthlyUpdateEmail(
@@ -812,7 +831,7 @@ describe(
           ),
           null
         );
-        assert.equal(await operatorTurnOnMonthlyUpdateEmail(randomUUID(), principalDigest), false);
+        assert.equal(await operatorTurnOnMonthlyUpdateEmail(randomUUID(), principalDigest), null);
       });
 
       it("is changed through the operator route only with the admin token, and by Home only with a session", async () => {
@@ -833,7 +852,9 @@ describe(
         assert.equal((await call(ADMIN_TOKEN, { tenantId: "not-a-uuid" })).status, 400);
         assert.equal((await call(ADMIN_TOKEN, { tenantId: randomUUID() })).status, 404);
         assert.equal(await setting(target.tenantId), false);
-        assert.equal((await call(ADMIN_TOKEN, { tenantId: target.tenantId })).status, 200);
+        const answered = await call(ADMIN_TOKEN, { tenantId: target.tenantId });
+        assert.equal(answered.status, 200);
+        assert.equal((await answered.json()).earlierUnsubscribedAt, null);
         assert.equal(await setting(target.tenantId), true);
 
         const unauthenticated = await homeSettingPut(

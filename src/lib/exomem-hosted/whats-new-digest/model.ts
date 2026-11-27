@@ -14,12 +14,9 @@
 
 import { createHash } from "node:crypto";
 import { resolveSelection, type MonthNote, type NoteId } from "./notes";
+import { MAX_PICKS, MIN_PICKS } from "./pick-bounds";
 import type { WhatsNewDigestConfig } from "./config";
 import { timeoutWithin } from "./time-budget";
-
-/** The digest's bar (design D2): a month with fewer qualifying changes sends nothing. */
-export const MIN_PICKS = 3;
-export const MAX_PICKS = 6;
 
 const API_VERSION = "2026-10-21";
 const ATTEMPT_TIMEOUT_MS = 25_000;

@@ -28,8 +28,6 @@ const KEY_BYTES = 32;
 // A token is about 150 characters; the bound only spares the MAC a hostile megabyte.
 const MAX_TOKEN_CHARS = 512;
 
-export { UNSUBSCRIBE_PAGE_PATH, UNSUBSCRIBE_POST_PATH };
-
 export class UnsubscribeKeyError extends Error {
   constructor() {
     super("EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY must be 32 random bytes as unpadded base64url");

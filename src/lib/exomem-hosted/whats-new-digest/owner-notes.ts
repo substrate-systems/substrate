@@ -5,8 +5,8 @@
  */
 
 import { compareReleaseVersions, releaseVersion } from "../release-tag";
-import { MIN_PICKS } from "./model";
 import { versionTuple, type MonthNote } from "./notes";
+import { MIN_PICKS } from "./pick-bounds";
 
 /**
  * The notes of `selection` from releases at or below the release that the

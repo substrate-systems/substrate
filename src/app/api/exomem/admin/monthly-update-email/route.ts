@@ -20,7 +20,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
  * for it (`send-monthly-whats-new-digest`, Decided). The body is `{ "tenantId": <uuid> }`.
  * The owner's row keeps when it happened and the operator principal's digest,
  * and the log line names the tenant and the request. It never touches a
- * reviewer or a deleted account.
+ * reviewer or a deleted account. It does not refuse an owner who unsubscribed
+ * earlier: the answer's `earlierUnsubscribedAt` says when they did, or is `null`.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
@@ -35,7 +36,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ) {
       throw exomemErrors.invalidRequest();
     }
-    if (!(await operatorTurnOnMonthlyUpdateEmail(tenantId, operator.principalDigest))) {
+    const turnedOn = await operatorTurnOnMonthlyUpdateEmail(tenantId, operator.principalDigest);
+    if (!turnedOn) {
       throw new ExomemHostedError({
         code: "WHATS_NEW_DIGEST_OWNER_UNKNOWN",
         status: 404,
@@ -50,7 +52,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       tenantId,
     });
     return NextResponse.json(
-      { success: true, tenantId, monthlyUpdateEmail: true, requestId },
+      {
+        success: true,
+        tenantId,
+        monthlyUpdateEmail: true,
+        earlierUnsubscribedAt: turnedOn.earlierUnsubscribedAt?.toISOString() ?? null,
+        requestId,
+      },
       { headers: { "cache-control": "no-store" } }
     );
   } catch (error) {

@@ -146,7 +146,14 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
     );
     return {
       status: response.status,
-      body: (await response.json()) as { month: string; state: string; missingReleases: number },
+      body: (await response.json()) as {
+        success: boolean;
+        month: string;
+        state: string;
+        missingReleases: number;
+        releaseList: string | null;
+        error?: { code: string };
+      },
     };
   };
 
@@ -182,6 +189,45 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
       "SELECT count(*)::int AS n FROM exomem_whats_new_digest_months"
     );
     assert.equal(rows[0].n, 0);
+  });
+
+  it("makes no GitHub call without a token, and shows the month waiting in 'GitHub token not configured'", async () => {
+    delete process.env.EXOMEM_WHATS_NEW_GITHUB_TOKEN;
+    const run = await runRoute();
+    assert.deepEqual(
+      [run.status, run.body.success, run.body.state, run.body.releaseList, run.body.error?.code],
+      [503, false, "waiting_for_notes", "not_configured", "WHATS_NEW_GITHUB_NOT_CONFIGURED"]
+    );
+    assert.equal(github.requests.length, 0);
+    assert.equal((await overview()).githubConfigured, false);
+    const { releaseList } = await detail(target);
+    assert.equal(releaseList.listedAt, null);
+    assert.equal(releaseList.failure?.status, "not_configured");
+    process.env.EXOMEM_WHATS_NEW_GITHUB_TOKEN = GITHUB_TOKEN;
+  });
+
+  it("records that the release list was not read, when and why, and reports the run as not succeeded", async () => {
+    github.listStatus = 403;
+    const before = Date.now();
+    const run = await runRoute();
+    assert.deepEqual(
+      [run.status, run.body.success, run.body.state, run.body.releaseList, run.body.error?.code],
+      [503, false, "waiting_for_notes", "unavailable", "WHATS_NEW_RELEASES_NOT_READ"]
+    );
+    const month = await detail(target);
+    // Not read is not "0 releases": the month says when it tried and what GitHub answered.
+    assert.equal(month.releaseList.listedAt, null);
+    assert.equal(month.releaseList.failure?.status, "unavailable");
+    assert.equal(month.releaseList.failure?.detail, "releases list answered 403");
+    assert.ok(Date.parse(month.releaseList.failure!.at) >= before - 1000);
+    assert.equal((await overview()).githubConfigured, true);
+
+    // The next daily run reads it, and the failure is cleared.
+    github.listStatus = null;
+    assert.equal((await runRoute()).status, 200);
+    const read = (await detail(target)).releaseList;
+    assert.equal(read.failure, null);
+    assert.ok(read.listedAt !== null);
   });
 
   it("waits while a release has no notes file, names it, and calls no model", async () => {
@@ -389,7 +435,7 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
     // The first month the route builds: long before every month these suites use.
     process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2000-01";
     process.env.EXOMEM_WHATS_NEW_GITHUB_API_URL = github.origin;
-    delete process.env.EXOMEM_WHATS_NEW_GITHUB_TOKEN;
+    process.env.EXOMEM_WHATS_NEW_GITHUB_TOKEN = GITHUB_TOKEN;
     process.env.ANTHROPIC_BASE_URL = model.origin;
     process.env.ANTHROPIC_API_KEY = "test-key";
     delete process.env.EXOMEM_WHATS_NEW_MODEL;
@@ -422,6 +468,21 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
     // Unset builds nothing either, and the page shows it unset rather than a month.
     delete process.env.EXOMEM_WHATS_NEW_FIRST_MONTH;
     assert.deepEqual([(await build("2038-12")).state, (await overview()).firstMonth], [null, null]);
+    assert.equal(await built("2038-12"), 0);
+    const unset = await overview();
+    assert.equal(unset.firstMonthMalformed, false);
+
+    // A setting that is not a month builds nothing and says it is malformed, not that it is unset.
+    process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2038-13";
+    const malformed = await build("2038-12");
+    assert.deepEqual(
+      [malformed.state, malformed.firstMonth, malformed.firstMonthMalformed],
+      [null, null, true]
+    );
+    assert.deepEqual(
+      [(await overview()).firstMonth, (await overview()).firstMonthMalformed],
+      [null, true]
+    );
     assert.equal(await built("2038-12"), 0);
 
     // From the first month on the route builds as before.

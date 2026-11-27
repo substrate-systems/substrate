@@ -29,7 +29,7 @@ export type StandInRelease = {
   file?: string;
 };
 
-export type RequestLog = { url: string; headers: IncomingMessage["headers"]; body: string };
+type RequestLog = { url: string; headers: IncomingMessage["headers"]; body: string };
 
 async function listen(
   handler: Parameters<typeof createServer>[1]
@@ -47,6 +47,8 @@ export type GitHubStandIn = {
   releases: StandInRelease[];
   /** Every request the API and the storage host saw, in order; storage URLs start with "storage ". */
   requests: RequestLog[];
+  /** A status the releases list answers with instead of the list (a rate limit's 403, say); `null` answers it. */
+  listStatus: number | null;
   /** How many times each release's notes asset was downloaded. */
   assetDownloads(version: string): number;
   close(): Promise<void>;
@@ -58,7 +60,10 @@ export type GitHubStandIn = {
  */
 export async function startGitHub(releases: StandInRelease[] = []): Promise<GitHubStandIn> {
   const requests: RequestLog[] = [];
-  const state = { releases };
+  const state: { releases: StandInRelease[]; listStatus: number | null } = {
+    releases,
+    listStatus: null,
+  };
   const idOf = (version: string) => version.replaceAll(".", "-");
   // Signed storage is another host than the API, as GitHub's is: a client that sent its token
   // along the redirect would show here.
@@ -79,6 +84,8 @@ export async function startGitHub(releases: StandInRelease[] = []): Promise<GitH
     };
     const path = url.pathname;
     if (path === "/repos/substrate-systems/evermatter/releases") {
+      if (state.listStatus !== null)
+        return send(state.listStatus, JSON.stringify({ message: "API rate limit exceeded" }));
       const perPage = Number(url.searchParams.get("per_page") ?? 30);
       const page = Number(url.searchParams.get("page") ?? 1);
       const newestFirst = [...state.releases].sort((a, b) =>
@@ -127,6 +134,12 @@ export async function startGitHub(releases: StandInRelease[] = []): Promise<GitH
       return state.releases;
     },
     requests,
+    get listStatus() {
+      return state.listStatus;
+    },
+    set listStatus(status) {
+      state.listStatus = status;
+    },
     assetDownloads: (version) =>
       requests.filter((entry) => entry.url === `storage /${idOf(version)}`).length,
     close: async () => {
@@ -136,7 +149,7 @@ export async function startGitHub(releases: StandInRelease[] = []): Promise<GitH
   };
 }
 
-export type ModelAnswer =
+type ModelAnswer =
   /** `model` is the model the API reports on the answer; it defaults to the model the request named. */
   { picks: Array<{ version: string; position: number }>; model?: string } | { status: number };
 

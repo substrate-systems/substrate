@@ -128,7 +128,7 @@ export function resolveSelection(
 }
 
 /** An identifier as a request or a stored row gives it; anything else is `null`. */
-export function parseNoteId(value: unknown): NoteId | null {
+function parseNoteId(value: unknown): NoteId | null {
   const id = value as { version?: unknown; position?: unknown } | null;
   if (
     !id ||

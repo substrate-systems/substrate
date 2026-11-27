@@ -1400,7 +1400,7 @@ export const EXOMEM_EMAIL_KINDS = Object.keys(EXOMEM_EMAILS) as ExomemEmailKind[
  * The send tier a kind's rows carry (`exomem_email_outbox.send_tier`): 0 for
  * every kind without a tier of its own, 1 for `claimedLast` kinds, 2 for
  * `lowestPriority` kinds. It is set at insert, so the claim's ORDER BY reads an
- * index instead of sorting every pending row (migration 0099). The kind's
+ * index instead of sorting every pending row (migration 0098). The kind's
  * definition above is the one place that says which tier it belongs to.
  */
 export function exomemEmailSendTier(kind: ExomemEmailKind): 0 | 1 | 2 {

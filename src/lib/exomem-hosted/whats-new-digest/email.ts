@@ -7,7 +7,9 @@
  * Its look is provisional and follows the other Evermatter emails through the
  * shared template (email-templates/exomem-email.ts). The final design arrives
  * from a design artifact and replaces this module's slots and the template's
- * `items` block. The unsubscribe link sits beside the release-list button.
+ * `items` block. The unsubscribe link sits beside the release-list button, and
+ * its small print follows: every digest carries both, the approval page's
+ * preview included.
  */
 
 import {
@@ -18,14 +20,15 @@ import {
 import type { ExomemThemeChoice } from "@/lib/exomem/theme";
 import { EVERMATTER_RELEASES_URL } from "./config";
 import type { DigestNote } from "./notes";
+import { UNSUBSCRIBE_PAGE_PATH } from "./unsubscribe-paths";
 
 export type WhatsNewDigestEmailInput = {
   /** `YYYY-MM`, the month the notes come from. */
   month: string;
   /** The month's picked notes in the order they show. */
   notes: readonly DigestNote[];
-  /** The page where the owner turns this email off (`unsubscribe.ts`). The approval page's preview has none. */
-  unsubscribeUrl?: string;
+  /** The page where the owner turns this email off (`unsubscribe.ts`). */
+  unsubscribeUrl: string;
 };
 
 export type WhatsNewDigestAppearance = {
@@ -57,20 +60,23 @@ export function renderWhatsNewDigestEmail(
     action: {
       label: "See every change",
       url: EVERMATTER_RELEASES_URL,
-      link: input.unsubscribeUrl
-        ? { label: "Turn this email off", url: input.unsubscribeUrl }
-        : null,
+      link: { label: "Turn this email off", url: input.unsubscribeUrl },
     },
-    smallPrint: input.unsubscribeUrl
-      ? "You get this email once a month. You can also turn it off on Home, under Monthly update email."
-      : "",
+    smallPrint:
+      "You get this email once a month. You can also turn it off on Home, under Monthly update email.",
   });
 }
 
-/** The email as the approval page shows it: forced light and forced dark, and the plain-text part. */
-export function previewWhatsNewDigestEmail(input: WhatsNewDigestEmailInput) {
-  const light = renderWhatsNewDigestEmail(input, { base: "light", themeChoice: "light" });
-  const dark = renderWhatsNewDigestEmail(input, { base: "dark", themeChoice: "dark" });
+/**
+ * The email as the approval page shows it: forced light and forced dark, and the plain-text part.
+ * Its unsubscribe link is the page's path with no token: a preview signs nothing for an owner.
+ */
+export function previewWhatsNewDigestEmail(
+  input: Omit<WhatsNewDigestEmailInput, "unsubscribeUrl">
+) {
+  const withLink = { ...input, unsubscribeUrl: UNSUBSCRIBE_PAGE_PATH };
+  const light = renderWhatsNewDigestEmail(withLink, { base: "light", themeChoice: "light" });
+  const dark = renderWhatsNewDigestEmail(withLink, { base: "dark", themeChoice: "dark" });
   return {
     subject: light.subject,
     light: light.htmlContent,

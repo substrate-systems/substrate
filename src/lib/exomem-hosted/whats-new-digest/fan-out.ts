@@ -31,7 +31,7 @@ export const WHATS_NEW_DIGEST_FANOUT_BATCH = 200;
 const BEFORE_EVERY_TENANT = "00000000-0000-0000-0000-000000000000";
 
 /** The row's dedupe key: one digest per month and owner. */
-export function whatsNewDigestDedupeKey(month: string, tenantId: string): string {
+function whatsNewDigestDedupeKey(month: string, tenantId: string): string {
   return `whats-new-digest:${month}:${tenantId}`;
 }
 

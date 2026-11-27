@@ -68,14 +68,6 @@ export default function UnsubscribeClient() {
         : state === "done"
           ? "Monthly update email is off"
           : "Turn off the monthly update email?";
-  const lede =
-    state === "checking"
-      ? "Your settings stay as they are until you choose."
-      : state === "invalid"
-        ? "Open the link from the email again, or turn the email off on Home, under Monthly update email."
-        : state === "done"
-          ? "We will not send it again. You can turn it back on any time on Home."
-          : "You will stop getting the monthly email about what changed in Evermatter. Nothing else changes.";
 
   return (
     <JourneyPage
@@ -84,7 +76,7 @@ export default function UnsubscribeClient() {
       stepKey={state}
       focusHeading={state !== "checking"}
     >
-      <StepHeading title={title} lede={lede} />
+      <StepHeading title={title} />
       <StepNotice visible={failed} alert>
         That did not go through. Try again in a moment.
       </StepNotice>

@@ -37,6 +37,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
   try {
     const summary = await runWhatsNewDigestSelection({ deadlineAt });
+    // A month whose release list could not be read did not run: the month waits, and this says so.
+    if (summary.releaseList === "unavailable" || summary.releaseList === "not_configured") {
+      const code =
+        summary.releaseList === "not_configured"
+          ? "WHATS_NEW_GITHUB_NOT_CONFIGURED"
+          : "WHATS_NEW_RELEASES_NOT_READ";
+      emitAccessEvent({
+        event: "whats_new_digest.select",
+        outcome: "failed",
+        requestId,
+        errorCode: code,
+      });
+      return NextResponse.json(
+        { success: false, ...summary, error: { code } },
+        { status: 503, headers: { "cache-control": "no-store" } }
+      );
+    }
     emitAccessEvent({ event: "whats_new_digest.select", outcome: "succeeded", requestId });
     return NextResponse.json(
       { success: true, ...summary },

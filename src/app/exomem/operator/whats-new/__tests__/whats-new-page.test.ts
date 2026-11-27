@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import type { MonthDetail } from "@/lib/exomem-hosted/whats-new-digest/approval";
-import { lockedReason, moved, selectionAllowed, toggled } from "../whats-new-state";
+import type { DigestOverview, MonthDetail } from "@/lib/exomem-hosted/whats-new-digest/approval";
+import {
+  lockedReason,
+  monthFigures,
+  moved,
+  selectionAllowed,
+  setupFigures,
+  stateLabel,
+  toggled,
+} from "../whats-new-state";
 
 describe("Exomem monthly What's new page", () => {
   it("is private, dynamic, excluded from indexing and sends no referrer", async (context) => {
@@ -50,9 +58,69 @@ describe("what holds Approve and Edit", () => {
   const month = (state: string) =>
     ({ state, releases: { missing: [{}] } }) as unknown as MonthDetail;
 
-  it("names the cause of each state the operator can still act on", () => {
-    assert.match(lockedReason(month("waiting_for_notes")), /lacks its notes/);
-    assert.match(lockedReason(month("waiting_for_model")), /ranking/);
-    assert.match(lockedReason(month("awaiting_approval")), /your own pick/);
+  it("gives each state the operator can still act on its own reason", () => {
+    const reasons = ["waiting_for_notes", "waiting_for_model", "awaiting_approval"].map((state) =>
+      lockedReason(month(state))
+    );
+    assert.ok(reasons.every((reason) => reason.length > 0));
+    assert.equal(new Set(reasons).size, reasons.length);
+  });
+});
+
+describe("a release list that was not read", () => {
+  const waiting = (releaseList: MonthDetail["releaseList"], total: number) =>
+    ({
+      state: "waiting_for_notes",
+      releaseList,
+      releases: { total, acceptedWithout: 0, missing: [] },
+      notes: [],
+    }) as unknown as MonthDetail;
+  const failure = (status: "unavailable" | "not_configured") => ({
+    listedAt: null,
+    failure: { status, detail: "releases list answered 403", at: "2026-11-27T19:04:00.000Z" },
+  });
+  const releasesFigure = (detail: MonthDetail) =>
+    monthFigures(detail).find((figure) => figure.label === "Releases")?.value;
+
+  it("is not shown as zero releases, and carries the last try and its reason", () => {
+    const unread = waiting(failure("unavailable"), 0);
+    assert.notEqual(releasesFigure(unread), "0");
+    const tried = monthFigures(unread).find((figure) => figure.label.includes("last try"));
+    assert.ok(tried?.value.includes("27 Nov 2026, 19:04 UTC") && tried.value.includes("403"));
+    // A list that was read and holds nothing is a true zero.
+    const read = waiting({ listedAt: "2026-11-27T19:04:00.000Z", failure: null }, 0);
+    assert.equal(releasesFigure(read), "0");
+  });
+
+  it("names a missing token apart from an outage, and either apart from a month that is waiting for notes", () => {
+    const labels = [
+      stateLabel(waiting(failure("not_configured"), 0), true, 0),
+      stateLabel(waiting(failure("unavailable"), 0), true, 0),
+      stateLabel(waiting({ listedAt: "2026-11-27T19:04:00.000Z", failure: null }, 2), true, 0),
+    ];
+    assert.equal(new Set(labels).size, 3);
+  });
+});
+
+describe("the page's setup", () => {
+  const setup = (overrides: Partial<DigestOverview>) =>
+    setupFigures({
+      firstMonth: null,
+      firstMonthMalformed: false,
+      githubConfigured: true,
+      modelConfigured: true,
+      unsubscribeKeys: { current: "ok", previous: "unset" },
+      ...overrides,
+    } as DigestOverview);
+  const firstMonth = (figures: ReturnType<typeof setup>) =>
+    figures.find((figure) => figure.label === "First month")?.value;
+
+  it("tells a malformed first month from an unset one and from a month", () => {
+    const values = [
+      firstMonth(setup({})),
+      firstMonth(setup({ firstMonthMalformed: true })),
+      firstMonth(setup({ firstMonth: "2026-11" })),
+    ];
+    assert.equal(new Set(values).size, 3);
   });
 });

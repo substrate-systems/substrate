@@ -1,11 +1,8 @@
-import type { MonthDetail } from "@/lib/exomem-hosted/whats-new-digest/approval";
+import type { DigestOverview, MonthDetail } from "@/lib/exomem-hosted/whats-new-digest/approval";
+import { MAX_PICKS, MIN_PICKS } from "@/lib/exomem-hosted/whats-new-digest/pick-bounds";
 
 export type NoteView = MonthDetail["notes"][number];
 export type NoteRef = { version: string; position: number };
-
-/** A digest is 3 to 6 notes (the server refuses anything else). */
-export const MIN_NOTES = 3;
-export const MAX_NOTES = 6;
 
 export const noteKey = (note: NoteRef): string => `${note.version}#${note.position}`;
 export const noteRef = ({ version, position }: NoteRef): NoteRef => ({ version, position });
@@ -39,67 +36,167 @@ export function listedState(
     : entry.state.replaceAll("_", " ");
 }
 
-/** One sentence that says where the month stands, computed from what the server holds. */
-export function stateSentence(month: MonthDetail, modelConfigured: boolean, now: number): string {
+/** The month's state as a short label, computed from what the server holds. */
+export function stateLabel(month: MonthDetail, modelConfigured: boolean, now: number): string {
   switch (month.state) {
-    case "waiting_for_notes":
-      return `Waiting for the notes of ${month.releases.missing.length} ${month.releases.missing.length === 1 ? "release" : "releases"}.`;
+    case "waiting_for_notes": {
+      const { listedAt, failure } = month.releaseList;
+      if (failure?.status === "not_configured") return "GitHub token not configured";
+      // Not read is not "no releases": say so, and when the last try was.
+      if (listedAt === null)
+        return failure
+          ? `Release list not read, last try ${timeLabel(failure.at)}`
+          : "Release list not read yet";
+      return `Waiting for notes: ${month.releases.missing.length} ${month.releases.missing.length === 1 ? "release" : "releases"}`;
+    }
     case "waiting_for_model":
-      if (!modelConfigured || month.modelStatus === "not_configured") {
-        return "Model not configured. The month waits, and no call is made.";
-      }
+      if (!modelConfigured || month.modelStatus === "not_configured") return "Model not configured";
       return month.modelStatus === "unavailable"
-        ? "The model did not answer. The next daily run tries again."
-        : "Waiting for the model's ranking at the next daily run.";
+        ? "Model did not answer, retries at the next daily run"
+        : "Waiting for the model's ranking";
     case "awaiting_approval":
-      return month.blindPick === null
-        ? "Waiting for your own pick, then your decision."
-        : "Waiting for your decision.";
+      return month.blindPick === null ? "Waiting for your pick" : "Waiting for your decision";
     case "ready_to_queue": {
       const how =
         month.decision === "automatic"
-          ? "sent on without approval"
+          ? "sent without approval"
           : month.decision === "edited"
             ? "approved after your edit"
             : "approved as ranked";
       return month.sendAfter && Date.parse(month.sendAfter) > now
-        ? `Ready, sends after ${timeLabel(month.sendAfter)} (${how}). Stop it before then if it should not go.`
-        : `Ready to queue: ${how}.`;
+        ? `Ready, sends after ${timeLabel(month.sendAfter)}, ${how}`
+        : `Ready to queue, ${how}`;
     }
     case "queued":
-      return `Queued: ${month.queuedCount} ${month.queuedCount === 1 ? "digest" : "digests"} went to the outbox. Each sends behind every other email.`;
+      return `Queued: ${month.queuedCount} ${month.queuedCount === 1 ? "digest" : "digests"}`;
     case "skipped":
-      if (month.skipReason === "quiet")
-        return "Skipped: a quiet month, the model and you picked none.";
+      if (month.skipReason === "quiet") return "Skipped: quiet month";
       if (month.skipReason === "too_few_notes")
-        return `Skipped: ${month.notes.length} notes is under the bar of ${MIN_NOTES}.`;
-      if (month.decision !== null)
-        return "Stopped after approval. Digests still waiting in the outbox are cancelled when they would send.";
-      if (month.rankingPending)
-        return "Skipped on your pick of none. The model's ranking is still to be recorded for the measurement.";
-      return month.blindPick?.length === 0
-        ? "Skipped on your pick of none. The model's ranking is recorded for the measurement."
-        : "Skipped: nothing is sent for this month.";
+        return `Skipped: ${month.notes.length} notes, under ${MIN_PICKS}`;
+      if (month.decision !== null) return "Stopped after approval";
+      if (month.rankingPending) return "Skipped on your pick of none, ranking pending";
+      return month.blindPick?.length === 0 ? "Skipped on your pick of none" : "Skipped";
     case "lapsed":
-      return "Lapsed, not approved. Nothing is sent for this month.";
+      return "Lapsed, not approved";
   }
+}
+
+export type Figure = { label: string; value: string };
+
+/** What the month holds, as labelled values: each says what it is, and an unread value says so. */
+export function monthFigures(month: MonthDetail): Figure[] {
+  const figures: Figure[] = [
+    {
+      label: "Releases",
+      value: month.releaseList.listedAt === null ? "Not read" : String(month.releases.total),
+    },
+  ];
+  const { failure } = month.releaseList;
+  if (failure)
+    figures.push({
+      label: "Release list, last try",
+      value: `${timeLabel(failure.at)}, ${failure.detail}`,
+    });
+  // While notes are missing the month lists none, so a count would read as zero.
+  if (month.state !== "waiting_for_notes")
+    figures.push({ label: "Notes", value: String(month.notes.length) });
+  if (month.releases.acceptedWithout > 0)
+    figures.push({
+      label: "Accepted without notes",
+      value: String(month.releases.acceptedWithout),
+    });
+  if (month.modelId) {
+    figures.push({ label: "Ranked by", value: month.modelId });
+    if (month.modelReported && month.modelReported !== month.modelId)
+      figures.push({ label: "Model reported", value: month.modelReported });
+    if (month.promptVersion) figures.push({ label: "Prompt", value: month.promptVersion });
+  }
+  return figures;
+}
+
+/** The settings the daily run and the send depend on, each as its state. */
+export function setupFigures(overview: DigestOverview): Figure[] {
+  const { firstMonth, firstMonthMalformed, unsubscribeKeys } = overview;
+  return [
+    {
+      label: "First month",
+      value: firstMonthMalformed
+        ? "Malformed, nothing is built"
+        : firstMonth === null
+          ? "Not set, nothing is built"
+          : monthTitle(firstMonth),
+    },
+    {
+      label: "GitHub token",
+      value: overview.githubConfigured ? "Set" : "Not set, months wait",
+    },
+    { label: "Model key", value: overview.modelConfigured ? "Set" : "Not set, months wait" },
+    {
+      label: "Unsubscribe key",
+      value: unsubscribeKeys.current === "ok" ? "Set" : "Not set or malformed, nothing is queued",
+    },
+    {
+      label: "Previous unsubscribe key",
+      value:
+        unsubscribeKeys.previous === "malformed"
+          ? "Malformed, nothing is queued"
+          : unsubscribeKeys.previous === "ok"
+            ? "Set"
+            : "None",
+    },
+  ];
+}
+
+/** The measurement as labelled values: how many months count, and the identity they were ranked under. */
+export function measurementFigures(measurement: DigestOverview["measurement"]): Figure[] {
+  const figures: Figure[] = [{ label: "Counted months", value: String(measurement.run.length) }];
+  const [first] = measurement.run;
+  if (first) {
+    figures.push({ label: "Model", value: first.modelId });
+    figures.push({ label: "Model reported", value: first.modelReported });
+    figures.push({ label: "Prompt", value: first.promptVersion });
+  }
+  return figures;
+}
+
+/** How a month is scored, for the heading's tooltip: the page shows the figures, not the rules. */
+export function measurementRule(monthsToMeasure: number): string {
+  return `A month counts when it has your blind pick and the model's ranking, whatever you then decided. Both picked none: quiet, not counted. One picked none: it scores 0. Otherwise the score is the notes in both picks over the larger pick count. Two thirds in each of the first ${monthsToMeasure} counted months offers sending without approval. A change of model, reported model or prompt restarts the count.`;
+}
+
+/** Where sending without approval stands, as one labelled value. */
+export function switchFigure(overview: DigestOverview): Figure {
+  const { switch: recorded, measurement } = overview;
+  const label = "Send without approval";
+  if (recorded.sendWithoutApproval && !recorded.applies)
+    return {
+      label,
+      value: `Recorded${recorded.recordedAt ? ` ${timeLabel(recorded.recordedAt)}` : ""}, not in effect: model or prompt changed`,
+    };
+  if (measurement.withdrawn)
+    return { label, value: "Withdrawn: a later month scored under two thirds" };
+  if (measurement.complete) return { label, value: "Not offered: a month scored under two thirds" };
+  return {
+    label,
+    value: `Not offered yet: ${Math.max(0, measurement.monthsToMeasure - measurement.measured.length)} more counted months`,
+  };
 }
 
 /** Why Approve and Edit are not open for a month the operator can still act on, from what holds them. */
 export function lockedReason(month: MonthDetail): string {
   switch (month.state) {
     case "waiting_for_notes":
-      return "Approve and Edit unlock once each release that lacks its notes has them, or is accepted without.";
+      return "Locked: notes missing";
     case "waiting_for_model":
-      return "Approve and Edit unlock once the model's ranking is in.";
+      return "Locked: waiting for the ranking";
     default:
-      return "Approve and Edit unlock once your own pick is recorded.";
+      return "Locked: record your pick first";
   }
 }
 
 /** A selection can be sent to the server: 3 to 6 notes, or none where the page allows it. */
 export function selectionAllowed(count: number, allowNone: boolean): boolean {
-  return (allowNone && count === 0) || (count >= MIN_NOTES && count <= MAX_NOTES);
+  return (allowNone && count === 0) || (count >= MIN_PICKS && count <= MAX_PICKS);
 }
 
 /** The list with the item at `index` moved by `delta` places, or the same list when it cannot move. */
@@ -116,7 +213,7 @@ export function toggled(picks: readonly NoteRef[], note: NoteRef): NoteRef[] {
   const key = noteKey(note);
   if (picks.some((pick) => noteKey(pick) === key))
     return picks.filter((pick) => noteKey(pick) !== key);
-  return picks.length >= MAX_NOTES ? [...picks] : [...picks, noteRef(note)];
+  return picks.length >= MAX_PICKS ? [...picks] : [...picks, noteRef(note)];
 }
 
 export function requestMessage(code: string): string {
@@ -126,7 +223,7 @@ export function requestMessage(code: string): string {
     case "WHATS_NEW_DIGEST_BLIND_PICK_FIRST":
       return "Record your own pick first.";
     case "WHATS_NEW_DIGEST_SELECTION_INVALID":
-      return `A selection is ${MIN_NOTES} to ${MAX_NOTES} different notes of the month.`;
+      return `A selection is ${MIN_PICKS} to ${MAX_PICKS} different notes of the month.`;
     case "WHATS_NEW_DIGEST_STATE":
       return "The month changed while the page was open. Reload it and try again.";
     case "WHATS_NEW_DIGEST_SWITCH_NOT_OFFERED":
@@ -134,6 +231,6 @@ export function requestMessage(code: string): string {
     case "RATE_LIMITED":
       return "Too many requests. Wait a moment and try again.";
     default:
-      return "The request was not accepted.";
+      return "The request was not accepted. Try again.";
   }
 }

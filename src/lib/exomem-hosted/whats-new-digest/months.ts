@@ -28,6 +28,8 @@ import {
 
 export type SkipReason = "operator" | "quiet" | "too_few_notes";
 export type ModelStatus = "not_configured" | "unavailable";
+/** Why the release list was not read at the last try; the same two words as the model's status. */
+export type ListStatus = "not_configured" | "unavailable";
 export type Decision = "approved" | "edited" | "automatic";
 export type ReleaseProblem = "no_asset" | "unfetched" | "unreadable";
 
@@ -35,8 +37,15 @@ export type MonthRecord = {
   month: string;
   state: MonthState;
   skipReason: SkipReason | null;
+  /** When the release list was last read in full; `null` while it has not been read. */
   releasesListedAt: Date | null;
   lastCheckedAt: Date | null;
+  /** Why the last try to read the release list failed; `null` when it was read, or not tried yet. */
+  listStatus: ListStatus | null;
+  /** The reason as the code words it, with `listStatus`. */
+  listDetail: string | null;
+  /** When that try happened. */
+  listFailedAt: Date | null;
   modelStatus: ModelStatus | null;
   /** The model name that configuration asked for. */
   modelId: string | null;
@@ -82,6 +91,9 @@ function monthRecord(row: MonthRow): MonthRecord {
     skipReason: (row.skip_reason as SkipReason | null) ?? null,
     releasesListedAt: asDate(row.releases_listed_at),
     lastCheckedAt: asDate(row.last_checked_at),
+    listStatus: (row.list_status as ListStatus | null) ?? null,
+    listDetail: (row.list_detail as string | null) ?? null,
+    listFailedAt: asDate(row.list_failed_at),
     modelStatus: (row.model_status as ModelStatus | null) ?? null,
     modelId: (row.model_id as string | null) ?? null,
     modelReported: (row.model_reported as string | null) ?? null,
@@ -127,7 +139,8 @@ async function readMonths(filter: {
 }): Promise<MonthRecord[]> {
   const { rows } = await executeExomemSql`
     /* exomem:whats-new-digest-read-months */
-    SELECT month, state, skip_reason, releases_listed_at, last_checked_at, model_status,
+    SELECT month, state, skip_reason, releases_listed_at, last_checked_at,
+           list_status, list_detail, list_failed_at, model_status,
            model_id, model_reported, prompt_version, model_selection, blind_pick, decision, final_selection,
            decided_at, send_after, queued_count
     FROM exomem_whats_new_digest_months
@@ -233,14 +246,27 @@ export async function saveListing(month: string, listed: readonly ListedRelease[
   `;
   await executeExomemSql`
     UPDATE exomem_whats_new_digest_months
-    SET releases_listed_at = now(), last_checked_at = now(), updated_at = now()
+    SET releases_listed_at = now(), last_checked_at = now(),
+        list_status = NULL, list_detail = NULL, list_failed_at = NULL, updated_at = now()
     WHERE month = ${month}
   `;
 }
 
-export async function touchMonth(month: string): Promise<void> {
+/**
+ * Records that the release list was not read, when and why. The month keeps
+ * what an earlier read stored; `releases_listed_at` still says when that was.
+ */
+export async function recordListFailure(
+  month: string,
+  status: ListStatus,
+  detail: string
+): Promise<void> {
   await executeExomemSql`
-    UPDATE exomem_whats_new_digest_months SET last_checked_at = now() WHERE month = ${month}
+    /* exomem:whats-new-digest-list-failure */
+    UPDATE exomem_whats_new_digest_months
+    SET list_status = ${status}, list_detail = ${detail.slice(0, 200)}, list_failed_at = now(),
+        last_checked_at = now(), updated_at = now()
+    WHERE month = ${month}
   `;
 }
 
@@ -279,12 +305,16 @@ export async function saveFetchedFiles(
   `;
 }
 
-/** Moves the month on once its list is read and every release that is not accepted without has its notes. */
+/**
+ * Moves the month on once its list is read and every release that is not accepted without has its
+ * notes. The list is final then, so a failed refresh of it no longer counts: nothing reads it again.
+ */
 export async function advanceWhenNotesComplete(month: string): Promise<boolean> {
   const { rowCount } = await executeExomemSql`
     /* exomem:whats-new-digest-notes-complete */
     UPDATE exomem_whats_new_digest_months AS m
-    SET state = 'waiting_for_model', updated_at = now()
+    SET state = 'waiting_for_model', list_status = NULL, list_detail = NULL, list_failed_at = NULL,
+        updated_at = now()
     WHERE m.month = ${month} AND m.state = 'waiting_for_notes' AND m.releases_listed_at IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM exomem_whats_new_digest_releases AS r

@@ -15,7 +15,7 @@ import {
   type Measurement,
   type MonthShare,
 } from "./measurement";
-import { MAX_PICKS, MIN_PICKS, WHATS_NEW_PROMPT_VERSION } from "./model";
+import { WHATS_NEW_PROMPT_VERSION } from "./model";
 import { unsubscribeKeyStatus, type UnsubscribeKeyStatus } from "./unsubscribe";
 import {
   acceptWithout,
@@ -33,12 +33,14 @@ import {
   recordSwitch,
   skipMonth,
   stopMonth,
+  type ListStatus,
   type MonthRecord,
   type ReleaseProblem,
   type SkipReason,
   type SwitchRecord,
 } from "./months";
 import { noteKey, parseNoteIds, resolveSelection, type MonthNote, type NoteId } from "./notes";
+import { MAX_PICKS, MIN_PICKS } from "./pick-bounds";
 import type { MonthState } from "./states";
 
 function digestError(code: string, status: number, message: string): ExomemHostedError {
@@ -82,7 +84,7 @@ const configured = () => ({
   promptVersion: WHATS_NEW_PROMPT_VERSION,
 });
 
-export type MonthSummary = {
+type MonthSummary = {
   month: string;
   state: MonthState;
   skipReason: SkipReason | null;
@@ -99,8 +101,12 @@ export type DigestOverview = {
   months: MonthSummary[];
   /** The key and model are configured now; a month waits in "model not configured" while they are not. */
   modelConfigured: boolean;
-  /** The first month the daily route builds (`YYYY-MM`); `null` while unset, and then it builds nothing. */
+  /** The GitHub token is configured now; a month waits in "GitHub token not configured" while it is not. */
+  githubConfigured: boolean;
+  /** The first month the daily route builds (`YYYY-MM`); `null` while unset or malformed, and then it builds nothing. */
   firstMonth: string | null;
+  /** The first-month setting is present but is not a `YYYY-MM` month. */
+  firstMonthMalformed: boolean;
   /** The two unsubscribe keys' state; while the signing key is unusable, or the previous one malformed, an approved month queues nothing. */
   unsubscribeKeys: UnsubscribeKeyStatus;
   model: { modelId: string; promptVersion: string };
@@ -126,6 +132,7 @@ export async function describeOverview(): Promise<DigestOverview> {
     listCountableMonths(),
     currentSwitch(),
   ]);
+  const config = whatsNewDigestConfig();
   const model = configured();
   const measurement: Measurement = measure(decided, model);
   // The model that the API reports is known only from a ranking: the switch holds
@@ -142,8 +149,10 @@ export async function describeOverview(): Promise<DigestOverview> {
       lastCheckedAt: month.lastCheckedAt?.toISOString() ?? null,
       sendAfter: month.sendAfter?.toISOString() ?? null,
     })),
-    modelConfigured: whatsNewDigestConfig().anthropicApiKey !== null,
-    firstMonth: whatsNewDigestConfig().firstMonth,
+    modelConfigured: config.anthropicApiKey !== null,
+    githubConfigured: config.githubToken !== null,
+    firstMonth: config.firstMonth,
+    firstMonthMalformed: config.firstMonthMalformed,
     unsubscribeKeys: unsubscribeKeyStatus(),
     model,
     measurement: {
@@ -186,6 +195,11 @@ export type MonthDetail = {
   promptVersion: string | null;
   /** The month is skipped after the operator's blind pick and its ranking is not in yet: it is still to be recorded. */
   rankingPending: boolean;
+  /** When the release list was last read in full (`null`: not read), and why the last try failed, if it did. */
+  releaseList: {
+    listedAt: string | null;
+    failure: { status: ListStatus; detail: string; at: string } | null;
+  };
   releases: {
     total: number;
     acceptedWithout: number;
@@ -237,6 +251,17 @@ export async function describeMonth(month: string): Promise<MonthDetail> {
     modelReported: record.modelReported,
     promptVersion: record.promptVersion,
     rankingPending: needsRanking(record) && record.state === "skipped",
+    releaseList: {
+      listedAt: record.releasesListedAt?.toISOString() ?? null,
+      failure:
+        record.listStatus && record.listFailedAt
+          ? {
+              status: record.listStatus,
+              detail: record.listDetail ?? "",
+              at: record.listFailedAt.toISOString(),
+            }
+          : null,
+    },
     releases: {
       total: releases.length,
       acceptedWithout: releases.filter((release) => release.acceptedWithoutAt).length,
