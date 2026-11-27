@@ -334,6 +334,9 @@ function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
   return new Set(cells as string[]);
 }
 
+/** A lowercase registry path with an optional `:port` on the host; no tag and no `@digest`. */
+const CELL_IMAGE_REPOSITORY_PATTERN = /^[a-z0-9._-]+(:[0-9]+)?(\/[a-z0-9._-]+)*$/;
+
 /**
  * The current cell image repository, one of those D5's release control
  * (cloud-release.ts) validates against (security review finding 10):
@@ -349,14 +352,12 @@ function cellIdList(env: EnvironmentSource, name: string): ReadonlySet<string> {
  */
 function loadCloudCellImageRepository(env: EnvironmentSource = process.env): string {
   const repository = env.EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY?.trim();
-  if (!repository) {
+  // Checks shape, not meaning: a mixed-case or tagged value would silently refuse every image.
+  if (!repository || !CELL_IMAGE_REPOSITORY_PATTERN.test(repository)) {
     throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_CELL_IMAGE_REPOSITORY"]);
   }
   return repository;
 }
-
-/** A lowercase registry path with an optional `:port` on the host; no tag and no `@digest`. */
-const CELL_IMAGE_REPOSITORY_PATTERN = /^[a-z0-9._-]+(:[0-9]+)?(\/[a-z0-9._-]+)*$/;
 
 /**
  * The repositories a cell image may come from: the current one, and the
