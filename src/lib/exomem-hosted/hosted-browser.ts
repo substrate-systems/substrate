@@ -118,6 +118,16 @@ export async function getPrivateJson(
   return decodeResponse(response);
 }
 
+/**
+ * Another app page's path in the form this page was served in: under /exomem on the company
+ * site, at the root on the product site. For a history entry, which no redirect corrects.
+ */
+export function appPagePathHere(routePath: string): string {
+  const { pathname } = window.location;
+  const prefixed = pathname === "/exomem" || pathname.startsWith("/exomem/");
+  return prefixed ? routePath : routePath.slice("/exomem".length) || "/";
+}
+
 export function takeFragmentToken(): string | null {
   const token = window.location.hash.slice(1).trim();
   window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);

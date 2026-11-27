@@ -5,7 +5,7 @@ import { AddressField } from "@/components/exomem/AddressField";
 import { CheckoutInline } from "@/components/exomem/CheckoutInline";
 import type { FieldKind } from "@/components/exomem/FlowField";
 import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
-import { getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import { appPagePathHere, getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import type { Known } from "@/lib/exomem-hosted/known";
 import { openBillingPortal, signOut } from "../_journey/account-actions";
 import {
@@ -279,7 +279,7 @@ export default function SetupClient({
       return;
     }
     // The page is now the start page: a reload shows it again.
-    window.history.replaceState(null, "", "/exomem/sign-in");
+    window.history.replaceState(null, "", appPagePathHere("/exomem/sign-in"));
     setPhase("switched");
   }
 

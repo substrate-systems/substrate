@@ -13,6 +13,7 @@
 - [x] 2.1 Serve the public product pages on `evermatter.ai` and redirect their old paths with a 308; leave the OAuth API routes unchanged.
 - [x] 2.3 Serve the app pages on the `EXOMEM_PUBLIC_BASE_URL` origin and redirect them there from the other host.
 - [x] 2.2 Move canonicals, the sitemap, structured data and the email wordmark link to `evermatter.ai`.
+- [x] 2.4 Serve the app pages at the root of `evermatter.ai` once it is the app origin, redirect their `/exomem/` addresses there with a 308, and build every outgoing app link in that form.
 
 ## 3. Email
 

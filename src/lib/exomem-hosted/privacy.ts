@@ -1,3 +1,5 @@
+import { isProductAppRootPath } from "@/lib/exomem/product-pages";
+
 type VercelAnalyticsEvent = {
   url: string;
 };
@@ -100,10 +102,22 @@ function pathname(value: string): string | null {
   }
 }
 
+function isListedPrivatePath(path: string): boolean {
+  return PRIVATE_EXOMEM_PATHS.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+/**
+ * The product site serves the app pages at its root (`/home` for `/exomem/home`), so a root
+ * path that names an app page is private when its /exomem route is. This holds on every host:
+ * the company site has no page at those paths, and the check needs no host to run on the server.
+ */
 export function isPrivateExomemPath(value: string): boolean {
   const path = pathname(value);
   if (!path) return false;
-  return PRIVATE_EXOMEM_PATHS.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  return (
+    isListedPrivatePath(path) ||
+    (isProductAppRootPath(path) && isListedPrivatePath(`/exomem${path}`))
+  );
 }
 
 export function shouldMountAnalytics(value: string | null): boolean {

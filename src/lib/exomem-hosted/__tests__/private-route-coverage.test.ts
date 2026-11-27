@@ -77,6 +77,9 @@ describe("private Exomem analytics exclusion", () => {
         true,
         `${route} sends no referrer but is not in PRIVATE_EXOMEM_PATHS — analytics would mount on an authenticated surface`
       );
+      // The product site serves the same page at its root.
+      const atRoot = route.slice("/exomem".length);
+      assert.equal(isPrivateExomemPath(atRoot), true, `${atRoot} is not excluded from analytics`);
     }
   });
 

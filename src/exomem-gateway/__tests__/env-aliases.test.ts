@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { exomemHomeUrl } from "../../lib/exomem-hosted/public-origin";
 import { adoptSettingAliases } from "../env-aliases";
 import { validateGatewayEnvironment } from "../server";
 
@@ -23,6 +24,23 @@ test("a chart that names every required setting with the product prefix passes t
   validateGatewayEnvironment(environment);
   assert.equal(environment.EXOMEM_PUBLIC_BASE_URL, "https://mcp.example.test");
   assert.equal(environment.EVERMATTER_PUBLIC_BASE_URL, undefined);
+});
+
+// Startup renames the setting before a tool reply builds its Home link.
+test("the product site setting still gives the gateway's Home links their root address", () => {
+  const environment: Record<string, string | undefined> = {
+    ...REQUIRED_UNDER_PRODUCT_PREFIX,
+    EVERMATTER_PUBLIC_BASE_URL: "https://evermatter.ai",
+    EVERMATTER_SITE_ORIGIN: "https://evermatter.ai",
+  };
+  adoptSettingAliases(environment, () => assert.fail("no conflict expected"));
+  validateGatewayEnvironment(environment);
+  assert.equal(
+    exomemHomeUrl("https://evermatter.ai", "your-data", environment),
+    "https://evermatter.ai/home#your-data"
+  );
+  environment.EXOMEM_SITE_ORIGIN = "https://evermatter.ai/app";
+  assert.throws(() => validateGatewayEnvironment(environment), /EVERMATTER_SITE_ORIGIN/);
 });
 
 test("a set internal name wins over a different product-prefix value, and the conflict is named", () => {

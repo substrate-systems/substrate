@@ -64,7 +64,7 @@ function checkoutUrl(env: EnvironmentSource): string | null {
   }
   try {
     const origin = parseExomemPublicBaseUrl(configuredOrigin, runtimeEnvironment);
-    return exomemHomeUrl(origin);
+    return exomemHomeUrl(origin, undefined, env);
   } catch {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }

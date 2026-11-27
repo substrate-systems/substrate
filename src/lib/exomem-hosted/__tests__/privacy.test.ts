@@ -18,6 +18,10 @@ test("private hosted pages are excluded without hiding the public Exomem page", 
   assert.equal(isPrivateExomemPath("/exomem/sign-in"), true);
   assert.equal(isPrivateExomemPath("/exomem/delete/confirm"), true);
   assert.equal(isPrivateExomemPath("/exomem/homepage"), false);
+  // The product site serves the app pages at its root; other root pages stay public.
+  assert.equal(isPrivateExomemPath("https://evermatter.ai/home/memory?query=private"), true);
+  assert.equal(isPrivateExomemPath("/account"), false);
+  assert.equal(isPrivateExomemPath("/docs"), false);
   assert.equal(shouldMountAnalytics("/exomem/home"), false);
   assert.equal(shouldMountAnalytics("/exomem"), true);
   assert.equal(shouldReloadAnalyticsDocument(false, "/exomem/home"), false);

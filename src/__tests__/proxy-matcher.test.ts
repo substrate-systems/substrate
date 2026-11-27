@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
+import { PRODUCT_APP_PAGES } from "@/lib/exomem/product-pages";
 import { config } from "../proxy";
 
 // A matcher that misses an Exomem page silently drops its theme refresh; one that
@@ -20,6 +21,12 @@ describe("proxy matcher", () => {
     { path: "/exomem/home", headers: { rsc: "1" }, runs: false },
     { path: "/exomem/home", headers: { "next-router-prefetch": "1" }, runs: false },
     { path: "/exomem/home", headers: { purpose: "prefetch" }, runs: false },
+    // The product site serves the app pages at its root.
+    ...PRODUCT_APP_PAGES.map((page) => ({ path: `/${page}`, runs: true })),
+    { path: "/email-change/confirm", runs: true },
+    { path: "/home", headers: { rsc: "1" }, runs: false },
+    { path: "/home/wordmark.png", runs: false },
+    { path: "/docs", runs: false },
   ];
   for (const { path, headers, runs } of cases) {
     it(`${runs ? "starts" : "never starts"} the proxy for ${path} ${JSON.stringify(headers ?? {})}`, () => {

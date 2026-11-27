@@ -41,6 +41,21 @@ describe("optional Exomem HTML theme refresh", () => {
       assert.equal(lookups, 0);
     });
   }
+  it("refreshes a root app page on the product site only", async () => {
+    const { proxy } = await import("../proxy");
+    const headers = { accept: "text/html", "sec-fetch-dest": "document" };
+    const configured = process.env.EVERMATTER_SITE_ORIGIN;
+    process.env.EVERMATTER_SITE_ORIGIN = "https://evermatter.ai";
+    try {
+      await proxy(new NextRequest("https://substratesystems.io/home", { headers }));
+      assert.equal(lookups, 0);
+      await proxy(new NextRequest("https://evermatter.ai/home", { headers }));
+      assert.equal(lookups, 1);
+    } finally {
+      if (configured === undefined) delete process.env.EVERMATTER_SITE_ORIGIN;
+      else process.env.EVERMATTER_SITE_ORIGIN = configured;
+    }
+  });
   it("preserves the existing local developer route rewrite", async () => {
     const { proxy } = await import("../proxy");
     const response = await proxy(new NextRequest("https://example.test/tidewave"));

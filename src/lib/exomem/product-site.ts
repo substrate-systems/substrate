@@ -1,31 +1,26 @@
 /**
  * The product's own public site (evermatter.ai). `EVERMATTER_SITE_ORIGIN` turns it on.
  * Unset, the product pages live only under /exomem on the company site, as before.
- * Set, the public product pages get their canonical home on that origin and their old
- * company-site paths redirect there. App pages (sign-in, setup, home, authorize, operator)
- * serve on the origin `EXOMEM_PUBLIC_BASE_URL` names, which also gives the OAuth issuer, and
- * the other host redirects them there. The token, register and revoke routes answer on both
- * hosts; authorize redirects a GET on another host to the base origin itself (its route.ts).
+ * Set, the public product pages serve at that origin's root and their old company-site paths
+ * redirect there. App pages (sign-in, setup, Home, consent, operator and the rest) serve on the
+ * origin `EXOMEM_PUBLIC_BASE_URL` names, which also gives the OAuth issuer: at its root when that
+ * origin is the product site, under /exomem anywhere else. Every other host and form redirects
+ * to that address. API and /.well-known routes are never redirected or rewritten; authorize
+ * redirects a GET on another host to the base origin itself (its route.ts).
  *
  * next.config.ts imports this file, so it uses relative imports and no Next runtime APIs.
  */
 
-import { parseExomemPublicBaseUrl } from "../exomem-hosted/public-origin";
-import { PRODUCT_PUBLIC_PAGES } from "./product-pages";
+import {
+  exomemPageUrl,
+  parseExomemPublicBaseUrl,
+  productSiteOrigin,
+} from "../exomem-hosted/public-origin";
+import { PRODUCT_APP_PAGES, PRODUCT_PUBLIC_PAGES } from "./product-pages";
 
 const COMPANY_ORIGIN = "https://substratesystems.io";
 
 type Env = Record<string, string | undefined>;
-
-function productSiteOrigin(env: Env = process.env): string | null {
-  const raw = env.EVERMATTER_SITE_ORIGIN?.trim();
-  if (!raw) return null;
-  const url = new URL(raw);
-  if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash) {
-    throw new Error("EVERMATTER_SITE_ORIGIN must be a bare HTTPS origin");
-  }
-  return url.origin;
-}
 
 /** The product site's host for the theme rule on <html>, or null while the site is off. */
 export function productSiteHost(env: Env = process.env): string | null {
@@ -41,19 +36,17 @@ function productAppOrigin(env: Env = process.env): string {
     : COMPANY_ORIGIN;
 }
 
-function publicPageOf(path: string): string | null {
-  if (path === "/exomem") return "";
-  const match = /^\/exomem\/([^/]+)$/.exec(path);
-  const page = match?.[1];
-  return page && (PRODUCT_PUBLIC_PAGES as readonly string[]).includes(page) ? `/${page}` : null;
+function isPublicPage(path: string): boolean {
+  if (path === "/exomem") return true;
+  const page = /^\/exomem\/([^/]+)$/.exec(path)?.[1];
+  return page !== undefined && (PRODUCT_PUBLIC_PAGES as readonly string[]).includes(page);
 }
 
 /** The absolute URL a product page should canonicalise to; company origin when the site is off. */
 export function productPageUrl(path: string, env: Env = process.env): string {
   const origin = productSiteOrigin(env);
-  const page = origin ? publicPageOf(path) : null;
-  if (origin && page !== null) return `${origin}${page || "/"}`;
-  return `${productAppOrigin(env)}${path}`;
+  const home = origin && isPublicPage(path) ? origin : productAppOrigin(env);
+  return exomemPageUrl(home, path, env).toString();
 }
 
 function hostPattern(hostname: string): string {
@@ -84,34 +77,49 @@ export function productSiteRoutes(env: Env = process.env): {
     { type: "host", value: `(www\\.)?${hostPattern(new URL(COMPANY_ORIGIN).hostname)}` },
   ];
   const pages = PRODUCT_PUBLIC_PAGES.join("|");
-  // A dotted path is an asset (images, icons, the OG image); it serves on either host.
-  const appPath = "/exomem/:path((?!.*\\.).*)";
-  const appPages = (has: Has): Redirect => ({
-    source: appPath,
-    destination: `${appOrigin}/exomem/:path`,
+  const apps = PRODUCT_APP_PAGES.join("|");
+  // The app pages sit at the product site's root only while the app origin is that site.
+  const appsAtRoot = appOrigin === origin;
+  const appPage = `/:page(${apps})/:path*`;
+  const prefixedAppPage = `/exomem/:page(${apps})/:path*`;
+  const appPageHome = appsAtRoot ? `${appOrigin}/:page/:path*` : `${appOrigin}/exomem/:page/:path*`;
+  // Any other /exomem path (the OG image, a retired page) keeps its form on the app origin. A
+  // dotted path is an asset (images, icons); it serves on either host.
+  const otherPath = "/exomem/:path((?!.*\\.).*)";
+  const redirect = (source: string, destination: string, has: Has): Redirect => ({
+    source,
+    destination,
     permanent: true,
     has,
   });
   return {
     redirects: [
-      { source: "/:path*", destination: `${origin}/:path*`, permanent: true, has: productWww },
-      // On the product host, the /exomem prefix is redundant for public pages; any other
-      // /exomem page is an app page and serves only on the app origin.
-      { source: "/exomem", destination: "/", permanent: true, has: product },
-      { source: `/exomem/:page(${pages})`, destination: "/:page", permanent: true, has: product },
-      ...(appOrigin === origin ? [] : [appPages(product)]),
-      { source: "/exomem", destination: `${origin}/`, permanent: true, has: company },
-      {
-        source: `/exomem/:page(${pages})`,
-        destination: `${origin}/:page`,
-        permanent: true,
-        has: company,
-      },
-      ...(appOrigin === COMPANY_ORIGIN ? [] : [appPages(company)]),
+      redirect("/:path*", `${origin}/:path*`, productWww),
+      // On the product host, the /exomem prefix is redundant for public pages, and for app
+      // pages while they serve there; otherwise app pages serve only on the app origin.
+      redirect("/exomem", "/", product),
+      redirect(`/exomem/:page(${pages})`, "/:page", product),
+      ...(appsAtRoot
+        ? [redirect(prefixedAppPage, "/:page/:path*", product)]
+        : [
+            redirect(appPage, appPageHome, product),
+            redirect(otherPath, `${appOrigin}/exomem/:path`, product),
+          ]),
+      redirect("/exomem", `${origin}/`, company),
+      redirect(`/exomem/:page(${pages})`, `${origin}/:page`, company),
+      ...(appOrigin === COMPANY_ORIGIN
+        ? []
+        : [
+            redirect(prefixedAppPage, appPageHome, company),
+            redirect(otherPath, `${appOrigin}/exomem/:path`, company),
+          ]),
     ],
     rewrites: [
       { source: "/", destination: "/exomem", has: product },
       { source: `/:page(${pages})`, destination: "/exomem/:page", has: product },
+      ...(appsAtRoot
+        ? [{ source: appPage, destination: "/exomem/:page/:path*", has: product }]
+        : []),
     ],
   };
 }

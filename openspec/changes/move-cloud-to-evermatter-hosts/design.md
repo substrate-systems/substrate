@@ -51,7 +51,11 @@ The app pages (sign-in, setup, home, authorize, operator) serve on the origin th
 - Tokens are opaque and never carry the issuer, so a token from before the switch keeps working.
 - A browser session on the old host does not carry over; the person signs in once on `evermatter.ai`.
 - After the switch, the authorization-server metadata names the new issuer on both hosts. A client that rediscovers goes through the protected-resource metadata, which names the new issuer. A client that re-fetches metadata under the old issuer sees a mismatch and fails that discovery, and recovers through the protected-resource metadata on its next challenge.
-- App paths keep their `/exomem/` prefix on `evermatter.ai`, as internal identifiers do.
+- On `evermatter.ai` the app pages serve at the root (`/home`, `/sign-in`, `/authorize`), as the public pages do. The route folders under `src/app/exomem` and every API and `/.well-known` route keep their paths, and the mapping never rewrites or redirects them.
+- An address that leaves the page (an email link, a consent or checkout return URL, a Home link in a tool reply) takes the root form on the product site's origin and the `/exomem/` form on any other origin. So `substratesystems.io` keeps `/exomem/*` until the switch. A link inside a page keeps the route form, and the product host answers it with a 308 to the root form.
+- Old addresses get a 308 that keeps the query: `/exomem/<app page>` on `evermatter.ai` to its root form, and on `substratesystems.io` straight to the root form on `evermatter.ai`. Before the switch, a root-form app address on `evermatter.ai` gets a 308 to the `/exomem/` form on `substratesystems.io`, so a link sent after a switch still opens after a rollback.
+- The session, CSRF, continuation and theme cookies have `Path=/`, and the magic-link, recovery and access-log cookies are scoped to their API paths. So the root addresses receive the cookies they need, and an existing session on `substratesystems.io` keeps working there.
+- The analytics exclusion and the theme treat a root-form app path as the app page it names.
 
 Keeping the issuer and the app pages on `substratesystems.io` was the earlier plan; the operator chose sign-in on `evermatter.ai` on 2026-11-24.
 
@@ -67,5 +71,5 @@ Keeping the issuer and the app pages on `substratesystems.io` was the earlier pl
 3. Set `EXOMEM_CLOUD_MCP_URLS` to the new URL first, then the old URL, with the same list on the web app and the gateway; deploy the web app first. A bad list fails the web build and the gateway readiness check. Change `EXOMEM_CLOUD_MCP_URL` only in the same deploy that removes the old host.
 4. Check that a token from an existing connection still works at the old host, and that a new connection receives the new resource.
 5. Set `EVERMATTER_SITE_ORIGIN` to `https://evermatter.ai` on the web app once that origin serves TLS. The product pages then serve at its root, and the redirect of app pages to the sign-in origin needs this value.
-6. Move sign-in: set `EXOMEM_PUBLIC_BASE_URL` to `https://evermatter.ai` on the web app and the gateway together, after `evermatter.ai` serves TLS and the mail links for that host are tested. Rollback: set it back; sessions made on `evermatter.ai` then end and people sign in again on the old host.
+6. Move sign-in: set `EXOMEM_PUBLIC_BASE_URL` to `https://evermatter.ai` on the web app and the gateway together, after `evermatter.ai` serves TLS and the mail links for that host are tested. Set `EVERMATTER_SITE_ORIGIN` on the gateway in the same step, so the Home links in its tool replies take the root form; without it they redirect once. Rollback: set it back; sessions made on `evermatter.ai` then end and people sign in again on the old host.
 7. Rollback of the resource set: unset the set. Tokens issued for the new resource then stop working, so roll back only before step 3's new connections exist, or keep the new resource listed second.

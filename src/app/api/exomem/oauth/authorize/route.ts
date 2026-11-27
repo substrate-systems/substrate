@@ -14,7 +14,7 @@ import {
 import { isAcceptedCloudResource, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
 import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
-import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { exomemPublicBaseUrlFromEnv, exomemPublicPageUrl } from "@/lib/exomem-hosted/public-origin";
 import {
   clientAddressKey,
   EXOMEM_RATE_LIMITS,
@@ -62,13 +62,10 @@ function error(): NextResponse {
  * unverified. The person gets a page here that tells them to add Exomem to the app again.
  */
 function unknownApp(): NextResponse {
-  return NextResponse.redirect(
-    new URL("/exomem/authorize/unknown-app", exomemPublicBaseUrlFromEnv()),
-    {
-      status: 303,
-      headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" },
-    }
-  );
+  return NextResponse.redirect(exomemPublicPageUrl("/exomem/authorize/unknown-app"), {
+    status: 303,
+    headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" },
+  });
 }
 
 function temporarilyUnavailable(): NextResponse {
@@ -289,7 +286,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (!transaction)
       return authorizationError(callback.redirectUri, callback.state, "temporarily_unavailable");
     const response = NextResponse.redirect(
-      new URL(oauthConsentPath(transaction.transaction), exomemPublicBaseUrlFromEnv()),
+      exomemPublicPageUrl(oauthConsentPath(transaction.transaction)),
       303
     );
     response.headers.set("cache-control", "no-store");

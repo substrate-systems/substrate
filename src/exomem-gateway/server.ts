@@ -14,6 +14,7 @@ import { functionalHealthResponse } from "../lib/exomem-hosted/functional-health
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import { downloadTicketLifetimeSeconds } from "../lib/exomem-hosted/cloud-download-ticket";
 import { assertCloudResourceList } from "../lib/exomem-hosted/cloud-resource-list";
+import { productSiteOrigin } from "../lib/exomem-hosted/public-origin";
 
 const CACHE_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
@@ -51,6 +52,8 @@ export function validateGatewayEnvironment(
   if (missing.length)
     throw new Error(`Missing required gateway environment: ${missing.join(", ")}`);
   assertCloudResourceList(environment);
+  // Optional: set, the Home links in tool replies take the product site's root addresses.
+  productSiteOrigin(environment);
 }
 
 type GatewayServerState = {

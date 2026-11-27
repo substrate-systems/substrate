@@ -8,9 +8,36 @@ export const PRODUCT_PUBLIC_PAGES = ["docs", "benchmarks", "privacy", "terms", "
 
 export type ProductPublicPage = (typeof PRODUCT_PUBLIC_PAGES)[number];
 
-/** A product page path at the root of the product site: "/" or "/<public page>". */
+/**
+ * The app page routes under src/app/exomem (sign-in, setup, Home, consent and the rest), by
+ * their first path segment. They serve at the product site's root once the app origin is that
+ * site. Kept in code for the reason above; a test compares both lists with the route folders.
+ */
+export const PRODUCT_APP_PAGES = [
+  "access-log",
+  "authorize",
+  "delete",
+  "design-system",
+  "email-change",
+  "email-preview",
+  "home",
+  "invite",
+  "operator",
+  "setup",
+  "sign-in",
+  "viewer",
+] as const;
+
+/** A root path that names an app page or a page below one: "/home", "/email-change/confirm". */
+export function isProductAppRootPath(pathname: string): boolean {
+  return (PRODUCT_APP_PAGES as readonly string[]).includes(pathname.split("/")[1] ?? "");
+}
+
+/** A product page path at the root of the product site: "/", "/<public page>" or an app page. */
 export function isProductRootPath(pathname: string): boolean {
   return (
-    pathname === "/" || (PRODUCT_PUBLIC_PAGES as readonly string[]).includes(pathname.slice(1))
+    pathname === "/" ||
+    (PRODUCT_PUBLIC_PAGES as readonly string[]).includes(pathname.slice(1)) ||
+    isProductAppRootPath(pathname)
   );
 }

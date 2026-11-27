@@ -66,14 +66,40 @@ temporary redirect to the same path and query on that origin, before it sets any
 
 The product app pages (sign-in, setup, home, authorize, operator) SHALL serve on the origin that
 `EXOMEM_PUBLIC_BASE_URL` names. On any other product host they SHALL get a permanent redirect to
-the same path on that origin.
+the same page on that origin.
 
 #### Scenario: Sign-in after the switch
 
 - **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and a browser requests the sign-in page on `substratesystems.io`
-- **THEN** it gets a 308 to the sign-in page on `https://evermatter.ai`
+- **THEN** it gets a 308 to `https://evermatter.ai/sign-in`
 
 #### Scenario: Sign-in before the switch
 
-- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a browser requests the sign-in page on `evermatter.ai`
-- **THEN** it gets a 308 to the sign-in page on `https://substratesystems.io`
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a browser requests `/sign-in` or `/exomem/sign-in` on `evermatter.ai`
+- **THEN** it gets a 308 to `https://substratesystems.io/exomem/sign-in`
+
+### Requirement: App pages serve at the product site's root
+
+When the public base origin is the product site, the app pages SHALL serve at its root, and
+their `/exomem/` addresses SHALL get a 308 to the root form with the query kept. Elsewhere they
+SHALL keep the `/exomem/` form. Every app address that leaves a page SHALL take the served form.
+
+#### Scenario: Home at the root
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and a browser requests `/home` on `evermatter.ai`
+- **THEN** Home serves there with no redirect
+
+#### Scenario: An old Home address on the product host
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and a browser requests `/exomem/home?_ptxn=txn_1` on `evermatter.ai`
+- **THEN** it gets a 308 to `/home?_ptxn=txn_1`
+
+#### Scenario: An API route on the product host
+
+- **WHEN** a client calls `/api/exomem/oauth/token` or `/.well-known/oauth-authorization-server/api/exomem/oauth` on either host
+- **THEN** the route answers there, with no rewrite or redirect
+
+#### Scenario: A sign-in link
+
+- **WHEN** a sign-in email is sent
+- **THEN** its link is `https://evermatter.ai/sign-in#<token>` once the public base origin is `https://evermatter.ai`, and `https://substratesystems.io/exomem/sign-in#<token>` before
