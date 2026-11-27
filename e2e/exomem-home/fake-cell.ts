@@ -39,7 +39,8 @@ export type FakeCellState = {
     releases: {
       version: string;
       released_on: string;
-      notes: (string | { title: string | null; text: string })[];
+      notes: string[];
+      items?: { title: string | null; text: string }[];
     }[];
   };
   viewerMap?: unknown;

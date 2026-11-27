@@ -177,11 +177,12 @@ async function putLevel(who: Owner, fetchCell: typeof fetch, body: unknown): Pro
   );
 }
 
-// An image built before note titles serves bare sentences; a newer one serves objects.
+// A cell serves each release's sentences; a newer one adds `items` with a title each.
 type CellRelease = {
   version: string;
   released_on: string;
-  notes: (string | { title: string | null; text: string })[];
+  notes: string[];
+  items?: { title: string | null; text: string }[];
 };
 
 /** A cell that runs `version` and serves `releases` for the `whats_new` section. */
@@ -1197,7 +1198,11 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         {
           version: "1.10.0",
           released_on: "2026-11-26",
-          notes: [{ title: "Better search", text: "Search finds more." }, "Faster saves."],
+          notes: ["Search finds more.", "Faster saves."],
+          items: [
+            { title: "Better search", text: "Search finds more." },
+            { title: null, text: "Faster saves." },
+          ],
         },
         { version: "1.9.0", released_on: "2026-11-20", notes: ["Already dismissed."] },
       ]);
