@@ -40,7 +40,7 @@ This is Substrate's first model call. It runs with a timeout and one retry. On a
 
 Every month needs the operator's approval (D6) until the operator lifts it. Before the page shows the model's ranking, it asks the operator to pick 3 to 6 notes from the month's list, or none to skip the month. That blind pick is the answer key, so the key never comes from the model's output.
 
-The measurement counts approved months only; a skipped, lapsed or quiet month does not count. In a counted month, the model's share is the number of notes in both picks divided by the number of operator picks; a month where the model returned none scores 0. The model and its prompt stay fixed across the three counted months, and a change to either restarts the count, so the three months are never used to tune it. After three counted months, the approval page shows each month's share. When every share is at least two thirds, the page offers the operator a switch to send later months without approval; the page records the shares and the operator's choice. Nothing lifts approval without that switch, and the operator can turn approval back on at any time.
+The measurement counts approved months only; a skipped, lapsed or quiet month does not count. A month is quiet when the model returned none and the operator's blind pick is none too; the system skips it. In a counted month, the model's share is the number of notes in both picks divided by the number of operator picks; a month where the model returned none, and the operator picked notes and approved, scores 0 and counts. The model and its prompt stay fixed across the three counted months, and a change to either restarts the count, so the three months are never used to tune it. The three months read are the first three counted under one model and prompt, so a later month cannot change the verdict. After three counted months, the approval page shows each month's share. When every share is at least two thirds, the page offers the operator a switch to send later months without approval; the page records the shares, the model and prompt, and the operator's choice. Nothing lifts approval without that switch, and the operator can turn approval back on at any time. The recorded switch holds for the model and prompt it was measured under: after a change to either, the next month needs approval again.
 
 Alternative: an author-set flag per note. Rejected: it adds a field to every pull request, and the authors are agents that cannot judge what owners notice across a month.
 
@@ -52,11 +52,10 @@ Each owner's email keeps only the selected notes from releases at or below their
 
 The route runs every day and is safe to repeat. On each run it:
 
-1. builds the previous month's selection, if none exists yet;
-2. stops while that selection waits for approval;
-3. marks an approved month ready to queue.
+1. builds the previous month's selection, if none exists yet, and lapses any earlier month that still waits (D6);
+2. stops while that selection waits for approval.
 
-The per-minute delivery job then queues a ready month's digests 200 rows per tick, as `service-notice-fanout.ts` does for service notices, so 10,000 owners queue in 50 minutes.
+A month is ready to queue the moment the operator approves or edits it, with its final ordered selection stored; with the operator's switch on (D2), a built selection is ready at once. The per-minute delivery job then queues a ready month's digests 200 rows per tick, as `service-notice-fanout.ts` does for service notices, so 10,000 owners queue in 50 minutes.
 
 The dedupe key is `whats-new-digest:<YYYY-MM>:<tenant>`. A missed day heals on the next run.
 
@@ -74,7 +73,7 @@ An operator page first takes the operator's blind pick (D2), then shows the mode
 - **Edit** it: remove notes, add notes from the month's list, or reorder them, within 3 to 6; the text of a note never changes. The edited selection is approved.
 - **Skip** the month: no owner receives a digest for it.
 
-An approved month is queued by the next daily run. A month still waiting when the next month's selection is built lapses: it is marked "lapsed, not approved" on the page, and no digest for it is ever sent, so owners never get two months at once. Every month needs this approval until the operator lifts it under D2.
+An approved month is queued by the per-minute delivery job (D4). A month still waiting when the next month's selection is built lapses: it is marked "lapsed, not approved" on the page, and no digest for it is ever sent, so owners never get two months at once. Every month needs this approval until the operator lifts it under D2.
 
 ## Risks
 

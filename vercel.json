@@ -9,6 +9,7 @@
     { "path": "/api/cron/claim-followups", "schedule": "0 12 * * *" },
     { "path": "/api/cron/backup-gc", "schedule": "17 3 * * *" },
     { "path": "/api/indexnow", "schedule": "0 6 * * 1" },
-    { "path": "/api/cron/exomem-key-watcher", "schedule": "41 7 * * *" }
+    { "path": "/api/cron/exomem-key-watcher", "schedule": "41 7 * * *" },
+    { "path": "/api/cron/whats-new-digest", "schedule": "23 6 * * *" }
   ]
 }

@@ -7,13 +7,13 @@
 ## 1. Notes source
 
 - [ ] 1.1 Evermatter (its own OpenSpec change): every release attaches `release-notes.json` with only its own notes, with an empty `releases` list when it has none, as a required release step; its GitHub release page starts with a "What's new" section, written once per release.
-- [ ] 1.2 The daily route lists the month's releases with a read-only GitHub token, fetches and validates each release's notes with a timeout, keeps each fetched file with the month's record, and waits while any release's notes are missing.
+- [x] 1.2 The daily route lists the month's releases with a read-only GitHub token, fetches and validates each release's notes with a timeout, keeps each fetched file with the month's record, and waits while any release's notes are missing.
 
 ## 2. Selection
 
-- [ ] 2.1 The model provider integration and the monthly call with a structured-output schema that returns ranked note identifiers (release version and position), and the 3-change bar.
-- [ ] 2.2 The operator approval page: the operator's blind pick first, then the selection, the notes left out, the missing releases with an accept-without action, and the rendered email; approve, edit and skip; lapsed months.
-- [ ] 2.3 After three approved months with the model and prompt unchanged, the approval page shows each month's share of the operator's blind picks, and offers the recorded switch to send without approval only when every share is at least two thirds.
+- [x] 2.1 The model provider integration and the monthly call with a structured-output schema that returns ranked note identifiers (release version and position), and the 3-change bar.
+- [x] 2.2 The operator approval page: the operator's blind pick first, then the selection, the notes left out, the missing releases with an accept-without action, and the rendered email; approve, edit and skip; lapsed months.
+- [x] 2.3 After three approved months with the model and prompt unchanged, the approval page shows each month's share of the operator's blind picks, and offers the recorded switch to send without approval only when every share is at least two thirds.
 
 ## 3. Sending
 

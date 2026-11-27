@@ -107,3 +107,8 @@ The system MUST NOT queue a month's digests before the operator approves or edit
 
 - **WHEN** three approved months each pass the two-thirds bar
 - **THEN** approval stays required until the operator turns on sending without approval
+
+#### Scenario: The model changes after the switch
+
+- **WHEN** the operator turned on sending without approval and the configured model or prompt later differs from the one measured
+- **THEN** the next month waits for the operator's approval again

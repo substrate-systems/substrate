@@ -104,6 +104,8 @@ export type ExomemEmailSlots = {
   detail?:
     | { kind: "note"; text: string; author: string; rows?: readonly ExomemEmailFact[] }
     | { kind: "facts"; rows: readonly ExomemEmailFact[] }
+    /** A list of changes, each its title (none on an older note) over its sentence: the monthly digest. */
+    | { kind: "items"; items: readonly { title: string | null; text: string }[] }
     | null;
   /** Slot 8: one button, and at most one text link beside it. */
   action?: {
@@ -252,13 +254,21 @@ function schemeImages(
 
 /** The label/value rows of slot 7, alone or under a note. */
 function factRowsOf(slots: ExomemEmailSlots): readonly ExomemEmailFact[] {
-  return slots.detail?.rows ?? [];
+  const detail = slots.detail;
+  return detail && detail.kind !== "items" ? (detail.rows ?? []) : [];
 }
 
 function textPart(slots: ExomemEmailSlots): string {
   const blocks: string[] = [slots.headline, ...slots.body];
   const detail = slots.detail;
   if (detail?.kind === "note") blocks.push(`“${detail.text}”\n${detail.author}`);
+  if (detail?.kind === "items") {
+    blocks.push(
+      detail.items
+        .map((item) => (item.title ? `${item.title}\n${item.text}` : item.text))
+        .join("\n\n")
+    );
+  }
   const facts = factRowsOf(slots);
   if (facts.length > 0) {
     blocks.push(
@@ -354,6 +364,29 @@ export function renderExomemEmail(slots: ExomemEmailSlots): RenderedExomemEmail 
         `<div class="${text.cls}" style="font-family: ${SANS}; font-size: 15px; line-height: 1.6; ${text.css}">“${escapeHtml(detail.text)}”</div>` +
         `<div class="${quiet.cls}" style="padding-top: 6px; font-family: ${MONO}; font-size: 13px; ${quiet.css}">${escapeHtml(detail.author)}</div>` +
         `</td></tr></table>`
+    );
+  }
+  if (detail?.kind === "items") {
+    const title = p("primary");
+    const text = p("body");
+    const rule = p("rowRule");
+    const itemRows = detail.items
+      .map((item, index) => {
+        const last = index === detail.items.length - 1;
+        const divider = last ? "" : `border-bottom: 1px solid; ${rule.css}`;
+        const heading = item.title
+          ? `<div class="${title.cls}" style="font-family: ${MONO}; font-size: 15px; font-weight: 500; line-height: 1.4; ${title.css}">${escapeHtml(item.title)}</div>`
+          : "";
+        return (
+          `<tr><td class="${last ? text.cls : `${text.cls} ${rule.cls}`}" style="padding: 14px 0; overflow-wrap: anywhere; word-break: break-word; ${divider}">` +
+          heading +
+          `<div class="${text.cls}" style="${item.title ? "padding-top: 4px; " : ""}font-family: ${SANS}; font-size: 15px; line-height: 1.6; ${text.css}">${escapeHtml(item.text)}</div>` +
+          `</td></tr>`
+        );
+      })
+      .join("");
+    row(
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout: fixed;">${itemRows}</table>`
     );
   }
   const facts = factRowsOf(slots);

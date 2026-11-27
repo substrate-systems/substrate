@@ -5,9 +5,6 @@ import { Button } from "@/components/exomem/Button";
 import { RadioCard } from "@/components/exomem/RadioCard";
 import { Switch } from "@/components/exomem/Switch";
 import { TextField } from "@/components/exomem/TextField";
-import { ThemeToggle } from "@/components/exomem/ThemeToggle";
-import { Wordmark } from "@/components/exomem/Wordmark";
-import phone from "@/components/exomem/phone.module.css";
 import {
   EXOMEM_INVITE_KINDS,
   INVITATION_NAME_MAX,
@@ -25,6 +22,8 @@ import {
   type OperatorCapacity,
 } from "./operator-state";
 import home from "../home/home.module.css";
+import { OperatorHeader } from "./operator-header";
+import { OperatorRequestError, operatorRequest } from "./operator-request";
 import styles from "./operator.module.css";
 
 const KIND_LABELS: Record<ExomemInviteKind, string> = {
@@ -37,45 +36,6 @@ const KIND_NAMES: Record<ExomemInviteKind, string> = {
   friend: "friend",
   covered: "covered",
 };
-
-type OperatorErrorBody = {
-  error?: { code?: unknown };
-};
-
-class OperatorRequestError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string
-  ) {
-    super(code);
-  }
-}
-
-async function operatorRequest(
-  path: string,
-  bearer: string,
-  init: { method?: "POST"; body?: string } = {}
-): Promise<Record<string, unknown>> {
-  const response = await fetch(path, {
-    ...init,
-    cache: "no-store",
-    credentials: "omit",
-    referrerPolicy: "no-referrer",
-    headers: {
-      Authorization: `Bearer ${bearer}`,
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-    },
-  });
-  const body = (await response.json().catch(() => ({}))) as OperatorErrorBody &
-    Record<string, unknown>;
-  if (!response.ok) {
-    throw new OperatorRequestError(
-      response.status,
-      typeof body.error?.code === "string" ? body.error.code : "OPERATOR_REQUEST_FAILED"
-    );
-  }
-  return body;
-}
 
 function operatorMessage(error: unknown): string {
   if (!(error instanceof OperatorRequestError)) return "The operator request failed. Try again.";
@@ -104,32 +64,6 @@ async function readCapacity(bearer: string): Promise<OperatorCapacity> {
   const capacity = parseOperatorCapacity(body.capacity);
   if (!capacity) throw new Error("invalid capacity response");
   return capacity;
-}
-
-/** Home's header: the page's name beside the wordmark, and Lock where Home has Sign out. */
-function OperatorHeader({ onLock }: { onLock?: () => void }) {
-  return (
-    <header className={home.header}>
-      <span className={home.headerStart}>
-        <span className={home.wordmark}>
-          <Wordmark />
-        </span>
-        <span className={`${home.nav} ${home.navCurrent}`}>Private operator</span>
-      </span>
-      <span className={home.headerEnd}>
-        <ThemeToggle />
-        {onLock ? (
-          <button
-            type="button"
-            className={`${home.inlineButton} ${phone.hitArea}`}
-            onClick={onLock}
-          >
-            Lock
-          </button>
-        ) : null}
-      </span>
-    </header>
-  );
 }
 
 export default function OperatorClient() {
@@ -232,7 +166,7 @@ export default function OperatorClient() {
   if (!capacity) {
     return (
       <>
-        <OperatorHeader />
+        <OperatorHeader current="invitations" />
         <section className={home.column} aria-labelledby="operator-auth-title">
           <div className={home.statusText}>
             <h1 className={home.headline} id="operator-auth-title">
@@ -301,7 +235,7 @@ export default function OperatorClient() {
   ];
   return (
     <>
-      <OperatorHeader onLock={lock} />
+      <OperatorHeader current="invitations" onLock={lock} />
       <div className={`${home.column} ${styles.column}`}>
         <h1 className={home.headline}>Alpha invitations.</h1>
 

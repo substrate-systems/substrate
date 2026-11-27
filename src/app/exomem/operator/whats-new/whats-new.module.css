@@ -1,0 +1,128 @@
+/* The monthly What's new page, in Home's header, column, sections and panels (home.module.css).
+   Only the parts Home does not draw are here: note lines, the two email frames and their actions. */
+
+.column {
+  padding-bottom: 40px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.body {
+  padding: 16px 0 18px;
+}
+
+.line {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.noteList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--exo-rule);
+}
+
+.noteBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.noteTitle {
+  display: block;
+  font-family: var(--font-sans-exo);
+  font-size: 14.5px;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.noteText {
+  display: block;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.noteMeta {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.check {
+  margin-top: 3px;
+  accent-color: var(--fg-primary);
+}
+
+/* A long month's note list scrolls inside its panel. */
+.scroll {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.frames {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.frameLabel {
+  margin: 0 0 6px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  height: 760px;
+  border: 1px solid var(--exo-border-card);
+  background: transparent;
+}
+
+.select {
+  width: 100%;
+  min-height: 40px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--exo-border-card);
+}
+
+.figure {
+  margin-left: auto;
+  font-family: var(--font-mono-exo);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .frames {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
