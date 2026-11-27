@@ -101,15 +101,20 @@ SHALL keep the `/exomem/` form. Every app address that leaves a page SHALL take 
 
 #### Scenario: A sign-in link
 
-- **WHEN** a sign-in email is sent
+- **WHEN** `EVERMATTER_SITE_ORIGIN` is `https://evermatter.ai` and a sign-in email is sent
 - **THEN** its link is `https://evermatter.ai/sign-in#<token>` once the public base origin is `https://evermatter.ai`, and `https://substratesystems.io/exomem/sign-in#<token>` before
 
-### Requirement: The sign-in move keeps discovery and open checkouts working
+### Requirement: Connections survive the sign-in move
 
-The authorization-server metadata SHALL name the issuer of the app host that serves it when that
-host is the company site or the product site, and the issuer of the public base origin on any
-other host. A resumed checkout SHALL accept a transaction whose checkout URL is Home on either app
-origin, and SHALL refuse any other URL.
+A connection made before the web app's public base origin moves SHALL keep refreshing and
+rediscovering without a change of authorization server. The authorization-server metadata SHALL
+name the issuer of the app host that serves it on either app origin, and the issuer of the public
+base origin on any other host.
+
+#### Scenario: An existing connection after the switch
+
+- **WHEN** the web app's `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai`, the gateway's is `https://substratesystems.io`, and a client connected before the switch refreshes through its stored token endpoint on `substratesystems.io` and then discovers afresh from its MCP URL
+- **THEN** the refresh issues a token bound to the same resource, the protected-resource metadata names `https://substratesystems.io/api/exomem/oauth`, and the metadata fetched under that issuer names the same issuer
 
 #### Scenario: Metadata on the old host after the switch
 
@@ -121,6 +126,12 @@ origin, and SHALL refuse any other URL.
 - **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a client fetches the authorization-server metadata on `evermatter.ai`
 - **THEN** its issuer is `https://evermatter.ai/api/exomem/oauth`
 
+### Requirement: Checkouts and the start form survive the sign-in move
+
+A resumed checkout SHALL accept a transaction whose checkout URL is Home on either app origin,
+and SHALL refuse any other URL. The start form's bot check SHALL accept a token made on either
+app host, and SHALL refuse a token made on any other host.
+
 #### Scenario: A checkout begun before the switch
 
 - **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and the owner resumes a transaction whose checkout URL is `https://substratesystems.io/exomem/home?_ptxn=<id>`
@@ -130,3 +141,8 @@ origin, and SHALL refuse any other URL.
 
 - **WHEN** a resumed transaction's checkout URL is on any page other than Home on an app origin
 - **THEN** the owner gets a billing-state conflict and checkout does not open
+
+#### Scenario: A start token from the old host
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and the start form posts a Turnstile token that Cloudflare reports was made on `substratesystems.io`
+- **THEN** the bot check passes, and a token made on any other host fails

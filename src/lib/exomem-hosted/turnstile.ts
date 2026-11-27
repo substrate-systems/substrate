@@ -23,6 +23,7 @@
  * and tests use Cloudflare's documented test keys.
  */
 
+import { appOrigins } from "../exomem/product-site";
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
 
 const TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
@@ -71,7 +72,8 @@ export type TurnstileDependencies = {
   secretKey: string | undefined;
   /** Vercel's deployment environment; `production` refuses the test secrets. */
   deploymentEnvironment: string | undefined;
-  expectedHostname: () => string;
+  /** The hostnames our start form serves on; a token made on any other is refused. */
+  expectedHostnames: () => readonly string[];
   logError: (line: string) => void;
 };
 
@@ -80,7 +82,10 @@ function defaults(): TurnstileDependencies {
     fetch: (...args) => fetch(...args),
     secretKey: process.env.EXOMEM_TURNSTILE_SECRET_KEY,
     deploymentEnvironment: process.env.VERCEL_ENV,
-    expectedHostname: () => new URL(exomemPublicBaseUrlFromEnv()).hostname,
+    // Every app origin, not only the current one: a token solved on the old host just before
+    // sign-in moves, or moves back, is still ours when its form posts after the deploy.
+    expectedHostnames: () =>
+      appOrigins(exomemPublicBaseUrlFromEnv()).map((origin) => new URL(origin).hostname),
     logError: (line) => console.error(line),
   };
 }
@@ -153,6 +158,8 @@ export async function verifyTurnstileToken(
   // A token minted on another site, or by another form of ours, is not a
   // pass here even though Cloudflare accepted it.
   if (answer.action !== TURNSTILE_START_ACTION) return "failed";
-  if (answer.hostname !== deps.expectedHostname()) return "failed";
+  if (typeof answer.hostname !== "string" || !deps.expectedHostnames().includes(answer.hostname)) {
+    return "failed";
+  }
   return "passed";
 }
