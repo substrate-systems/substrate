@@ -417,7 +417,7 @@ test("What’s new shows the cell's notes until the owner presses Got it, and st
         {
           version: "1.3.0",
           released_on: new Date().toISOString().slice(0, 10),
-          notes: ["Search finds more of what you saved."],
+          notes: [{ title: "Better search", text: "Search finds more of what you saved." }],
         },
       ],
     },
@@ -427,6 +427,10 @@ test("What’s new shows the cell's notes until the owner presses Got it, and st
   await expect(update).toHaveAttribute("aria-expanded", "false");
   await update.click();
   const drawer = page.locator("#home-whats-new");
+  const change = drawer.getByRole("button", { name: "Better search" });
+  await expect(drawer.getByText("Search finds more of what you saved.")).toBeHidden();
+  await change.click();
+  await expect(change).toHaveAttribute("aria-expanded", "true");
   await expect(drawer.getByText("Search finds more of what you saved.")).toBeVisible();
 
   await drawer.getByRole("button", { name: "Got it" }).click();

@@ -107,6 +107,15 @@ const ActivityPayload = z.object({
 // contract states the bare payload. Both carry the same fields.
 const ActivityAnswer = z.union([z.object({ activity: ActivityPayload }), ActivityPayload]);
 
+// One note. An image built before titles existed serves the bare sentence; a newer
+// one serves a short title beside it. Both read as one shape, a blank title as none.
+const WhatsNewNote = z.union([
+  z.string().transform((text) => ({ title: null, text })),
+  z
+    .object({ title: z.string().nullable(), text: z.string() })
+    .transform(({ title, text }) => ({ title: title?.trim() ? title : null, text })),
+]);
+
 // The cell's release notes: the running version and the newest 20 releases that
 // have notes, newest first. The strings are text for a person; Home renders them
 // as text only.
@@ -117,7 +126,7 @@ const WhatsNewPayload = z.object({
       z.object({
         version: z.string(),
         released_on: z.iso.date(),
-        notes: z.array(z.string()),
+        notes: z.array(WhatsNewNote),
       })
     )
     .max(20),

@@ -64,6 +64,8 @@ import {
   levelRefusalText,
   type LiveRead,
   lostRead,
+  appContextOptions,
+  appsByContext,
   levelsView,
   whatsNewView,
   liveLine,
@@ -906,6 +908,7 @@ export default function HomeClient({
               disconnected={disconnected}
               onDisconnect={onDisconnect}
               onContext={onContext}
+              contextOptions={appContextOptions(levelState)}
               connectorUrl={status?.connectorUrl ?? null}
               startLevel={codingLevel}
               reviewer={reviewer}
@@ -914,6 +917,7 @@ export default function HomeClient({
             />
             <InvolvementLevels
               view={levelState}
+              appNames={appsByContext(apps, disconnected)}
               pending={levelPending}
               message={levelMessage}
               onChange={(context, level, revision) => void onLevel(context, level, revision)}

@@ -2,12 +2,12 @@
 
 ### Requirement: Home shows what changed since the owner last looked
 
-When the owner's cell serves release notes, Home SHALL show a "What's new" line under its status. The line SHALL open the notes of each release newer than the dismissed version and not newer than the running version, by release day, newest first. Before the owner's first dismissal, Home SHALL show only releases dated after the day the cell was created. Home SHALL show no line when no release qualifies, when the cell image serves no notes, or when the cell cannot be reached.
+When the owner's cell serves release notes, Home SHALL show a "What's new" line under its status. The line SHALL open the notes of each release newer than the dismissed version and not newer than the running version, newest release day first. Before the owner's first dismissal, Home SHALL show only releases dated after the day the cell was created. Home SHALL show no line when no release qualifies, when the cell image serves no notes, or when the cell cannot be reached.
 
 #### Scenario: A new release carries a note
 
 - **WHEN** the cell moved from 1.2.0 to 1.3.0, 1.3.0 has a note, and the owner dismissed at 1.2.0
-- **THEN** Home shows the What's new line, and opening it shows the 1.3.0 note
+- **THEN** Home shows the What's new line, opening it shows the 1.3.0 note's title, and opening the title shows its sentence
 
 #### Scenario: New owner
 
@@ -18,6 +18,20 @@ When the owner's cell serves release notes, Home SHALL show a "What's new" line 
 
 - **WHEN** the cell does not serve the `whats_new` section
 - **THEN** Home shows no What's new line and no error
+
+### Requirement: Each change shows as a short title
+
+Home SHALL show each note as its short title, which opens its sentence. A note served without a title SHALL show its sentence.
+
+#### Scenario: Owner opens a title
+
+- **WHEN** the owner opens a change's title in the What's new drawer
+- **THEN** Home shows that change's sentence under its title
+
+#### Scenario: Older cell image without titles
+
+- **WHEN** the cell serves notes as sentences only
+- **THEN** Home shows each sentence in place of a title
 
 ### Requirement: The owner dismisses What's new
 

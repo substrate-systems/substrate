@@ -508,7 +508,14 @@ function parseWhatsNew(value: unknown): HomeWhatsNew | null {
         typeof entry.version === "string" &&
         typeof entry.released_on === "string" &&
         Array.isArray(entry.notes) &&
-        entry.notes.every((note) => typeof note === "string")
+        entry.notes.every((note) => {
+          const item = record(note);
+          return (
+            item !== null &&
+            typeof item.text === "string" &&
+            (item.title === null || typeof item.title === "string")
+          );
+        })
       );
     })
   ) {

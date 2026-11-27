@@ -1,7 +1,71 @@
 /* The deletion confirmation page, in Home's column and type. */
 
 .column {
+  gap: 18px;
+  max-width: 560px;
+}
+
+/* Home's graph, cut: faint and grey behind the header. */
+.band {
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+
+/* What is removed and what is kept, as two labelled rows. */
+.facts {
+  margin: 0;
+  padding: 0 20px;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--exo-border-card);
+}
+
+.fact:last-child {
+  border-bottom: 0;
+}
+
+.fact dt {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  line-height: 21px;
+  color: var(--fg-muted);
+}
+
+.fact dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-primary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
+}
+
+.keep {
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  text-underline-offset: 3px;
+}
+
+.keep:hover {
+  color: var(--fg-primary);
+}
+
+@media (max-width: 640px) {
+  .fact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
 }
 
 /* Section label: Plex Mono 11, tracked, upper case. */
@@ -11,14 +75,6 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--fg-muted);
-}
-
-.text {
-  margin: 0;
-  max-width: 560px;
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--fg-secondary);
 }
 
 .status {

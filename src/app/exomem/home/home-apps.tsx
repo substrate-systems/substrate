@@ -10,10 +10,6 @@ import {
   CLIENT_PLATFORM_LISTING_URLS,
   CLIENT_PLATFORM_NAMES,
 } from "@/lib/exomem-hosted/client-platforms";
-import {
-  OAUTH_CLIENT_CONTEXTS,
-  type OAuthClientContext,
-} from "@/lib/exomem-hosted/oauth-client-context";
 import type { HomeApp, LevelKey } from "./home-api";
 import { count, type Clock } from "./home-format";
 import { appGlyph, appMeta } from "./home-view";
@@ -24,16 +20,6 @@ const COPIED_MS = 1800;
 const DISCONNECT_CONFIRM = "It loses access until you connect it again.";
 const DISCONNECT_FAILED = "That didn’t finish. Try again in a minute.";
 const CONTEXT_FAILED = "That didn’t save. Try again in a minute.";
-
-const APP_CONTEXT_LABELS: Readonly<Record<OAuthClientContext, string>> = {
-  coding: "Coding agent",
-  conversation: "Chat app",
-};
-
-// Conversation first: a directory app is the common case on this list.
-const APP_CONTEXT_OPTIONS = [...OAUTH_CLIENT_CONTEXTS]
-  .reverse()
-  .map((value) => ({ value, label: APP_CONTEXT_LABELS[value] }));
 
 // Provider downloads are separate from the public directory install path.
 type CloudPlugin = {
@@ -83,6 +69,8 @@ type AppsProps = {
   onDisconnect: (app: HomeApp) => Promise<boolean>;
   /** The stored context the app's calls run in; true when the change saved. */
   onContext: (app: HomeApp, context: HomeApp["context"]) => Promise<boolean>;
+  /** What each app row's "Joins in" offers: the level each kind of app gets. */
+  contextOptions: { value: HomeApp["context"]; label: string }[];
   connectorUrl: string | null;
   /** The level the add-app instructions start on: the coding agents level when known. */
   startLevel: LevelKey;
@@ -100,6 +88,7 @@ function AppRow({
   off,
   onDisconnect,
   onContext,
+  contextOptions,
   reviewer,
   clock,
   active,
@@ -111,6 +100,7 @@ function AppRow({
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
   onContext: (app: HomeApp, context: HomeApp["context"]) => Promise<boolean>;
+  contextOptions: { value: HomeApp["context"]; label: string }[];
   reviewer: boolean;
   clock: Clock;
   active: boolean;
@@ -183,13 +173,25 @@ function AppRow({
       </div>
       {!ended && !off && (
         <span className={styles.rowActions}>
-          <SegmentedSwitch
-            size="row"
-            label={`Kind of app ${app.displayName} is`}
-            options={APP_CONTEXT_OPTIONS}
-            value={app.context}
-            onChange={(value) => void changeContext(value)}
-          />
+          <label className={styles.joinsIn}>
+            <span className={styles.joinsInLabel}>Joins in</span>
+            <select
+              className={styles.joinsInSelect}
+              aria-label={`How much Evermatter joins in for ${app.displayName}`}
+              value={app.context}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                const next = contextOptions.find((option) => option.value === value);
+                if (next) void changeContext(next.value);
+              }}
+            >
+              {contextOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <Button
             variant={confirming ? "primary" : "quiet"}
             size="row"
@@ -388,6 +390,7 @@ export function ConnectedApps(props: AppsProps) {
           off={props.disconnected.has(app.id)}
           onDisconnect={props.onDisconnect}
           onContext={props.onContext}
+          contextOptions={props.contextOptions}
           reviewer={props.reviewer}
           clock={props.clock}
           active={props.activeAppId === app.id}

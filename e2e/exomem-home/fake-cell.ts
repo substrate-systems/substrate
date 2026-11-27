@@ -36,7 +36,11 @@ export type FakeCellState = {
   /** What `read_instructions` answers for the `whats_new` section. */
   whatsNew: {
     version: string;
-    releases: { version: string; released_on: string; notes: string[] }[];
+    releases: {
+      version: string;
+      released_on: string;
+      notes: (string | { title: string | null; text: string })[];
+    }[];
   };
   viewerMap?: unknown;
   viewerSearch?: unknown;

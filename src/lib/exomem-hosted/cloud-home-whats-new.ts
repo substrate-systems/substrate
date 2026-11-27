@@ -10,7 +10,10 @@
 import { executeExomemSql } from "./db";
 import { compareReleaseVersions, releaseVersion, type ReleaseVersion } from "./release-tag";
 
-export type WhatsNewRelease = { version: string; released_on: string; notes: string[] };
+/** One change: a short title when the release build wrote one (older images have none), and its sentence. */
+export type WhatsNewNote = { title: string | null; text: string };
+
+export type WhatsNewRelease = { version: string; released_on: string; notes: WhatsNewNote[] };
 
 /** The cell reports a plain `X.Y.Z`; the release-tag module reads the tag form, `vX.Y.Z`. */
 function parseVersion(version: string): ReleaseVersion | null {
@@ -47,7 +50,7 @@ export function selectWhatsNew(input: {
     const unseen = dismissed
       ? compareReleaseVersions(version, dismissed) > 0
       : release.released_on > input.cellCreatedOn;
-    const notes = release.notes.filter((note) => note.trim() !== "");
+    const notes = release.notes.filter((note) => note.text.trim() !== "");
     if (unseen && notes.length > 0) shown.push({ release: { ...release, notes }, version });
   }
   return shown

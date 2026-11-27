@@ -177,7 +177,12 @@ async function putLevel(who: Owner, fetchCell: typeof fetch, body: unknown): Pro
   );
 }
 
-type CellRelease = { version: string; released_on: string; notes: string[] };
+// An image built before note titles serves bare sentences; a newer one serves objects.
+type CellRelease = {
+  version: string;
+  released_on: string;
+  notes: (string | { title: string | null; text: string })[];
+};
 
 /** A cell that runs `version` and serves `releases` for the `whats_new` section. */
 function whatsNewCell(version: string, releases: CellRelease[]) {
@@ -1018,10 +1023,18 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         const reply = {
           jsonrpc: "2.0",
           id,
-          result: { isError: false, structuredContent: { revision: "r7", levels: LEVELS }, content: [] },
+          result: {
+            isError: false,
+            structuredContent: { revision: "r7", levels: LEVELS },
+            content: [],
+          },
         };
         // A progress notification may come first; only the message with the call's id answers it.
-        const notice = { jsonrpc: "2.0", method: "notifications/message", params: { level: "info" } };
+        const notice = {
+          jsonrpc: "2.0",
+          method: "notifications/message",
+          params: { level: "info" },
+        };
         // A resumable server may also send a priming event with no data first.
         return new Response(
           `id: 1\ndata:\n\nevent: message\ndata: ${JSON.stringify(notice)}\n\nevent: message\ndata: ${JSON.stringify(reply)}\n\n`,
@@ -1184,7 +1197,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         {
           version: "1.10.0",
           released_on: "2026-11-26",
-          notes: ["Search finds more.", "Faster saves."],
+          notes: [{ title: "Better search", text: "Search finds more." }, "Faster saves."],
         },
         { version: "1.9.0", released_on: "2026-11-20", notes: ["Already dismissed."] },
       ]);
@@ -1195,7 +1208,10 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           {
             version: "1.10.0",
             released_on: "2026-11-26",
-            notes: ["Search finds more.", "Faster saves."],
+            notes: [
+              { title: "Better search", text: "Search finds more." },
+              { title: null, text: "Faster saves." },
+            ],
           },
         ],
       });

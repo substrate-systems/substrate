@@ -15,6 +15,8 @@
 - [x] 2.2 The redesign from the Claude Design commission (direction B, "In the status"): a line under the status opens a drawer of changes grouped by release day, with older days folded; inspected against the design boards at desktop and phone, light and dark.
   - Evidence: CI production builds of `main` and of the redesign, served by the Home end-to-end stand-ins with a disposable PostgreSQL 16, rendered in Playwright Chromium at 1440 and 390 px in both colour schemes, with 9 notes over two days and 31 notes over six days: one line under the status, the drawer by day, the fold and "Show", and both failed-dismissal lines. Design source: `docs/exomem-design/reference/boards/whats-new-b/`.
 
+- [ ] 2.3 The revision from the same commission (board B2): one short title per change that opens its sentence, older days folded into a count; a note served without a title shows its sentence. Inspected against the B2 board at desktop and phone, light and dark.
+
 ## 3. Acceptance
 
 - [ ] 3.1 On a real Cloud cell after a rollout that carries a note, Home shows the note; after "Got it" and a reload it does not.

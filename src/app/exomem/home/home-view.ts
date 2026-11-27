@@ -3,6 +3,7 @@
 // (docs/exomem-design/reference/boards/Home-Page.dc.html) and the approved export
 // copy; a value the server does not know drops its clause rather than inventing one.
 
+import { involvementLevel } from "@/components/exomem/involvement-levels";
 import { subscribeLine } from "@/components/exomem/subscribe-line";
 import { formatMoney } from "@/lib/exomem/money";
 import { activityEventKey, type ActivityEvent } from "./home-activity";
@@ -294,7 +295,9 @@ export function liveLine(
     };
   }
   return {
-    text: `No assistant activity since ${shortDateTime(facts.since, clock.timeZone)}`,
+    // `since` is when the cell's call record became complete (on Cloud, when the cell
+    // started), so it opens a window; it is not a past activity.
+    text: `On since ${shortDateTime(facts.since, clock.timeZone)} · no assistant activity yet`,
     key: "idle",
   };
 }
@@ -686,6 +689,40 @@ export function levelsView(levels: HomeLevels | typeof NOT_RELEASED | null): Lev
   };
 }
 
+const AS_CONTEXT: Readonly<Record<LevelContext, string>> = {
+  conversation: "as a chat app",
+  coding: "as a coding agent",
+};
+
+/**
+ * The choices an app row offers: which level the app gets, by the kind of app it
+ * counts as. "Balanced, as a chat app" while the levels are known, else "As a chat app".
+ */
+export function appContextOptions(levels: LevelsView): { value: LevelContext; label: string }[] {
+  return LEVEL_ROWS.map(({ context }) => {
+    const row =
+      levels.state === "live" ? levels.rows.find((known) => known.context === context) : null;
+    return {
+      value: context,
+      label: row
+        ? `${involvementLevel(row.level).label}, ${AS_CONTEXT[context]}`
+        : capitalise(AS_CONTEXT[context]),
+    };
+  });
+}
+
+/** The connected apps each level applies to, by name, in list order. */
+export function appsByContext(
+  apps: readonly HomeApp[] | null,
+  disconnected: ReadonlySet<string>
+): Record<LevelContext, string[]> {
+  const names: Record<LevelContext, string[]> = { conversation: [], coding: [] };
+  for (const app of apps ?? []) {
+    if (!disconnected.has(app.id)) names[app.context].push(app.displayName);
+  }
+  return names;
+}
+
 export function levelRefusalText(code: string): string {
   if (code === "PREFERENCE_CONFLICT")
     return "This changed elsewhere a moment ago. It shows the level in use now.";
@@ -696,76 +733,85 @@ export function levelRefusalText(code: string): string {
 
 // --- What's new ---
 
-/** One release day: releases that shipped on the same day read as one. */
-export type WhatsNewDay = { key: string; label: string; notes: string[] };
+/**
+ * One change. `title` is the short headline the release build wrote; a note from an
+ * image built before titles existed has none and shows its sentence instead.
+ */
+export type WhatsNewItem = { key: string; title: string | null; text: string };
 
 export type WhatsNewSectionView = {
   /** The running version Home rendered: what "Got it" records. */
   version: string;
   /** The line under the status: "Updated 26 Nov · 9 changes". */
   line: string;
-  /** The drawer's title: "What’s new · 25 Nov – 26 Nov", or the one day. */
+  /** The drawer's title: "What’s new · 25 – 26 Nov", or the one day. */
   title: string;
-  /** The newest days, shown in full. */
-  openDays: WhatsNewDay[];
-  /** Every older day, folded into one row until the owner opens it. */
-  older: { label: string; days: WhatsNewDay[] } | null;
+  /** The changes of the newest days, newest first. */
+  items: WhatsNewItem[];
+  /** The changes of every older day, folded into one row until the owner opens it. */
+  older: { label: string; items: WhatsNewItem[] } | null;
 };
 
-/** How many of the newest days the drawer shows before it folds the rest. */
+/** How many of the newest release days the drawer lists before it folds the rest. */
 const WHATS_NEW_OPEN_DAYS = 2;
 
 function changes(n: number): string {
   return `${count(n)} change${n === 1 ? "" : "s"}`;
 }
 
-function dayRange(days: WhatsNewDay[]): string {
-  // Days run newest first, so the range reads from the last to the first.
-  const newest = days[0].label;
-  const oldest = days[days.length - 1].label;
-  return newest === oldest ? newest : `${oldest} – ${newest}`;
+/** "25 – 26 Nov" within one month, else "30 Oct – 2 Nov"; one day reads as that day. */
+function dayRange(oldest: string, newest: string, clock: Clock): string {
+  const last = releaseDay(newest, clock);
+  if (oldest === newest) return last;
+  const sameMonth = oldest.slice(0, 7) === newest.slice(0, 7);
+  return `${sameMonth ? Number(oldest.slice(8, 10)) : releaseDay(oldest, clock)} – ${last}`;
 }
 
 /**
  * The section's content. Null when Home shows no section: before the read, when
- * the cell serves no notes, or when no release qualifies. The notes are the
- * cell's own text; Home groups them by release day, newest first, and adds only
- * the dates and the count.
+ * the cell serves no notes, or when no release qualifies. Titles and sentences are
+ * the cell's own text; Home orders them by release day, newest first, and adds only
+ * the dates and the counts.
  */
 export function whatsNewView(
   whatsNew: HomeWhatsNew | typeof NOT_RELEASED | null,
   clock: Clock
 ): WhatsNewSectionView | null {
   if (whatsNew === null || whatsNew === "not_released" || whatsNew.state !== "live") return null;
-  const days: WhatsNewDay[] = [];
+  const days: { key: string; items: WhatsNewItem[] }[] = [];
   // The cell lists releases newest first; a day keeps its releases in that order.
   for (const release of whatsNew.releases) {
-    if (release.notes.length === 0) continue;
-    const day = days.find((known) => known.key === release.released_on);
-    if (day) day.notes.push(...release.notes);
-    else
-      days.push({
-        key: release.released_on,
-        label: releaseDay(release.released_on, clock),
-        notes: [...release.notes],
+    let day = days.find((known) => known.key === release.released_on);
+    for (const note of release.notes) {
+      if (note.text.trim() === "") continue;
+      if (!day) {
+        day = { key: release.released_on, items: [] };
+        days.push(day);
+      }
+      day.items.push({
+        key: `${release.version}:${day.items.length}`,
+        title: note.title,
+        text: note.text,
       });
+    }
   }
   if (days.length === 0) return null;
   // Newest day first by date, so a release numbered higher but dated earlier cannot turn
   // the range around. ISO dates sort as text.
   days.sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
-  const total = days.reduce((sum, day) => sum + day.notes.length, 0);
-  const openDays = days.slice(0, WHATS_NEW_OPEN_DAYS);
+  const open = days.slice(0, WHATS_NEW_OPEN_DAYS);
   const folded = days.slice(WHATS_NEW_OPEN_DAYS);
+  const total = days.reduce((sum, day) => sum + day.items.length, 0);
+  const foldedItems = folded.flatMap((day) => day.items);
   return {
     version: whatsNew.version,
-    line: `Updated ${days[0].label} · ${changes(total)}`,
-    title: `What’s new · ${dayRange(days)}`,
-    openDays,
+    line: `Updated ${releaseDay(days[0].key, clock)} · ${changes(total)}`,
+    title: `What’s new · ${dayRange(days[days.length - 1].key, days[0].key, clock)}`,
+    items: open.flatMap((day) => day.items),
     older: folded.length
       ? {
-          label: `${dayRange(folded)} · ${changes(folded.reduce((sum, day) => sum + day.notes.length, 0))}`,
-          days: folded,
+          label: `${count(foldedItems.length)} more · ${dayRange(folded[folded.length - 1].key, folded[0].key, clock)}`,
+          items: foldedItems,
         }
       : null,
   };

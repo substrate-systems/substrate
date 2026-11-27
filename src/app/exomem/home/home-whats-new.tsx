@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Collapse } from "@/components/exomem/Transitions";
-import type { WhatsNewDay, WhatsNewSectionView } from "./home-view";
+import type { WhatsNewItem, WhatsNewSectionView } from "./home-view";
 import styles from "./home.module.css";
 
 const DRAWER_ID = "home-whats-new";
@@ -85,24 +85,49 @@ export function WhatsNewLine({
   );
 }
 
-function Days({ days }: { days: WhatsNewDay[] }) {
+/** One change: its title opens the full sentence underneath. A note with no title shows its sentence. */
+function Change({ item }: { item: WhatsNewItem }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  if (item.title === null) {
+    return (
+      <li className={styles.whatsNewItem}>
+        <p className={styles.whatsNewUntitled}>{item.text}</p>
+      </li>
+    );
+  }
   return (
-    <ul className={days.length === 1 ? styles.whatsNewOneDay : styles.whatsNewDays}>
-      {days.map((day) => (
-        <li key={day.key} className={styles.whatsNewDay}>
-          <span className={styles.whatsNewDayLabel}>{day.label}</span>
-          <ul className={styles.whatsNewNotes}>
-            {day.notes.map((note, index) => (
-              <li key={index}>{note}</li>
-            ))}
-          </ul>
-        </li>
+    <li className={styles.whatsNewItem}>
+      <button
+        type="button"
+        className={styles.whatsNewTitle}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>{item.title}</span>
+        <Chevron open={open} />
+      </button>
+      <Collapse open={open}>
+        <p id={id} className={styles.whatsNewText}>
+          {item.text}
+        </p>
+      </Collapse>
+    </li>
+  );
+}
+
+function Changes({ items }: { items: WhatsNewItem[] }) {
+  return (
+    <ul className={styles.whatsNewList}>
+      {items.map((item) => (
+        <Change key={item.key} item={item} />
       ))}
     </ul>
   );
 }
 
-/** The drawer the line opens: the changes by release day, older days folded. */
+/** The drawer the line opens: one title per change, newest days first, older days folded. */
 export function WhatsNewDrawer({
   view,
   open,
@@ -131,7 +156,7 @@ export function WhatsNewDrawer({
             <GotIt ghost={false} working={working} onDismiss={onDismiss} />
           </span>
         </div>
-        <Days days={view.openDays} />
+        <Changes items={view.items} />
         {view.older && (
           <>
             <div className={styles.whatsNewFold}>
@@ -148,7 +173,7 @@ export function WhatsNewDrawer({
             </div>
             <Collapse open={olderOpen}>
               <div id={OLDER_ID}>
-                <Days days={view.older.days} />
+                <Changes items={view.older.items} />
               </div>
             </Collapse>
           </>

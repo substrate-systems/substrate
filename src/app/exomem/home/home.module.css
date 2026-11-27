@@ -342,6 +342,40 @@
   flex-wrap: wrap;
 }
 
+/* "Joins in": which level the app gets, by the kind of app it counts as (Home fixes board). */
+.joinsIn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.joinsInLabel {
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.joinsInSelect {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--exo-border-input);
+  border-radius: var(--r-ctl);
+  background-color: var(--bg-panel);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 14px,
+    calc(100% - 10px) 14px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  color: var(--fg-primary);
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  appearance: none;
+  cursor: pointer;
+}
+
 /* The add row runs straight into its panel, without a rule. */
 .addRow {
   border-bottom: 0;
@@ -496,7 +530,7 @@
 
 .whatsNewPanel {
   margin-top: 20px;
-  padding: 4px 20px 8px;
+  padding: 4px 20px 10px;
 }
 
 .whatsNewHead {
@@ -518,54 +552,61 @@
   gap: 12px;
 }
 
-.whatsNewDays,
-.whatsNewOneDay {
+/* One title per change, in two columns on desktop (board B2). */
+.whatsNewList {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 32px;
 }
 
-.whatsNewDays {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.whatsNewOneDay {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.whatsNewDay {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.whatsNewItem {
   min-width: 0;
-  padding: 12px 0;
+  border-bottom: 1px solid var(--exo-rule);
 }
 
-.whatsNewDayLabel {
-  font-family: var(--font-mono-exo);
-  font-size: 11.5px;
-  line-height: 21px;
-  color: var(--fg-muted);
-}
-
-.whatsNewNotes {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.whatsNewTitle {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 60ch;
-  font-size: 13.5px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+  font-size: 14.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.whatsNewTitle .chevron,
+.whatsNewTitle .chevronOpen {
+  color: var(--fg-muted);
+  font-family: var(--font-mono-exo);
+}
+
+.whatsNewText,
+.whatsNewUntitled {
+  margin: 0;
+  max-width: 56ch;
+  font-size: 13px;
   line-height: 1.55;
-  color: var(--fg-body);
+  color: var(--fg-secondary);
   overflow-wrap: anywhere;
 }
 
-.whatsNewFold {
-  border-top: 1px solid var(--exo-rule);
+.whatsNewText {
+  padding: 0 0 12px;
+}
+
+/* A note from before titles existed: its sentence stands in the row. */
+.whatsNewUntitled {
+  padding: 12px 0;
 }
 
 .whatsNewFold {
@@ -573,7 +614,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 0 6px;
+  padding: 12px 0 2px;
 }
 
 @media (max-width: 640px), (max-height: 480px) {
@@ -581,12 +622,8 @@
     flex-wrap: wrap;
   }
 
-  .whatsNewDays {
+  .whatsNewList {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .whatsNewDay + .whatsNewDay {
-    border-top: 1px solid var(--exo-rule);
   }
 }
 
