@@ -33,7 +33,7 @@ a{color:inherit}a:hover{color:inherit}
 .lv-seg span.is-on{background:var(--bg-hover);color:var(--fg-primary)}
 .hp-row .actions{display:flex;align-items:center;gap:10px;flex:none}
 .hp.phone .hp-row{flex-wrap:wrap}
-.del-band{opacity:.25;filter:grayscale(1)}
+.del-band{position:absolute;top:0;left:0;width:100%;height:auto;pointer-events:none;display:block}
 .del-col{width:560px;max-width:calc(100% - 32px);margin:56px auto 0;display:flex;flex-direction:column;gap:18px;padding-bottom:56px}
 .del-kicker{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted)}
 .del-facts{display:flex;flex-direction:column}
@@ -134,13 +134,14 @@ a{color:inherit}a:hover{color:inherit}
 
   <div class="st-row">
     <span class="st-cap">3 · Delete your Evermatter</span>
-    <span class="st-sub">Same words and the same one-time confirmation. The paragraph becomes two labelled facts, the page sits in Home’s frame, and “Keep my Evermatter” returns to Home. The band is the deletion email’s “gone” web (public/evermatter/email/band-gone-dark.png and -light.png), so the page and the email tell one story; the faded dots here stand in for it.</span>
+    <span class="st-sub">Same words and the same one-time confirmation. The paragraph becomes two labelled facts, the page sits in Home’s frame, and “Keep my Evermatter” returns to Home. The band is the deletion email’s “gone” web (public/evermatter/email/band-gone-dark.png and -light.png), the same image the email uses, so the page and the email tell one story: a web whose connections are gone. It stays still; nothing on this page moves.</span>
     <div class="st-frames">
       <sc-for list="{{delFrames}}" as="f" hint-placeholder-count="4">
         <div class="st-frame" style="width: {{f.width}}">
           <div class="st-tag">{{f.tag}}</div>
           <div class="hp {{f.phoneClass}} {{themeClass}}" data-theme="{{theme}}" style="position: relative">
-            <div class="hp-band del-band" aria-hidden="true"></div>
+            <sc-if value="{{isDark}}" hint-placeholder-val="{{ true }}"><img class="del-band" src="/evermatter/email/band-gone-dark.png" alt="" aria-hidden="true"></sc-if>
+            <sc-if value="{{isLight}}" hint-placeholder-val="{{ false }}"><img class="del-band" src="/evermatter/email/band-gone-light.png" alt="" aria-hidden="true"></sc-if>
             <header class="hp-head"><span class="hp-word">evermatter</span><span class="hp-acct">◐</span></header>
             <section class="del-col" aria-labelledby="del-title">
               <span class="del-kicker">Permanent action</span>
@@ -192,7 +193,7 @@ class Component extends DCLogic {
       d({ tag: 'In progress', pending: true, notPending: false }),
       d({ tag: 'Phone', width: '390px', phoneClass: 'phone' })
     ];
-    return { theme, themeClass: theme === 'light' ? 't-light' : 't-dark', frames, appFrames, delFrames };
+    return { theme, themeClass: theme === 'light' ? 't-light' : 't-dark', isDark: theme !== 'light', isLight: theme === 'light', frames, appFrames, delFrames };
   }
 }
 </script>

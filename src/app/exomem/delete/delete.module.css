@@ -1,18 +1,20 @@
 /* The deletion confirmation page, in Home's column and type. */
 
 .column {
+  position: relative;
   gap: 18px;
   max-width: 560px;
   padding-bottom: 56px;
 }
 
-/* The deletion email's "gone" band behind the header, fading into the page. */
+/* The deletion email's "gone" band, the same image, still, across the top. */
 .band {
   position: absolute;
-  inset: 0 0 auto;
-  height: 240px;
-  background: url("/evermatter/email/band-gone-dark.png") center top / cover no-repeat;
-  mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  top: 0;
+  left: 0;
+  width: 100%;
+  aspect-ratio: 1200 / 240;
+  background: url("/evermatter/email/band-gone-dark.png") center top / 100% auto no-repeat;
   pointer-events: none;
 }
 
