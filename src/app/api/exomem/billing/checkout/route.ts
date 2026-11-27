@@ -8,11 +8,10 @@ import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { liveOAuthConsentPath } from "@/lib/exomem-hosted/oauth-continuity";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "@/lib/exomem-hosted/rate-limit";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
+import { PADDLE_TRANSACTION_ID } from "@/lib/paddle-transaction-id";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {

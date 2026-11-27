@@ -1,19 +1,23 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, it, mock } from "node:test";
+import { act } from "react";
 import { renderCheckoutPage } from "./render-checkout-page";
-import type { CheckoutOpenOptions } from "@paddle/paddle-js";
+import type { CheckoutOpenOptions, PaddleEventData } from "@paddle/paddle-js";
 
 const transactionId = "txn_01234567890123456789012345";
 const opened: CheckoutOpenOptions[] = [];
+let paddleEvents: (event: PaddleEventData) => void = () => {};
 const originalToken = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN;
 before(() => {
   process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN = "test_isolated_checkout";
   mock.module("@paddle/paddle-js", {
     namedExports: {
       CheckoutEventNames: { CHECKOUT_COMPLETED: "checkout.completed" },
-      initializePaddle: async () => ({
-        Checkout: { open: (options: CheckoutOpenOptions) => opened.push(options) },
-      }),
+      initializePaddle: async (options: { eventCallback: typeof paddleEvents }) => {
+        // Paddle reports overlay events through this callback; the tests fire them by hand.
+        paddleEvents = options.eventCallback;
+        return { Checkout: { open: (open: CheckoutOpenOptions) => opened.push(open) } };
+      },
     },
   });
 });
@@ -31,8 +35,22 @@ it("opens the Paddle checkout for the returned transaction and names no product"
   try {
     assert.equal(opened.length, 1);
     assert.equal(opened[0].transactionId, transactionId);
-    assert.equal(document.querySelector("main")?.textContent, "CheckoutOpening your checkout…");
-    assert.equal(document.querySelector("main a"), null);
+    assert.equal(document.querySelector("main")?.textContent?.includes("Opening"), false);
+  } finally {
+    await close();
+  }
+});
+
+it("keeps the same transaction one click away after the overlay opens and closes", async () => {
+  const close = await renderCheckoutPage(`_ptxn=${transactionId}`);
+  try {
+    await act(async () => paddleEvents({ name: "checkout.loaded" } as PaddleEventData));
+    await act(async () => paddleEvents({ name: "checkout.closed" } as PaddleEventData));
+    const main = document.querySelector("main")!;
+    assert.match(main.textContent ?? "", /Your checkout opened\./);
+    assert.doesNotMatch(main.textContent ?? "", /Opening your checkout|did not open/);
+    assert.equal(main.querySelector("a")?.getAttribute("href"), `/checkout?_ptxn=${transactionId}`);
+    assert.equal(main.querySelector("a")?.textContent, "Open the checkout again");
   } finally {
     await close();
   }

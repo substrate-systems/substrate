@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import Footer from "@/components/Footer";
+import SiteHeader from "@/components/SiteHeader";
 import { getBlogRedirect, getPostBySlug, getPostSlugs, isDraft } from "@/lib/blog";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 import { articleJsonLd, howToJsonLd } from "@/lib/structured-data";
@@ -91,23 +91,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
           dangerouslySetInnerHTML={{ __html: JSON.stringify(howto) }}
         />
       ) : null}
-      <header className="mx-auto w-full max-w-3xl px-6 pt-10 sm:pt-14">
-        <Link
-          href="/"
-          aria-label="Substrate home"
-          className="inline-block opacity-40 transition-opacity duration-default hover:opacity-70"
-        >
-          <span className="relative block h-4 w-[160px]">
-            <Image
-              src="/brand/logos/substrate-logo-white-transparent.png"
-              alt="Substrate"
-              fill
-              sizes="160px"
-              className="object-contain"
-            />
-          </span>
-        </Link>
-      </header>
+      <SiteHeader />
 
       <article className="mx-auto w-full max-w-3xl px-6 py-16 sm:py-20">
         <Link

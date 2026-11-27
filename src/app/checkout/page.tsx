@@ -1,6 +1,6 @@
-import Image from "next/image";
 import Link from "next/link";
 import Footer from "@/components/Footer";
+import SiteHeader from "@/components/SiteHeader";
 import { PADDLE_TRANSACTION_ID } from "@/lib/paddle-transaction-id";
 import { buildMetadata } from "@/lib/seo";
 import { CheckoutOpener } from "./CheckoutOpener";
@@ -27,23 +27,7 @@ export default async function CheckoutPage({
 
   return (
     <div className="min-h-screen bg-bg-base">
-      <header className="mx-auto w-full max-w-3xl px-6 pt-10 sm:pt-14">
-        <Link
-          href="/"
-          aria-label="Substrate home"
-          className="inline-block opacity-40 transition-opacity duration-default hover:opacity-70"
-        >
-          <span className="relative block h-4 w-[160px]">
-            <Image
-              src="/brand/logos/substrate-logo-white-transparent.png"
-              alt="Substrate"
-              fill
-              sizes="160px"
-              className="object-contain"
-            />
-          </span>
-        </Link>
-      </header>
+      <SiteHeader />
 
       <main className="mx-auto w-full max-w-3xl px-6 py-16 sm:py-20">
         <h1 className="text-display-sm font-light tracking-tight text-fg-primary sm:text-display">

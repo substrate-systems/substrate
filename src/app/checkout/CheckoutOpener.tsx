@@ -13,7 +13,11 @@ type Stage = "opening" | "opened" | "failed";
 export function CheckoutOpener({ transactionId }: { transactionId: string }) {
   const [stage, setStage] = useState<Stage>("opening");
   const handleOpened = useCallback(() => setStage("opened"), []);
-  const handleFailure = useCallback(() => setStage("failed"), []);
+  // A failure report never overrides an overlay that already opened.
+  const handleFailure = useCallback(
+    () => setStage((current) => (current === "opened" ? current : "failed")),
+    []
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -23,6 +27,17 @@ export function CheckoutOpener({ transactionId }: { transactionId: string }) {
     return () => window.clearTimeout(timer);
   }, []);
 
+  const link = (label: string) => (
+    // A full page load, not a client navigation: the opener reads _ptxn once per load.
+    <a
+      href={`/checkout?_ptxn=${transactionId}`}
+      className="mt-6 inline-block text-sm font-light text-fg-secondary transition-colors duration-default hover:text-fg-primary"
+    >
+      {label}
+    </a>
+  );
+
+  // The opened line says "opened", not "is open": the overlay may be closed and the page cannot tell.
   return (
     <>
       {stage === "failed" ? (
@@ -30,13 +45,14 @@ export function CheckoutOpener({ transactionId }: { transactionId: string }) {
           <p role="alert" className="mt-3 text-body-lg font-light text-fg-secondary">
             The checkout did not open.
           </p>
-          {/* A full page load, not a client navigation: the opener reads _ptxn once per load. */}
-          <a
-            href={`/checkout?_ptxn=${transactionId}`}
-            className="mt-6 inline-block text-sm font-light text-fg-secondary transition-colors duration-default hover:text-fg-primary"
-          >
-            Try again
-          </a>
+          {link("Try again")}
+        </>
+      ) : stage === "opened" ? (
+        <>
+          <p role="status" className="mt-3 text-body-lg font-light text-fg-secondary">
+            Your checkout opened.
+          </p>
+          {link("Open the checkout again")}
         </>
       ) : (
         <p role="status" className="mt-3 text-body-lg font-light text-fg-secondary">
