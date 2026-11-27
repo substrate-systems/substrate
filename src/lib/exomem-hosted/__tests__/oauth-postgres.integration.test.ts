@@ -2194,8 +2194,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       token_endpoint_auth_method: "none",
     };
     const clients = () => scalar("SELECT count(*) FROM exomem_oauth_clients");
+    const metadataRequest = new Request(
+      "https://hosted.example.test/.well-known/oauth-authorization-server/api/exomem/oauth"
+    );
     const registrationEndpoint = async () =>
-      ((await (await metadata()).json()) as { registration_endpoint?: string })
+      ((await (await metadata(metadataRequest)).json()) as { registration_endpoint?: string })
         .registration_endpoint;
     let registeredClientId = "";
     let grokClientId = "";

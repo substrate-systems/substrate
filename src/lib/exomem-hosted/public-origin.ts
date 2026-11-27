@@ -77,6 +77,25 @@ export function exomemPageUrl(origin: string, path: string, env: Env = process.e
   return url;
 }
 
+/**
+ * A route path as the same-origin path that `host` serves it at, for a server redirect, so the
+ * browser makes one hop instead of a second 308. An absent or malformed Host keeps the route form,
+ * which every host still answers.
+ */
+export function appPagePathOn(
+  host: string | null,
+  routePath: string,
+  env: Env = process.env
+): string {
+  if (!host) return routePath;
+  try {
+    const url = exomemPageUrl(`https://${host}`, routePath, env);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return routePath;
+  }
+}
+
 /** A page's address on the public base origin, where sign-in, consent and Home serve. */
 export function exomemPublicPageUrl(path: string): URL {
   return exomemPageUrl(exomemPublicBaseUrlFromEnv(), path);

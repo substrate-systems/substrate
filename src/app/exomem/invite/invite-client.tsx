@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { FieldKind } from "@/components/exomem/FlowField";
 import { Switch } from "@/components/exomem/Switch";
 import {
+  appPagePathHere,
   getPrivateJson,
   HostedBrowserError,
   postPrivateJson,
@@ -221,7 +222,7 @@ export default function InviteClient() {
     }
   }
 
-  const goHome = () => window.location.assign("/exomem/home");
+  const goHome = () => window.location.assign(appPagePathHere("/exomem/home"));
   const signedInLine = email ? (
     <SignedInLine email={email} onSwitch={() => void switchAccount()} onDesktop />
   ) : null;
@@ -238,7 +239,7 @@ export default function InviteClient() {
           <StepActions
             primary={{
               label: inviteCopy.unusable.primary,
-              onClick: () => window.location.assign("/exomem/sign-in"),
+              onClick: () => window.location.assign(appPagePathHere("/exomem/sign-in")),
             }}
           />
         </>
@@ -301,7 +302,7 @@ export default function InviteClient() {
             <StepActions
               primary={{
                 label: inviteCopy.existing.signInPrimary,
-                onClick: () => window.location.assign("/exomem/sign-in"),
+                onClick: () => window.location.assign(appPagePathHere("/exomem/sign-in")),
               }}
             />
           </>

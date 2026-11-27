@@ -9,10 +9,12 @@ import {
   prepareDestination,
 } from "next/dist/shared/lib/router/utils/prepare-destination";
 import {
+  appPagePathOn,
   exomemHomeUrl,
   exomemPageUrl,
   exomemPublicFragmentUrl,
 } from "../../exomem-hosted/public-origin";
+import nextConfig from "../../../../next.config";
 import { PRODUCT_APP_PAGES, PRODUCT_PUBLIC_PAGES } from "../product-pages";
 import { productPageUrl, productSiteRoutes } from "../product-site";
 
@@ -198,6 +200,37 @@ describe("product site routing", () => {
       "http://localhost:3100/exomem/home"
     );
     assert.equal(productPageUrl("/exomem/sign-in", SWITCHED), "https://evermatter.ai/sign-in");
+  });
+
+  // Home sends a checkout return to setup, and setup sends a signed-out person to sign-in.
+  it("sends a server redirect where its host serves it, in one hop and with its query", () => {
+    for (const [env, host] of [
+      [ON, "substratesystems.io"],
+      [SWITCHED, "evermatter.ai"],
+    ] as const) {
+      for (const route of ["/exomem/setup?_ptxn=txn_01", "/exomem/sign-in"]) {
+        const path = appPagePathOn(host, route, env);
+        assert.deepEqual(follow(env, host, path), { host, url: path, hops: 0 }, `${host}${route}`);
+        assert.equal(
+          new URL(path, "https://x.invalid").search,
+          new URL(route, "https://x.invalid").search
+        );
+      }
+    }
+    assert.equal(appPagePathOn(null, "/exomem/sign-in", SWITCHED), "/exomem/sign-in");
+  });
+
+  it("keeps the operator page out of caches and search in both its forms", async () => {
+    const rules = await nextConfig.headers!();
+    for (const path of ["/exomem/operator", "/operator"]) {
+      const sent = rules
+        .filter((rule) => getPathMatch(rule.source, { strict: true })(path))
+        .flatMap((rule) => rule.headers);
+      assert.ok(
+        sent.some((header) => header.key === "Cache-Control" && header.value.startsWith("private")),
+        path
+      );
+    }
   });
 
   it("refuses a public base URL that is not a bare HTTPS origin", () => {

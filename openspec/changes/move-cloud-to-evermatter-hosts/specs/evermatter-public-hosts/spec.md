@@ -103,3 +103,30 @@ SHALL keep the `/exomem/` form. Every app address that leaves a page SHALL take 
 
 - **WHEN** a sign-in email is sent
 - **THEN** its link is `https://evermatter.ai/sign-in#<token>` once the public base origin is `https://evermatter.ai`, and `https://substratesystems.io/exomem/sign-in#<token>` before
+
+### Requirement: The sign-in move keeps discovery and open checkouts working
+
+The authorization-server metadata SHALL name the issuer of the app host that serves it when that
+host is the company site or the product site, and the issuer of the public base origin on any
+other host. A resumed checkout SHALL accept a transaction whose checkout URL is Home on either app
+origin, and SHALL refuse any other URL.
+
+#### Scenario: Metadata on the old host after the switch
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and a client fetches the authorization-server metadata on `substratesystems.io`
+- **THEN** its issuer is `https://substratesystems.io/api/exomem/oauth`
+
+#### Scenario: Metadata on the new host before the switch
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a client fetches the authorization-server metadata on `evermatter.ai`
+- **THEN** its issuer is `https://evermatter.ai/api/exomem/oauth`
+
+#### Scenario: A checkout begun before the switch
+
+- **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and the owner resumes a transaction whose checkout URL is `https://substratesystems.io/exomem/home?_ptxn=<id>`
+- **THEN** the checkout opens
+
+#### Scenario: A checkout URL on another page
+
+- **WHEN** a resumed transaction's checkout URL is on any page other than Home on an app origin
+- **THEN** the owner gets a billing-state conflict and checkout does not open

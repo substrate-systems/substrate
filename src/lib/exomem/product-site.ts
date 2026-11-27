@@ -36,6 +36,26 @@ function productAppOrigin(env: Env = process.env): string {
     : COMPANY_ORIGIN;
 }
 
+/**
+ * The origins the app pages and the OAuth issuer serve on, or served on before sign-in moved: the
+ * configured app origin, the product site and the company site. An address that a person, Paddle
+ * or an OAuth client stored under one of them stays the app's own after a switch or a rollback.
+ */
+export function appOrigins(appOrigin: string, env: Env = process.env): string[] {
+  const origins = [appOrigin, productSiteOrigin(env), COMPANY_ORIGIN];
+  return [...new Set(origins.filter((origin): origin is string => origin !== null))];
+}
+
+/** The app origin that `host` is, when it is one of appOrigins; `appOrigin` for any other host. */
+export function appOriginOnHost(
+  host: string | null,
+  appOrigin: string,
+  env: Env = process.env
+): string {
+  const name = host?.toLowerCase();
+  return appOrigins(appOrigin, env).find((origin) => new URL(origin).host === name) ?? appOrigin;
+}
+
 function isPublicPage(path: string): boolean {
   if (path === "/exomem") return true;
   const page = /^\/exomem\/([^/]+)$/.exec(path)?.[1];

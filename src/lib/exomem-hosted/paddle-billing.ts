@@ -174,19 +174,22 @@ function safeHttpsUrl(value: unknown): string | null {
   }
 }
 
+/** The transaction's checkout URL when it is exactly one of `acceptedUrls` plus its `_ptxn`. */
 function safeTransactionCheckoutUrl(
   value: unknown,
-  configuredUrl: string | null,
+  acceptedUrls: readonly string[],
   transactionId: string
 ): string | null {
-  if (typeof value !== "string" || !configuredUrl) return null;
+  if (typeof value !== "string") return null;
   try {
     const candidate = new URL(value);
-    const configured = new URL(configuredUrl);
     const query = [...candidate.searchParams];
+    const accepted = acceptedUrls.some((acceptedUrl) => {
+      const url = new URL(acceptedUrl);
+      return candidate.origin === url.origin && candidate.pathname === url.pathname;
+    });
     if (
-      candidate.origin !== configured.origin ||
-      candidate.pathname !== configured.pathname ||
+      !accepted ||
       candidate.username ||
       candidate.password ||
       candidate.hash ||
@@ -362,7 +365,11 @@ export async function createExomemCheckout(
   const data = safeObject(safeObject(payload)?.data);
   const transactionId = safePaddleId(data?.id, "txn");
   const checkoutUrl = transactionId
-    ? safeTransactionCheckoutUrl(safeObject(data?.checkout)?.url, config.checkoutUrl, transactionId)
+    ? safeTransactionCheckoutUrl(
+        safeObject(data?.checkout)?.url,
+        config.checkoutUrl ? [config.checkoutUrl] : [],
+        transactionId
+      )
     : null;
   if (!checkoutUrl || !transactionId) {
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
@@ -811,7 +818,7 @@ async function inspectExomemCheckout(
         actualPrice?.product_id === checkoutConfig.productId;
       checkoutUrl = safeTransactionCheckoutUrl(
         safeObject(data.checkout)?.url,
-        checkoutConfig.checkoutUrl,
+        checkoutConfig.ownCheckoutUrls,
         input.transactionId
       );
       if (!catalogMatches || !checkoutUrl) {

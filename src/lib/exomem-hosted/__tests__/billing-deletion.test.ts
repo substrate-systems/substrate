@@ -14,6 +14,7 @@ const CONFIG: ExomemPaddleConfig = {
   friendPriceId: null,
   friendDiscountId: null,
   checkoutUrl: "https://substratesystems.io/exomem/home",
+  ownCheckoutUrls: ["https://substratesystems.io/exomem/home"],
   apiKey: "pdl_sdbx_test-key",
   webhookSecret: null,
   clientToken: null,

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  appPagePathHere,
   friendlyHostedError,
   HostedBrowserError,
   postPublicJson,
@@ -93,7 +94,10 @@ export default function EmailChangeClient({ action }: { action: "confirm" | "can
         <StepActions
           primary={
             completed || invalid
-              ? { label: "Go to Home", onClick: () => window.location.assign("/exomem/home") }
+              ? {
+                  label: "Go to Home",
+                  onClick: () => window.location.assign(appPagePathHere("/exomem/home")),
+                }
               : {
                   label: action === "confirm" ? "Confirm this address" : "Stop the change",
                   working: state === "submitting",

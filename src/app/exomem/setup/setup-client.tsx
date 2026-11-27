@@ -319,7 +319,7 @@ export default function SetupClient({
     );
   }
 
-  const goHome = () => window.location.assign("/exomem/home");
+  const goHome = () => window.location.assign(appPagePathHere("/exomem/home"));
   const exportMemory = {
     label: facts.exportOffered ? breakCopy.export : breakCopy.home,
     onClick: goHome,
@@ -563,7 +563,7 @@ export default function SetupClient({
           <StepActions
             primary={{
               label: breakCopy.suspended.contact,
-              onClick: () => window.location.assign("/exomem/support"),
+              onClick: () => window.location.assign(appPagePathHere("/exomem/support")),
             }}
             secondary={exportMemory}
           />

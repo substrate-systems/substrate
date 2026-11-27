@@ -631,6 +631,69 @@ describe("Exomem Paddle billing adapters", () => {
     );
   });
 
+  // An open transaction keeps the checkout URL it was made with. After sign-in moves to the
+  // product site, or back, the owner must still reach the checkout they started.
+  it("resumes a checkout made on Home under either app origin, and no other page", async () => {
+    const transactionId = "txn_01kxatbjfrehbp0sxbjefcacqs";
+    const resumeWith = (base: string, url: string) =>
+      resumeExomemCheckout(
+        {
+          userId: "user-internal",
+          tenantId: "tenant-internal",
+          transactionId,
+          environment: "sandbox",
+        },
+        {
+          config: loadExomemPaddleConfig({
+            ...configEnv(),
+            EXOMEM_PUBLIC_BASE_URL: base,
+            EVERMATTER_SITE_ORIGIN: "https://evermatter.ai",
+          }),
+          transport: async () =>
+            Response.json({
+              data: {
+                id: transactionId,
+                status: "ready",
+                custom_data: {
+                  product_key: "exomem-hosted",
+                  user_id: "user-internal",
+                  tenant_id: "tenant-internal",
+                },
+                items: [
+                  { price: { id: "pri_server_selected", product_id: "pro_server_selected" } },
+                ],
+                checkout: { url: `${url}?_ptxn=${transactionId}` },
+              },
+            }),
+        }
+      );
+    for (const base of ["https://substratesystems.io", "https://evermatter.ai"]) {
+      for (const home of [
+        "https://substratesystems.io/exomem/home",
+        "https://evermatter.ai/home",
+      ]) {
+        const result = await resumeWith(base, home);
+        assert.equal(result.state, "open", `${home} with sign-in on ${base}`);
+        assert.equal(
+          result.state === "open" && result.checkoutUrl,
+          `${home}?_ptxn=${transactionId}`
+        );
+      }
+      for (const foreign of [
+        "https://substratesystems.io/home",
+        "https://evermatter.ai/exomem/home",
+        "https://attacker.example/home",
+      ]) {
+        await assert.rejects(
+          resumeWith(base, foreign),
+          (error: unknown) =>
+            error instanceof ExomemBillingError && error.code === "EXOMEM_BILLING_STATE_CONFLICT",
+          `${foreign} with sign-in on ${base}`
+        );
+      }
+    }
+  });
+
   it("rejects arbitrary browser catalog fields before calling Paddle", async () => {
     let calls = 0;
     const transport: PaddleTransport = async () => {
