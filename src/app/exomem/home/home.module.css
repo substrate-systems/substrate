@@ -560,6 +560,8 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 32px;
+  /* An opened change grows only its own row, not its neighbour's. */
+  align-items: start;
 }
 
 .whatsNewItem {

@@ -12,7 +12,7 @@ import {
 } from "@/lib/exomem-hosted/client-platforms";
 import type { HomeApp, LevelKey } from "./home-api";
 import { count, type Clock } from "./home-format";
-import { appGlyph, appMeta } from "./home-view";
+import { appGlyph, appMeta, type AppContextOption } from "./home-view";
 import { Section } from "./home-chrome";
 import styles from "./home.module.css";
 
@@ -70,7 +70,7 @@ type AppsProps = {
   /** The stored context the app's calls run in; true when the change saved. */
   onContext: (app: HomeApp, context: HomeApp["context"]) => Promise<boolean>;
   /** What each app row's "Joins in" offers: the level each kind of app gets. */
-  contextOptions: { value: HomeApp["context"]; label: string }[];
+  contextOptions: AppContextOption[];
   connectorUrl: string | null;
   /** The level the add-app instructions start on: the coding agents level when known. */
   startLevel: LevelKey;
@@ -100,7 +100,7 @@ function AppRow({
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
   onContext: (app: HomeApp, context: HomeApp["context"]) => Promise<boolean>;
-  contextOptions: { value: HomeApp["context"]; label: string }[];
+  contextOptions: AppContextOption[];
   reviewer: boolean;
   clock: Clock;
   active: boolean;
@@ -109,6 +109,9 @@ function AppRow({
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
   const [contextFailed, setContextFailed] = useState(false);
+  // The kind is detected when the app connects; "Change" opens the override.
+  const [changing, setChanging] = useState(false);
+  const level = contextOptions.find((option) => option.value === app.context)?.level ?? null;
   const action = useRef<HTMLButtonElement | null>(null);
   const title = useRef<HTMLSpanElement>(null);
   const focusTitle = useRef(false);
@@ -121,6 +124,7 @@ function AppRow({
   }, [off, confirming]);
 
   let meta = appMeta(app, clock, reviewer, served);
+  if (level) meta = `${meta} · joins in: ${level}`;
   if (ended)
     meta = checkoutAvailable ? "off for now · reconnects when you resubscribe" : "off for now";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
@@ -131,7 +135,8 @@ function AppRow({
   async function changeContext(value: HomeApp["context"]) {
     if (value === app.context) return;
     setContextFailed(false);
-    if (!(await onContext(app, value))) setContextFailed(true);
+    if (await onContext(app, value)) setChanging(false);
+    else setContextFailed(true);
   }
 
   async function disconnect() {
@@ -173,25 +178,39 @@ function AppRow({
       </div>
       {!ended && !off && (
         <span className={styles.rowActions}>
-          <label className={styles.joinsIn}>
-            <span className={styles.joinsInLabel}>Joins in</span>
-            <select
-              className={styles.joinsInSelect}
-              aria-label={`How much Evermatter joins in for ${app.displayName}`}
-              value={app.context}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                const next = contextOptions.find((option) => option.value === value);
-                if (next) void changeContext(next.value);
-              }}
+          {!changing && (
+            <Button
+              variant="quiet"
+              size="row"
+              aria-label={`Change how much Evermatter joins in for ${app.displayName}`}
+              onClick={() => setChanging(true)}
             >
-              {contextOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              Change
+            </Button>
+          )}
+          {changing && (
+            <label className={styles.joinsIn}>
+              <span className={styles.joinsInLabel}>Joins in</span>
+              <select
+                className={styles.joinsInSelect}
+              // "Change" leaves the row as it opens the choice, so focus moves to the choice.
+              autoFocus
+                aria-label={`How much Evermatter joins in for ${app.displayName}`}
+                value={app.context}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  const next = contextOptions.find((option) => option.value === value);
+                  if (next) void changeContext(next.value);
+                }}
+              >
+                {contextOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <Button
             variant={confirming ? "primary" : "quiet"}
             size="row"

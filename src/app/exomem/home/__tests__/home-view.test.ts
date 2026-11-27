@@ -933,8 +933,8 @@ describe("involvement levels", () => {
       },
     });
     assert.deepEqual(appContextOptions(view), [
-      { value: "conversation", label: "Balanced, as a chat app" },
-      { value: "coding", label: "Light, as a coding agent" },
+      { value: "conversation", level: "Balanced", label: "Balanced, as a chat app" },
+      { value: "coding", level: "Light", label: "Light, as a coding agent" },
     ]);
     assert.deepEqual(
       appContextOptions(levelsView(null)).map((option) => option.label),

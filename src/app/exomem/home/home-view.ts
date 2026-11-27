@@ -689,6 +689,9 @@ export function levelsView(levels: HomeLevels | typeof NOT_RELEASED | null): Lev
   };
 }
 
+/** One choice on an app row: the kind of app, and the level that kind gets when known. */
+export type AppContextOption = { value: LevelContext; label: string; level: string | null };
+
 const AS_CONTEXT: Readonly<Record<LevelContext, string>> = {
   conversation: "as a chat app",
   coding: "as a coding agent",
@@ -698,15 +701,15 @@ const AS_CONTEXT: Readonly<Record<LevelContext, string>> = {
  * The choices an app row offers: which level the app gets, by the kind of app it
  * counts as. "Balanced, as a chat app" while the levels are known, else "As a chat app".
  */
-export function appContextOptions(levels: LevelsView): { value: LevelContext; label: string }[] {
+export function appContextOptions(levels: LevelsView): AppContextOption[] {
   return LEVEL_ROWS.map(({ context }) => {
     const row =
       levels.state === "live" ? levels.rows.find((known) => known.context === context) : null;
+    const level = row ? involvementLevel(row.level).label : null;
     return {
       value: context,
-      label: row
-        ? `${involvementLevel(row.level).label}, ${AS_CONTEXT[context]}`
-        : capitalise(AS_CONTEXT[context]),
+      level,
+      label: level ? `${level}, ${AS_CONTEXT[context]}` : capitalise(AS_CONTEXT[context]),
     };
   });
 }

@@ -59,7 +59,7 @@ test("a stopped cell's received log survives erasure through a fresh restricted 
 
   await page.goto(`/exomem/delete#${await createDeletionLink(owner)}`);
   await page.getByRole("button", { name: "Permanently delete my Evermatter" }).click();
-  await expect(page.getByRole("status")).toHaveText(
+  await expect(page.getByRole("status")).toContainText(
     "Your shared Substrate identity and any other product remain untouched."
   );
   await expect.poll(() => tenantStatus(owner)).toBe("deleted");

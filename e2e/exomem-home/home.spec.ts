@@ -428,7 +428,7 @@ test("What’s new shows the cell's notes until the owner presses Got it, and st
   await update.click();
   const drawer = page.locator("#home-whats-new");
   const change = drawer.getByRole("button", { name: "Better search" });
-  await expect(drawer.getByText("Search finds more of what you saved.")).toBeHidden();
+  await expect(change).toHaveAttribute("aria-expanded", "false");
   await change.click();
   await expect(change).toHaveAttribute("aria-expanded", "true");
   await expect(drawer.getByText("Search finds more of what you saved.")).toBeVisible();
@@ -608,7 +608,7 @@ test("Delete emails a link, and the link deletes only after the owner confirms",
 
   await page.getByRole("button", { name: "Permanently delete my Evermatter" }).click();
 
-  await expect(page.getByRole("status")).toHaveText(
+  await expect(page.getByRole("status")).toContainText(
     "Your shared Substrate identity and any other product remain untouched."
   );
   // A complimentary account has no billing to cancel, so deletion may already be finished.

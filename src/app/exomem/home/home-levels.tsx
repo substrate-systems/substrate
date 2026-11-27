@@ -42,9 +42,12 @@ export function InvolvementLevels({
               <div className={styles.rowText}>
                 <span className={styles.levelTitle}>
                   <span className={styles.rowTitle}>{row.title}</span>
-                  {row.isDefault && <span className={styles.levelMeta}>default</span>}
-                  {appNames[row.context].length > 0 && (
-                    <span className={styles.levelMeta}>{appNames[row.context].join(", ")}</span>
+                  {(row.isDefault || appNames[row.context].length > 0) && (
+                    <span className={styles.levelMeta}>
+                      {[row.isDefault && "default", appNames[row.context].join(", ")]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
                   )}
                 </span>
                 <span className={styles.levelDescription}>

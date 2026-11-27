@@ -3,12 +3,21 @@
 .column {
   gap: 18px;
   max-width: 560px;
+  padding-bottom: 56px;
 }
 
-/* Home's graph, cut: faint and grey behind the header. */
+/* The deletion email's "gone" band behind the header, fading into the page. */
 .band {
-  opacity: 0.25;
-  filter: grayscale(1);
+  position: absolute;
+  inset: 0 0 auto;
+  height: 240px;
+  background: url("/evermatter/email/band-gone-dark.png") center top / cover no-repeat;
+  mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  pointer-events: none;
+}
+
+:global(:root[data-theme="light"]) .band {
+  background-image: url("/evermatter/email/band-gone-light.png");
 }
 
 /* What is removed and what is kept, as two labelled rows. */
@@ -54,6 +63,7 @@
   font-family: var(--font-mono-exo);
   font-size: 12.5px;
   color: var(--fg-secondary);
+  text-decoration: underline;
   text-underline-offset: 3px;
 }
 

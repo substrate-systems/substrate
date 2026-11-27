@@ -78,8 +78,8 @@ a{color:inherit}a:hover{color:inherit}
   </div>
 
   <div class="st-row">
-    <span class="st-cap">2 · Connected apps: the switch names the level it gives the app</span>
-    <span class="st-sub">Today the row offers “Chat app | Coding agent” with no word on what it changes. The choice decides which level under “How much Evermatter joins in” applies, so the control shows that level, and each level row names its apps. Data: the levels and each app’s context, as Home reads them today.</span>
+    <span class="st-cap">2 · Connected apps: the detected level is a value; changing it is the exception</span>
+    <span class="st-sub">Evermatter already detects each app’s kind when it connects (an app on your own machine is a coding agent, every other app a chat app). So the row shows the level that kind gets, and the override hides behind “Change”, for the rare app detection gets wrong. Each level row names its apps.</span>
     <div class="st-frames">
       <sc-for list="{{appFrames}}" as="f" hint-placeholder-count="3">
         <div class="st-frame" style="width: {{f.width}}">
@@ -92,18 +92,21 @@ a{color:inherit}a:hover{color:inherit}
                   <div class="hp-row">
                     <div class="hp-rtext"><span class="hp-rtitle">Claude</span><span class="hp-rmeta" role="{{f.errRole}}">{{f.claudeMeta}}</span></div>
                     <span class="actions">
-                      <label class="lv-ctl"><span class="lv-label">Joins in</span>
-                        <select class="lv-select" aria-label="How much Evermatter joins in for Claude"><option>Balanced, as a chat app</option><option>Light, as a coding agent</option></select>
-                      </label>
+                      <sc-if value="{{f.changing}}" hint-placeholder-val="{{ false }}">
+                        <label class="lv-ctl"><span class="lv-label">Joins in</span>
+                          <select class="lv-select" aria-label="How much Evermatter joins in for Claude"><option>Balanced, as a chat app</option><option>Light, as a coding agent</option></select>
+                        </label>
+                      </sc-if>
+                      <sc-if value="{{f.notChanging}}" hint-placeholder-val="{{ true }}">
+                        <button class="btn btn-ghost" aria-label="Change how much Evermatter joins in for Claude">Change</button>
+                      </sc-if>
                       <button class="btn btn-ghost">Disconnect</button>
                     </span>
                   </div>
                   <div class="hp-row">
-                    <div class="hp-rtext"><span class="hp-rtitle">Claude Code</span><span class="hp-rmeta">used 2 d ago</span></div>
+                    <div class="hp-rtext"><span class="hp-rtitle">Claude Code</span><span class="hp-rmeta">used 2 d ago · joins in: Light</span></div>
                     <span class="actions">
-                      <label class="lv-ctl"><span class="lv-label">Joins in</span>
-                        <select class="lv-select" aria-label="How much Evermatter joins in for Claude Code"><option>Light, as a coding agent</option><option>Balanced, as a chat app</option></select>
-                      </label>
+                      <button class="btn btn-ghost" aria-label="Change how much Evermatter joins in for Claude Code">Change</button>
                       <button class="btn btn-ghost">Disconnect</button>
                     </span>
                   </div>
@@ -131,7 +134,7 @@ a{color:inherit}a:hover{color:inherit}
 
   <div class="st-row">
     <span class="st-cap">3 · Delete your Evermatter</span>
-    <span class="st-sub">Same words and the same one-time confirmation. The paragraph becomes two labelled facts, the page sits in Home’s frame with the graph cut, and “Keep my Evermatter” returns to Home.</span>
+    <span class="st-sub">Same words and the same one-time confirmation. The paragraph becomes two labelled facts, the page sits in Home’s frame, and “Keep my Evermatter” returns to Home. The band is the deletion email’s “gone” web (public/evermatter/email/band-gone-dark.png and -light.png), so the page and the email tell one story; the faded dots here stand in for it.</span>
     <div class="st-frames">
       <sc-for list="{{delFrames}}" as="f" hint-placeholder-count="4">
         <div class="st-frame" style="width: {{f.width}}">
@@ -175,9 +178,10 @@ class Component extends DCLogic {
     const theme = this.props.theme ?? 'dark';
     const frames = [{ width: '1136px', phoneClass: '' }, { width: '390px', phoneClass: 'phone' }];
     const appFrames = [
-      { width: '760px', phoneClass: '', tag: 'Desktop', claudeMeta: 'used 8 h ago', errRole: '' },
-      { width: '760px', phoneClass: '', tag: 'Save failed', claudeMeta: 'That didn’t save. Try again in a minute.', errRole: 'alert' },
-      { width: '390px', phoneClass: 'phone', tag: 'Phone', claudeMeta: 'used 8 h ago', errRole: '' }
+      { width: '760px', phoneClass: '', tag: 'Detected, at rest', claudeMeta: 'used 8 h ago · joins in: Balanced', errRole: '', changing: false, notChanging: true },
+      { width: '760px', phoneClass: '', tag: 'Change opened', claudeMeta: 'used 8 h ago · joins in: Balanced', errRole: '', changing: true, notChanging: false },
+      { width: '760px', phoneClass: '', tag: 'Save failed', claudeMeta: 'That didn’t save. Try again in a minute.', errRole: 'alert', changing: true, notChanging: false },
+      { width: '390px', phoneClass: 'phone', tag: 'Phone', claudeMeta: 'used 8 h ago · joins in: Balanced', errRole: '', changing: false, notChanging: true }
     ];
     const d = (o) => Object.assign({ width: '760px', phoneClass: '', pending: false, notPending: true, btnClass: '', disabled: false, btnLabel: 'Permanently delete my Evermatter', status: 'There is no undo after you confirm.', statusClass: '', statusRole: '' }, o);
     const delFrames = [

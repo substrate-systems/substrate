@@ -10,15 +10,14 @@ import {
   postPrivateJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import { HomeWeb } from "../home/home-chrome";
 import home from "../home/home.module.css";
 import styles from "./delete.module.css";
 import { SourceOffer } from "@/components/exomem/SourceOffer";
 
 type State = "checking" | "ready" | "deleting" | "pending" | "error";
 
-// The page the deletion email opens (Home fixes board, row 3): Home's frame with the
-// graph cut, what is removed and what is kept as two labelled rows, and the same
+// The page the deletion email opens (Home fixes board, row 3): Home's frame under the
+// deletion email's "gone" band, so the page and the email look alike, what is removed and what is kept as two labelled rows, and the same
 // one-time confirmation.
 export default function DeleteClient() {
   const startedRef = useRef(false);
@@ -61,10 +60,8 @@ export default function DeleteClient() {
 
   return (
     <>
-      <div className={styles.band} aria-hidden="true">
-        <HomeWeb live={false} />
-      </div>
-      <header className={home.header}>
+      <div className={styles.band} aria-hidden="true" />
+      <header className={`${home.header} ${home.homeHeader}`}>
         <span className={home.wordmark}>
           <Wordmark />
         </span>
