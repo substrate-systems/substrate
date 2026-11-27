@@ -872,6 +872,17 @@ describe("the export row", () => {
     });
   });
 
+  it("names the fix when folders that differ only by case stop the export", () => {
+    const failed = exportView(
+      { state: "failed", ...base, error_code: "CASE_COLLISION", pauses_assistants: false },
+      clock
+    );
+    assert.deepEqual(failed.detail, {
+      kind: "failed",
+      text: "The export stopped: some folder names differ only by capital letters. Ask your assistant to merge them, then export again.",
+    });
+  });
+
   it("says when an expired export was deleted, and only when the server knows", () => {
     const expired = (expires_at: string | null) =>
       exportView(
