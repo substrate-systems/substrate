@@ -22,7 +22,20 @@ export type WhatsNewDigestConfig = {
   /** Unset leaves a month waiting in "model not configured"; no call is made. */
   anthropicApiKey: string | null;
   modelId: string;
+  /**
+   * The first month the daily route builds, `YYYY-MM` (D1): the first full
+   * month after Evermatter's releases carry their notes file. Unset, or not a
+   * month, builds nothing.
+   */
+  firstMonth: string | null;
+  /** The signing secret of the unsubscribe token, as set; `unsubscribe.ts` reads it. */
+  unsubscribeKey: string | null;
 };
+
+/** A month's name as a request or a setting gives it: `YYYY-MM`, a format check. */
+export function parseMonthName(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : null;
+}
 
 function present(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -38,5 +51,7 @@ export function whatsNewDigestConfig(
     anthropicBaseUrl: present(env.ANTHROPIC_BASE_URL) ?? "https://api.anthropic.com",
     anthropicApiKey: present(env.ANTHROPIC_API_KEY),
     modelId: present(env.EXOMEM_WHATS_NEW_MODEL) ?? DEFAULT_MODEL_ID,
+    firstMonth: parseMonthName(present(env.EXOMEM_WHATS_NEW_FIRST_MONTH)),
+    unsubscribeKey: present(env.EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY),
   };
 }

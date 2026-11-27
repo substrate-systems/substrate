@@ -39,6 +39,8 @@ export function stateSentence(month: MonthDetail, modelConfigured: boolean): str
         : month.decision === "edited"
           ? "Ready to queue: approved after your edit."
           : "Ready to queue: approved as ranked.";
+    case "queued":
+      return `Queued: ${month.queuedCount} ${month.queuedCount === 1 ? "digest" : "digests"} went to the outbox. Each sends behind every other email.`;
     case "skipped":
       return month.skipReason === "quiet"
         ? "Skipped: a quiet month, the model and you picked none."

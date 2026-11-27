@@ -17,7 +17,7 @@ export default function ExomemPrivacyPage() {
   // page is static, so it reads the flag at build, and a flag change takes a deploy.
   const exportOffered = cloudExportsEnabled();
   return (
-    <ExomemPublicPage title="Evermatter Cloud privacy" eyebrow="Revised 25 November 2026">
+    <ExomemPublicPage title="Evermatter Cloud privacy" eyebrow="Revised 27 November 2026">
       <p>
         This policy covers the Evermatter Cloud service (formerly Exomem Cloud) and its public
         product, account, OAuth, and support pages. The data controller is Substrate Systems OÜ
@@ -192,6 +192,17 @@ export default function ExomemPrivacyPage() {
         last request or after your last start link expires, whichever is later. We keep the address
         and content of each email we send you for 30 days after we send it or stop trying, and then
         we remove them.
+      </p>
+
+      <h2>Monthly update email</h2>
+      <p>
+        Once a month we may email the owner of an account about the changes in Evermatter that
+        they are most likely to notice. It uses your email address, your email display settings and
+        which release your cell runs, so that it lists only changes your cell already has. A new account gets it unless
+        the owner opts out at signup. An account opened before this email existed gets it only if
+        the owner, or the operator at the owner&apos;s request, turns it on. You can turn it off
+        on Home, under &quot;Monthly update email&quot;, or with the one-click unsubscribe link in
+        each email. Reviewer accounts never get it.
       </p>
 
       <h2>Your choices and rights</h2>

@@ -14,6 +14,20 @@ The system SHALL select, from the user notes of all of a month's releases, at mo
 - **WHEN** fewer than 3 of a month's notes would interest a typical owner
 - **THEN** no owner receives a digest for that month
 
+### Requirement: The first month is configured
+
+The system SHALL build no month's selection before a configured first month, and none while no first month is configured. The approval page SHALL show that no first month is set.
+
+#### Scenario: Before the first month
+
+- **WHEN** the daily route runs for a month before the configured first month
+- **THEN** it builds no selection for that month
+
+#### Scenario: No first month is configured
+
+- **WHEN** the daily route runs and no first month is configured
+- **THEN** it builds nothing, and the approval page shows that no first month is set
+
 ### Requirement: The digest shows each change as its note
 
 The digest SHALL show each selected change as its note's own title and sentence, and a note without a title as its sentence alone. The digest SHALL end with a link to Evermatter's public release list, where every change appears.

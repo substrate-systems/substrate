@@ -5,7 +5,8 @@
  * run on the same day changes nothing, and a missed day heals on the next run.
  *
  * It queues no email. An approved month is stored with its final ordered
- * selection (`ready_to_queue`); the sending half takes it from there.
+ * selection (`ready_to_queue`); the delivery job's fan-out (fan-out.ts) takes
+ * it from there. It builds nothing before the configured first month.
  */
 
 import { whatsNewDigestConfig, type WhatsNewDigestConfig } from "./config";
@@ -42,7 +43,10 @@ const FETCH_CONCURRENCY = 8;
 
 export type RunSummary = {
   month: string;
-  state: MonthState;
+  /** `null` when the run built nothing: no first month is configured, or this month is before it. */
+  state: MonthState | null;
+  /** The configured first month (`EXOMEM_WHATS_NEW_FIRST_MONTH`), `null` while unset. */
+  firstMonth: string | null;
   /** Releases still without readable notes that the operator has not accepted without. */
   missingReleases: number;
   lapsedMonths: number;
@@ -137,6 +141,17 @@ async function rankMonth(
 export async function runWhatsNewDigestSelection(options: RunOptions = {}): Promise<RunSummary> {
   const config = options.config ?? whatsNewDigestConfig();
   const month = previousMonth(options.now ?? new Date());
+  // D1: only a month whose releases all carry a notes file can be built, so the
+  // first month is the operator's to set. Months compare as `YYYY-MM` text.
+  if (config.firstMonth === null || month < config.firstMonth) {
+    return {
+      month,
+      state: null,
+      firstMonth: config.firstMonth,
+      missingReleases: 0,
+      lapsedMonths: 0,
+    };
+  }
   await ensureMonth(month);
   const lapsedMonths = await lapseEarlierMonths(month);
 
@@ -153,5 +168,11 @@ export async function runWhatsNewDigestSelection(options: RunOptions = {}): Prom
     throw new Error("what's new digest: the month's record is missing after it was created");
   const missing =
     record.state === "waiting_for_notes" ? missingReleases(await listReleases(month)).length : 0;
-  return { month, state: record.state, missingReleases: missing, lapsedMonths };
+  return {
+    month,
+    state: record.state,
+    firstMonth: config.firstMonth,
+    missingReleases: missing,
+    lapsedMonths,
+  };
 }

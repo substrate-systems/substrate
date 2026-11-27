@@ -8,17 +8,18 @@
  * that names the state it leaves, so a daily run and an operator action that
  * meet change the month once and the loser reads the new state.
  *
- *   waiting_for_notes -> waiting_for_model -> awaiting_approval -> ready_to_queue
+ *   waiting_for_notes -> waiting_for_model -> awaiting_approval -> ready_to_queue -> queued
  *   any of the first three -> skipped | lapsed
  */
 
-import { executeExomemSql } from "../db";
+import { executeExomemSql, type ExomemSql } from "../db";
 import type { ListedRelease } from "./github";
 import type { MonthState } from "./states";
 import {
   monthNotes,
   parseNoteIds,
   parseNotesFile,
+  resolveSelection,
   type MonthNote,
   type NoteId,
   type ReleaseNotes,
@@ -43,6 +44,8 @@ export type MonthRecord = {
   decision: Decision | null;
   finalSelection: NoteId[] | null;
   decidedAt: Date | null;
+  /** Digests the delivery job has queued so far. */
+  queuedCount: number;
 };
 
 export type ReleaseRecord = {
@@ -81,6 +84,7 @@ function monthRecord(row: MonthRow): MonthRecord {
     decision: (row.decision as Decision | null) ?? null,
     finalSelection: ids(row.final_selection),
     decidedAt: asDate(row.decided_at),
+    queuedCount: Number(row.queued_count),
   };
 }
 
@@ -116,7 +120,8 @@ async function readMonths(filter: {
   const { rows } = await executeExomemSql`
     /* exomem:whats-new-digest-read-months */
     SELECT month, state, skip_reason, releases_listed_at, last_checked_at, model_status,
-           model_id, prompt_version, model_selection, blind_pick, decision, final_selection, decided_at
+           model_id, prompt_version, model_selection, blind_pick, decision, final_selection, decided_at,
+           queued_count
     FROM exomem_whats_new_digest_months
     WHERE (${filter.month ?? null}::text IS NULL OR month = ${filter.month ?? null})
       AND (NOT ${filter.decidedOnly ?? false}::boolean
@@ -140,11 +145,16 @@ export function listDecidedMonths(): Promise<MonthRecord[]> {
   return readMonths({ decidedOnly: true, limit: 120 });
 }
 
-export async function listReleases(month: string): Promise<ReleaseRecord[]> {
-  const { rows } = await executeExomemSql`
+export async function listReleases(
+  month: string,
+  options: { versions?: readonly string[]; sql?: ExomemSql } = {}
+): Promise<ReleaseRecord[]> {
+  const versions = options.versions ? [...options.versions] : null;
+  const { rows } = await (options.sql ?? executeExomemSql)`
     /* exomem:whats-new-digest-list-releases */
     SELECT version, published_at, notes_file, problem, accepted_without_at
-    FROM exomem_whats_new_digest_releases WHERE month = ${month}
+    FROM exomem_whats_new_digest_releases
+    WHERE month = ${month} AND (${versions}::text[] IS NULL OR version = ANY(${versions}::text[]))
     ORDER BY published_at DESC, version DESC
   `;
   return rows.map((row) => {
@@ -407,4 +417,84 @@ export async function recordSwitch(choice: Omit<SwitchRecord, "recordedAt">): Pr
     INSERT INTO exomem_whats_new_digest_switch (send_without_approval, model_id, prompt_version, shares)
     VALUES (${choice.sendWithoutApproval}, ${choice.modelId}, ${choice.promptVersion}, ${JSON.stringify(choice.shares)}::jsonb)
   `;
+}
+
+/**
+ * The notes that a final selection names, in the selection's order, read from
+ * only the releases it names. `null` when a named note is not in the month's
+ * stored files, which a stored selection never does while the files stay.
+ */
+export async function readSelectionNotes(
+  month: string,
+  selection: readonly NoteId[],
+  sql: ExomemSql = executeExomemSql
+): Promise<MonthNote[] | null> {
+  const versions = [...new Set(selection.map((id) => id.version))];
+  return resolveSelection(notesOfReleases(await listReleases(month, { versions, sql })), selection);
+}
+
+export type QueueingMonth = {
+  month: string;
+  finalSelection: NoteId[];
+  /** The last tenant id the delivery job read; null before its first page. */
+  cursor: string | null;
+};
+
+/**
+ * The month the delivery job queues now: the newest that is ready, locked
+ * until the transaction ends, so two overlapping ticks take turns and the
+ * second reads the first's cursor. Two ready months at once cannot happen
+ * while a month is queued within the day it is approved; the newest wins then,
+ * so an owner is never sent a stale month.
+ */
+export async function lockMonthToQueue(tx: ExomemSql): Promise<QueueingMonth | null> {
+  const { rows } = await tx`
+    /* exomem:whats-new-digest-lock-month-to-queue */
+    SELECT month, final_selection, queue_cursor
+    FROM exomem_whats_new_digest_months
+    WHERE state = 'ready_to_queue'
+    ORDER BY month DESC LIMIT 1
+    FOR UPDATE
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  const finalSelection = parseNoteIds(row.final_selection);
+  if (!finalSelection)
+    throw new Error("what's new digest: a stored selection is not a list of note identifiers");
+  return {
+    month: String(row.month),
+    finalSelection,
+    cursor: row.queue_cursor === null ? null : String(row.queue_cursor),
+  };
+}
+
+/** One page is queued: move the cursor, and when no owner is left mark the month queued so no tick scans it again. */
+export async function recordQueuedPage(
+  tx: ExomemSql,
+  month: string,
+  page: { cursor: string | null; queued: number; done: boolean }
+): Promise<void> {
+  await tx`
+    /* exomem:whats-new-digest-record-queued-page */
+    UPDATE exomem_whats_new_digest_months
+    SET queue_cursor = COALESCE(${page.cursor}::uuid, queue_cursor),
+        queued_count = queued_count + ${page.queued},
+        state = CASE WHEN ${page.done}::boolean THEN 'queued' ELSE state END,
+        queued_at = CASE WHEN ${page.done}::boolean THEN now() ELSE queued_at END,
+        updated_at = now()
+    WHERE month = ${month} AND state = 'ready_to_queue'
+  `;
+}
+
+/**
+ * The final selection of a month that is still to send: ready or queued, so
+ * a month the operator skipped or that lapsed sends nothing. `null` otherwise.
+ */
+export async function sendableSelection(sql: ExomemSql, month: string): Promise<NoteId[] | null> {
+  const { rows } = await sql`
+    /* exomem:whats-new-digest-sendable-selection */
+    SELECT final_selection FROM exomem_whats_new_digest_months
+    WHERE month = ${month} AND state IN ('ready_to_queue', 'queued')
+  `;
+  return rows[0] ? parseNoteIds(rows[0].final_selection) : null;
 }

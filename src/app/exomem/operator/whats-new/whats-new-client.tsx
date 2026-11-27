@@ -210,7 +210,11 @@ export default function WhatsNewClient() {
             {overview.months.length === 0 ? (
               <div className={home.row}>
                 <dt className={home.rowTitle}>No month yet</dt>
-                <dd className={styles.figure}>The daily run builds the previous month.</dd>
+                <dd className={styles.figure}>
+                  {overview.firstMonth === null
+                    ? "No first month is set, so the daily run builds nothing."
+                    : `The daily run builds the previous month, from ${monthTitle(overview.firstMonth)}.`}
+                </dd>
               </div>
             ) : (
               overview.months.map((entry) => (
@@ -233,6 +237,16 @@ export default function WhatsNewClient() {
               ))
             )}
           </dl>
+          {overview.months.length > 0 && overview.firstMonth === null ? (
+            <p className={styles.line}>
+              No first month is set, so the daily run builds no further month.
+            </p>
+          ) : null}
+          {overview.unsubscribeKeyConfigured ? null : (
+            <p className={styles.line}>
+              The unsubscribe key is not set, so an approved month queues nothing.
+            </p>
+          )}
         </section>
 
         {month ? (

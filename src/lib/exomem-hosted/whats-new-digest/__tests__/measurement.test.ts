@@ -25,6 +25,7 @@ function month(
     decision: "approved",
     finalSelection: [note(0), note(1), note(2)],
     decidedAt: null,
+    queuedCount: 0,
     ...overrides,
   };
 }

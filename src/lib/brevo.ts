@@ -11,6 +11,11 @@ export type SendTransactionalEmailInput = {
    */
   senderName?: string;
   senderEmail?: string;
+  /**
+   * Custom headers for the message, such as `List-Unsubscribe`. Brevo takes
+   * them in the request's `headers` object, keyed by the header's own name.
+   */
+  headers?: Readonly<Record<string, string>>;
 };
 
 export type SendTransactionalEmailResult = {
@@ -90,6 +95,9 @@ export async function sendTransactionalEmail(
         subject,
         htmlContent,
         textContent,
+        ...(input.headers && Object.keys(input.headers).length > 0
+          ? { headers: input.headers }
+          : {}),
       }),
       signal: AbortSignal.timeout(8_000),
     });

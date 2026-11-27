@@ -42,6 +42,7 @@ import { breakCopy, consentCopy, inviteCopy } from "../_journey/copy";
 import { PriceCard } from "../_journey/parts";
 import { ConnectedApps } from "./home-apps";
 import { PlanAndAccount, YourData } from "./home-account";
+import { MonthlyUpdateEmail } from "./home-monthly-update";
 import { HomeHeader, HomeWeb, StatusBlock } from "./home-chrome";
 import { DeleteDialog, type DeleteStep, SignedOutDialog } from "./home-dialogs";
 import type { Clock } from "./home-format";
@@ -965,6 +966,14 @@ export default function HomeClient({
                     csrfToken={accountSnapshot.csrfToken}
                     onAccountChanged={refreshEmailAccount}
                     onAccountRefresh={refreshEmailAccount}
+                  />
+                ) : undefined
+              }
+              monthlyUpdateControl={
+                !signedOut && !signingOut && account?.monthlyUpdateEmail ? (
+                  <MonthlyUpdateEmail
+                    view={account.monthlyUpdateEmail}
+                    onSaved={() => void refreshAccount()}
                   />
                 ) : undefined
               }

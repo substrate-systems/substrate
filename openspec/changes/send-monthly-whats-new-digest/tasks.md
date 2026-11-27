@@ -17,11 +17,11 @@
 
 ## 3. Sending
 
-- [ ] 3.1 Migration: the owner's digest setting, and each month's selection with its approval.
-- [ ] 3.2 The `whats_new_digest` outbox kind at a new lowest send priority, queued 200 rows per tick by the per-minute delivery job, with its send-time re-check and the template from the design artifact.
-- [ ] 3.3 `List-Unsubscribe` and `List-Unsubscribe-Post` in `sendTransactionalEmail`; the POST-only unsubscribe route and its page; the Home setting.
-- [ ] 3.4 The privacy page names the monthly update email.
-- [ ] 3.5 The setting's default: off for existing owners with the Home invitation, on for new owners unless they opt out at signup, and the audited operator action that turns it on for an existing owner who asked.
+- [x] 3.1 Migration: the owner's digest setting, and each month's selection with its approval.
+- [x] 3.2 The `whats_new_digest` outbox kind at a new lowest send priority, queued 200 rows per tick by the per-minute delivery job, with its send-time re-check and the provisional template (the design artifact of 0.2 replaces it).
+- [x] 3.3 `List-Unsubscribe` and `List-Unsubscribe-Post` in `sendTransactionalEmail`; the POST-only unsubscribe route and its page; the Home setting.
+- [x] 3.4 The privacy page names the monthly update email.
+- [x] 3.5 The setting's default: off for existing owners with the Home invitation, on for new owners unless they opt out at signup, and the audited operator action that turns it on for an existing owner who asked.
 
 ## 4. Acceptance
 

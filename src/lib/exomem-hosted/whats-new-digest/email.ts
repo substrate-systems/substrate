@@ -7,7 +7,7 @@
  * Its look is provisional and follows the other Evermatter emails through the
  * shared template (email-templates/exomem-email.ts). The final design arrives
  * from a design artifact and replaces this module's slots and the template's
- * `items` block. The sending half adds the unsubscribe line to `smallPrint`.
+ * `items` block. The unsubscribe link sits beside the release-list button.
  */
 
 import {
@@ -24,7 +24,8 @@ export type WhatsNewDigestEmailInput = {
   month: string;
   /** The month's picked notes in the order they show. */
   notes: readonly DigestNote[];
-  smallPrint?: string;
+  /** The page where the owner turns this email off (`unsubscribe.ts`). The approval page's preview has none. */
+  unsubscribeUrl?: string;
 };
 
 export type WhatsNewDigestAppearance = {
@@ -53,8 +54,16 @@ export function renderWhatsNewDigestEmail(
     headline: "What's new",
     body: [`The changes from ${name} that you are most likely to notice.`],
     detail: { kind: "items", items: input.notes.map(({ title, text }) => ({ title, text })) },
-    action: { label: "See every change", url: EVERMATTER_RELEASES_URL },
-    smallPrint: input.smallPrint ?? "",
+    action: {
+      label: "See every change",
+      url: EVERMATTER_RELEASES_URL,
+      link: input.unsubscribeUrl
+        ? { label: "Turn this email off", url: input.unsubscribeUrl }
+        : null,
+    },
+    smallPrint: input.unsubscribeUrl
+      ? "You get this email once a month. You can also turn it off on Home, under Monthly update email."
+      : "",
   });
 }
 

@@ -328,6 +328,14 @@ export async function requestEmailChange(
   return { requestId: response.requestId, expiresAt: response.expiresAt };
 }
 
+/** Turns the monthly update email on or off, or dismisses Home's invitation to it. `false` when the server did not take it. */
+export async function saveMonthlyUpdateEmail(
+  change: { enabled: boolean } | { dismissInvitation: true }
+): Promise<boolean> {
+  const { status, body } = await send("PUT", "/api/exomem/account/monthly-update-email", change);
+  return status >= 200 && status < 300 && body?.success === true;
+}
+
 /** Opens Paddle checkout or the customer portal; resolves with the address to go to. */
 export async function billingDestination(kind: "checkout" | "portal"): Promise<string | null> {
   const { status, body } = await send("POST", `/api/exomem/billing/${kind}`, {});

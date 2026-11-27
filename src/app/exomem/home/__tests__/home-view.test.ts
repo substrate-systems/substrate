@@ -56,6 +56,7 @@ function account(overrides: Partial<HomeAccount> = {}): HomeAccount {
     endedAt: { value: null, reason: "not_ended" },
     keptUntil: { value: null, reason: "not_ended" },
     reviewerEndsAt: { value: null, reason: "not_reviewer" },
+    monthlyUpdateEmail: { enabled: false, invited: false },
     ...overrides,
   };
 }

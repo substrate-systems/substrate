@@ -12,6 +12,7 @@ import { exomemErrors } from "./errors";
 import { known, unknown, type Known } from "./known";
 import type { ExomemMoney } from "@/lib/exomem/money";
 import { carriesFriendPrice } from "./paddle-friend-price";
+import { monthlyUpdateEmailView, type MonthlyUpdateEmailView } from "./whats-new-digest/setting";
 import { readExomemNextPaymentAmount } from "./paddle-billing";
 import {
   exomemPaddleFriendDiscountId,
@@ -57,6 +58,8 @@ export type ExomemAccountView = {
   endedAt: Known<string, EndedUnknown>;
   keptUntil: Known<string, EndedUnknown>;
   reviewerEndsAt: Known<string, "not_reviewer" | "not_reported">;
+  /** The owner's "Monthly update email" setting and Home's invitation to it; `null` on a reviewer account, which has neither. */
+  monthlyUpdateEmail: MonthlyUpdateEmailView | null;
 };
 
 type NoNextPayment = "complimentary" | "no_subscription" | "ended" | "paused";
@@ -88,6 +91,7 @@ export type ExomemAccountRow = {
   friendOffered: boolean;
   /** Who invited the tenant with the friend price, from its friend offer. */
   friendInviterName: string | null;
+  monthlyUpdateEmail: MonthlyUpdateEmailView;
 };
 
 type Environment = Record<string, string | undefined>;
@@ -239,6 +243,7 @@ export function buildExomemAccountView(
       : row.reviewerExpiresAt
         ? known(row.reviewerExpiresAt.toISOString())
         : unknown("not_reported"),
+    monthlyUpdateEmail: options.reviewer ? null : row.monthlyUpdateEmail,
   };
 }
 
@@ -259,6 +264,7 @@ export async function loadExomemAccountView(
     SELECT exomem_users.email,
            tenant.time_zone,
            tenant.support_reference,
+           tenant.whats_new_digest, tenant.whats_new_digest_invitation,
            entitlement.source,
            entitlement.source_state,
            entitlement.effective_state,
@@ -315,6 +321,7 @@ export async function loadExomemAccountView(
     reviewerExpiresAt: dateOrNull(row.reviewer_expires_at),
     friendOffered: billing?.friendOffer === true,
     friendInviterName: textOrNull(row.friend_inviter_name),
+    monthlyUpdateEmail: monthlyUpdateEmailView(row),
   };
   return buildExomemAccountView(account, {
     reviewer: Boolean(session.reviewerCredentialId),

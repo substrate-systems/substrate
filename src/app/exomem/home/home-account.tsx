@@ -41,6 +41,7 @@ export function PlanAndAccount({
   storage,
   email,
   emailControl,
+  monthlyUpdateControl,
   onBilling,
   billingBusy,
   billingMessage,
@@ -50,6 +51,8 @@ export function PlanAndAccount({
   storage: StorageView;
   email: string | null;
   emailControl?: ReactNode;
+  /** The "Monthly update email" setting; absent on a reviewer account and while the account is unread. */
+  monthlyUpdateControl?: ReactNode;
   onBilling: (kind: "portal" | "checkout") => void;
   billingBusy: boolean;
   billingMessage: string | null;
@@ -124,6 +127,7 @@ export function PlanAndAccount({
           </div>
         </div>
       )}
+      {monthlyUpdateControl}
       {plan.note && <div className={styles.panelNote}>{plan.note}</div>}
     </Section>
   );

@@ -31,6 +31,7 @@ const EVENT_NAMES = new Set([
   "alerts.backlog.undelivered",
   "alerts.key_watcher.check",
   "whats_new_digest.select",
+  "whats_new_digest.owner_turned_on",
   "exomem.cell-deletions.read",
   "exomem.cell-deletions.denied",
   "exomem.cell-deletions.failed",

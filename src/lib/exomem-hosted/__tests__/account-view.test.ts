@@ -25,6 +25,7 @@ function paidRow(overrides: Partial<ExomemAccountRow> = {}): ExomemAccountRow {
     reviewerExpiresAt: null,
     friendOffered: false,
     friendInviterName: null,
+    monthlyUpdateEmail: { enabled: false, invited: false },
     ...overrides,
   };
 }

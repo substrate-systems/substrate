@@ -6,10 +6,11 @@
  */
 
 import { exomemErrors, ExomemHostedError } from "../errors";
-import { whatsNewDigestConfig } from "./config";
+import { parseMonthName, whatsNewDigestConfig } from "./config";
 import { previewWhatsNewDigestEmail } from "./email";
 import { measure, switchApplies, type Measurement, type MonthShare } from "./measurement";
 import { MAX_PICKS, MIN_PICKS, WHATS_NEW_PROMPT_VERSION } from "./model";
+import { unsubscribeKeyConfigured } from "./unsubscribe";
 import {
   acceptWithout,
   advanceWhenNotesComplete,
@@ -67,10 +68,7 @@ const errors = {
   invalid: () => exomemErrors.invalidRequest(),
 };
 
-/** A month's name as a request gives it: `YYYY-MM`, a format check. */
-export function parseMonthName(value: unknown): string | null {
-  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : null;
-}
+export { parseMonthName };
 
 const configured = () => ({
   modelId: whatsNewDigestConfig().modelId,
@@ -90,6 +88,10 @@ export type DigestOverview = {
   months: MonthSummary[];
   /** The key and model are configured now; a month waits in "model not configured" while they are not. */
   modelConfigured: boolean;
+  /** The first month the daily route builds (`YYYY-MM`); `null` while unset, and then it builds nothing. */
+  firstMonth: string | null;
+  /** The unsubscribe key is set; while it is not, an approved month queues nothing. */
+  unsubscribeKeyConfigured: boolean;
   model: { modelId: string; promptVersion: string };
   measurement: {
     run: MonthShare[];
@@ -123,6 +125,8 @@ export async function describeOverview(): Promise<DigestOverview> {
       lastCheckedAt: month.lastCheckedAt?.toISOString() ?? null,
     })),
     modelConfigured: whatsNewDigestConfig().anthropicApiKey !== null,
+    firstMonth: whatsNewDigestConfig().firstMonth,
+    unsubscribeKeyConfigured: unsubscribeKeyConfigured(),
     model,
     measurement: {
       run: measurement.run,
@@ -170,6 +174,8 @@ export type MonthDetail = {
   model: { selection: NoteView[]; leftOut: NoteView[] } | null;
   decision: MonthRecord["decision"];
   finalSelection: NoteView[] | null;
+  /** Digests the delivery job has queued for the month so far. */
+  queuedCount: number;
   /** The email of the final selection, or of the model's when the month is undecided. */
   email: { subject: string; light: string; dark: string; text: string } | null;
 };
@@ -221,6 +227,7 @@ export async function describeMonth(month: string): Promise<MonthDetail> {
       : null,
     decision: record.decision,
     finalSelection: pick(record.finalSelection),
+    queuedCount: record.queuedCount,
     // The email is built from the ranking, so it also waits for the blind pick (unless the month is decided).
     email:
       shown && shown.length >= MIN_PICKS && (revealed || record.finalSelection)

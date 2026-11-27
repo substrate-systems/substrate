@@ -4,8 +4,7 @@
 -- the model's ranking, the operator's blind pick and decision, and the final
 -- ordered selection that the sending half queues. Nothing here sends email.
 -- The states are a closed set that the code implements
--- (whats-new-digest/months.ts); the sending half adds its own states when it
--- queues a month.
+-- (whats-new-digest/states.ts and months.ts).
 SET LOCAL lock_timeout = '5s';
 
 CREATE TABLE exomem_whats_new_digest_months (
@@ -16,6 +15,7 @@ CREATE TABLE exomem_whats_new_digest_months (
     'waiting_for_model',   -- every release is read; the ranking is not yet in
     'awaiting_approval',   -- the ranking is in; the operator decides
     'ready_to_queue',      -- approved or edited; final_selection is the digest
+    'queued',              -- the delivery job found no owner left to queue; it scans the month no more
     'skipped',             -- nothing is sent for the month
     'lapsed'               -- still waiting when the next month was built; never sent
   )),
@@ -45,10 +45,19 @@ CREATE TABLE exomem_whats_new_digest_months (
   decision text CHECK (decision IN ('approved', 'edited', 'automatic')),
   final_selection jsonb CHECK (final_selection IS NULL OR jsonb_typeof(final_selection) = 'array'),
   decided_at timestamptz,
+  -- The delivery job's progress (whats-new-digest/fan-out.ts): it queues the
+  -- owners in tenant id order, 200 a tick, and keeps the last tenant id it
+  -- read, so each tick starts after it and a finished month is never scanned
+  -- again. queued_count is the digests queued so far.
+  queue_cursor uuid,
+  queued_count integer NOT NULL DEFAULT 0 CHECK (queued_count >= 0),
+  queued_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CHECK ((state = 'skipped') = (skip_reason IS NOT NULL)),
-  CHECK ((state = 'ready_to_queue') = (decision IS NOT NULL)),
+  CHECK ((state IN ('ready_to_queue', 'queued')) = (decision IS NOT NULL)),
+  CHECK ((state = 'queued') = (queued_at IS NOT NULL)),
+  CHECK (state IN ('ready_to_queue', 'queued') OR (queue_cursor IS NULL AND queued_count = 0)),
   CHECK ((decision IS NULL) = (final_selection IS NULL)),
   -- The bar: an approved month has 3 to 6 notes.
   CHECK (final_selection IS NULL OR jsonb_array_length(final_selection) BETWEEN 3 AND 6),

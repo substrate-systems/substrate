@@ -38,6 +38,7 @@ const ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_API_KEY",
   "EXOMEM_WHATS_NEW_MODEL",
+  "EXOMEM_WHATS_NEW_FIRST_MONTH",
 ] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 
@@ -152,6 +153,8 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
     github = await startGitHub(releases);
     model = await startModel();
     process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
+    // The first month the route builds: long before every month these suites use.
+    process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2000-01";
     process.env.CRON_SECRET = CRON_SECRET;
     process.env.EXOMEM_WHATS_NEW_GITHUB_API_URL = github.origin;
     process.env.EXOMEM_WHATS_NEW_GITHUB_TOKEN = GITHUB_TOKEN;
@@ -378,6 +381,8 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
     github = await startGitHub([]);
     model = await startModel();
     process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
+    // The first month the route builds: long before every month these suites use.
+    process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2000-01";
     process.env.EXOMEM_WHATS_NEW_GITHUB_API_URL = github.origin;
     delete process.env.EXOMEM_WHATS_NEW_GITHUB_TOKEN;
     process.env.ANTHROPIC_BASE_URL = model.origin;
@@ -391,6 +396,37 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
     await database?.close();
     await github?.close();
     await model?.close();
+  });
+
+  it("builds nothing before the configured first month, and the approval page says so", async () => {
+    const built = async (month: string) =>
+      (
+        await database.pool.query(
+          "SELECT count(*)::int AS n FROM exomem_whats_new_digest_months WHERE month = $1",
+          [month]
+        )
+      ).rows[0].n;
+    publish("2038-12", threeNotes());
+
+    process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2040-06";
+    const early = await build("2038-12");
+    assert.deepEqual([early.state, early.firstMonth], [null, "2040-06"]);
+    assert.equal(await built("2038-12"), 0);
+    assert.equal((await overview()).firstMonth, "2040-06");
+
+    // Unset builds nothing either, and the page shows it unset rather than a month.
+    delete process.env.EXOMEM_WHATS_NEW_FIRST_MONTH;
+    assert.deepEqual([(await build("2038-12")).state, (await overview()).firstMonth], [null, null]);
+    assert.equal(await built("2038-12"), 0);
+
+    // From the first month on the route builds as before.
+    process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2038-12";
+    model.answers.push({ picks: [] });
+    assert.notEqual((await build("2038-12")).state, null);
+    assert.equal(await built("2038-12"), 1);
+    // Leave nothing open, so the later months of this suite lapse nothing.
+    await act({ action: "skip", month: "2038-12" });
+    process.env.EXOMEM_WHATS_NEW_FIRST_MONTH = "2000-01";
   });
 
   it("skips a quiet month, where the model returned none and the operator picked none, and does not count it", async () => {

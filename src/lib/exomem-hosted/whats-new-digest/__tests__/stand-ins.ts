@@ -203,3 +203,47 @@ function closeServer(server: Server): Promise<void> {
     server.close(() => resolve());
   });
 }
+
+/** One message as `sendTransactionalEmail` posts it to Brevo's `POST /v3/smtp/email`. */
+export type BrevoMessage = {
+  sender: { email: string; name: string };
+  to: Array<{ email: string }>;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  /** Custom headers, in Brevo's `headers` object; absent when the sender passed none. */
+  headers?: Record<string, string>;
+};
+
+export type BrevoStandIn = {
+  origin: string;
+  /** Every accepted message, in the order it arrived. */
+  sent: BrevoMessage[];
+  close(): Promise<void>;
+};
+
+/**
+ * Brevo's transactional send endpoint as it answers: the key in the `api-key` header, one JSON
+ * message per `POST /v3/smtp/email`, and `201` with a `messageId`. It keeps what the sender posted,
+ * so a test reads the request that left the code, not a copy of what the code meant to send.
+ */
+export async function startBrevo(apiKey: string): Promise<BrevoStandIn> {
+  const sent: BrevoMessage[] = [];
+  const { server, origin } = await listen(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const reply = (status: number, value: unknown) => {
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify(value));
+    };
+    if (request.method !== "POST" || request.url !== "/v3/smtp/email") {
+      return reply(404, { code: "not_found", message: "Not found" });
+    }
+    if (request.headers["api-key"] !== apiKey) {
+      return reply(401, { code: "unauthorized", message: "Key not found" });
+    }
+    sent.push(JSON.parse(body) as BrevoMessage);
+    return reply(201, { messageId: `<${sent.length}.stand-in@smtp-relay.invalid>` });
+  });
+  return { origin, sent, close: () => closeServer(server) };
+}

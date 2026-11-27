@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FieldKind } from "@/components/exomem/FlowField";
+import { Switch } from "@/components/exomem/Switch";
 import {
   getPrivateJson,
   HostedBrowserError,
@@ -113,6 +114,8 @@ export default function InviteClient() {
   const [email, setEmail] = useState<string | null>(null);
   const [focusHeading, setFocusHeading] = useState(false);
   const [inspecting, setInspecting] = useState(false);
+  // Signup tells a new owner about the monthly update email and lets them opt out first.
+  const [monthlyUpdateEmail, setMonthlyUpdateEmail] = useState(true);
 
   const inspect = useCallback(async (userAction = false) => {
     if (userAction) setFocusHeading(true);
@@ -161,6 +164,7 @@ export default function InviteClient() {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         emailScheme: currentExomemTheme(document.documentElement),
         themeChoice: currentExomemThemeChoice(document.documentElement),
+        monthlyUpdateEmail,
       });
       token.current = null;
       window.location.replace(
@@ -265,6 +269,12 @@ export default function InviteClient() {
           </StepNotice>
           {by && inspection.note ? <InviteNote note={inspection.note} by={by} /> : null}
           {panel ? <PriceCard {...panel} /> : null}
+          <Switch
+            label="Monthly update email"
+            description="Once a month, the changes in Evermatter you are most likely to notice. Turn it off here, or any time on Home."
+            checked={monthlyUpdateEmail}
+            onChange={setMonthlyUpdateEmail}
+          />
           <StepActions
             primary={{
               label: mode.kind === "accepting" ? inviteCopy.accepting.title : inviteCopy.accept,

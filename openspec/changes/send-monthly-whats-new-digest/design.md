@@ -28,7 +28,7 @@ Each Evermatter release attaches `release-notes.json`, which holds only that rel
 
 Every release attaches the file, also a release with no notes, so a missing file always means notes missing, never no notes. The file uses the notes schema with at most one entry, its own release; a release without notes has an empty `releases` list. Evermatter's change defines that shape, and Substrate's validator reads the same one. Evermatter's part makes the asset a required step of every release, writes the release-page section once, and is its own OpenSpec change in that repository.
 
-A month's selection waits until every release of the month has its file. The route tries again each day, reading the GitHub API with a read-only token and keeping each fetched file with the month's record, since a release asset never changes. The approval page names each release still missing; the operator can accept the month without it. A month with a missing release never sends without that acceptance. The first month a digest can cover is the first full month after Evermatter's change ships, because older releases carry no file.
+A month's selection waits until every release of the month has its file. The route tries again each day, reading the GitHub API with a read-only token and keeping each fetched file with the month's record, since a release asset never changes. The approval page names each release still missing; the operator can accept the month without it. A month with a missing release never sends without that acceptance. The first month a digest can cover is the first full month after Evermatter's change ships, because older releases carry no file. That month is a configuration value (`EXOMEM_WHATS_NEW_FIRST_MONTH`): the daily route builds nothing before it, or while it is unset, and the approval page says so.
 
 Alternatives: the 20-release file inside the image (rejected: it covers about a week), and asking each cell (rejected: 10,000 calls a month, and a stopped cell answers nothing).
 
@@ -59,11 +59,13 @@ A month is ready to queue the moment the operator approves or edits it, with its
 
 The dedupe key is `whats-new-digest:<YYYY-MM>:<tenant>`. A missed day heals on the next run.
 
-The `whats_new_digest` kind gets a new lowest send priority, below every existing kind and below the health canary's kinds. So invites, payment and deletion emails, maintenance notices and the canary never wait behind a digest. At the load target the queue sends about 8 hours of digests at the drain rate, all of it behind other mail.
+Each tick reads one page of eligible owners in tenant id order, after a cursor kept with the month, in one statement with their running release. An owner with fewer than 3 notes gets no row. A page of fewer than 200 owners ends the pass: the month becomes `queued`, so later ticks do not scan it. Every owner's eligibility (setting on, live account, not a reviewer, a running and ready cell) is one SQL definition that the queue pass and the send-time check both read.
+
+The `whats_new_digest` kind gets a new lowest send priority, below every existing kind and below the health canary's kinds. So invites, payment and deletion emails, maintenance notices and the canary never wait behind a digest. The outbox claim has three tiers: every other kind in the order it always had, then the kinds claimed last (the canary's among them), then the digest. At the load target the queue sends about 8 hours of digests at the drain rate, all of it behind other mail.
 
 ### D5. One setting; only a POST unsubscribes
 
-The setting is a column on the tenant's account record. Home's account section changes it. The email carries `List-Unsubscribe` and `List-Unsubscribe-Post` (RFC 8058) with a signed, single-purpose token; the mail client's one-click POST turns the setting off. The link in the email body opens a page with a button that sends the same POST. A GET request never changes the setting, so link scanners cannot unsubscribe anyone. `sendTransactionalEmail` gains the two headers.
+The setting is a column on the tenant's account record. Home's account section changes it. The email carries `List-Unsubscribe` and `List-Unsubscribe-Post` (RFC 8058) with a signed, single-purpose token; the mail client's one-click POST turns the setting off. The link in the email body opens a page with a button that sends the same POST. A GET request never changes the setting, so link scanners cannot unsubscribe anyone. `sendTransactionalEmail` gains the two headers. The token is a MAC over the tenant and the purpose, under a signing key of its own that only this email uses, with no expiry. The header's address carries the token in its query, as a mail client posts to the address as given. The link in the body carries it in the fragment.
 
 ### D6. The operator approves the selection on an approval page
 

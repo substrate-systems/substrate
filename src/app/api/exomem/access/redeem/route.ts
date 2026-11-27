@@ -56,11 +56,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       typeof body.token !== "string" ||
       body.token.length === 0 ||
       Object.keys(body).some(
-        (key) => key !== "token" && key !== "timeZone" && key !== "emailScheme" && key !== "themeChoice"
-      )
+        (key) =>
+          key !== "token" &&
+          key !== "timeZone" &&
+          key !== "emailScheme" &&
+          key !== "themeChoice" &&
+          key !== "monthlyUpdateEmail"
+      ) ||
+      // The signup's opt-out from the monthly update email: absent keeps it on.
+      (body.monthlyUpdateEmail !== undefined && typeof body.monthlyUpdateEmail !== "boolean")
     ) {
       throw exomemErrors.invalidRequest();
     }
+    const monthlyUpdateEmail = body.monthlyUpdateEmail !== false;
     const timeZone = normalizeTimeZone(body.timeZone);
     const emailScheme = exomemEmailScheme(body.emailScheme);
     const themeChoice = exomemThemeChoice(body.themeChoice);
@@ -93,6 +101,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         timeZone,
         emailScheme,
         themeChoice,
+        monthlyUpdateEmail,
       });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       // A paid invite is admitted without a code. The continuation stays open, and
@@ -113,7 +122,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = await redeemCloudInvite(body.token, { timeZone, emailScheme, themeChoice });
+    const redeemed = await redeemCloudInvite(body.token, {
+      timeZone,
+      emailScheme,
+      themeChoice,
+      monthlyUpdateEmail,
+    });
     const response = NextResponse.json(
       {
         success: true,

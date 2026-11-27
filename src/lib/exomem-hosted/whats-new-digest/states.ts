@@ -8,6 +8,7 @@ export type MonthState =
   | "waiting_for_model"
   | "awaiting_approval"
   | "ready_to_queue"
+  | "queued"
   | "skipped"
   | "lapsed";
 
