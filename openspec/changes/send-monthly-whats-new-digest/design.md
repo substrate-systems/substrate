@@ -4,7 +4,7 @@
 
 A user note is a short title and one plain sentence per user-visible change, written in each Evermatter pull request (`user-notes/`). The release build assigns each note to the first release that contains it. The cell image carries the notes of the 20 newest releases that have notes (`KEEP_RELEASES`), and Home reads them from the owner's cell.
 
-Evermatter releases two to three times a day: 96 releases in October 2026 and 66 in November up to the 26th. Most releases now carry notes, about five notes a day on main in late November. So a month holds about 100 notes, and the 20-release file covers about a week.
+Evermatter releases two to three times a day: 96 releases in October 2026 and 66 in November up to the 26th. Most releases now carry notes: 25 notes merged on main from 26 to 27 November. So a month holds about 100 to 250 notes, and the 20-release file covers about a week.
 
 Substrate records each cell's running release (`running_release`, which can be null). Fleet emails go through the outbox. The delivery job drains 20 rows a minute (`MAX_EMAILS_PER_TICK`), and `service-notice-fanout.ts` queues a fleet notice 200 rows per pass. The product's load target is 10,000 tenants (`docs/runbooks/exomem-cloud-operations.md`). Substrate has no model provider integration today.
 
@@ -18,13 +18,13 @@ The title and sentence that the pull request's author writes are the only text a
 - Each Evermatter GitHub release starts with a "What's new" section: each note's title, then its sentence, above the technical changelog. A release with no note gets no section.
 - The monthly email lists the month's most noticeable changes, each as its title and sentence. A note without a title shows its sentence alone. The email ends with a link to Evermatter's public release list (`https://github.com/substrate-systems/evermatter/releases`), where every release's page starts with its "What's new" section, so an owner can see every change, not only the picked ones.
 
-A reword of a note file reaches Home after the owner's next rollout and every later digest. A published release page, its assets and sent emails stay as they were.
+A reword of a note file reaches Home after the owner's next rollout. A published release page, its notes file and sent emails stay as they were, so a digest always shows the text its release shipped.
 
 Alternative: a separate summary written for the email or the release page. Rejected: two texts about one change drift apart.
 
 ### D1. Each release publishes its own notes, and the digest reads the whole month
 
-Each Evermatter release attaches `release-notes.json`, which holds only that release's notes: version, date, and each note's title and sentence. A month's releases come from the GitHub releases list, paginated. The digest fetches each release's asset with a timeout and validates it against the notes schema.
+Each Evermatter release attaches `release-notes.json`, which holds only that release's notes: a schema version, the release version and date, and each note's title and sentence. A release belongs to the month of its publish date in UTC. A month's releases come from the GitHub releases list, paginated. The digest fetches each release's asset with a timeout and validates it against the notes schema.
 
 Every release attaches the file, also a release with no notes, so a missing file always means notes missing, never no notes. The file uses the notes schema with at most one entry, its own release; a release without notes has an empty `releases` list. Evermatter's change defines that shape, and Substrate's validator reads the same one. Evermatter's part makes the asset a required step of every release, writes the release-page section once, and is its own OpenSpec change in that repository.
 
@@ -32,13 +32,15 @@ A month's selection waits until every release of the month has its file. The rou
 
 Alternatives: the 20-release file inside the image (rejected: it covers about a week), and asking each cell (rejected: 10,000 calls a month, and a stopped cell answers nothing).
 
-### D2. A model ranks; the operator approves until a measurement says otherwise
+### D2. A model ranks; the operator approves until they lift approval on a measurement
 
 Which change an owner notices most is a judgement that no field in the notes holds. Once a month, one model call receives the month's notes, each identified by release version and position. Through a structured-output schema it returns at most 6 identifiers, ranked. It returns none when fewer than 3 notes would interest a typical owner. The email shows each picked note's own text, so the model cannot change what a change does.
 
 This is Substrate's first model call. It runs with a timeout and one retry. On an outage the month waits, and the next day's run tries again.
 
-The operator approves each month's selection for the first three months (D6). Before the page shows the model's ranking, it asks the operator to pick up to 6 notes from the month's list. That blind pick is the answer key, so the key never comes from the model's output. After three months, a real-model check compares the model's picks with the three blind picks. Later months send without approval only when, in each of the three months, the model's picks hold at least two thirds of the operator's picks; otherwise approval stays.
+Every month needs the operator's approval (D6) until the operator lifts it. Before the page shows the model's ranking, it asks the operator to pick 3 to 6 notes from the month's list, or none to skip the month. That blind pick is the answer key, so the key never comes from the model's output.
+
+The measurement counts approved months only; a skipped, lapsed or quiet month does not count. In a counted month, the model's share is the number of notes in both picks divided by the number of operator picks; a month where the model returned none scores 0. The model and its prompt stay fixed across the three counted months, and a change to either restarts the count, so the three months are never used to tune it. After three counted months, the approval page shows each month's share. When every share is at least two thirds, the page offers the operator a switch to send later months without approval; the page records the shares and the operator's choice. Nothing lifts approval without that switch, and the operator can turn approval back on at any time.
 
 Alternative: an author-set flag per note. Rejected: it adds a field to every pull request, and the authors are agents that cannot judge what owners notice across a month.
 
@@ -52,7 +54,9 @@ The route runs every day and is safe to repeat. On each run it:
 
 1. builds the previous month's selection, if none exists yet;
 2. stops while that selection waits for approval;
-3. queues the month's digests 200 rows per pass, as `service-notice-fanout.ts` does.
+3. marks an approved month ready to queue.
+
+The per-minute delivery job then queues a ready month's digests 200 rows per tick, as `service-notice-fanout.ts` does for service notices, so 10,000 owners queue in 50 minutes.
 
 The dedupe key is `whats-new-digest:<YYYY-MM>:<tenant>`. A missed day heals on the next run.
 
@@ -64,15 +68,21 @@ The setting is a column on the tenant's account record. Home's account section c
 
 ### D6. The operator approves the selection on an approval page
 
-An operator page first takes the operator's blind pick (D2), then shows the model's selection, the notes left out, any release whose notes are missing, and the rendered email in light and dark. Approving it lets the next daily run queue the month. The first three months wait for this approval; later months follow D2's measurement.
+An operator page first takes the operator's blind pick (D2), then shows the model's selection, the notes left out, any release whose notes are missing, and the rendered email in light and dark. The operator then takes one of three actions:
+
+- **Approve** the selection as shown.
+- **Edit** it: remove notes, add notes from the month's list, or reorder them, within 3 to 6; the text of a note never changes. The edited selection is approved.
+- **Skip** the month: no owner receives a digest for it.
+
+An approved month is queued by the next daily run. A month still waiting when the next month's selection is built lapses: it is marked "lapsed, not approved" on the page, and no digest for it is ever sent, so owners never get two months at once. Every month needs this approval until the operator lifts it under D2.
 
 ## Risks
 
-- A poor pick reaches every owner. Mitigation: the operator approves the first three months; the text is always the reviewed note.
+- A poor pick reaches every owner. Mitigation: the operator approves, edits or skips every month until they lift approval; the text is always the reviewed note.
 - An owner who never asked for email may mark it as spam. Mitigation: the monthly cap, the skip rule, one-click unsubscribe, and the default in the open question.
 - Brevo volume at the load target, about 10,000 extra emails a month, is not yet checked against the plan.
 
 ## Decided
 
 - The email's design comes from a Claude Design commission, before the build.
-- The setting's default. Existing owners were never offered an opt-out for product-update email when they signed up, and the account database is in the EU, where a "soft opt-in" needs that offer. So the migration sets the setting off for existing owners, and Home invites each of them once. The operator turns it on for the existing owners who have asked for the email. New owners get the opt-out at signup, the privacy page names the email, and the setting starts on for them. Every owner can turn it off on Home (D5).
+- The setting's default. Substrate is an EU company emailing customers mostly in the EU, so EU e-privacy rules apply, and their "soft opt-in" needs an opt-out offered when the address was collected. Existing owners were never offered one for product-update email. So the migration sets the setting off for existing owners, and Home invites each of them once, until they turn it on or dismiss the invitation. The operator turns it on for an existing owner who asked for the email, with an audited operator action on that tenant. New owners see the opt-out at signup, and the privacy page names the email: the setting starts on unless they opt out. Every owner can turn it off on Home (D5).

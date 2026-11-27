@@ -6,7 +6,7 @@ The system SHALL select, from the user notes of all of a month's releases, at mo
 
 #### Scenario: A month with many changes
 
-- **WHEN** a month's releases carry 100 user notes
+- **WHEN** a month's releases carry 200 user notes
 - **THEN** the selection holds between 3 and 6 of them
 
 #### Scenario: A quiet month
@@ -86,7 +86,7 @@ Every digest SHALL carry the `List-Unsubscribe` and `List-Unsubscribe-Post` head
 
 ### Requirement: The operator approves the pick until a measurement replaces approval
 
-The system MUST NOT queue a month's digests before the operator approves that month's selection, for at least the first three months.
+The system MUST NOT queue a month's digests before the operator approves or edits that month's selection, until the operator turns on sending without approval. The system SHALL offer that switch only after three approved months in which the model's picks hold at least two thirds of the operator's blind picks, and SHALL record the result and the operator's choice. A month that the operator skips, or that is still waiting when the next month's selection is built, SHALL never be sent.
 
 #### Scenario: The operator's pick comes first
 
@@ -97,3 +97,13 @@ The system MUST NOT queue a month's digests before the operator approves that mo
 
 - **WHEN** the daily route runs while the month's selection waits for approval
 - **THEN** it queues no email
+
+#### Scenario: A month lapses
+
+- **WHEN** the next month's selection is built while an earlier month still waits for approval
+- **THEN** the earlier month is shown as lapsed, and no digest for it is ever sent
+
+#### Scenario: The measurement passes
+
+- **WHEN** three approved months each pass the two-thirds bar
+- **THEN** approval stays required until the operator turns on sending without approval

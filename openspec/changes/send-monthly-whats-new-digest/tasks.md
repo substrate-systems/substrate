@@ -12,16 +12,16 @@
 ## 2. Selection
 
 - [ ] 2.1 The model provider integration and the monthly call with a structured-output schema that returns ranked note identifiers (release version and position), and the 3-change bar.
-- [ ] 2.2 The operator approval page: the operator's blind pick first, then the selection, the notes left out, the missing releases with an accept-without action, and the rendered email.
-- [ ] 2.3 After three approved months, a real-model check against the operator's blind picks: later months send without approval only if, in each month, the model's picks hold at least two thirds of the operator's picks.
+- [ ] 2.2 The operator approval page: the operator's blind pick first, then the selection, the notes left out, the missing releases with an accept-without action, and the rendered email; approve, edit and skip; lapsed months.
+- [ ] 2.3 After three approved months with the model and prompt unchanged, the approval page shows each month's share of the operator's blind picks, and offers the recorded switch to send without approval only when every share is at least two thirds.
 
 ## 3. Sending
 
 - [ ] 3.1 Migration: the owner's digest setting, and each month's selection with its approval.
-- [ ] 3.2 The `whats_new_digest` outbox kind at the lowest send priority, queued in bounded passes, with its send-time re-check and the template from the design artifact.
+- [ ] 3.2 The `whats_new_digest` outbox kind at a new lowest send priority, queued 200 rows per tick by the per-minute delivery job, with its send-time re-check and the template from the design artifact.
 - [ ] 3.3 `List-Unsubscribe` and `List-Unsubscribe-Post` in `sendTransactionalEmail`; the POST-only unsubscribe route and its page; the Home setting.
 - [ ] 3.4 The privacy page names the monthly update email.
-- [ ] 3.5 The setting's default: off for existing owners with one Home invitation, on for new owners with the signup opt-out; the operator turns it on for the existing owners who asked for it.
+- [ ] 3.5 The setting's default: off for existing owners with the Home invitation, on for new owners unless they opt out at signup, and the audited operator action that turns it on for an existing owner who asked.
 
 ## 4. Acceptance
 

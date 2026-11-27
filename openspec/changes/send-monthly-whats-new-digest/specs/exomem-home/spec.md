@@ -11,9 +11,14 @@ Home SHALL show the owner's "Monthly update email" setting and SHALL let the own
 
 ### Requirement: Home invites an existing owner once
 
-The setting SHALL start off for an owner who signed up before the digest shipped, and on for an owner whose signup offered the opt-out. Home SHALL invite an owner whose setting started off to turn it on, until that owner accepts or dismisses the invitation.
+The setting SHALL start off for an owner who signed up before the digest shipped. Home SHALL invite such an owner to turn it on while their setting is off and they have not dismissed the invitation. Home SHALL NOT show the invitation to an owner who signed up after the digest shipped.
 
 #### Scenario: An existing owner dismisses the invitation
 
 - **WHEN** an owner who signed up before the digest shipped dismisses the invitation and reopens Home
 - **THEN** Home shows no invitation, and the setting stays off
+
+#### Scenario: The setting is already on
+
+- **WHEN** the operator turned the setting on for an owner who signed up before the digest shipped
+- **THEN** Home shows the setting on and no invitation
