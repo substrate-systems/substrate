@@ -879,7 +879,7 @@ describe("the export row", () => {
     );
     assert.deepEqual(failed.detail, {
       kind: "failed",
-      text: "The export stopped: some folder names differ only by capital letters. Ask your assistant to merge them, then export again.",
+      text: "The export stopped: some file or folder names differ only by capital letters. Ask your assistant to merge them, then try again.",
     });
   });
 

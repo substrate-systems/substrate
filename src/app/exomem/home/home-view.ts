@@ -1030,13 +1030,13 @@ export function exportView(summary: HomeExport, clock: Clock): ExportView {
       return {
         description,
         busy: false,
-        // The board's words; the error code stays in the server's logs. A case split is the one
-        // failure the owner fixes, and a retry fails the same way, so its line names the fix.
+        // The board's words for every code but one: a case collision is the failure the owner
+        // fixes, and a retry fails the same way, so its line names the fix.
         detail: {
           kind: "failed",
           text:
             summary.error_code === "CASE_COLLISION"
-              ? "The export stopped: some folder names differ only by capital letters. Ask your assistant to merge them, then export again."
+              ? "The export stopped: some file or folder names differ only by capital letters. Ask your assistant to merge them, then try again."
               : "The export didn’t finish. Your notes are unchanged.",
         },
       };
