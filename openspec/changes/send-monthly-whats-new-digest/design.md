@@ -26,7 +26,7 @@ Alternative: a separate summary written for the email or the release page. Rejec
 
 Each Evermatter release attaches `release-notes.json`, which holds only that release's notes: version, date, and each note's title and sentence. A month's releases come from the GitHub releases list, paginated. The digest fetches each release's asset with a timeout and validates it against the notes schema.
 
-Every release attaches the file, also a release with no notes (an empty list), so a missing file always means notes missing, never no notes. Evermatter's part makes the asset a required step of every release, writes the release-page section once, and is its own OpenSpec change in that repository.
+Every release attaches the file, also a release with no notes, so a missing file always means notes missing, never no notes. The file uses the notes schema with at most one entry, its own release; a release without notes has an empty `releases` list. Evermatter's change defines that shape, and Substrate's validator reads the same one. Evermatter's part makes the asset a required step of every release, writes the release-page section once, and is its own OpenSpec change in that repository.
 
 A month's selection waits until every release of the month has its file. The route tries again each day, reading the GitHub API with a read-only token and keeping each fetched file with the month's record, since a release asset never changes. The approval page names each release still missing; the operator can accept the month without it. A month with a missing release never sends without that acceptance. The first month a digest can cover is the first full month after Evermatter's change ships, because older releases carry no file.
 
@@ -38,7 +38,7 @@ Which change an owner notices most is a judgement that no field in the notes hol
 
 This is Substrate's first model call. It runs with a timeout and one retry. On an outage the month waits, and the next day's run tries again.
 
-The operator approves each month's selection for the first three months (D6). Before the page shows the model's ranking, it asks the operator to pick up to 6 notes from the month's list. That blind pick is the answer key, so the key never comes from the model's output. After three months, a real-model check compares the model's picks with the three blind picks. Later months send without approval only when the model's 6 hold at least 4 of the operator's 6 in each of the three months; otherwise approval stays.
+The operator approves each month's selection for the first three months (D6). Before the page shows the model's ranking, it asks the operator to pick up to 6 notes from the month's list. That blind pick is the answer key, so the key never comes from the model's output. After three months, a real-model check compares the model's picks with the three blind picks. Later months send without approval only when, in each of the three months, the model's picks hold at least two thirds of the operator's picks; otherwise approval stays.
 
 Alternative: an author-set flag per note. Rejected: it adds a field to every pull request, and the authors are agents that cannot judge what owners notice across a month.
 

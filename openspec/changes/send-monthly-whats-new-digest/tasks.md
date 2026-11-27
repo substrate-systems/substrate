@@ -6,14 +6,14 @@
 
 ## 1. Notes source
 
-- [ ] 1.1 Evermatter (its own OpenSpec change): every release attaches `release-notes.json` with only its own notes, an empty list when it has none, as a required release step; its GitHub release page starts with a "What's new" section, written once per release.
+- [ ] 1.1 Evermatter (its own OpenSpec change): every release attaches `release-notes.json` with only its own notes, with an empty `releases` list when it has none, as a required release step; its GitHub release page starts with a "What's new" section, written once per release.
 - [ ] 1.2 The daily route lists the month's releases with a read-only GitHub token, fetches and validates each release's notes with a timeout, keeps each fetched file with the month's record, and waits while any release's notes are missing.
 
 ## 2. Selection
 
 - [ ] 2.1 The model provider integration and the monthly call with a structured-output schema that returns ranked note identifiers (release version and position), and the 3-change bar.
 - [ ] 2.2 The operator approval page: the operator's blind pick first, then the selection, the notes left out, the missing releases with an accept-without action, and the rendered email.
-- [ ] 2.3 After three approved months, a real-model check against the operator's blind picks: later months send without approval only if the model's 6 hold at least 4 of the operator's 6 in each month.
+- [ ] 2.3 After three approved months, a real-model check against the operator's blind picks: later months send without approval only if, in each month, the model's picks hold at least two thirds of the operator's picks.
 
 ## 3. Sending
 
