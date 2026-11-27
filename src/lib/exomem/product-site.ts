@@ -2,11 +2,11 @@
  * The product's own public site (evermatter.ai). `EVERMATTER_SITE_ORIGIN` turns it on.
  * Unset, the product pages live only under /exomem on the company site, as before.
  * Set, the public product pages serve at that origin's root and their old company-site paths
- * redirect there. App pages (sign-in, setup, Home, consent, operator and the rest) serve on the
- * origin `EXOMEM_PUBLIC_BASE_URL` names, which also gives the OAuth issuer: at its root when that
- * origin is the product site, under /exomem anywhere else. Every other host and form redirects
- * to that address. API and /.well-known routes are never redirected or rewritten; authorize
- * redirects a GET on another host to the base origin itself (its route.ts).
+ * redirect there with a 308. App pages (sign-in, setup, Home, consent, operator and the rest)
+ * serve on the origin `EXOMEM_PUBLIC_BASE_URL` names: at its root when that origin is the product
+ * site, under /exomem anywhere else. Every other host and form redirects to that address, with a
+ * 307 when it changes host. API and /.well-known routes are never redirected or rewritten;
+ * authorize redirects a GET on another host to the base origin itself (its route.ts).
  *
  * next.config.ts imports this file, so it uses relative imports and no Next runtime APIs.
  */
@@ -30,7 +30,7 @@ export function productSiteHost(env: Env = process.env): string | null {
   return origin ? new URL(origin).hostname : null;
 }
 
-/** Where the app pages and the OAuth issuer live; the company site while the value is unset. */
+/** Where the app pages live; the company site while the value is unset. */
 function productAppOrigin(env: Env = process.env): string {
   const raw = env.EXOMEM_PUBLIC_BASE_URL?.trim();
   return raw
@@ -76,7 +76,7 @@ function hostPattern(hostname: string): string {
 }
 
 type Has = { type: "host"; value: string }[];
-type Redirect = { source: string; destination: string; permanent: true; has: Has };
+type Redirect = { source: string; destination: string; permanent: boolean; has: Has };
 type Rewrite = { source: string; destination: string; has: Has };
 
 /** Host-matched redirects and rewrites for next.config.ts; empty while the site is off. */
@@ -114,6 +114,14 @@ export function productSiteRoutes(env: Env = process.env): {
     permanent: true,
     has,
   });
+  // A redirect between hosts for an app page reverses at the switch and at a rollback. A browser
+  // keeps a 308 for good, so a cached one would loop; these stay 307.
+  const toAppOrigin = (source: string, destination: string, has: Has): Redirect => ({
+    source,
+    destination,
+    permanent: false,
+    has,
+  });
   return {
     redirects: [
       redirect("/:path*", `${origin}/:path*`, productWww),
@@ -124,16 +132,16 @@ export function productSiteRoutes(env: Env = process.env): {
       ...(appsAtRoot
         ? [redirect(prefixedAppPage, "/:page/:path*", product)]
         : [
-            redirect(appPage, appPageHome, product),
-            redirect(otherPath, `${appOrigin}/exomem/:path`, product),
+            toAppOrigin(appPage, appPageHome, product),
+            toAppOrigin(otherPath, `${appOrigin}/exomem/:path`, product),
           ]),
       redirect("/exomem", `${origin}/`, company),
       redirect(`/exomem/:page(${pages})`, `${origin}/:page`, company),
       ...(appOrigin === COMPANY_ORIGIN
         ? []
         : [
-            redirect(prefixedAppPage, appPageHome, company),
-            redirect(otherPath, `${appOrigin}/exomem/:path`, company),
+            toAppOrigin(prefixedAppPage, appPageHome, company),
+            toAppOrigin(otherPath, `${appOrigin}/exomem/:path`, company),
           ]),
     ],
     rewrites: [

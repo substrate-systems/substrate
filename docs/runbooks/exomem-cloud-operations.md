@@ -112,11 +112,17 @@ of the app origin that the host sits under:
 The web app's authorization-server metadata names the issuer of the app origin
 it serves on, and the base's issuer on any other host. A client discards
 metadata whose issuer differs from the one the gateway named. So
-`EVERMATTER_SITE_ORIGIN` must be equal on the web app and the gateway. The
-gateway's startup check (`validateGatewayEnvironment`) throws when a listed MCP
-host sits under no app origin. A pod that throws never starts, so under the
-gateway Deployment's RollingUpdate (`maxSurge` 1, `maxUnavailable` 0) the old
-pods keep serving and the rollout stalls.
+`EVERMATTER_SITE_ORIGIN` must be equal on the web app and the gateway, where the
+platform chart sets it from `cloudGateway.siteOrigin`. The gateway's startup
+check (`validateGatewayEnvironment`) throws when a listed MCP host sits under no
+app origin. A pod that throws never starts, so under the gateway Deployment's
+RollingUpdate (`maxSurge` 1, `maxUnavailable` 0) the old pods keep serving and
+the rollout stalls.
+
+The app origins always include `https://substratesystems.io`, so a gateway
+outside production must not serve an MCP host under `substratesystems.io`: that
+host would name the production issuer. The chart has no values for another
+environment today.
 
 Once any connection exists on `mcp.evermatter.ai`, each of these rollbacks
 breaks the issuer that the connection holds, and its client must sign in again.
@@ -127,6 +133,11 @@ Never roll back to any of these:
 - a Vercel deployment built before the web deploy that carries the per-host
   authorization-server metadata, the checkout URLs of either app origin and the
   start tokens of either app host.
+
+The operator holds these bans; nothing enforces them, which is a known gap.
+Neither Vercel Instant Rollback nor `helm rollback` can lock out one revision,
+and the startup check stops only a new image from serving on a chart revision
+without the value.
 
 ### Connected-app sessions
 

@@ -67,24 +67,30 @@ temporary redirect to the same path and query on that origin, before it sets any
 ### Requirement: App pages serve on the configured public origin
 
 The product app pages (sign-in, setup, home, authorize, operator) SHALL serve on the origin that
-`EXOMEM_PUBLIC_BASE_URL` names. On any other product host they SHALL get a permanent redirect to
-the same page on that origin.
+`EXOMEM_PUBLIC_BASE_URL` names. On any other product host they SHALL get a temporary redirect
+(307) to the same page on that origin, because the redirect reverses at the switch and at a
+rollback, and a browser that kept a 308 would loop.
 
 #### Scenario: Sign-in after the switch
 
 - **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://evermatter.ai` and a browser requests the sign-in page on `substratesystems.io`
-- **THEN** it gets a 308 to `https://evermatter.ai/sign-in`
+- **THEN** it gets a 307 to `https://evermatter.ai/sign-in`
 
 #### Scenario: Sign-in before the switch
 
 - **WHEN** `EXOMEM_PUBLIC_BASE_URL` is `https://substratesystems.io` and a browser requests `/sign-in` or `/exomem/sign-in` on `evermatter.ai`
-- **THEN** it gets a 308 to `https://substratesystems.io/exomem/sign-in`
+- **THEN** it gets a 307 to `https://substratesystems.io/exomem/sign-in`
+
+#### Scenario: A browser that kept the redirects from before the switch
+
+- **WHEN** a browser kept every permanent redirect it followed before the switch, and sign-in then moves to `evermatter.ai` or moves back
+- **THEN** every app page it requests on either host still ends at an address that serves
 
 ### Requirement: App pages serve at the product site's root
 
 When the public base origin is the product site, the app pages SHALL serve at its root, and
-their `/exomem/` addresses SHALL get a 308 to the root form with the query kept. Elsewhere they
-SHALL keep the `/exomem/` form. Every app address that leaves a page SHALL take the served form.
+their `/exomem/` addresses on that host SHALL get a 308 to the root form with the query kept.
+Elsewhere they SHALL keep the `/exomem/` form. Every app address that leaves a page SHALL take the served form.
 
 #### Scenario: Home at the root
 

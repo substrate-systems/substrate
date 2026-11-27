@@ -30,12 +30,31 @@ const API_ROUTES = [
   "/.well-known/oauth-authorization-server/api/exomem/oauth",
 ];
 
-type Rule = { source: string; destination: string; has: { type: "host"; value: string }[] };
+const HOSTS = ["evermatter.ai", "www.evermatter.ai", "substratesystems.io"];
+const PRODUCT_PATHS = [
+  "/",
+  "/exomem",
+  "/exomem/og",
+  ...PRODUCT_PUBLIC_PAGES.flatMap((page) => [`/${page}`, `/exomem/${page}`]),
+  ...PRODUCT_APP_PAGES.flatMap((page) => [`/${page}`, `/exomem/${page}`, `/${page}/deeper`]),
+];
+
+type Rule = {
+  source: string;
+  destination: string;
+  has: { type: "host"; value: string }[];
+  permanent?: boolean;
+};
 
 // Applies the rules with Next's own matcher, host check and destination builder, as its router
 // does: the first rule whose path and host match wins. A redirect gets the request's query
-// appended; a rewrite answers with the path that serves.
-function resolve(rules: Rule[], host: string, url: string): string | null {
+// appended; a rewrite answers with the path that serves. `permanent` says whether a browser may
+// keep the redirect.
+function match(
+  rules: Rule[],
+  host: string,
+  url: string
+): { to: string; permanent: boolean } | null {
   const request = new URL(url, "https://placeholder.invalid");
   const query = Object.fromEntries(request.searchParams);
   for (const rule of rules) {
@@ -53,19 +72,35 @@ function resolve(rules: Rule[], host: string, url: string): string | null {
     });
     const search = new URLSearchParams(to.query as Record<string, string>).toString();
     const origin = to.hostname ? `${to.protocol}//${to.hostname}` : "";
-    return `${origin}${to.pathname}${search ? `?${search}` : ""}`;
+    return {
+      to: `${origin}${to.pathname}${search ? `?${search}` : ""}`,
+      permanent: !!rule.permanent,
+    };
   }
   return null;
 }
 
-// The address a request finally lands on, and how many redirects it took to get there.
-function follow(env: Record<string, string>, host: string, url: string) {
+function resolve(rules: Rule[], host: string, url: string): string | null {
+  return match(rules, host, url)?.to ?? null;
+}
+
+// The address a request finally lands on, and how many redirects it took to get there. Like a
+// browser, it answers from `cached` first and keeps there each permanent redirect it follows.
+function follow(
+  env: Record<string, string>,
+  host: string,
+  url: string,
+  cached = new Map<string, string>()
+) {
   const { redirects } = productSiteRoutes(env);
   let at = { host, url };
   for (let hops = 0; hops <= 3; hops++) {
-    const next = resolve(redirects, at.host, at.url);
+    const address = `https://${at.host}${at.url}`;
+    const kept = cached.get(address);
+    const next = kept ? { to: kept, permanent: true } : match(redirects, at.host, at.url);
     if (next === null) return { ...at, hops };
-    const target = new URL(next, `https://${at.host}`);
+    const target = new URL(next.to, address);
+    if (next.permanent) cached.set(address, target.toString());
     at = { host: target.host, url: `${target.pathname}${target.search}` };
   }
   throw new Error(`${host}${url} redirects more than three times`);
@@ -152,17 +187,29 @@ describe("product site routing", () => {
   });
 
   it("ends every redirect at an address that serves, within two hops", () => {
-    const paths = [
-      "/",
-      "/exomem",
-      ...PRODUCT_PUBLIC_PAGES.flatMap((page) => [`/${page}`, `/exomem/${page}`]),
-      ...PRODUCT_APP_PAGES.flatMap((page) => [`/${page}`, `/exomem/${page}`, `/${page}/deeper`]),
-    ];
-    const hosts = ["evermatter.ai", "www.evermatter.ai", "substratesystems.io"];
     for (const env of [ON, SWITCHED]) {
-      for (const host of hosts) {
-        for (const path of paths) {
+      for (const host of HOSTS) {
+        for (const path of PRODUCT_PATHS) {
           assert.ok(follow(env, host, path).hops <= 2, `${host}${path}`);
+        }
+      }
+    }
+  });
+
+  it("never loops on a redirect that a browser kept from before the switch or a rollback", () => {
+    // A browser keeps a 308 for good, and the app-page redirects between hosts reverse when
+    // sign-in moves and when it moves back.
+    for (const [before, after] of [
+      [ON, SWITCHED],
+      [SWITCHED, ON],
+    ]) {
+      const cached = new Map<string, string>();
+      for (const host of HOSTS) {
+        for (const path of PRODUCT_PATHS) follow(before, host, path, cached);
+      }
+      for (const host of HOSTS) {
+        for (const path of PRODUCT_PATHS) {
+          assert.doesNotThrow(() => follow(after, host, path, cached), `${host}${path}`);
         }
       }
     }
