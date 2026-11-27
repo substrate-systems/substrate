@@ -176,9 +176,10 @@ export function switchFigure(overview: DigestOverview): Figure {
   if (measurement.withdrawn)
     return { label, value: "Withdrawn: a later month scored under two thirds" };
   if (measurement.complete) return { label, value: "Not offered: a month scored under two thirds" };
+  const left = Math.max(0, measurement.monthsToMeasure - measurement.measured.length);
   return {
     label,
-    value: `Not offered yet: ${Math.max(0, measurement.monthsToMeasure - measurement.measured.length)} more counted months`,
+    value: `Not offered yet: ${left} more counted ${left === 1 ? "month" : "months"}`,
   };
 }
 
