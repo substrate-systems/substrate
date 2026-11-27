@@ -196,13 +196,13 @@ export default function ExomemPrivacyPage() {
 
       <h2>Monthly update email</h2>
       <p>
-        Once a month we may email the owner of an account about the changes in Evermatter that
-        they are most likely to notice. It uses your email address, your email display settings and
-        which release your cell runs, so that it lists only changes your cell already has. A new account gets it unless
-        the owner opts out at signup. An account opened before this email existed gets it only if
-        the owner, or the operator at the owner&apos;s request, turns it on. You can turn it off
-        on Home, under &quot;Monthly update email&quot;, or with the one-click unsubscribe link in
-        each email. Reviewer accounts never get it.
+        Once a month we may email the owner of an account about the changes in Evermatter that they
+        are most likely to notice. It uses your email address, your email display settings and which
+        release your cell runs, so that it lists only changes your cell already has. A new account
+        gets it unless the owner opts out at signup. An account opened before this email existed
+        gets it only if the owner, or the operator at the owner&apos;s request, turns it on. You can
+        turn it off on Home, under &quot;Monthly update email&quot;, or with the one-click
+        unsubscribe link in each email. Reviewer accounts never get it.
       </p>
 
       <h2>Your choices and rights</h2>

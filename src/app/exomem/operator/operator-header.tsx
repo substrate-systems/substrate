@@ -19,31 +19,39 @@ export function OperatorHeader({
   onLock?: () => void;
 }) {
   return (
-    <header className={home.header}>
-      <span className={home.headerStart}>
+    <header className={`${home.header} ${styles.header}`}>
+      <span className={`${home.headerStart} ${styles.headerStart}`}>
         <span className={home.wordmark}>
           <Wordmark />
         </span>
         <nav className={home.nav} aria-label="Private operator">
           {PAGES.map((page) =>
             page.key === current ? (
-              <span className={home.navCurrent} key={page.key} aria-current="page">
+              <span
+                className={`${home.navCurrent} ${styles.navItem}`}
+                key={page.key}
+                aria-current="page"
+              >
                 {page.label}
               </span>
             ) : (
-              <Link className={styles.navLink} href={page.href} key={page.key}>
+              <Link
+                className={`${styles.navItem} ${styles.navLink}`}
+                href={page.href}
+                key={page.key}
+              >
                 {page.label}
               </Link>
             )
           )}
         </nav>
       </span>
-      <span className={home.headerEnd}>
+      <span className={`${home.headerEnd} ${styles.headerEnd}`}>
         <ThemeToggle />
         {onLock ? (
           <button
             type="button"
-            className={`${home.inlineButton} ${phone.hitArea}`}
+            className={`${home.inlineButton} ${styles.lock} ${phone.hitArea}`}
             onClick={onLock}
           >
             Lock

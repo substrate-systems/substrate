@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { whatsNewDigestConfig } from "../config";
-import { rankMonthNotes, WHATS_NEW_PROMPT_VERSION } from "../model";
+import {
+  promptIdentityParts,
+  promptVersionOf,
+  rankMonthNotes,
+  WHATS_NEW_PROMPT_VERSION,
+} from "../model";
 import type { MonthNote } from "../notes";
 import { startModel, type ModelStandIn } from "./stand-ins";
 
@@ -92,5 +97,23 @@ describe("the monthly ranking call", () => {
     model.requests.length = 0;
     assert.deepEqual(await rank(null), { kind: "not_configured" });
     assert.equal(model.requests.length, 0);
+  });
+
+  it("changes the prompt version with any of the parts that shape an answer", () => {
+    const parts = promptIdentityParts();
+    assert.equal(promptVersionOf(parts), WHATS_NEW_PROMPT_VERSION);
+    // A different API version, token limit, or answer rule (a cap or a bar that behaves otherwise) restarts the count.
+    const changed = [
+      { ...parts, apiVersion: "2099-01-01" },
+      { ...parts, maxTokens: parts.maxTokens + 1 },
+      { ...parts, answerRules: [parts.answerRules[0]!.slice(0, -1), parts.answerRules[1]!] },
+      { ...parts, answerRules: [parts.answerRules[0]!, parts.answerRules[0]!] },
+    ];
+    for (const other of changed) assert.notEqual(promptVersionOf(other), WHATS_NEW_PROMPT_VERSION);
+    // The sample answers are read through the real cap and bar: six of eight, and none of two.
+    assert.deepEqual(
+      parts.answerRules.map((picks) => picks.length),
+      [6, 0]
+    );
   });
 });

@@ -85,6 +85,18 @@ export function stateSentence(month: MonthDetail, modelConfigured: boolean, now:
   }
 }
 
+/** Why Approve and Edit are not open for a month the operator can still act on, from what holds them. */
+export function lockedReason(month: MonthDetail): string {
+  switch (month.state) {
+    case "waiting_for_notes":
+      return "Approve and Edit unlock once each release that lacks its notes has them, or is accepted without.";
+    case "waiting_for_model":
+      return "Approve and Edit unlock once the model's ranking is in.";
+    default:
+      return "Approve and Edit unlock once your own pick is recorded.";
+  }
+}
+
 /** A selection can be sent to the server: 3 to 6 notes, or none where the page allows it. */
 export function selectionAllowed(count: number, allowNone: boolean): boolean {
   return (allowNone && count === 0) || (count >= MIN_NOTES && count <= MAX_NOTES);

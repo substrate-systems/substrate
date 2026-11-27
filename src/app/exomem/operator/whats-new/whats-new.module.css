@@ -11,8 +11,12 @@
   gap: 18px;
 }
 
-.body {
-  padding: 16px 0 18px;
+/* Home's panel insets the sides (20 px, 16 px on a phone); the content takes its own top and
+   bottom. The element in the selector lifts it over `.panel`'s shorthand, which would reset the
+   block padding whichever order the two stylesheets load in, and only the block axis is set. */
+div.body,
+details.body {
+  padding-block: 16px 18px;
 }
 
 .line {
@@ -29,17 +33,42 @@
   list-style: none;
 }
 
+/* The text comes first and the actions after it, and the row wraps: a phone keeps the note's
+   full width and the actions drop under it. */
 .note {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--exo-rule);
 }
 
+.note:last-child {
+  border-bottom: 0;
+}
+
 .noteBody {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 14rem;
+}
+
+/* A pick row: the checkbox and the text are one label, so the whole row is the target. */
+.noteLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 24px;
+  flex: 1 1 14rem;
+  cursor: pointer;
+}
+
+.noteActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
 }
 
 .noteTitle {
@@ -65,14 +94,23 @@
 }
 
 .check {
-  margin-top: 3px;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
   accent-color: var(--fg-primary);
+  cursor: pointer;
 }
 
 /* A long month's note list scrolls inside its panel. */
 .scroll {
   max-height: 420px;
   overflow-y: auto;
+}
+
+.scroll:focus-visible {
+  outline: 2px solid var(--fg-primary);
+  outline-offset: 2px;
 }
 
 .rowActions {
@@ -121,8 +159,54 @@
   text-align: right;
 }
 
+/* A month in the list: its name, its state and the button that opens it. */
+.monthActions {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  margin: 0;
+}
+
+.monthActions > :last-child {
+  flex: none;
+}
+
 @media (max-width: 760px) {
   .frames {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* A figure's several lines read from the left, under the name it belongs to, not ragged
+     against the right edge. */
+  .figureRow {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .figure {
+    flex: 1 1 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+}
+
+/* On a phone a month's state sits under its name, and every Open month button stands in one
+   column at the right whatever the state's length. */
+@media (max-width: 640px) {
+  .monthRow {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .monthActions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .monthState {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }

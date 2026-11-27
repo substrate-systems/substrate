@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { moved, selectionAllowed, toggled } from "../whats-new-state";
+import type { MonthDetail } from "@/lib/exomem-hosted/whats-new-digest/approval";
+import { lockedReason, moved, selectionAllowed, toggled } from "../whats-new-state";
 
 describe("Exomem monthly What's new page", () => {
   it("is private, dynamic, excluded from indexing and sends no referrer", async (context) => {
@@ -42,5 +43,16 @@ describe("the page's selection helpers", () => {
     assert.deepEqual(moved([1, 2, 3], 1, -1), [2, 1, 3]);
     assert.deepEqual(moved([1, 2, 3], 0, -1), [1, 2, 3]);
     assert.deepEqual(moved([1, 2, 3], 2, 1), [1, 2, 3]);
+  });
+});
+
+describe("what holds Approve and Edit", () => {
+  const month = (state: string) =>
+    ({ state, releases: { missing: [{}] } }) as unknown as MonthDetail;
+
+  it("names the cause of each state the operator can still act on", () => {
+    assert.match(lockedReason(month("waiting_for_notes")), /lacks its notes/);
+    assert.match(lockedReason(month("waiting_for_model")), /ranking/);
+    assert.match(lockedReason(month("awaiting_approval")), /your own pick/);
   });
 });

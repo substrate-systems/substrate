@@ -10,6 +10,8 @@ import {
   unsubscribeAddresses,
   UnsubscribeKeyError,
   unsubscribeKey,
+  unsubscribeKeyConfigured,
+  unsubscribeKeyStatus,
   unsubscribeVerifyKeys,
   verifyUnsubscribeToken,
 } from "../unsubscribe";
@@ -102,26 +104,41 @@ describe("the unsubscribe token", () => {
     );
   });
 
-  it("reads the previous key from configuration, and a malformed one throws instead of dropping old links", () => {
+  it("reads the previous key from configuration, and ignores a malformed one without dropping the current key's links", () => {
     const keyText = () => randomBytes(32).toString("base64url");
     const [current, previous] = [keyText(), keyText()];
-    const read = (env: Record<string, string>) => unsubscribeVerifyKeys(whatsNewDigestConfig(env));
-    assert.equal(read({ EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current }).length, 1);
-    assert.equal(
-      read({
+    const config = (env: Record<string, string>) => whatsNewDigestConfig(env);
+    const withPrevious = (value: string) =>
+      config({
         EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current,
-        EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS: previous,
-      }).length,
-      2
+        EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS: value,
+      });
+    assert.equal(
+      unsubscribeVerifyKeys(config({ EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current })).length,
+      1
     );
-    assert.throws(
-      () =>
-        read({
-          EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current,
-          EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS: "short",
-        }),
-      UnsubscribeKeyError
+    assert.equal(unsubscribeVerifyKeys(withPrevious(previous)).length, 2);
+
+    const malformed = withPrevious("short");
+    const keys = unsubscribeVerifyKeys(malformed);
+    assert.equal(keys.length, 1, "the malformed key is not added to the set that verifies");
+    assert.equal(
+      verifyUnsubscribeToken(
+        signUnsubscribeToken(tenantId, Buffer.from(current, "base64url")),
+        keys
+      ),
+      tenantId
     );
+    // A malformed rotation is told apart from a good one and stops the queue; a wrong current key does too.
+    assert.deepEqual(unsubscribeKeyStatus(malformed), { current: "ok", previous: "malformed" });
+    assert.equal(unsubscribeKeyConfigured(malformed), false);
+    assert.equal(unsubscribeKeyConfigured(withPrevious(previous)), true);
+    assert.equal(
+      unsubscribeKeyConfigured(config({ EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current })),
+      true
+    );
+    assert.equal(unsubscribeKeyConfigured(config({})), false);
+    assert.throws(() => unsubscribeVerifyKeys(config({})), UnsubscribeKeyError);
   });
 
   it("puts the token in the query for the POST address and in the fragment for the page link", () => {

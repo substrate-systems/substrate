@@ -53,3 +53,34 @@
 .navLink:hover {
   color: var(--fg-primary);
 }
+
+/* The header holds the wordmark, two page links, the theme switch and Lock. On a phone they do
+   not fit one row (the links alone are 196 px), which pushed Lock off the screen. The links
+   wrap under the wordmark when they must, the header grows to hold them, and the switch and Lock
+   keep their place at the right: nothing leaves the screen at 320 px and up. The element in each
+   selector lifts it over the same-named rule of Home's header, whichever order the two
+   stylesheets load in. */
+header.header {
+  height: auto;
+  min-height: 75px;
+  padding-block: 10px;
+}
+
+span.headerStart {
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+span.headerEnd {
+  flex: none;
+}
+
+/* Each link and Lock is at least 24 px high, the smallest pointer target of WCAG 2.2 AA. */
+.navItem,
+.lock {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}

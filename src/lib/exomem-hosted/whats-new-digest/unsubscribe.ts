@@ -12,12 +12,13 @@
  * Rotation follows the runbook's other keys: the new key is
  * `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY` and the old one `..._PREVIOUS`. Links in
  * emails already sent carry the old key's MAC, so both verify during the
- * overlap, and only the new key signs.
+ * overlap, and only the new key signs. A previous key that is malformed is
+ * ignored on verify, as theirs are, and stops the queue until it is fixed.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { whatsNewDigestConfig } from "./config";
+import { whatsNewDigestConfig, type WhatsNewDigestConfig } from "./config";
 import { UNSUBSCRIBE_PAGE_PATH, UNSUBSCRIBE_POST_PATH } from "./unsubscribe-paths";
 
 const PURPOSE = "whats-new-digest-unsubscribe";
@@ -45,26 +46,62 @@ export function unsubscribeKey(encoded: string | null = whatsNewDigestConfig().u
   return key;
 }
 
-/**
- * The keys a token may verify under: the current key, and the previous one
- * while it is set. A key that is set but malformed throws, so a bad rotation
- * shows at once instead of dropping the links of the emails already sent.
- */
-export function unsubscribeVerifyKeys(config = whatsNewDigestConfig()): Buffer[] {
-  const keys = [unsubscribeKey(config.unsubscribeKey)];
-  if (config.unsubscribeKeyPrevious !== null)
-    keys.push(unsubscribeKey(config.unsubscribeKeyPrevious));
-  return keys;
+/** The previous key when it is set and well formed; null when it is unset or malformed. */
+function previousKey(config: WhatsNewDigestConfig): Buffer | null {
+  if (config.unsubscribeKeyPrevious === null) return null;
+  try {
+    return unsubscribeKey(config.unsubscribeKeyPrevious);
+  } catch {
+    return null;
+  }
 }
 
-/** Whether a digest can be sent now: its unsubscribe link needs a valid key, and a valid previous one when set. */
-export function unsubscribeKeyConfigured(): boolean {
-  try {
-    unsubscribeVerifyKeys();
-    return true;
-  } catch {
-    return false;
-  }
+/**
+ * The keys a token may verify under: the current key, and the previous one
+ * while it is set and well formed. A malformed previous key is ignored, as the
+ * runbook's other `_PREVIOUS` keys are, so it never widens the set of keys and
+ * never breaks the links that the current key signed. The current key still
+ * throws when it is unset or malformed.
+ */
+export function unsubscribeVerifyKeys(config = whatsNewDigestConfig()): Buffer[] {
+  const current = unsubscribeKey(config.unsubscribeKey);
+  const previous = previousKey(config);
+  return previous ? [current, previous] : [current];
+}
+
+export type UnsubscribeKeyStatus = {
+  /** The signing key: usable, or why not. */
+  current: "ok" | "unset" | "malformed";
+  /** The key being rotated out: not set, usable, or set but malformed (and so ignored on verify). */
+  previous: "unset" | "ok" | "malformed";
+};
+
+/** What the approval page says about the two keys; it never exposes a key. */
+export function unsubscribeKeyStatus(config = whatsNewDigestConfig()): UnsubscribeKeyStatus {
+  const status = (encoded: string | null) => {
+    if (encoded === null) return "unset" as const;
+    try {
+      unsubscribeKey(encoded);
+      return "ok" as const;
+    } catch {
+      return "malformed" as const;
+    }
+  };
+  return {
+    current: status(config.unsubscribeKey),
+    previous: status(config.unsubscribeKeyPrevious),
+  };
+}
+
+/**
+ * Whether a digest can be queued now. The link of an email needs the current
+ * key. A previous key that is set but malformed also stops the queue: the
+ * rotation is wrong, and the owner is told before the next month goes out
+ * (verification keeps working on the current key meanwhile).
+ */
+export function unsubscribeKeyConfigured(config = whatsNewDigestConfig()): boolean {
+  const { current, previous } = unsubscribeKeyStatus(config);
+  return current === "ok" && previous !== "malformed";
 }
 
 const claimsSchema = z.strictObject({

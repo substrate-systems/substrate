@@ -16,7 +16,7 @@ import {
   type MonthShare,
 } from "./measurement";
 import { MAX_PICKS, MIN_PICKS, WHATS_NEW_PROMPT_VERSION } from "./model";
-import { unsubscribeKeyConfigured } from "./unsubscribe";
+import { unsubscribeKeyStatus, type UnsubscribeKeyStatus } from "./unsubscribe";
 import {
   acceptWithout,
   advanceWhenNotesComplete,
@@ -101,8 +101,8 @@ export type DigestOverview = {
   modelConfigured: boolean;
   /** The first month the daily route builds (`YYYY-MM`); `null` while unset, and then it builds nothing. */
   firstMonth: string | null;
-  /** The unsubscribe key is set; while it is not, an approved month queues nothing. */
-  unsubscribeKeyConfigured: boolean;
+  /** The two unsubscribe keys' state; while the signing key is unusable, or the previous one malformed, an approved month queues nothing. */
+  unsubscribeKeys: UnsubscribeKeyStatus;
   model: { modelId: string; promptVersion: string };
   measurement: {
     run: MonthShare[];
@@ -144,7 +144,7 @@ export async function describeOverview(): Promise<DigestOverview> {
     })),
     modelConfigured: whatsNewDigestConfig().anthropicApiKey !== null,
     firstMonth: whatsNewDigestConfig().firstMonth,
-    unsubscribeKeyConfigured: unsubscribeKeyConfigured(),
+    unsubscribeKeys: unsubscribeKeyStatus(),
     model,
     measurement: {
       run: measurement.run,

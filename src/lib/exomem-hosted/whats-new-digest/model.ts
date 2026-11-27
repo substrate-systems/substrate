@@ -84,21 +84,52 @@ function notesPrompt(notes: readonly MonthNote[]): string {
     .join("\n");
 }
 
+/** The schema cannot bound a list's length, so the cap is applied to the ranked list here. */
+function capPicks(ids: NoteId[]): NoteId[] {
+  return ids.slice(0, MAX_PICKS);
+}
+
+/** The bar is the digest's own rule; a list below it is the model's "none". */
+function applyBar(ranked: NoteId[]): NoteId[] {
+  return ranked.length < MIN_PICKS ? [] : ranked;
+}
+
 /**
- * The prompt's identity: a hash of the system prompt, the output schema and the
- * note line format (the format is read off two sample notes through the real
- * formatter). A change to any of them changes the hash, and a changed hash
- * restarts the measurement's count, so no version number is kept by hand.
+ * Everything that decides what a ranking says, as data: the system prompt, the
+ * output schema, the note line format (read off two sample notes through the
+ * real formatter), the request's API version and token limit, and what the
+ * answer's post-processing does (read off two sample answers through the real
+ * cap and bar: one past the cap, one under the bar).
  */
-function promptVersionOf(): string {
-  const sample = notesPrompt([
+export function promptIdentityParts() {
+  const noteLines = notesPrompt([
     { version: "1.2.3", position: 0, title: "A title", text: "A sentence." },
     { version: "1.2.3", position: 1, title: null, text: "A sentence alone." },
   ]);
-  return createHash("sha256")
-    .update(JSON.stringify({ system: SYSTEM_PROMPT, schema: RESPONSE_SCHEMA, noteLines: sample }))
-    .digest("hex")
-    .slice(0, 16);
+  const sampleIds = (count: number): NoteId[] =>
+    Array.from({ length: count }, (_, position) => ({ version: "1.2.3", position }));
+  return {
+    system: SYSTEM_PROMPT,
+    schema: RESPONSE_SCHEMA,
+    noteLines,
+    apiVersion: API_VERSION,
+    maxTokens: MAX_RESPONSE_TOKENS,
+    answerRules: [
+      applyBar(capPicks(sampleIds(MAX_PICKS + 2))),
+      applyBar(capPicks(sampleIds(MIN_PICKS - 1))),
+    ],
+  };
+}
+
+/**
+ * The prompt's identity: a hash of `promptIdentityParts`. A change to any part
+ * changes the hash, and a changed hash restarts the measurement's count, so no
+ * version number is kept by hand.
+ */
+export function promptVersionOf(
+  parts: ReturnType<typeof promptIdentityParts> = promptIdentityParts()
+): string {
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 16);
 }
 
 export const WHATS_NEW_PROMPT_VERSION = promptVersionOf();
@@ -140,12 +171,10 @@ function readAnswer(
     version: String(pick?.version),
     position: Number(pick?.position),
   }));
-  // The schema cannot bound a list's length, so the cap is applied to the ranked list here.
-  const ranked = ids.slice(0, MAX_PICKS);
+  const ranked = capPicks(ids);
   // An identifier that names no note of the month, or names one twice, is a bad answer, not "none".
   if (!resolveSelection(notes, ranked)) throw new AttemptFailed(true);
-  // The bar is the digest's own rule; a list below it is the model's "none".
-  return { picks: ranked.length < MIN_PICKS ? [] : ranked, modelReported: message.model };
+  return { picks: applyBar(ranked), modelReported: message.model };
 }
 
 async function attempt(

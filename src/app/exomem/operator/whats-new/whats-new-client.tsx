@@ -18,6 +18,7 @@ import {
   noteRef,
   requestMessage,
   listedState,
+  lockedReason,
   selectionAllowed,
   stateSentence,
   timeLabel,
@@ -29,17 +30,40 @@ import styles from "./whats-new.module.css";
 
 const ENDPOINT = "/api/exomem/admin/whats-new-digest";
 
-function NoteLine({ note, children }: { note: NoteView; children?: React.ReactNode }) {
+/**
+ * One note. `check` is a checkbox: the whole row becomes its label, so a tap anywhere on the note
+ * picks it. `actions` sit after the text and wrap under it when the row is narrow, so a phone
+ * keeps the note's full width.
+ */
+function NoteLine({
+  note,
+  check,
+  actions,
+}: {
+  note: NoteView;
+  check?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  const body = (
+    <span className={styles.noteBody}>
+      {note.title ? <span className={styles.noteTitle}>{note.title}</span> : null}
+      <span className={styles.noteText}>{note.text}</span>
+      <span className={styles.noteMeta}>
+        {note.version} · note {note.position + 1}
+      </span>
+    </span>
+  );
   return (
     <li className={styles.note}>
-      {children}
-      <span className={styles.noteBody}>
-        {note.title ? <span className={styles.noteTitle}>{note.title}</span> : null}
-        <span className={styles.noteText}>{note.text}</span>
-        <span className={styles.noteMeta}>
-          {note.version} · note {note.position + 1}
-        </span>
-      </span>
+      {check ? (
+        <label className={styles.noteLabel}>
+          {check}
+          {body}
+        </label>
+      ) : (
+        body
+      )}
+      {actions ? <span className={styles.noteActions}>{actions}</span> : null}
     </li>
   );
 }
@@ -211,7 +235,7 @@ export default function WhatsNewClient() {
           </h2>
           <dl className={home.panel}>
             {overview.months.length === 0 ? (
-              <div className={home.row}>
+              <div className={`${home.row} ${styles.figureRow}`}>
                 <dt className={home.rowTitle}>No month yet</dt>
                 <dd className={styles.figure}>
                   {overview.firstMonth === null
@@ -221,10 +245,12 @@ export default function WhatsNewClient() {
               </div>
             ) : (
               overview.months.map((entry) => (
-                <div className={home.row} key={entry.month}>
+                <div className={`${home.row} ${styles.monthRow}`} key={entry.month}>
                   <dt className={home.rowTitle}>{monthTitle(entry.month)}</dt>
-                  <dd className={styles.rowActions}>
-                    <span className={styles.noteMeta}>{listedState(entry, now)}</span>
+                  <dd className={styles.monthActions}>
+                    <span className={`${styles.noteMeta} ${styles.monthState}`}>
+                      {listedState(entry, now)}
+                    </span>
                     <Button
                       size="detail"
                       disabled={working || month?.month === entry.month}
@@ -245,11 +271,18 @@ export default function WhatsNewClient() {
               No first month is set, so the daily run builds no further month.
             </p>
           ) : null}
-          {overview.unsubscribeKeyConfigured ? null : (
+          {overview.unsubscribeKeys.current === "ok" ? null : (
             <p className={styles.line}>
               The unsubscribe key is not set or is malformed, so an approved month queues nothing.
             </p>
           )}
+          {overview.unsubscribeKeys.previous === "malformed" ? (
+            <p className={styles.line}>
+              The previous unsubscribe key is malformed, so it is ignored when links are checked and
+              an approved month queues nothing until it is fixed or removed. Links signed with the
+              current key still work.
+            </p>
+          ) : null}
         </section>
 
         {month ? (
@@ -353,20 +386,24 @@ export default function WhatsNewClient() {
                   </p>
                   <ul className={`${styles.noteList} ${styles.scroll}`}>
                     {month.notes.map((note) => (
-                      <NoteLine note={note} key={noteKey(note)}>
-                        <input
-                          className={styles.check}
-                          type="checkbox"
-                          aria-label={`Pick ${note.title ?? note.text}`}
-                          checked={pick.some((entry) => noteKey(entry) === noteKey(note))}
-                          disabled={
-                            working ||
-                            (pick.length >= MAX_NOTES &&
-                              !pick.some((entry) => noteKey(entry) === noteKey(note)))
-                          }
-                          onChange={() => setPick(toggled(pick, note))}
-                        />
-                      </NoteLine>
+                      <NoteLine
+                        note={note}
+                        key={noteKey(note)}
+                        check={
+                          <input
+                            className={styles.check}
+                            type="checkbox"
+                            aria-label={`Pick ${note.title ?? note.text}`}
+                            checked={pick.some((entry) => noteKey(entry) === noteKey(note))}
+                            disabled={
+                              working ||
+                              (pick.length >= MAX_NOTES &&
+                                !pick.some((entry) => noteKey(entry) === noteKey(note)))
+                            }
+                            onChange={() => setPick(toggled(pick, note))}
+                          />
+                        }
+                      />
                     ))}
                   </ul>
                   <div className={styles.rowActions}>
@@ -440,11 +477,19 @@ export default function WhatsNewClient() {
                       {month.model.leftOut.length}{" "}
                       {month.model.leftOut.length === 1 ? "note" : "notes"}
                     </summary>
-                    <ul className={`${styles.noteList} ${styles.scroll}`}>
-                      {month.model.leftOut.map((note) => (
-                        <NoteLine note={note} key={noteKey(note)} />
-                      ))}
-                    </ul>
+                    {/* The list scrolls, so a keyboard needs a way in: the region takes focus and has a name. */}
+                    <div
+                      className={styles.scroll}
+                      role="region"
+                      aria-label="Notes left out"
+                      tabIndex={0}
+                    >
+                      <ul className={styles.noteList}>
+                        {month.model.leftOut.map((note) => (
+                          <NoteLine note={note} key={noteKey(note)} />
+                        ))}
+                      </ul>
+                    </div>
                   </details>
                 </section>
               </>
@@ -537,33 +582,39 @@ export default function WhatsNewClient() {
                         {editing.map((entry, index) => {
                           const note = byKey.get(noteKey(entry));
                           return note ? (
-                            <NoteLine note={note} key={noteKey(entry)}>
-                              <span className={styles.rowActions}>
-                                <Button
-                                  size="detail"
-                                  disabled={working || index === 0}
-                                  onClick={() => setEditing(moved(editing, index, -1))}
-                                >
-                                  Up
-                                </Button>
-                                <Button
-                                  size="detail"
-                                  disabled={working || index === editing.length - 1}
-                                  onClick={() => setEditing(moved(editing, index, 1))}
-                                >
-                                  Down
-                                </Button>
-                                <Button
-                                  size="detail"
-                                  disabled={working}
-                                  onClick={() =>
-                                    setEditing(editing.filter((e) => noteKey(e) !== noteKey(entry)))
-                                  }
-                                >
-                                  Remove
-                                </Button>
-                              </span>
-                            </NoteLine>
+                            <NoteLine
+                              note={note}
+                              key={noteKey(entry)}
+                              actions={
+                                <>
+                                  <Button
+                                    size="detail"
+                                    disabled={working || index === 0}
+                                    onClick={() => setEditing(moved(editing, index, -1))}
+                                  >
+                                    Up
+                                  </Button>
+                                  <Button
+                                    size="detail"
+                                    disabled={working || index === editing.length - 1}
+                                    onClick={() => setEditing(moved(editing, index, 1))}
+                                  >
+                                    Down
+                                  </Button>
+                                  <Button
+                                    size="detail"
+                                    disabled={working}
+                                    onClick={() =>
+                                      setEditing(
+                                        editing.filter((e) => noteKey(e) !== noteKey(entry))
+                                      )
+                                    }
+                                  >
+                                    Remove
+                                  </Button>
+                                </>
+                              }
+                            />
                           ) : null;
                         })}
                       </ol>
@@ -634,9 +685,7 @@ export default function WhatsNewClient() {
                     </div>
                   )}
                   {!decidable && !editing ? (
-                    <p className={styles.line}>
-                      Approve and Edit unlock when the ranking is in and your own pick is recorded.
-                    </p>
+                    <p className={styles.line}>{lockedReason(month)}</p>
                   ) : null}
                 </div>
               </section>
@@ -662,7 +711,7 @@ export default function WhatsNewClient() {
             </p>
             <dl>
               {shares.run.map((share) => (
-                <div className={home.row} key={share.month}>
+                <div className={`${home.row} ${styles.figureRow}`} key={share.month}>
                   <dt className={home.rowTitle}>{monthTitle(share.month)}</dt>
                   <dd className={styles.figure}>
                     {share.both} of {Math.max(share.operatorPicks, share.modelPicks)} (you{" "}
@@ -675,24 +724,37 @@ export default function WhatsNewClient() {
                 </div>
               ))}
             </dl>
-            {shares.offered || overview.switch.sendWithoutApproval ? (
+            {overview.switch.sendWithoutApproval && !overview.switch.applies ? (
               <>
-                <Switch
-                  label="Send later months without approval"
-                  description={
-                    overview.switch.sendWithoutApproval && !overview.switch.applies
-                      ? "Recorded, but the model, the model the API reports or the prompt changed since. Months need approval until a new measurement."
-                      : "A month goes out a day after it is built, so you can stop it first."
-                  }
-                  checked={overview.switch.sendWithoutApproval}
-                  onChange={(on) => {
-                    void send(
-                      { action: "set_switch", on },
-                      on ? "Approval is off." : "Approval is on."
-                    );
-                  }}
-                />
+                <p className={styles.line}>
+                  Sending without approval: recorded
+                  {overview.switch.recordedAt ? ` on ${timeLabel(overview.switch.recordedAt)}` : ""}
+                  , not in effect. The model, the model the API reports or the prompt changed since,
+                  so months need approval until a new measurement.
+                </p>
+                <div className={styles.rowActions}>
+                  <Button
+                    disabled={working}
+                    onClick={() =>
+                      send({ action: "set_switch", on: false }, "The recorded switch is cleared.")
+                    }
+                  >
+                    Clear the recorded switch
+                  </Button>
+                </div>
               </>
+            ) : shares.offered || overview.switch.sendWithoutApproval ? (
+              <Switch
+                label="Send later months without approval"
+                description="A month goes out a day after it is built, so you can stop it first."
+                checked={overview.switch.sendWithoutApproval}
+                onChange={(on) => {
+                  void send(
+                    { action: "set_switch", on },
+                    on ? "Approval is off." : "Approval is on."
+                  );
+                }}
+              />
             ) : (
               <p className={styles.line}>
                 {shares.withdrawn

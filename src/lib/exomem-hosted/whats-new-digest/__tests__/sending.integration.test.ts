@@ -15,7 +15,7 @@ import { executeExomemSql } from "../../db";
 import { drainExomemEmailOutbox, enqueueExomemEmail } from "../../email-outbox";
 import { CANARY_EMAIL_KINDS } from "../../health-canary";
 import { ensureExomemPostgresTestExtensions } from "../../__tests__/postgres-test-extensions";
-import { applyDigestAction } from "../approval";
+import { applyDigestAction, describeOverview } from "../approval";
 import { decideMonth } from "../months";
 import { fanOutWhatsNewDigestEmails, WHATS_NEW_DIGEST_FANOUT_BATCH } from "../fan-out";
 import { previousMonth, runWhatsNewDigestSelection } from "../run";
@@ -49,6 +49,7 @@ const ENV_KEYS = [
   "EXOMEM_WHATS_NEW_GITHUB_API_URL",
   "EXOMEM_WHATS_NEW_FIRST_MONTH",
   "EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY",
+  "EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS",
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_API_KEY",
   "BREVO_API_KEY",
@@ -680,6 +681,49 @@ describe(
       await applyDigestAction({ action: "stop", month });
     });
 
+    it("ignores a malformed previous unsubscribe key: it blocks the queue and the page says so, and current links still unsubscribe", async () => {
+      const month = "2039-06";
+      const ranking = threeNotesOf(month);
+      model.answers.push({ picks: ranking });
+      await runWhatsNewDigestSelection({ now: nextMonth(month), retryDelayMs: 0 });
+      await decideMonth(month, "automatic", ranking, new Date(Date.now() - 1000));
+      const owner = await seedOwner({ tenantId: bulkId(1301), release: "v3.999.0" });
+      await query(
+        "UPDATE exomem_tenants SET whats_new_digest = false WHERE id <> $1 AND whats_new_digest",
+        [owner.tenantId]
+      );
+
+      env.EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS = "short";
+      try {
+        assert.equal((await fanOutWhatsNewDigestEmails()).enqueued, 0);
+        assert.deepEqual((await describeOverview()).unsubscribeKeys, {
+          current: "ok",
+          previous: "malformed",
+        });
+        // The links signed with the current key keep working while the previous one is wrong.
+        const accepted = await post(unsubscribeAddressFor(owner.tenantId));
+        assert.equal(accepted.status, 200);
+        assert.equal(await setting(owner.tenantId), false);
+        assert.equal(
+          (
+            await query("SELECT state FROM exomem_whats_new_digest_months WHERE month = $1", [
+              month,
+            ])
+          ).rows[0].state,
+          "ready_to_queue"
+        );
+      } finally {
+        delete env.EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS;
+      }
+
+      // Fixed or removed, the same month queues, for an owner who still has the setting on.
+      await query("UPDATE exomem_tenants SET whats_new_digest = true WHERE id = $1", [
+        owner.tenantId,
+      ]);
+      assert.equal((await fanOutWhatsNewDigestEmails()).enqueued, 1);
+      await applyDigestAction({ action: "stop", month });
+    });
+
     describe("the owner's setting", () => {
       it("is settled by Home and by the operator under one rule for the invitation", async () => {
         const ownerOf = async (tenantId: string) =>
@@ -805,6 +849,85 @@ describe(
     });
   }
 );
+
+describe("the outbox claim query", { skip: !databaseUrl }, () => {
+  it("reads the claim index in order, with no Sort node, while 10,000 digests wait beside other kinds", async () => {
+    const seen: { claimSql: string | null } = { claimSql: null };
+    const database = await openIsolatedSchema("whats_new_claim_plan", databaseUrl!, (text) => {
+      // The drain's own claim, as the code issues it, is the statement under test.
+      if (text.includes("/* exomem:claim-email */")) seen.claimSql = text;
+    });
+    try {
+      const { pool } = database;
+      // 10,000 digests (tier 2), 40 ordinary rows (tier 0), 5 canary rows (tier 1) and 2,000 settled rows.
+      await pool.query(`
+        INSERT INTO exomem_email_outbox (kind, send_tier, dedupe_key, recipient, payload_ciphertext, state, created_at, not_before)
+        SELECT 'whats_new_digest', 2, 'digest:' || g, 'o' || g || '@example.test', '{}'::jsonb, 'pending',
+               now() - interval '1 hour' + g * interval '1 millisecond', now() - interval '1 hour'
+        FROM generate_series(1, 10000) g;
+        INSERT INTO exomem_email_outbox (kind, send_tier, dedupe_key, recipient, payload_ciphertext, state, created_at, not_before)
+        SELECT 'invitation', 0, 'inv:' || g, 'i' || g || '@example.test', '{}'::jsonb, 'pending',
+               now() - interval '30 minutes' + g * interval '1 second', now() - interval '30 minutes'
+        FROM generate_series(1, 40) g;
+        INSERT INTO exomem_email_outbox (kind, send_tier, dedupe_key, recipient, payload_ciphertext, state, created_at, not_before)
+        SELECT 'waitlist', 1, 'wl:' || g, 'w' || g || '@example.test', '{}'::jsonb, 'pending',
+               now() - interval '20 minutes', now() - interval '20 minutes'
+        FROM generate_series(1, 5) g;
+        INSERT INTO exomem_email_outbox (kind, dedupe_key, state, sent_at, created_at)
+        SELECT 'invitation', 'old:' || g, 'sent', now(), now() - interval '2 days'
+        FROM generate_series(1, 2000) g;
+        ANALYZE exomem_email_outbox;`);
+
+      // The rows' payloads are not real envelopes, so the drain settles the one it claims without sending.
+      await drainExomemEmailOutbox({ maxMessages: 1 });
+      assert.ok(seen.claimSql, "the drain issued its claim query");
+
+      const nodesOf = async () => {
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          const { rows } = await client.query(`EXPLAIN (FORMAT JSON) ${seen.claimSql}`);
+          await client.query("ROLLBACK");
+          const found: Array<{ type: string; index: string | null }> = [];
+          const walk = (node: Record<string, unknown>) => {
+            found.push({
+              type: String(node["Node Type"]),
+              index: typeof node["Index Name"] === "string" ? node["Index Name"] : null,
+            });
+            for (const child of (node["Plans"] as Array<Record<string, unknown>> | undefined) ?? [])
+              walk(child);
+          };
+          walk(rows[0]["QUERY PLAN"][0].Plan);
+          return found;
+        } finally {
+          client.release();
+        }
+      };
+      const expectIndexOrder = async (when: string) => {
+        const nodes = await nodesOf();
+        assert.ok(
+          nodes.some((node) => node.index === "exomem_email_outbox_claim_idx"),
+          `${when}: the claim reads exomem_email_outbox_claim_idx (${JSON.stringify(nodes)})`
+        );
+        assert.deepEqual(
+          nodes.filter((node) => node.type.includes("Sort")),
+          [],
+          `${when}: the claim sorts nothing`
+        );
+      };
+      await expectIndexOrder("with every tier waiting");
+
+      // The worst case for an index in order: only the digests are left, so the first ready row is a digest.
+      await pool.query(
+        "UPDATE exomem_email_outbox SET state = 'sent', sent_at = now(), payload_ciphertext = NULL WHERE send_tier < 2 AND state = 'pending'"
+      );
+      await pool.query("ANALYZE exomem_email_outbox");
+      await expectIndexOrder("with only digests left");
+    } finally {
+      await database.close();
+    }
+  });
+});
 
 describe("the migration that adds the setting", { skip: !databaseUrl }, () => {
   it("leaves every existing owner off and invited, and a row written without a signup choice off", async () => {
