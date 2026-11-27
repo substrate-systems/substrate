@@ -15,7 +15,8 @@
 - [x] 2.2 The redesign from the Claude Design commission (direction B, "In the status"): a line under the status opens a drawer of changes grouped by release day, with older days folded; inspected against the design boards at desktop and phone, light and dark.
   - Evidence: CI production builds of `main` and of the redesign, served by the Home end-to-end stand-ins with a disposable PostgreSQL 16, rendered in Playwright Chromium at 1440 and 390 px in both colour schemes, with 9 notes over two days and 31 notes over six days: one line under the status, the drawer by day, the fold and "Show", and both failed-dismissal lines. Design source: `docs/exomem-design/reference/boards/whats-new-b/`.
 
-- [ ] 2.3 The revision from the same commission (board B2): one short title per change that opens its sentence, older days folded into a count; a note served without a title shows its sentence. Inspected against the B2 board at desktop and phone, light and dark.
+- [x] 2.3 The revision from the same commission (board B2): one short title per change that opens its sentence, older days folded into a count; a note served without a title shows its sentence. Inspected against the B2 board at desktop and phone, light and dark.
+  - Evidence: CI production builds of `main` (55e1c7bc) and of the revision (ac045e1c, merged in #371), served by the Home end-to-end stand-ins with a disposable PostgreSQL 16, rendered in Chromium at 1440 and 390 px in both colour schemes: 9 titled notes over two days, a title opened under its row, 31 notes with "22 more · 12 – 21 Nov" folded, and the same notes without titles, each sentence standing in its row. Design source: `docs/exomem-design/reference/boards/whats-new-b/B2.dc.html`.
 
 ## 3. Acceptance
 

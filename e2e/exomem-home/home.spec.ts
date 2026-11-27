@@ -644,7 +644,7 @@ test("a seeded reviewer signs in on the web and sees the sample account without 
   await expect(page.getByText(`complimentary · ends ${ends}`)).toBeVisible();
   await expect(
     panel(page, "Connected apps").getByText(
-      /^signed in · connected \d{1,2} \w+ · during review · joins in: \w+$/
+      /^signed in · connected \d{1,2} \w+ · during review · joins\sin:\s\w+$/
     )
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /billing/i })).toHaveCount(0);
