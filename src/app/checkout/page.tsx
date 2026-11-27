@@ -1,9 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import Footer from "@/components/Footer";
-import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
 import { PADDLE_TRANSACTION_ID } from "@/lib/paddle-transaction-id";
 import { buildMetadata } from "@/lib/seo";
+import { CheckoutOpener } from "./CheckoutOpener";
 
 export const metadata = buildMetadata({
   title: "Checkout",
@@ -50,12 +50,7 @@ export default async function CheckoutPage({
           Checkout
         </h1>
         {hasTransaction ? (
-          <>
-            <p role="status" className="mt-3 text-body-lg font-light text-fg-secondary">
-              Opening your checkout…
-            </p>
-            <PaddleTransactionOpener />
-          </>
+          <CheckoutOpener transactionId={_ptxn} />
         ) : (
           <>
             <p className="mt-3 text-body-lg font-light text-fg-secondary">
