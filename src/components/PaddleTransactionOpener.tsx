@@ -3,9 +3,9 @@
 import { type ComponentType, useCallback, useEffect, useRef, useState } from "react";
 import { postPrivateJson, settledCheckoutDestination } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddle } from "@/lib/paddle";
+import { PADDLE_TRANSACTION_ID } from "@/lib/paddle-transaction-id";
 import { AnalyticsEvent, capture } from "@/lib/analytics";
 
-const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
 export const PENDING_TRANSACTION_KEY = "exomem:paddle-return-transaction";
 // Optional email prefill must not block a validated checkout during an account-read outage.
 const EMAIL_PREFILL_WAIT_MS = 2_000;
@@ -101,12 +101,18 @@ export function PaddleTransactionOpener({
   customerEmail,
   customerEmailPending = false,
   FailureView,
+  onOpened,
+  onFailure,
 }: {
   validationEndpoint?: string;
   customerEmail?: string | null;
   customerEmailPending?: boolean;
   /** Draws the failure in the page's design system; without it the opener draws its own. */
   FailureView?: ComponentType<PaddleTransactionFailure>;
+  /** Tells a page that has no validation endpoint that Paddle's checkout opened. */
+  onOpened?: () => void;
+  /** Tells a page that has no validation endpoint that Paddle could not load or open. */
+  onFailure?: () => void;
 } = {}) {
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [validationFailed, setValidationFailed] = useState(false);
@@ -192,16 +198,18 @@ export function PaddleTransactionOpener({
   const handleCheckoutOpened = useCallback(() => {
     clearPendingTransaction();
     candidateRef.current = null;
-  }, []);
+    onOpened?.();
+  }, [onOpened]);
 
   const handleCheckoutFailure = useCallback(() => {
     // No capture here on purpose: usePaddle already fired checkout_failed with
     // an sdk_init or open stage for this same failure, and capturing again
     // would double-count every one of them.
+    onFailure?.();
     if (!validationEndpoint) return;
     setTransactionId(null);
     setPaddleFailed(true);
-  }, [validationEndpoint]);
+  }, [validationEndpoint, onFailure]);
 
   function retryValidation(): void {
     // A retry is a fresh attempt at the same transaction. Recorded so the
