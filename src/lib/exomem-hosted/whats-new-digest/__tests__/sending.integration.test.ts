@@ -16,6 +16,7 @@ import { drainExomemEmailOutbox, enqueueExomemEmail } from "../../email-outbox";
 import { CANARY_EMAIL_KINDS } from "../../health-canary";
 import { ensureExomemPostgresTestExtensions } from "../../__tests__/postgres-test-extensions";
 import { applyDigestAction } from "../approval";
+import { decideMonth } from "../months";
 import { fanOutWhatsNewDigestEmails, WHATS_NEW_DIGEST_FANOUT_BATCH } from "../fan-out";
 import { previousMonth, runWhatsNewDigestSelection } from "../run";
 import { signUnsubscribeToken, verifyUnsubscribeToken } from "../unsubscribe";
@@ -391,6 +392,18 @@ describe(
         });
       }
 
+      // The tier is set at insert from the kind's definition: the claim's index reads it.
+      const tiers = new Map(
+        (
+          await query(
+            "SELECT kind, min(send_tier)::int AS lowest, max(send_tier)::int AS highest FROM exomem_email_outbox WHERE state = 'pending' GROUP BY kind"
+          )
+        ).rows.map((row) => [row.kind, [row.lowest, row.highest]])
+      );
+      assert.deepEqual(tiers.get("payment_failed"), [0, 0]);
+      for (const kind of CANARY_EMAIL_KINDS) assert.deepEqual(tiers.get(kind), [1, 1]);
+      assert.deepEqual(tiers.get("whats_new_digest"), [2, 2]);
+
       const sentBefore = brevo.sent.length;
       await drainAll();
 
@@ -572,7 +585,7 @@ describe(
         );
       }
 
-      // A month the operator skipped, or that lapsed, sends nothing, even where its rows are queued.
+      // A month the operator stops sends nothing, even where its rows are queued and the month is already marked queued.
       const ranking3 = threeNotesOf(month3);
       await approvedMonth(month3, ranking3);
       const waiting = await seedOwner({ tenantId: bulkId(1101), release: "v3.999.0" });
@@ -581,13 +594,13 @@ describe(
         [waiting.tenantId]
       );
       assert.equal((await fanOutWhatsNewDigestEmails()).enqueued, 1);
-      await query(
-        `UPDATE exomem_whats_new_digest_months
-       SET state = 'skipped', skip_reason = 'operator', decision = NULL, final_selection = NULL,
-           queue_cursor = NULL, queued_count = 0, queued_at = NULL
-       WHERE month = $1`,
-        [month3]
+      assert.equal(
+        (await query("SELECT state FROM exomem_whats_new_digest_months WHERE month = $1", [month3]))
+          .rows[0].state,
+        "queued"
       );
+      const stopped = await applyDigestAction({ action: "stop", month: month3 });
+      assert.equal((stopped as { state: string }).state, "skipped");
       const beforeSkip = brevo.sent.length;
       await drainAll();
       assert.equal(brevo.sent.length, beforeSkip);
@@ -634,6 +647,38 @@ describe(
         { environment: {} }
       );
     }
+
+    it("queues nothing before a month's send time, then queues it, so the operator's stop window holds", async () => {
+      const month = "2039-05";
+      const ranking = threeNotesOf(month);
+      model.answers.push({ picks: ranking });
+      await runWhatsNewDigestSelection({ now: nextMonth(month), retryDelayMs: 0 });
+      // The month goes out on the standing switch: a day's window before the fan-out starts.
+      await decideMonth(month, "automatic", ranking, new Date(Date.now() + 24 * 3_600_000));
+      const waiting = await seedOwner({ tenantId: bulkId(1201), release: "v3.999.0" });
+      await query(
+        "UPDATE exomem_tenants SET whats_new_digest = false WHERE id <> $1 AND whats_new_digest",
+        [waiting.tenantId]
+      );
+      assert.equal((await fanOutWhatsNewDigestEmails()).enqueued, 0);
+      const state = async () =>
+        (
+          await query(
+            "SELECT state, queued_count FROM exomem_whats_new_digest_months WHERE month = $1",
+            [month]
+          )
+        ).rows[0];
+      assert.deepEqual(await state(), { state: "ready_to_queue", queued_count: 0 });
+
+      // The window passes.
+      await query(
+        "UPDATE exomem_whats_new_digest_months SET send_after = now() - interval '1 second' WHERE month = $1",
+        [month]
+      );
+      assert.equal((await fanOutWhatsNewDigestEmails()).enqueued, 1);
+      assert.equal((await state()).state, "queued");
+      await applyDigestAction({ action: "stop", month });
+    });
 
     describe("the owner's setting", () => {
       it("is settled by Home and by the operator under one rule for the invitation", async () => {
@@ -762,7 +807,7 @@ describe(
 );
 
 describe("the migration that adds the setting", { skip: !databaseUrl }, () => {
-  it("leaves every existing owner off and invited, and starts a new owner on", async () => {
+  it("leaves every existing owner off and invited, and a row written without a signup choice off", async () => {
     // A database as it was before this migration: every migration up to the one before it.
     const dir = mkdtempSync(join(tmpdir(), "whats-new-migration-"));
     const schema = `whats_new_migration_${randomUUID().replaceAll("-", "")}`;
@@ -810,9 +855,10 @@ describe("the migration that adds the setting", { skip: !databaseUrl }, () => {
           [byId.get(before.rows[0].id).on, byId.get(before.rows[0].id).invitation],
           [false, "open"]
         );
+        // Only a signup that showed the switch opts an owner in; any other row is off and never invited.
         assert.deepEqual(
           [byId.get(after.rows[0].id).on, byId.get(after.rows[0].id).invitation],
-          [true, "none"]
+          [false, "none"]
         );
       } finally {
         await pool.end();

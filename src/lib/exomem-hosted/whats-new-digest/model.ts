@@ -12,11 +12,10 @@
  * The model returns identifiers only. The email shows each note's own text.
  */
 
+import { createHash } from "node:crypto";
 import { resolveSelection, type MonthNote, type NoteId } from "./notes";
 import type { WhatsNewDigestConfig } from "./config";
-
-/** Bump with any change to the prompt or the schema: it restarts the measurement's count. */
-export const WHATS_NEW_PROMPT_VERSION = "1";
+import { timeoutWithin } from "./time-budget";
 
 /** The digest's bar (design D2): a month with fewer qualifying changes sends nothing. */
 export const MIN_PICKS = 3;
@@ -24,6 +23,8 @@ export const MAX_PICKS = 6;
 
 const API_VERSION = "2026-10-21";
 const ATTEMPT_TIMEOUT_MS = 25_000;
+/** Ranking a month takes seconds; an attempt with less than this left would only time out. */
+const MIN_ATTEMPT_MS = 15_000;
 const MAX_RESPONSE_TOKENS = 1024;
 const RETRY_DELAY_MS = 2_000;
 
@@ -56,10 +57,21 @@ const RESPONSE_SCHEMA = {
 } as const;
 
 export type RankingOutcome =
-  /** `picks` is the model's ranked answer: none, or 3 to 6 notes. */
-  | { kind: "ranked"; picks: NoteId[]; modelId: string; promptVersion: string }
+  /**
+   * `picks` is the model's ranked answer: none, or 3 to 6 notes. `modelId` is the
+   * name configuration asked for; `modelReported` is the model the API says answered.
+   */
+  | {
+      kind: "ranked";
+      picks: NoteId[];
+      modelId: string;
+      modelReported: string;
+      promptVersion: string;
+    }
   | { kind: "not_configured" }
-  | { kind: "unavailable" };
+  | { kind: "unavailable" }
+  /** The run's time budget could not cover an attempt, so no call was made: not a model outage. */
+  | { kind: "out_of_time" };
 
 type Fetch = typeof fetch;
 
@@ -72,19 +84,45 @@ function notesPrompt(notes: readonly MonthNote[]): string {
     .join("\n");
 }
 
+/**
+ * The prompt's identity: a hash of the system prompt, the output schema and the
+ * note line format (the format is read off two sample notes through the real
+ * formatter). A change to any of them changes the hash, and a changed hash
+ * restarts the measurement's count, so no version number is kept by hand.
+ */
+function promptVersionOf(): string {
+  const sample = notesPrompt([
+    { version: "1.2.3", position: 0, title: "A title", text: "A sentence." },
+    { version: "1.2.3", position: 1, title: null, text: "A sentence alone." },
+  ]);
+  return createHash("sha256")
+    .update(JSON.stringify({ system: SYSTEM_PROMPT, schema: RESPONSE_SCHEMA, noteLines: sample }))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+export const WHATS_NEW_PROMPT_VERSION = promptVersionOf();
+
 class AttemptFailed extends Error {
   constructor(readonly retryable: boolean) {
     super("ranking attempt failed");
   }
 }
 
+class OutOfTime extends Error {}
+
 /** One answer from the model, read through the schema and checked against the month's notes. */
-function readAnswer(body: unknown, notes: readonly MonthNote[]): NoteId[] {
-  const message = body as { stop_reason?: unknown; content?: unknown } | null;
+function readAnswer(
+  body: unknown,
+  notes: readonly MonthNote[]
+): { picks: NoteId[]; modelReported: string } {
+  const message = body as { stop_reason?: unknown; content?: unknown; model?: unknown } | null;
   // A refusal or a cut-off answer may not match the schema; neither is an answer.
   if (!message || message.stop_reason === "refusal" || message.stop_reason === "max_tokens") {
     throw new AttemptFailed(true);
   }
+  // The measurement compares the model that answered, so an answer that does not say which is no answer.
+  if (typeof message.model !== "string" || message.model === "") throw new AttemptFailed(true);
   const text = Array.isArray(message.content)
     ? (message.content as Array<{ type?: unknown; text?: unknown }>).find(
         (block) => block.type === "text"
@@ -107,15 +145,20 @@ function readAnswer(body: unknown, notes: readonly MonthNote[]): NoteId[] {
   // An identifier that names no note of the month, or names one twice, is a bad answer, not "none".
   if (!resolveSelection(notes, ranked)) throw new AttemptFailed(true);
   // The bar is the digest's own rule; a list below it is the model's "none".
-  return ranked.length < MIN_PICKS ? [] : ranked;
+  return { picks: ranked.length < MIN_PICKS ? [] : ranked, modelReported: message.model };
 }
 
 async function attempt(
   notes: readonly MonthNote[],
   config: WhatsNewDigestConfig,
   apiKey: string,
-  fetchImpl: Fetch
-): Promise<NoteId[]> {
+  fetchImpl: Fetch,
+  deadlineAt: number | undefined
+): Promise<{ picks: NoteId[]; modelReported: string }> {
+  // An attempt gets its full timeout or what the run's budget leaves; one that
+  // the budget cannot give a useful part of is not started (the next daily run tries).
+  const timeout = timeoutWithin(deadlineAt, ATTEMPT_TIMEOUT_MS, MIN_ATTEMPT_MS);
+  if (timeout === null) throw new OutOfTime();
   let response: Response;
   try {
     response = await fetchImpl(
@@ -134,7 +177,7 @@ async function attempt(
           messages: [{ role: "user", content: notesPrompt(notes) }],
           output_config: { format: { type: "json_schema", schema: RESPONSE_SCHEMA } },
         }),
-        signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeout),
       }
     );
   } catch {
@@ -159,20 +202,29 @@ async function attempt(
 export async function rankMonthNotes(
   notes: readonly MonthNote[],
   config: WhatsNewDigestConfig,
-  options: { fetchImpl?: Fetch; retryDelayMs?: number } = {}
+  options: { fetchImpl?: Fetch; retryDelayMs?: number; deadlineAt?: number } = {}
 ): Promise<RankingOutcome> {
   if (!config.anthropicApiKey) return { kind: "not_configured" };
   const fetchImpl = options.fetchImpl ?? fetch;
   for (let tries = 0; tries < 2; tries += 1) {
     try {
-      const picks = await attempt(notes, config, config.anthropicApiKey, fetchImpl);
+      const answer = await attempt(
+        notes,
+        config,
+        config.anthropicApiKey,
+        fetchImpl,
+        options.deadlineAt
+      );
       return {
         kind: "ranked",
-        picks,
+        picks: answer.picks,
         modelId: config.modelId,
+        modelReported: answer.modelReported,
         promptVersion: WHATS_NEW_PROMPT_VERSION,
       };
     } catch (error) {
+      if (error instanceof OutOfTime)
+        return tries === 0 ? { kind: "out_of_time" } : { kind: "unavailable" };
       if (!(error instanceof AttemptFailed) || !error.retryable || tries === 1) break;
       await new Promise((resolve) => setTimeout(resolve, options.retryDelayMs ?? RETRY_DELAY_MS));
     }

@@ -16,7 +16,7 @@ The system SHALL select, from the user notes of all of a month's releases, at mo
 
 ### Requirement: The first month is configured
 
-The system SHALL build no month's selection before a configured first month, and none while no first month is configured. The approval page SHALL show that no first month is set.
+The system SHALL build no month's selection before a configured first month, and none while no first month is configured. The approval page SHALL show that no first month is set while none is configured.
 
 #### Scenario: Before the first month
 
@@ -67,17 +67,22 @@ The system SHALL queue at most one digest per owner and month, with only selecte
 
 #### Scenario: The route runs again
 
-- **WHEN** the daily route runs again for a month it already queued
+- **WHEN** the per-minute delivery job runs again for a month it already queued
 - **THEN** no owner receives a second digest
 
 ### Requirement: Digests never delay other email
 
-Digest emails SHALL have the lowest send priority of all outbox kinds, and the system SHALL queue them in bounded passes.
+Digest emails SHALL have the lowest send priority of all outbox kinds, and the system SHALL queue them in bounded passes. Waiting digests SHALL NOT slow the claim of any other email.
 
 #### Scenario: A payment email during the digest send
 
 - **WHEN** a payment-failed email is queued while digests are still waiting to send
 - **THEN** the payment-failed email is sent before the remaining digests
+
+#### Scenario: A full queue of digests
+
+- **WHEN** 10,000 digests wait in the outbox
+- **THEN** the claim of the next email reads an index in send-priority order and does not sort the waiting digests
 
 ### Requirement: An owner can stop the digest in one step
 
@@ -100,29 +105,67 @@ Every digest SHALL carry the `List-Unsubscribe` and `List-Unsubscribe-Post` head
 
 ### Requirement: The operator approves the pick until a measurement replaces approval
 
-The system MUST NOT queue a month's digests before the operator approves or edits that month's selection, until the operator turns on sending without approval. The system SHALL offer that switch only after three approved months in which the model's picks hold at least two thirds of the operator's blind picks, and SHALL record the result and the operator's choice. A month that the operator skips, or that is still waiting when the next month's selection is built, SHALL never be sent.
+The system MUST NOT queue a month's digests before the operator approves or edits that month's selection, until the operator turns on sending without approval. A blind pick of none SHALL skip the month at once. A month that the operator skips or stops, or that is still waiting when the next month's record is created, SHALL never be sent.
 
 #### Scenario: The operator's pick comes first
 
 - **WHEN** the operator opens a month's approval page
 - **THEN** the page takes the operator's own pick before it shows the model's ranking
 
+#### Scenario: A pick of none skips the month
+
+- **WHEN** the operator records a blind pick of none
+- **THEN** the month is skipped at once, and the model's ranking is still recorded for the measurement
+
 #### Scenario: Before approval
 
-- **WHEN** the daily route runs while the month's selection waits for approval
+- **WHEN** the per-minute delivery job runs while the month's selection waits for approval
 - **THEN** it queues no email
 
 #### Scenario: A month lapses
 
-- **WHEN** the next month's selection is built while an earlier month still waits for approval
+- **WHEN** the next month's record is created while an earlier month still waits for approval
 - **THEN** the earlier month is shown as lapsed, and no digest for it is ever sent
+
+#### Scenario: The operator stops a month
+
+- **WHEN** the operator stops a month that is ready to queue or queued
+- **THEN** the month is skipped, and a digest of it that still waits in the outbox is not sent
+
+### Requirement: The measurement scores the model against the operator's blind pick
+
+A month SHALL count toward the measurement when it has the operator's blind pick and the model's ranking under one model and prompt, whatever the operator then decided. A month where exactly one side picked none SHALL score 0, a month where both picked none SHALL be quiet and SHALL NOT count, and any other month SHALL score the notes in both picks divided by the larger of the two pick counts.
+
+#### Scenario: A skipped month counts
+
+- **WHEN** the operator skips a month in which the model picked 3 changes
+- **THEN** the month scores 0 and counts toward the measurement
+
+#### Scenario: A quiet month does not count
+
+- **WHEN** the model returned none and the operator's blind pick is none
+- **THEN** the month is quiet and does not count toward the measurement
+
+### Requirement: Sending without approval needs a passing measurement and a window
+
+The system SHALL offer the switch to send without approval only after three counted months that each score at least two thirds, SHALL withdraw the offer when a later counted month under the same model and prompt scores below that, and SHALL record the scores and the operator's choice. A month that goes out without approval SHALL wait 24 hours, shown as "ready, sends after <time>", so the operator can stop it.
 
 #### Scenario: The measurement passes
 
-- **WHEN** three approved months each pass the two-thirds bar
+- **WHEN** three counted months each score at least two thirds under one model and prompt
 - **THEN** approval stays required until the operator turns on sending without approval
+
+#### Scenario: A later month withdraws the offer
+
+- **WHEN** the switch is offered and a later counted month under the same model and prompt scores below two thirds
+- **THEN** the page withdraws the offer and says so
+
+#### Scenario: The window before a month goes out without approval
+
+- **WHEN** a month is built while the operator's switch is on
+- **THEN** the page shows it as "ready, sends after <time>" 24 hours ahead, and no digest is queued before then
 
 #### Scenario: The model changes after the switch
 
-- **WHEN** the operator turned on sending without approval and the configured model or prompt later differs from the one measured
+- **WHEN** the operator turned on sending without approval and the configured model, the model that the API reports, or the prompt later differs from the one measured
 - **THEN** the next month waits for the operator's approval again

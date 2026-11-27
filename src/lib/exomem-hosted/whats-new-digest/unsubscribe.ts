@@ -8,6 +8,11 @@
  * 32 random bytes as unpadded base64url), under a label of its own, in the
  * shape of `cloud-download-ticket.ts`. No other key or label of this
  * application can produce a valid token, and this key signs nothing else.
+ *
+ * Rotation follows the runbook's other keys: the new key is
+ * `EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY` and the old one `..._PREVIOUS`. Links in
+ * emails already sent carry the old key's MAC, so both verify during the
+ * overlap, and only the new key signs.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -40,10 +45,22 @@ export function unsubscribeKey(encoded: string | null = whatsNewDigestConfig().u
   return key;
 }
 
-/** Whether a digest can be sent now: its unsubscribe link needs the key. */
+/**
+ * The keys a token may verify under: the current key, and the previous one
+ * while it is set. A key that is set but malformed throws, so a bad rotation
+ * shows at once instead of dropping the links of the emails already sent.
+ */
+export function unsubscribeVerifyKeys(config = whatsNewDigestConfig()): Buffer[] {
+  const keys = [unsubscribeKey(config.unsubscribeKey)];
+  if (config.unsubscribeKeyPrevious !== null)
+    keys.push(unsubscribeKey(config.unsubscribeKeyPrevious));
+  return keys;
+}
+
+/** Whether a digest can be sent now: its unsubscribe link needs a valid key, and a valid previous one when set. */
 export function unsubscribeKeyConfigured(): boolean {
   try {
-    unsubscribeKey();
+    unsubscribeVerifyKeys();
     return true;
   } catch {
     return false;
@@ -71,16 +88,20 @@ export function signUnsubscribeToken(tenantId: string, key: Buffer = unsubscribe
 /** The tenant id of a token that is genuine and for this purpose; otherwise null, with no hint of which check failed. */
 export function verifyUnsubscribeToken(
   token: string,
-  key: Buffer = unsubscribeKey()
+  keys: Buffer | readonly Buffer[] = unsubscribeVerifyKeys()
 ): string | null {
   if (token.length === 0 || token.length > MAX_TOKEN_CHARS) return null;
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [payload, presented] = parts;
   const presentedMac = Buffer.from(presented, "base64url");
-  if (presentedMac.length !== MAC_BYTES || !timingSafeEqual(presentedMac, mac(payload, key))) {
-    return null;
-  }
+  if (presentedMac.length !== MAC_BYTES) return null;
+  // Every key is tried; which one matched is of no use to a caller.
+  const genuine = ([] as Buffer[])
+    .concat(keys)
+    .map((key) => timingSafeEqual(presentedMac, mac(payload, key)))
+    .some(Boolean);
+  if (!genuine) return null;
   let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));

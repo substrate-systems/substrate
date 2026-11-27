@@ -4,7 +4,7 @@ import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { unsubscribeMonthlyUpdateEmail } from "@/lib/exomem-hosted/whats-new-digest/setting";
 import {
   UnsubscribeKeyError,
-  unsubscribeKey,
+  unsubscribeVerifyKeys,
   verifyUnsubscribeToken,
 } from "@/lib/exomem-hosted/whats-new-digest/unsubscribe";
 
@@ -31,7 +31,7 @@ const headers = {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const token = request.nextUrl.searchParams.get("token");
-    const tenantId = token ? verifyUnsubscribeToken(token, unsubscribeKey()) : null;
+    const tenantId = token ? verifyUnsubscribeToken(token, unsubscribeVerifyKeys()) : null;
     if (!tenantId) throw exomemErrors.accessTokenInvalid();
     await unsubscribeMonthlyUpdateEmail(tenantId);
     return NextResponse.json({ success: true }, { headers });

@@ -1,7 +1,10 @@
 import { exomemThemeChoice } from "@/lib/exomem/theme";
 import { NextRequest, NextResponse } from "next/server";
 import { exomemEmailScheme } from "@/lib/email-templates/exomem-email";
-import { admitFirstCloudOAuthInviteAtomic, redeemCloudInvite } from "@/lib/exomem-hosted/cloud-admission";
+import {
+  admitFirstCloudOAuthInviteAtomic,
+  redeemCloudInvite,
+} from "@/lib/exomem-hosted/cloud-admission";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
 import {
@@ -63,12 +66,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           key !== "themeChoice" &&
           key !== "monthlyUpdateEmail"
       ) ||
-      // The signup's opt-out from the monthly update email: absent keeps it on.
+      // The signup's choice on the monthly update email, when the client shows the switch.
       (body.monthlyUpdateEmail !== undefined && typeof body.monthlyUpdateEmail !== "boolean")
     ) {
       throw exomemErrors.invalidRequest();
     }
-    const monthlyUpdateEmail = body.monthlyUpdateEmail !== false;
+    // Only a client that showed the owner the switch may opt them in: a request that does not state the choice starts it off.
+    const monthlyUpdateEmail = body.monthlyUpdateEmail === true;
     const timeZone = normalizeTimeZone(body.timeZone);
     const emailScheme = exomemEmailScheme(body.emailScheme);
     const themeChoice = exomemThemeChoice(body.themeChoice);

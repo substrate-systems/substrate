@@ -41,7 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-/** `action`: `blind_pick`, `accept_missing`, `approve`, `edit`, `skip` (each with `month`) and `set_switch`. */
+/** `action`: `blind_pick`, `accept_missing`, `approve`, `edit`, `skip`, `stop` (each with `month`) and `set_switch`. */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {

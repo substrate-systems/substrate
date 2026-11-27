@@ -10,6 +10,7 @@
  *
  *   waiting_for_notes -> waiting_for_model -> awaiting_approval -> ready_to_queue -> queued
  *   any of the first three -> skipped | lapsed
+ *   ready_to_queue | queued -> skipped          (the operator's stop)
  */
 
 import { executeExomemSql, type ExomemSql } from "../db";
@@ -37,13 +38,18 @@ export type MonthRecord = {
   releasesListedAt: Date | null;
   lastCheckedAt: Date | null;
   modelStatus: ModelStatus | null;
+  /** The model name that configuration asked for. */
   modelId: string | null;
+  /** The model that the API reported on the answer: with `promptVersion`, the ranking's identity. */
+  modelReported: string | null;
   promptVersion: string | null;
   modelSelection: NoteId[] | null;
   blindPick: NoteId[] | null;
   decision: Decision | null;
   finalSelection: NoteId[] | null;
   decidedAt: Date | null;
+  /** Set with the decision: the delivery job queues nothing for the month before this time. */
+  sendAfter: Date | null;
   /** Digests the delivery job has queued so far. */
   queuedCount: number;
 };
@@ -78,12 +84,14 @@ function monthRecord(row: MonthRow): MonthRecord {
     lastCheckedAt: asDate(row.last_checked_at),
     modelStatus: (row.model_status as ModelStatus | null) ?? null,
     modelId: (row.model_id as string | null) ?? null,
+    modelReported: (row.model_reported as string | null) ?? null,
     promptVersion: (row.prompt_version as string | null) ?? null,
     modelSelection: ids(row.model_selection),
     blindPick: ids(row.blind_pick),
     decision: (row.decision as Decision | null) ?? null,
     finalSelection: ids(row.final_selection),
     decidedAt: asDate(row.decided_at),
+    sendAfter: asDate(row.send_after),
     queuedCount: Number(row.queued_count),
   };
 }
@@ -111,21 +119,22 @@ export async function lapseEarlierMonths(month: string): Promise<number> {
   return rowCount ?? 0;
 }
 
-/** One query behind every read of month rows: a month, only the decided ones, or the newest few. */
+/** One query behind every read of month rows: a month, only the countable ones, or the newest few. */
 async function readMonths(filter: {
   month?: string;
-  decidedOnly?: boolean;
+  countableOnly?: boolean;
   limit: number;
 }): Promise<MonthRecord[]> {
   const { rows } = await executeExomemSql`
     /* exomem:whats-new-digest-read-months */
     SELECT month, state, skip_reason, releases_listed_at, last_checked_at, model_status,
-           model_id, prompt_version, model_selection, blind_pick, decision, final_selection, decided_at,
-           queued_count
+           model_id, model_reported, prompt_version, model_selection, blind_pick, decision, final_selection,
+           decided_at, send_after, queued_count
     FROM exomem_whats_new_digest_months
     WHERE (${filter.month ?? null}::text IS NULL OR month = ${filter.month ?? null})
-      AND (NOT ${filter.decidedOnly ?? false}::boolean
-           OR (decision IN ('approved', 'edited') AND blind_pick IS NOT NULL AND model_selection IS NOT NULL))
+      AND (NOT ${filter.countableOnly ?? false}::boolean
+           OR (blind_pick IS NOT NULL AND model_selection IS NOT NULL AND model_id IS NOT NULL
+               AND model_reported IS NOT NULL AND prompt_version IS NOT NULL))
     ORDER BY month DESC LIMIT ${filter.limit}
   `;
   return rows.map(monthRecord);
@@ -140,9 +149,13 @@ export function listMonths(limit: number): Promise<MonthRecord[]> {
   return readMonths({ limit });
 }
 
-/** Months that were approved or edited with a blind pick on record: the measurement's input, bounded to the last ten years (a month a row). */
-export function listDecidedMonths(): Promise<MonthRecord[]> {
-  return readMonths({ decidedOnly: true, limit: 120 });
+/**
+ * Months with a blind pick and a ranking on record, whatever the operator then
+ * decided: the measurement's input (measurement.ts). Bounded to the last ten
+ * years (a month a row).
+ */
+export function listCountableMonths(): Promise<MonthRecord[]> {
+  return readMonths({ countableOnly: true, limit: 120 });
 }
 
 export async function listReleases(
@@ -317,79 +330,129 @@ export async function skipMonth(month: string, reason: SkipReason): Promise<bool
   return skipFrom(month, "open", reason);
 }
 
+/**
+ * A month that still needs its ranking: it waits for the model, or the operator
+ * skipped it after a blind pick before the ranking came in. The skipped month's
+ * ranking is still recorded, because the measurement counts every month with a
+ * blind pick and a ranking, whatever the operator then decided (measurement.ts).
+ */
+export const needsRanking = (record: MonthRecord): boolean =>
+  record.modelSelection === null &&
+  (record.state === "waiting_for_model" ||
+    (record.state === "skipped" && record.skipReason === "operator" && record.blindPick !== null));
+
 export async function recordModelStatus(month: string, status: ModelStatus): Promise<void> {
+  // The same months `needsRanking` names.
   await executeExomemSql`
     UPDATE exomem_whats_new_digest_months
     SET model_status = ${status}, last_checked_at = now(), updated_at = now()
-    WHERE month = ${month} AND state = 'waiting_for_model'
+    WHERE month = ${month} AND model_selection IS NULL
+      AND (state = 'waiting_for_model'
+           OR (state = 'skipped' AND skip_reason = 'operator' AND blind_pick IS NOT NULL))
   `;
 }
 
-export async function recordRanking(
-  month: string,
-  ranking: { picks: readonly NoteId[]; modelId: string; promptVersion: string }
-): Promise<boolean> {
+export type Ranking = {
+  picks: readonly NoteId[];
+  modelId: string;
+  modelReported: string;
+  promptVersion: string;
+};
+
+/**
+ * Records the model's ranking, with the identity it was made under. A month
+ * that waited for it moves on to the operator; a skipped month (see
+ * `needsRanking`) keeps its state, and reads as quiet when the model also
+ * picked none.
+ */
+export async function recordRanking(month: string, ranking: Ranking): Promise<boolean> {
   const { rowCount } = await executeExomemSql`
     /* exomem:whats-new-digest-record-ranking */
     UPDATE exomem_whats_new_digest_months
-    SET state = 'awaiting_approval', model_status = NULL, model_id = ${ranking.modelId},
+    SET state = CASE WHEN state = 'waiting_for_model' THEN 'awaiting_approval' ELSE state END,
+        skip_reason = CASE WHEN state = 'skipped' AND jsonb_array_length(${JSON.stringify(ranking.picks)}::jsonb) = 0
+                           THEN 'quiet' ELSE skip_reason END,
+        model_status = NULL, model_id = ${ranking.modelId}, model_reported = ${ranking.modelReported},
         prompt_version = ${ranking.promptVersion}, model_selection = ${JSON.stringify(ranking.picks)}::jsonb,
         model_ranked_at = now(), last_checked_at = now(), updated_at = now()
-    WHERE month = ${month} AND state = 'waiting_for_model'
+    WHERE month = ${month} AND model_selection IS NULL
+      AND (state = 'waiting_for_model'
+           OR (state = 'skipped' AND skip_reason = 'operator' AND blind_pick IS NOT NULL))
   `;
   return (rowCount ?? 0) > 0;
 }
 
 /**
  * The operator's pick comes before the page shows the model's ranking, and it
- * never changes: it is the measurement's answer key.
+ * never changes: it is the measurement's answer key. A pick of none skips the
+ * month at once, in the same statement (as the approved design says: "or none
+ * to skip the month"); the ranking is still recorded for the measurement. The
+ * skip reads as quiet when the model already returned none.
  */
 export async function recordBlindPick(month: string, picks: readonly NoteId[]): Promise<boolean> {
+  const none = picks.length === 0;
   const { rowCount } = await executeExomemSql`
     /* exomem:whats-new-digest-blind-pick */
     UPDATE exomem_whats_new_digest_months
-    SET blind_pick = ${JSON.stringify(picks)}::jsonb, blind_picked_at = now(), updated_at = now()
+    SET blind_pick = ${JSON.stringify(picks)}::jsonb, blind_picked_at = now(),
+        state = CASE WHEN ${none}::boolean THEN 'skipped' ELSE state END,
+        skip_reason = CASE WHEN NOT ${none}::boolean THEN skip_reason
+                           WHEN model_selection = '[]'::jsonb THEN 'quiet' ELSE 'operator' END,
+        decided_at = CASE WHEN ${none}::boolean THEN now() ELSE decided_at END,
+        updated_at = now()
     WHERE month = ${month} AND state IN ('waiting_for_model', 'awaiting_approval') AND blind_pick IS NULL
   `;
   return (rowCount ?? 0) > 0;
 }
 
-/**
- * A quiet month: the model returned none and the operator's blind pick is
- * none too. It is skipped and never counts toward the measurement.
- */
-export async function settleQuietMonth(month: string): Promise<boolean> {
-  const { rowCount } = await executeExomemSql`
-    /* exomem:whats-new-digest-settle-quiet */
-    UPDATE exomem_whats_new_digest_months
-    SET state = 'skipped', skip_reason = 'quiet', decided_at = now(), updated_at = now()
-    WHERE month = ${month} AND state IN ('waiting_for_model', 'awaiting_approval')
-      AND blind_pick = '[]'::jsonb AND model_selection = '[]'::jsonb
-  `;
-  return (rowCount ?? 0) > 0;
-}
+/** The operator's stop window after a month goes out on the standing switch (D2, D4). */
+export const AUTOMATIC_SEND_DELAY_MS = 24 * 60 * 60 * 1000;
 
-/** The month is approved, edited or sent on the operator's standing switch: its final selection is stored. */
+/**
+ * The month is approved, edited or sent on the operator's standing switch: its
+ * final selection is stored with the earliest time its digests may queue.
+ * An approval queues at once; the switch waits a day, so the operator can stop it.
+ */
 export async function decideMonth(
   month: string,
   decision: Decision,
-  selection: readonly NoteId[]
+  selection: readonly NoteId[],
+  sendAfter: Date | null = null
 ): Promise<boolean> {
   const { rowCount } = await executeExomemSql`
     /* exomem:whats-new-digest-decide */
     UPDATE exomem_whats_new_digest_months
     SET state = 'ready_to_queue', decision = ${decision}, final_selection = ${JSON.stringify(selection)}::jsonb,
-        decided_at = now(), updated_at = now()
+        decided_at = now(), send_after = COALESCE(${sendAfter?.toISOString() ?? null}::timestamptz, now()),
+        updated_at = now()
     WHERE month = ${month} AND state = 'awaiting_approval'
+  `;
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * The operator stops a month that is ready to queue or queued: it becomes
+ * skipped and keeps its approval and its progress. The fan-out takes only
+ * ready months, and a digest still in the outbox is cancelled at send time,
+ * because a skipped month has no sendable selection (`sendableSelection`).
+ */
+export async function stopMonth(month: string): Promise<boolean> {
+  const { rowCount } = await executeExomemSql`
+    /* exomem:whats-new-digest-stop */
+    UPDATE exomem_whats_new_digest_months
+    SET state = 'skipped', skip_reason = 'operator', updated_at = now()
+    WHERE month = ${month} AND state IN ('ready_to_queue', 'queued')
   `;
   return (rowCount ?? 0) > 0;
 }
 
 export type SwitchRecord = {
   sendWithoutApproval: boolean;
+  /** The identity measured: the configured name, the model the API reported, and the prompt's hash. */
   modelId: string | null;
+  modelReported: string | null;
   promptVersion: string | null;
-  shares: Array<{ month: string; both: number; operatorPicks: number }>;
+  shares: Array<{ month: string; both: number; operatorPicks: number; modelPicks: number }>;
   recordedAt: Date;
 };
 
@@ -397,7 +460,7 @@ export type SwitchRecord = {
 export async function currentSwitch(): Promise<SwitchRecord | null> {
   const { rows } = await executeExomemSql`
     /* exomem:whats-new-digest-switch */
-    SELECT send_without_approval, model_id, prompt_version, shares, recorded_at
+    SELECT send_without_approval, model_id, model_reported, prompt_version, shares, recorded_at
     FROM exomem_whats_new_digest_switch ORDER BY id DESC LIMIT 1
   `;
   const row = rows[0];
@@ -405,6 +468,7 @@ export async function currentSwitch(): Promise<SwitchRecord | null> {
   return {
     sendWithoutApproval: row.send_without_approval === true,
     modelId: (row.model_id as string | null) ?? null,
+    modelReported: (row.model_reported as string | null) ?? null,
     promptVersion: (row.prompt_version as string | null) ?? null,
     shares: row.shares as SwitchRecord["shares"],
     recordedAt: new Date(row.recorded_at as string | Date),
@@ -414,8 +478,8 @@ export async function currentSwitch(): Promise<SwitchRecord | null> {
 export async function recordSwitch(choice: Omit<SwitchRecord, "recordedAt">): Promise<void> {
   await executeExomemSql`
     /* exomem:whats-new-digest-record-switch */
-    INSERT INTO exomem_whats_new_digest_switch (send_without_approval, model_id, prompt_version, shares)
-    VALUES (${choice.sendWithoutApproval}, ${choice.modelId}, ${choice.promptVersion}, ${JSON.stringify(choice.shares)}::jsonb)
+    INSERT INTO exomem_whats_new_digest_switch (send_without_approval, model_id, model_reported, prompt_version, shares)
+    VALUES (${choice.sendWithoutApproval}, ${choice.modelId}, ${choice.modelReported}, ${choice.promptVersion}, ${JSON.stringify(choice.shares)}::jsonb)
   `;
 }
 
@@ -441,9 +505,10 @@ export type QueueingMonth = {
 };
 
 /**
- * The month the delivery job queues now: the newest that is ready, locked
- * until the transaction ends, so two overlapping ticks take turns and the
- * second reads the first's cursor. Two ready months at once cannot happen
+ * The month the delivery job queues now: the newest that is ready and whose
+ * send time has come (the operator's stop window), locked until the
+ * transaction ends, so two overlapping ticks take turns and the second reads
+ * the first's cursor. A stop waits for the lock, then finds the month moved on. Two ready months at once cannot happen
  * while a month is queued within the day it is approved; the newest wins then,
  * so an owner is never sent a stale month.
  */
@@ -452,7 +517,7 @@ export async function lockMonthToQueue(tx: ExomemSql): Promise<QueueingMonth | n
     /* exomem:whats-new-digest-lock-month-to-queue */
     SELECT month, final_selection, queue_cursor
     FROM exomem_whats_new_digest_months
-    WHERE state = 'ready_to_queue'
+    WHERE state = 'ready_to_queue' AND send_after <= now()
     ORDER BY month DESC LIMIT 1
     FOR UPDATE
   `;

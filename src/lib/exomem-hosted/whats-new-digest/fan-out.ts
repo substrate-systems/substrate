@@ -1,7 +1,8 @@
 /**
  * Queues the monthly digest (`send-monthly-whats-new-digest`, D3 and D4). It
  * runs in the per-minute delivery job, never in a request. Each tick takes the
- * month that the operator approved (`ready_to_queue`) and queues one bounded
+ * month that the operator approved (`ready_to_queue`, past its `send_after`: a
+ * month that went out on the standing switch waits a day for a stop) and queues one bounded
  * page of owners for it, in tenant id order after the last page, in one
  * transaction with the month's cursor. When a page holds fewer owners than the
  * batch, no owner is left: the month becomes `queued` and no later tick scans

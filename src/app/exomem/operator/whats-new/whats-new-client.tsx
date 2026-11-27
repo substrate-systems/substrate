@@ -17,8 +17,10 @@ import {
   noteKey,
   noteRef,
   requestMessage,
+  listedState,
   selectionAllowed,
   stateSentence,
+  timeLabel,
   toggled,
   type NoteRef,
   type NoteView,
@@ -54,7 +56,6 @@ export default function WhatsNewClient() {
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
-
   function fail(requestError: unknown) {
     if (requestError instanceof OperatorRequestError && requestError.status === 401) lock();
     setError(true);
@@ -184,6 +185,8 @@ export default function WhatsNewClient() {
     );
   }
 
+  // The server's clock when it last answered, not this device's: the stop window is the server's to judge.
+  const now = Date.parse(month?.at ?? overview.at);
   const waiting = month !== null && isOpenState(month.state);
   const decidable = month?.state === "awaiting_approval" && month.blindPick !== null;
   const shares = overview.measurement;
@@ -221,7 +224,7 @@ export default function WhatsNewClient() {
                 <div className={home.row} key={entry.month}>
                   <dt className={home.rowTitle}>{monthTitle(entry.month)}</dt>
                   <dd className={styles.rowActions}>
-                    <span className={styles.noteMeta}>{entry.state.replaceAll("_", " ")}</span>
+                    <span className={styles.noteMeta}>{listedState(entry, now)}</span>
                     <Button
                       size="detail"
                       disabled={working || month?.month === entry.month}
@@ -244,7 +247,7 @@ export default function WhatsNewClient() {
           ) : null}
           {overview.unsubscribeKeyConfigured ? null : (
             <p className={styles.line}>
-              The unsubscribe key is not set, so an approved month queues nothing.
+              The unsubscribe key is not set or is malformed, so an approved month queues nothing.
             </p>
           )}
         </section>
@@ -256,7 +259,7 @@ export default function WhatsNewClient() {
                 {monthTitle(month.month)}
               </h2>
               <div className={`${home.panel} ${styles.body}`}>
-                <p className={styles.line}>{stateSentence(month, overview.modelConfigured)}</p>
+                <p className={styles.line}>{stateSentence(month, overview.modelConfigured, now)}</p>
                 <p className={styles.line}>
                   {month.releases.total} {month.releases.total === 1 ? "release" : "releases"},{" "}
                   {month.notes.length} {month.notes.length === 1 ? "note" : "notes"}
@@ -265,7 +268,7 @@ export default function WhatsNewClient() {
                     : ""}
                   .
                   {month.modelId
-                    ? ` Ranked by ${month.modelId}, prompt ${month.promptVersion}.`
+                    ? ` Ranked by ${month.modelId}${month.modelReported && month.modelReported !== month.modelId ? ` (the API reported ${month.modelReported})` : ""}, prompt ${month.promptVersion}.`
                     : ""}
                 </p>
               </div>
@@ -345,7 +348,8 @@ export default function WhatsNewClient() {
                   <p className={styles.line}>
                     Pick {MIN_NOTES} to {MAX_NOTES} notes that owners are most likely to notice, or
                     none to skip the month. You see the model&rsquo;s ranking after you record this,
-                    and the pick cannot change afterwards.
+                    and the pick cannot change afterwards. A pick of none skips the month at once;
+                    the model&rsquo;s ranking is still recorded for the measurement.
                   </p>
                   <ul className={`${styles.noteList} ${styles.scroll}`}>
                     {month.notes.map((note) => (
@@ -372,11 +376,15 @@ export default function WhatsNewClient() {
                       onClick={() =>
                         send(
                           { action: "blind_pick", month: month.month, selection: pick },
-                          pick.length === 0 ? "Recorded: none." : `Recorded: ${pick.length} notes.`
+                          pick.length === 0
+                            ? "Recorded: none. The month is skipped."
+                            : `Recorded: ${pick.length} notes.`
                         )
                       }
                     >
-                      {pick.length === 0 ? "Record none, skip" : `Record my ${pick.length} picks`}
+                      {pick.length === 0
+                        ? "Pick none and skip the month"
+                        : `Record my ${pick.length} picks`}
                     </Button>
                     <span className={styles.noteMeta}>{pick.length} picked</span>
                   </div>
@@ -484,6 +492,31 @@ export default function WhatsNewClient() {
                       <NoteLine note={note} key={noteKey(note)} />
                     ))}
                   </ol>
+                </div>
+              </section>
+            ) : null}
+
+            {month.canStop ? (
+              <section className={home.section} aria-labelledby="digest-stop-title">
+                <h2 className={home.sectionTitle} id="digest-stop-title">
+                  Stop this month
+                </h2>
+                <div className={`${home.panel} ${styles.body}`}>
+                  <p className={styles.line}>
+                    {month.sendAfter && Date.parse(month.sendAfter) > now
+                      ? `Nothing is queued before ${timeLabel(month.sendAfter)}. `
+                      : ""}
+                    Stopping skips the month. Digests that wait in the outbox are cancelled when
+                    they would send; any already sent stay sent.
+                  </p>
+                  <div className={styles.rowActions}>
+                    <Button
+                      disabled={working}
+                      onClick={() => send({ action: "stop", month: month.month }, "Stopped.")}
+                    >
+                      Stop sending this month
+                    </Button>
+                  </div>
                 </div>
               </section>
             ) : null}
@@ -618,17 +651,22 @@ export default function WhatsNewClient() {
           <div className={`${home.panel} ${styles.body}`}>
             <p className={styles.line}>
               {shares.run.length === 0
-                ? "No approved month counts yet."
-                : `${shares.run.length} counted ${shares.run.length === 1 ? "month" : "months"} under ${overview.model.modelId}, prompt ${overview.model.promptVersion}; the first ${shares.monthsToMeasure} decide.`}{" "}
-              A month counts when you approved or edited it and it was not quiet. A change of model
-              or prompt restarts the count.
+                ? "No month counts yet."
+                : `${shares.run.length} counted ${shares.run.length === 1 ? "month" : "months"} under ${shares.run[0].modelId} (the API reported ${shares.run[0].modelReported}), prompt ${shares.run[0].promptVersion}; the first ${shares.monthsToMeasure} decide.`}{" "}
+              A month counts when it has your blind pick and the model&rsquo;s ranking, whatever you
+              then decided; a month where both picked none is quiet and does not count. A month
+              where only one picked none scores 0. Otherwise the score is the notes in both picks
+              over the larger of the two pick counts. A change of model, reported model or prompt
+              restarts the count. Two thirds over three months is your accepted risk, not a
+              confidence-bounded measurement.
             </p>
             <dl>
               {shares.run.map((share) => (
                 <div className={home.row} key={share.month}>
                   <dt className={home.rowTitle}>{monthTitle(share.month)}</dt>
                   <dd className={styles.figure}>
-                    {share.both} of {share.operatorPicks}
+                    {share.both} of {Math.max(share.operatorPicks, share.modelPicks)} (you{" "}
+                    {share.operatorPicks}, model {share.modelPicks})
                     {share.passes ? " · two thirds or more" : " · under two thirds"}
                     {shares.measured.some((measured) => measured.month === share.month)
                       ? ""
@@ -643,8 +681,8 @@ export default function WhatsNewClient() {
                   label="Send later months without approval"
                   description={
                     overview.switch.sendWithoutApproval && !overview.switch.applies
-                      ? "Recorded, but the model or prompt changed since. Months need approval until a new measurement."
-                      : undefined
+                      ? "Recorded, but the model, the model the API reports or the prompt changed since. Months need approval until a new measurement."
+                      : "A month goes out a day after it is built, so you can stop it first."
                   }
                   checked={overview.switch.sendWithoutApproval}
                   onChange={(on) => {
@@ -657,9 +695,11 @@ export default function WhatsNewClient() {
               </>
             ) : (
               <p className={styles.line}>
-                {shares.complete
-                  ? "At least one of the three months is under two thirds, so approval stays on."
-                  : `Sending without approval is offered after ${shares.monthsToMeasure} counted months that each reach two thirds; ${Math.max(0, shares.monthsToMeasure - shares.measured.length)} to go.`}
+                {shares.withdrawn
+                  ? "The offer is withdrawn: a counted month after the first three scored under two thirds, so approval stays on."
+                  : shares.complete
+                    ? "At least one of the three months is under two thirds, so approval stays on."
+                    : `Sending without approval is offered after ${shares.monthsToMeasure} counted months that each reach two thirds; ${Math.max(0, shares.monthsToMeasure - shares.measured.length)} to go.`}
               </p>
             )}
           </div>

@@ -23,13 +23,16 @@ export type WhatsNewDigestConfig = {
   anthropicApiKey: string | null;
   modelId: string;
   /**
-   * The first month the daily route builds, `YYYY-MM` (D1): the first full
-   * month after Evermatter's releases carry their notes file. Unset, or not a
-   * month, builds nothing.
+   * The first month the daily route builds, `YYYY-MM` (D1): the month before
+   * the one in which Evermatter's notes-file change ships, which attaches the
+   * file to every release published since the start of the previous UTC month.
+   * Unset, or not a month, builds nothing.
    */
   firstMonth: string | null;
   /** The signing secret of the unsubscribe token, as set; `unsubscribe.ts` reads it. */
   unsubscribeKey: string | null;
+  /** The key being rotated out: links signed with it still verify, none is signed with it. */
+  unsubscribeKeyPrevious: string | null;
 };
 
 /** A month's name as a request or a setting gives it: `YYYY-MM`, a format check. */
@@ -53,5 +56,6 @@ export function whatsNewDigestConfig(
     modelId: present(env.EXOMEM_WHATS_NEW_MODEL) ?? DEFAULT_MODEL_ID,
     firstMonth: parseMonthName(present(env.EXOMEM_WHATS_NEW_FIRST_MONTH)),
     unsubscribeKey: present(env.EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY),
+    unsubscribeKeyPrevious: present(env.EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS),
   };
 }

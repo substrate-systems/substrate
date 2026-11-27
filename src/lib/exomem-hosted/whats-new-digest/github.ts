@@ -8,6 +8,7 @@
 import { readBoundedBytes } from "../bounded-json";
 import { EVERMATTER_REPOSITORY, NOTES_ASSET_NAME, type WhatsNewDigestConfig } from "./config";
 import { versionTuple } from "./notes";
+import { timeoutWithin } from "./time-budget";
 
 export class GitHubUnavailable extends Error {}
 
@@ -39,7 +40,16 @@ export function monthStart(month: string): Date {
   return new Date(`${month}-01T00:00:00Z`);
 }
 
-function request(config: WhatsNewDigestConfig, url: URL, accept: string, fetchImpl: Fetch) {
+function request(
+  config: WhatsNewDigestConfig,
+  url: URL,
+  accept: string,
+  fetchImpl: Fetch,
+  deadlineAt: number | undefined
+) {
+  // Out of budget: the month waits for the next daily run.
+  const timeout = timeoutWithin(deadlineAt, REQUEST_TIMEOUT_MS);
+  if (timeout === null) throw new GitHubUnavailable("the run's time budget is spent");
   return fetchImpl(url, {
     headers: {
       accept,
@@ -47,7 +57,7 @@ function request(config: WhatsNewDigestConfig, url: URL, accept: string, fetchIm
       "user-agent": "substrate-whats-new-digest",
       ...(config.githubToken ? { authorization: `Bearer ${config.githubToken}` } : {}),
     },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeout),
     // The token stays with the API host: a redirect (an asset's download) drops it.
     redirect: "follow",
   });
@@ -75,7 +85,8 @@ function asTime(value: unknown): Date | null {
 export async function listMonthReleases(
   month: string,
   config: WhatsNewDigestConfig,
-  fetchImpl: Fetch = fetch
+  fetchImpl: Fetch = fetch,
+  deadlineAt?: number
 ): Promise<ListedRelease[]> {
   const start = monthStart(month);
   const [year, monthNumber] = month.split("-").map(Number);
@@ -89,7 +100,13 @@ export async function listMonthReleases(
       );
       url.searchParams.set("per_page", String(PAGE_SIZE));
       url.searchParams.set("page", String(page));
-      const response = await request(config, url, "application/vnd.github+json", fetchImpl);
+      const response = await request(
+        config,
+        url,
+        "application/vnd.github+json",
+        fetchImpl,
+        deadlineAt
+      );
       if (!response.ok) throw new GitHubUnavailable(`releases list answered ${response.status}`);
       const body = JSON.parse(
         new TextDecoder("utf-8", { fatal: true }).decode(
@@ -139,14 +156,16 @@ function assetUrlOf(value: unknown, config: WhatsNewDigestConfig): string | null
 export async function fetchNotesFileText(
   assetUrl: string,
   config: WhatsNewDigestConfig,
-  fetchImpl: Fetch = fetch
+  fetchImpl: Fetch = fetch,
+  deadlineAt?: number
 ): Promise<string> {
   try {
     const response = await request(
       config,
       new URL(assetUrl),
       "application/octet-stream",
-      fetchImpl
+      fetchImpl,
+      deadlineAt
     );
     if (!response.ok) throw new GitHubUnavailable(`notes asset answered ${response.status}`);
     return new TextDecoder("utf-8", { fatal: true }).decode(

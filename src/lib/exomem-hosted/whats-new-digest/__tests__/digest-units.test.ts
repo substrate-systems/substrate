@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { describe, it } from "node:test";
+import { whatsNewDigestConfig } from "../config";
 import type { MonthNote } from "../notes";
 import { notesForRunningRelease } from "../owner-notes";
 import { invitationShows } from "../setting";
@@ -9,6 +10,7 @@ import {
   unsubscribeAddresses,
   UnsubscribeKeyError,
   unsubscribeKey,
+  unsubscribeVerifyKeys,
   verifyUnsubscribeToken,
 } from "../unsubscribe";
 
@@ -81,6 +83,45 @@ describe("the unsubscribe token", () => {
       .update(payload, "utf8")
       .digest("base64url");
     assert.equal(verifyUnsubscribeToken(`${payload}.${mac}`, key), null);
+  });
+
+  it("verifies a link signed with the previous key during a rotation, and signs only with the current one", () => {
+    const previous = randomBytes(32);
+    const current = randomBytes(32);
+    const oldLink = signUnsubscribeToken(tenantId, previous);
+    assert.equal(verifyUnsubscribeToken(oldLink, [current, previous]), tenantId);
+    assert.equal(
+      verifyUnsubscribeToken(signUnsubscribeToken(tenantId, current), [current, previous]),
+      tenantId
+    );
+    // Once the previous key is removed, the old links stop.
+    assert.equal(verifyUnsubscribeToken(oldLink, [current]), null);
+    assert.equal(
+      verifyUnsubscribeToken(signUnsubscribeToken(tenantId, randomBytes(32)), [current, previous]),
+      null
+    );
+  });
+
+  it("reads the previous key from configuration, and a malformed one throws instead of dropping old links", () => {
+    const keyText = () => randomBytes(32).toString("base64url");
+    const [current, previous] = [keyText(), keyText()];
+    const read = (env: Record<string, string>) => unsubscribeVerifyKeys(whatsNewDigestConfig(env));
+    assert.equal(read({ EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current }).length, 1);
+    assert.equal(
+      read({
+        EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current,
+        EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS: previous,
+      }).length,
+      2
+    );
+    assert.throws(
+      () =>
+        read({
+          EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY: current,
+          EXOMEM_WHATS_NEW_UNSUBSCRIBE_KEY_PREVIOUS: "short",
+        }),
+      UnsubscribeKeyError
+    );
   });
 
   it("puts the token in the query for the POST address and in the fragment for the page link", () => {

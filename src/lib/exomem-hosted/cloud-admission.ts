@@ -237,7 +237,7 @@ export type RedeemCloudInviteInput = {
   /** The redeeming page's email scheme, already normalized. An invitation records none. */
   emailScheme?: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
-  /** The new owner's "Monthly update email" setting: on unless they opted out at signup. */
+  /** The new owner's "Monthly update email" setting: on only when the signup showed the switch and left it on. Absent is off. */
   monthlyUpdateEmail?: boolean;
 };
 
@@ -317,7 +317,7 @@ export async function redeemCloudInviteAtomic(
         UPDATE exomem_tenants
         SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
             time_zone = COALESCE(${timeZone}, time_zone),
-            whats_new_digest = ${input.monthlyUpdateEmail ?? true},
+            whats_new_digest = ${input.monthlyUpdateEmail === true},
             whats_new_digest_invitation = 'none'
         WHERE id = ${existing.id}::uuid
       `;
@@ -326,7 +326,7 @@ export async function redeemCloudInviteAtomic(
     } else {
       const tenantResult = await tx`
         INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme, whats_new_digest)
-        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme}, ${input.monthlyUpdateEmail ?? true})
+        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme}, ${input.monthlyUpdateEmail === true})
         RETURNING id
       `;
       const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -580,7 +580,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   /** The redeeming page's email scheme, already normalized. */
   emailScheme?: ExomemEmailScheme | null;
   themeChoice?: ExomemThemeChoice | null;
-  /** The new owner's "Monthly update email" setting: on unless they opted out at signup. */
+  /** The new owner's "Monthly update email" setting: on only when the signup showed the switch and left it on. Absent is off. */
   monthlyUpdateEmail?: boolean;
 }): Promise<CloudOAuthInviteAdmission | null> {
   try {
@@ -679,7 +679,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
           UPDATE exomem_tenants
           SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
               time_zone = COALESCE(${timeZone}, time_zone),
-              whats_new_digest = ${input.monthlyUpdateEmail ?? true},
+              whats_new_digest = ${input.monthlyUpdateEmail === true},
               whats_new_digest_invitation = 'none'
           WHERE id = ${existing.id}::uuid
         `;
@@ -688,7 +688,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       } else {
         const tenantResult = await tx`
           INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone, email_scheme, whats_new_digest)
-          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme}, ${input.monthlyUpdateEmail ?? true})
+          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone}, ${emailScheme}, ${input.monthlyUpdateEmail === true})
           RETURNING id
         `;
         const tenant = tenantResult.rows[0] as { id: string } | undefined;

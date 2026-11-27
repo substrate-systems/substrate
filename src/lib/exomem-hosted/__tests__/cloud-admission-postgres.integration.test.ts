@@ -464,6 +464,30 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.notEqual(consumed.rows[0]!.consumed_at, null);
   });
 
+  it("starts the monthly update email on only when the signup says so: absent is off", async () => {
+    await resetFleet();
+    await configureCapacity(3);
+    const settingAfter = async (choice: { monthlyUpdateEmail?: boolean }) => {
+      const invite = await createInvite("complimentary");
+      const result = await redeemCloudInviteAtomic({
+        ...redemptionInput(invite.tokenDigest),
+        ...choice,
+      });
+      assert.ok(result);
+      const row = await pool!.query(
+        `SELECT tenant.whats_new_digest AS on, tenant.whats_new_digest_invitation AS invitation
+         FROM exomem_cloud_cells cell JOIN exomem_tenants tenant ON tenant.id = cell.tenant_id
+         WHERE cell.cell_id = $1`,
+        [result!.cellId]
+      );
+      return [row.rows[0]!.on, row.rows[0]!.invitation];
+    };
+    assert.deepEqual(await settingAfter({ monthlyUpdateEmail: true }), [true, "none"]);
+    assert.deepEqual(await settingAfter({ monthlyUpdateEmail: false }), [false, "none"]);
+    // A client that never showed the switch cannot opt an owner in.
+    assert.deepEqual(await settingAfter({}), [false, "none"]);
+  });
+
   it("refuses admission when capacity is exhausted and leaves the invite unconsumed", async () => {
     await resetFleet();
     await configureCapacity(1);

@@ -6,15 +6,18 @@
  *
  * It queues no email. An approved month is stored with its final ordered
  * selection (`ready_to_queue`); the delivery job's fan-out (fan-out.ts) takes
- * it from there. It builds nothing before the configured first month.
+ * it from there. It builds nothing before the configured first month. It stops
+ * early when the caller's time budget (`deadlineAt`) is spent, leaving the month
+ * waiting for the next daily run.
  */
 
 import { whatsNewDigestConfig, type WhatsNewDigestConfig } from "./config";
 import { fetchNotesFileText, GitHubUnavailable, listMonthReleases, monthOf } from "./github";
 import { switchApplies } from "./measurement";
-import { MIN_PICKS, rankMonthNotes, WHATS_NEW_PROMPT_VERSION } from "./model";
+import { MIN_PICKS, rankMonthNotes } from "./model";
 import {
   advanceWhenNotesComplete,
+  AUTOMATIC_SEND_DELAY_MS,
   currentSwitch,
   decideMonth,
   ensureMonth,
@@ -22,13 +25,13 @@ import {
   lapseEarlierMonths,
   listReleases,
   missingReleases,
+  needsRanking,
   notesOfReleases,
   recordModelStatus,
   recordRanking,
   releasesToFetch,
   saveFetchedFiles,
   saveListing,
-  settleQuietMonth,
   skipForTooFewNotes,
   skipMonth,
   touchMonth,
@@ -36,6 +39,7 @@ import {
 } from "./months";
 import { parseNotesFile } from "./notes";
 import type { MonthState } from "./states";
+import { timeoutWithin } from "./time-budget";
 
 /** A run fetches at most this many notes files, so a first run over a large month stays inside the route's time. */
 const FETCHES_PER_RUN = 150;
@@ -58,6 +62,8 @@ export type RunOptions = {
   githubFetch?: typeof fetch;
   modelFetch?: typeof fetch;
   retryDelayMs?: number;
+  /** Epoch milliseconds after which the run starts no call and no further batch. */
+  deadlineAt?: number;
 };
 
 /** The previous calendar month in UTC: the month this run builds. */
@@ -72,7 +78,10 @@ async function collectNotes(
   options: RunOptions
 ): Promise<void> {
   try {
-    await saveListing(month, await listMonthReleases(month, config, options.githubFetch));
+    await saveListing(
+      month,
+      await listMonthReleases(month, config, options.githubFetch, options.deadlineAt)
+    );
   } catch (error) {
     if (!(error instanceof GitHubUnavailable)) throw error;
     await touchMonth(month);
@@ -81,13 +90,20 @@ async function collectNotes(
   const pending = await releasesToFetch(month, FETCHES_PER_RUN);
   const results: FetchedFile[] = [];
   for (let at = 0; at < pending.length; at += FETCH_CONCURRENCY) {
+    // Out of time: keep what is fetched, and the next daily run takes the rest.
+    if (timeoutWithin(options.deadlineAt, 1) === null) break;
     const batch = pending.slice(at, at + FETCH_CONCURRENCY);
     results.push(
       ...(await Promise.all(
         batch.map(async ({ version, assetUrl }): Promise<FetchedFile> => {
           let text: string;
           try {
-            text = await fetchNotesFileText(assetUrl, config, options.githubFetch);
+            text = await fetchNotesFileText(
+              assetUrl,
+              config,
+              options.githubFetch,
+              options.deadlineAt
+            );
           } catch {
             return { version, problem: "unfetched" };
           }
@@ -103,9 +119,14 @@ async function collectNotes(
   await advanceWhenNotesComplete(month);
 }
 
-/** One ranking call for the month, then the move the record's state asks for. */
+/**
+ * One ranking call for the month, then the move the record's state asks for.
+ * `wasWaiting` is false for a month the operator already skipped: its ranking is
+ * recorded and nothing else moves.
+ */
 async function rankMonth(
   month: string,
+  wasWaiting: boolean,
   config: WhatsNewDigestConfig,
   options: RunOptions
 ): Promise<void> {
@@ -118,24 +139,29 @@ async function rankMonth(
   const outcome = await rankMonthNotes(notes, config, {
     fetchImpl: options.modelFetch,
     retryDelayMs: options.retryDelayMs,
+    deadlineAt: options.deadlineAt,
   });
+  // No time left for a call: the month stays as it is and the next daily run ranks it.
+  if (outcome.kind === "out_of_time") return;
   if (outcome.kind !== "ranked") {
     await recordModelStatus(month, outcome.kind);
     return;
   }
-  if (!(await recordRanking(month, outcome))) return;
-  if (
-    switchApplies(await currentSwitch(), {
-      modelId: config.modelId,
-      promptVersion: WHATS_NEW_PROMPT_VERSION,
-    })
-  ) {
-    // The operator's recorded switch: no approval, and no blind pick to wait for.
-    if (outcome.picks.length >= MIN_PICKS) await decideMonth(month, "automatic", outcome.picks);
-    else await skipMonth(month, "quiet");
-    return;
+  // A skipped month (the operator's blind none) only gets its ranking recorded for the measurement.
+  if (!(await recordRanking(month, outcome)) || !wasWaiting) return;
+  // The recorded switch holds only for the identity it was measured under, the model the API reported included.
+  if (switchApplies(await currentSwitch(), outcome)) {
+    // No approval and no blind pick to wait for, but a day's window in which the operator can stop the month.
+    if (outcome.picks.length >= MIN_PICKS) {
+      await decideMonth(
+        month,
+        "automatic",
+        outcome.picks,
+        new Date(Date.now() + AUTOMATIC_SEND_DELAY_MS)
+      );
+    } else await skipMonth(month, "quiet");
   }
-  await settleQuietMonth(month);
+  // Otherwise the month waits for the operator's pick and decision.
 }
 
 export async function runWhatsNewDigestSelection(options: RunOptions = {}): Promise<RunSummary> {
@@ -160,8 +186,8 @@ export async function runWhatsNewDigestSelection(options: RunOptions = {}): Prom
     await collectNotes(month, config, options);
     record = await getMonth(month);
   }
-  if (record?.state === "waiting_for_model") {
-    await rankMonth(month, config, options);
+  if (record && needsRanking(record)) {
+    await rankMonth(month, record.state === "waiting_for_model", config, options);
     record = await getMonth(month);
   }
   if (!record)

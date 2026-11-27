@@ -18,6 +18,7 @@ import {
 } from "./stand-ins";
 import type { DigestOverview, MonthDetail } from "../approval";
 import { monthStart } from "../github";
+import { WHATS_NEW_PROMPT_VERSION } from "../model";
 import { previousMonth, runWhatsNewDigestSelection } from "../run";
 
 // The monthly selection against real PostgreSQL, a stand-in GitHub server and a stand-in model
@@ -271,7 +272,11 @@ describe("the monthly selection, through the daily route", { skip: !databaseUrl 
     assert.equal(model.requests.length, 1);
 
     const month = await detail(target);
-    assert.deepEqual([month.modelId, month.promptVersion], ["claude-haiku-5-5", "1"]);
+    // The identity of the ranking: the configured name, the model the API reported, the prompt's hash.
+    assert.deepEqual(
+      [month.modelId, month.modelReported, month.promptVersion],
+      ["claude-haiku-5-5", "claude-haiku-5-5", WHATS_NEW_PROMPT_VERSION]
+    );
     // Before the operator's own pick, neither the ranking nor an email built from it is on the page.
     assert.deepEqual(
       [month.canPickBlind, month.model, month.email, month.finalSelection],
@@ -565,17 +570,108 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
     await act({ action: "skip", month: "2040-07" });
   });
 
-  it("settles a quiet month when the operator's pick came before the model's answer", async () => {
+  it("skips a month at once on a blind pick of none, then still records the model's ranking for the measurement", async () => {
     // The month's calendar place is out of order on purpose: nothing earlier is open, so nothing lapses.
-    publish("2039-12", threeNotes());
+    const version = publish("2039-12", threeNotes());
     model.answers.push({ status: 500 }, { status: 500 });
     assert.equal((await build("2039-12")).state, "waiting_for_model");
     const picked = await act({ action: "blind_pick", month: "2039-12", selection: [] });
-    assert.equal(picked.body.month.state, "waiting_for_model");
+    assert.deepEqual(
+      [picked.body.month.state, picked.body.month.skipReason],
+      ["skipped", "operator"]
+    );
+    assert.equal(picked.body.month.rankingPending, true);
+    // No ranking yet, so nothing to count yet.
+    assert.equal(
+      (await overview()).measurement.run.some((entry) => entry.month === "2039-12"),
+      false
+    );
 
-    model.answers.push({ picks: [] });
+    // The next run asks the model once more; the answer is recorded and the month stays skipped.
+    model.requests.length = 0;
+    model.answers.push({ picks: three(version) });
     assert.equal((await build("2039-12")).state, "skipped");
-    assert.equal((await detail("2039-12")).skipReason, "quiet");
+    assert.equal(model.requests.length, 1);
+    const month = await detail("2039-12");
+    assert.deepEqual(
+      [month.state, month.skipReason, month.rankingPending],
+      ["skipped", "operator", false]
+    );
+    assert.equal(month.model?.selection.length, 3);
+    // The model would have sent and the operator did not: a disagreement, scored 0, that counts.
+    const share = (await overview()).measurement.run.find((entry) => entry.month === "2039-12");
+    assert.deepEqual(
+      [share?.both, share?.operatorPicks, share?.modelPicks, share?.passes],
+      [0, 0, 3, false]
+    );
+    // A skipped month is ranked once.
+    model.requests.length = 0;
+    await build("2039-12");
+    assert.equal(model.requests.length, 0);
+  });
+
+  it("reads a month skipped on a blind none as quiet when the model's ranking, arriving later, is none too", async () => {
+    publish("2039-11", threeNotes());
+    model.answers.push({ status: 500 }, { status: 500 });
+    await build("2039-11");
+    await act({ action: "blind_pick", month: "2039-11", selection: [] });
+    model.answers.push({ picks: [] });
+    await build("2039-11");
+    assert.deepEqual(
+      [(await detail("2039-11")).state, (await detail("2039-11")).skipReason],
+      ["skipped", "quiet"]
+    );
+    // Both sides picked none: quiet, and it does not count.
+    assert.equal(
+      (await overview()).measurement.run.some((entry) => entry.month === "2039-11"),
+      false
+    );
+  });
+
+  it("stops a month that is ready to queue, and refuses to stop one that is not", async () => {
+    const version = publish("2039-10", threeNotes());
+    model.answers.push({ picks: three(version) });
+    await build("2039-10");
+    // Not yet approved: nothing to stop (the operator skips instead).
+    assert.equal((await act({ action: "stop", month: "2039-10" })).status, 409);
+    await act({ action: "blind_pick", month: "2039-10", selection: three(version) });
+    assert.equal((await act({ action: "approve", month: "2039-10" })).body.month.canStop, true);
+
+    const stopped = await act({ action: "stop", month: "2039-10" });
+    assert.deepEqual(
+      [stopped.body.month.state, stopped.body.month.skipReason, stopped.body.month.canStop],
+      ["skipped", "operator", false]
+    );
+    // What was approved stays on record, and the month counts: its blind pick and ranking are in.
+    assert.equal(stopped.body.month.finalSelection?.length, 3);
+    assert.equal((await act({ action: "stop", month: "2039-10" })).status, 409);
+    assert.equal((await act({ action: "approve", month: "2039-10" })).status, 409);
+  });
+
+  it("stops early on a spent time budget, leaves the month waiting, and resumes from the record on the next run", async () => {
+    const version = publish("2039-09", threeNotes());
+    const before = github.requests.length;
+    // No time at all: nothing is requested, and the month is only recorded.
+    const none = await runWhatsNewDigestSelection({
+      now: nextMonth("2039-09"),
+      deadlineAt: Date.now() - 1,
+    });
+    assert.deepEqual([none.state, github.requests.length], ["waiting_for_notes", before]);
+
+    // Time for GitHub but not for a model attempt: the notes are kept, no model call is made,
+    // and the month is not marked as a model outage.
+    model.requests.length = 0;
+    const partial = await runWhatsNewDigestSelection({
+      now: nextMonth("2039-09"),
+      deadlineAt: Date.now() + 5_000,
+    });
+    assert.equal(partial.state, "waiting_for_model");
+    assert.equal(model.requests.length, 0);
+    assert.equal((await detail("2039-09")).modelStatus, null);
+
+    model.answers.push({ picks: three(version) });
+    assert.equal((await build("2039-09")).state, "awaiting_approval");
+    await act({ action: "skip", month: "2039-09" });
   });
 
   describe("sending without approval", () => {
@@ -609,11 +705,11 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
       const on = await act({ action: "set_switch", on: true });
       assert.equal(on.body.overview.switch.sendWithoutApproval, true);
       const { rows } = await database.pool.query(
-        "SELECT model_id, prompt_version, shares FROM exomem_whats_new_digest_switch"
+        "SELECT model_id, model_reported, prompt_version, shares FROM exomem_whats_new_digest_switch"
       );
       assert.deepEqual(
-        [rows[0].model_id, rows[0].prompt_version, rows[0].shares.length],
-        ["model-a", "1", 3]
+        [rows[0].model_id, rows[0].model_reported, rows[0].prompt_version, rows[0].shares.length],
+        ["model-a", "model-a", WHATS_NEW_PROMPT_VERSION, 3]
       );
     });
 
@@ -624,6 +720,10 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
       const month = await detail("2040-11");
       assert.deepEqual([month.state, month.decision], ["ready_to_queue", "automatic"]);
       assert.equal(month.blindPick, null);
+      // A day's window in which the operator can stop it: the fan-out starts only after it.
+      const waitMs = new Date(month.sendAfter!).getTime() - Date.now();
+      assert.ok(waitMs > 23 * 3_600_000 && waitMs <= 24 * 3_600_000, `send_after in ${waitMs} ms`);
+      assert.equal(month.canStop, true);
 
       publish("2040-12", threeNotes());
       model.answers.push({ picks: [] });
@@ -646,6 +746,18 @@ describe("the monthly selection's branches", { skip: !databaseUrl }, () => {
 
       const off = await act({ action: "set_switch", on: false });
       assert.equal(off.body.overview.switch.sendWithoutApproval, false);
+    });
+
+    it("asks for approval again when the API reports a different model under the same configured name", async () => {
+      process.env.EXOMEM_WHATS_NEW_MODEL = "model-a";
+      // Turn the switch on again: it records the identity measured, model-a as the API reported it.
+      assert.equal((await act({ action: "set_switch", on: true })).status, 200);
+      const version = publish("2041-02", threeNotes());
+      model.answers.push({ picks: three(version), model: "model-a-20261201" });
+      await build("2041-02");
+      assert.equal((await detail("2041-02")).state, "awaiting_approval");
+      assert.equal((await overview()).switch.applies, false);
+      await act({ action: "set_switch", on: false });
     });
   });
 });

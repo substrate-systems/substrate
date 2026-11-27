@@ -137,8 +137,8 @@ export async function startGitHub(releases: StandInRelease[] = []): Promise<GitH
 }
 
 export type ModelAnswer =
-  | { picks: Array<{ version: string; position: number }> }
-  | { status: number };
+  /** `model` is the model the API reports on the answer; it defaults to the model the request named. */
+  { picks: Array<{ version: string; position: number }>; model?: string } | { status: number };
 
 export type ModelStandIn = {
   origin: string;
@@ -186,8 +186,8 @@ export async function startModel(): Promise<ModelStandIn> {
         id: "msg_01StandIn",
         type: "message",
         role: "assistant",
-        model: "claude-haiku-5-5",
-        content: [{ type: "text", text: JSON.stringify(answer) }],
+        model: answer.model ?? requests.at(-1)?.json.model ?? "unknown",
+        content: [{ type: "text", text: JSON.stringify({ picks: answer.picks }) }],
         stop_reason: "end_turn",
         stop_sequence: null,
         usage: { input_tokens: 1200, output_tokens: 60 },

@@ -1395,10 +1395,18 @@ const EXOMEM_EMAILS = {
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;
 /** Every kind the outbox can send; `exomem_email_outbox_kind_check` must allow exactly these. */
 export const EXOMEM_EMAIL_KINDS = Object.keys(EXOMEM_EMAILS) as ExomemEmailKind[];
-const CLAIMED_LAST_KINDS = EXOMEM_EMAIL_KINDS.filter((kind) => EXOMEM_EMAILS[kind].claimedLast);
-const LOWEST_PRIORITY_KINDS = EXOMEM_EMAIL_KINDS.filter(
-  (kind) => EXOMEM_EMAILS[kind].lowestPriority
-);
+
+/**
+ * The send tier a kind's rows carry (`exomem_email_outbox.send_tier`): 0 for
+ * every kind without a tier of its own, 1 for `claimedLast` kinds, 2 for
+ * `lowestPriority` kinds. It is set at insert, so the claim's ORDER BY reads an
+ * index instead of sorting every pending row (migration 0099). The kind's
+ * definition above is the one place that says which tier it belongs to.
+ */
+export function exomemEmailSendTier(kind: ExomemEmailKind): 0 | 1 | 2 {
+  const definition: Pick<AnyDefinition, "claimedLast" | "lowestPriority"> = EXOMEM_EMAILS[kind];
+  return definition.lowestPriority ? 2 : definition.claimedLast ? 1 : 0;
+}
 
 type PayloadOf<K extends ExomemEmailKind> = NonNullable<
   ReturnType<(typeof EXOMEM_EMAILS)[K]["readPayload"]>
@@ -1442,14 +1450,15 @@ export async function enqueueExomemEmails<K extends ExomemEmailKind>(
   const { rows } = await tx`
     /* exomem:enqueue-email */
     INSERT INTO exomem_email_outbox (
-      kind, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice, tenant_id,
-      payload_ciphertext, not_before, due_at, expires_at
+      kind, send_tier, dedupe_key, recipient, recipient_time_zone, recipient_email_scheme, recipient_theme_choice,
+      tenant_id, payload_ciphertext, not_before, due_at, expires_at
     )
-    SELECT item.kind, item.dedupe_key, item.recipient, item.time_zone, item.email_scheme, item.theme_choice,
-           item.tenant_id, item.payload::jsonb, COALESCE(item.not_before, now()),
+    SELECT item.kind, item.send_tier, item.dedupe_key, item.recipient, item.time_zone, item.email_scheme,
+           item.theme_choice, item.tenant_id, item.payload::jsonb, COALESCE(item.not_before, now()),
            COALESCE(item.not_before, now()), item.expires_at
     FROM unnest(
       ${inputs.map((input) => input.kind)}::text[],
+      ${inputs.map((input) => exomemEmailSendTier(input.kind))}::smallint[],
       ${inputs.map((input) => input.dedupeKey)}::text[],
       ${inputs.map((input) => input.recipient)}::text[],
       ${inputs.map((input) => input.recipientTimeZone)}::text[],
@@ -1459,8 +1468,8 @@ export async function enqueueExomemEmails<K extends ExomemEmailKind>(
       ${inputs.map((input) => sealExomemEmailPayload(input.kind, input.payload))}::text[],
       ${inputs.map((input) => input.notBefore?.toISOString() ?? null)}::timestamptz[],
       ${inputs.map((input) => input.expiresAt?.toISOString() ?? null)}::timestamptz[]
-    ) AS item(kind, dedupe_key, recipient, time_zone, email_scheme, theme_choice, tenant_id, payload,
-              not_before, expires_at)
+    ) AS item(kind, send_tier, dedupe_key, recipient, time_zone, email_scheme, theme_choice, tenant_id,
+              payload, not_before, expires_at)
     ON CONFLICT (dedupe_key) DO NOTHING
     RETURNING id
   `;
@@ -1553,8 +1562,10 @@ type OutboxRow = {
  * The row the drain takes next, in three tiers: every other kind first, then
  * anyone's flood of `claimedLast` kinds, then the `lowestPriority` bulk mail.
  * Within a tier the order is the one the outbox always had, `not_before` then
- * `created_at`. A row under a live lease is not ready, so a row that a request
- * is sending is not the drain's until its lease ends.
+ * `created_at`. The ORDER BY is the columns of `exomem_email_outbox_claim_idx`,
+ * so the claim stops at the first ready row however many digests wait. A row
+ * under a live lease is not ready, so a row that a request is sending is not
+ * the drain's until its lease ends.
  */
 async function selectNextRow(tx: ExomemSql): Promise<OutboxRow | undefined> {
   const { rows } = await tx`
@@ -1564,10 +1575,7 @@ async function selectNextRow(tx: ExomemSql): Promise<OutboxRow | undefined> {
     FROM exomem_email_outbox
     WHERE (state = 'pending' AND not_before <= now())
        OR (state = 'leased' AND lease_expires_at <= now())
-    ORDER BY CASE WHEN kind = ANY(${LOWEST_PRIORITY_KINDS}::text[]) THEN 2
-                  WHEN kind = ANY(${CLAIMED_LAST_KINDS}::text[]) THEN 1
-                  ELSE 0 END,
-             not_before, created_at
+    ORDER BY send_tier, not_before, created_at
     FOR UPDATE SKIP LOCKED
     LIMIT 1
   `;

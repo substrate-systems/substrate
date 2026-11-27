@@ -8,7 +8,13 @@
 import { exomemErrors, ExomemHostedError } from "../errors";
 import { parseMonthName, whatsNewDigestConfig } from "./config";
 import { previewWhatsNewDigestEmail } from "./email";
-import { measure, switchApplies, type Measurement, type MonthShare } from "./measurement";
+import {
+  MONTHS_TO_MEASURE,
+  measure,
+  switchApplies,
+  type Measurement,
+  type MonthShare,
+} from "./measurement";
 import { MAX_PICKS, MIN_PICKS, WHATS_NEW_PROMPT_VERSION } from "./model";
 import { unsubscribeKeyConfigured } from "./unsubscribe";
 import {
@@ -17,15 +23,16 @@ import {
   currentSwitch,
   decideMonth,
   getMonth,
-  listDecidedMonths,
+  listCountableMonths,
   listMonths,
   listReleases,
   missingReleases,
+  needsRanking,
   notesOfReleases,
   recordBlindPick,
   recordSwitch,
-  settleQuietMonth,
   skipMonth,
+  stopMonth,
   type MonthRecord,
   type ReleaseProblem,
   type SkipReason,
@@ -82,9 +89,13 @@ export type MonthSummary = {
   modelStatus: MonthRecord["modelStatus"];
   decision: MonthRecord["decision"];
   lastCheckedAt: string | null;
+  /** When a ready month's digests may start to queue; `null` before a decision. */
+  sendAfter: string | null;
 };
 
 export type DigestOverview = {
+  /** The server's time (ISO) when it read this: the page's stop-window sentences are relative to it. */
+  at: string;
   months: MonthSummary[];
   /** The key and model are configured now; a month waits in "model not configured" while they are not. */
   modelConfigured: boolean;
@@ -99,9 +110,11 @@ export type DigestOverview = {
     monthsToMeasure: number;
     complete: boolean;
     allPass: boolean;
+    /** The first three pass, but a later counted month scored below two thirds. */
+    withdrawn: boolean;
     offered: boolean;
   };
-  /** The operator's recorded choice, and whether it applies to the model and prompt configured now. */
+  /** The operator's recorded choice, and whether it applies to the identity of the latest ranking. */
   switch: { sendWithoutApproval: boolean; recordedAt: string | null; applies: boolean };
 };
 
@@ -110,12 +123,16 @@ const MONTHS_LISTED = 24;
 export async function describeOverview(): Promise<DigestOverview> {
   const [months, decided, recordedSwitch] = await Promise.all([
     listMonths(MONTHS_LISTED),
-    listDecidedMonths(),
+    listCountableMonths(),
     currentSwitch(),
   ]);
   const model = configured();
   const measurement: Measurement = measure(decided, model);
+  // The model that the API reports is known only from a ranking: the switch holds
+  // while the latest ranking was made under the identity it was measured under.
+  const latestRanked = months.find((month) => month.modelReported !== null);
   return {
+    at: new Date().toISOString(),
     months: months.map((month) => ({
       month: month.month,
       state: month.state,
@@ -123,6 +140,7 @@ export async function describeOverview(): Promise<DigestOverview> {
       modelStatus: month.modelStatus,
       decision: month.decision,
       lastCheckedAt: month.lastCheckedAt?.toISOString() ?? null,
+      sendAfter: month.sendAfter?.toISOString() ?? null,
     })),
     modelConfigured: whatsNewDigestConfig().anthropicApiKey !== null,
     firstMonth: whatsNewDigestConfig().firstMonth,
@@ -131,15 +149,18 @@ export async function describeOverview(): Promise<DigestOverview> {
     measurement: {
       run: measurement.run,
       measured: measurement.measured,
-      monthsToMeasure: 3,
+      monthsToMeasure: MONTHS_TO_MEASURE,
       complete: measurement.complete,
       allPass: measurement.allPass,
+      withdrawn: measurement.withdrawn,
       offered: measurement.offered,
     },
     switch: {
       sendWithoutApproval: recordedSwitch?.sendWithoutApproval === true,
       recordedAt: recordedSwitch?.recordedAt.toISOString() ?? null,
-      applies: switchApplies(recordedSwitch, model),
+      applies:
+        latestRanked?.modelReported != null &&
+        switchApplies(recordedSwitch, { ...model, modelReported: latestRanked.modelReported }),
     },
   };
 }
@@ -154,12 +175,17 @@ const view = (note: MonthNote): NoteView => ({
 });
 
 export type MonthDetail = {
+  /** The server's time (ISO) when it read this month. */
+  at: string;
   month: string;
   state: MonthState;
   skipReason: SkipReason | null;
   modelStatus: MonthRecord["modelStatus"];
   modelId: string | null;
+  modelReported: string | null;
   promptVersion: string | null;
+  /** The month is skipped after the operator's blind pick and its ranking is not in yet: it is still to be recorded. */
+  rankingPending: boolean;
   releases: {
     total: number;
     acceptedWithout: number;
@@ -174,6 +200,10 @@ export type MonthDetail = {
   model: { selection: NoteView[]; leftOut: NoteView[] } | null;
   decision: MonthRecord["decision"];
   finalSelection: NoteView[] | null;
+  /** When the digests may start to queue: later than now means the operator's stop window is open. */
+  sendAfter: string | null;
+  /** The operator may stop the month: it is ready to queue or queued. */
+  canStop: boolean;
   /** Digests the delivery job has queued for the month so far. */
   queuedCount: number;
   /** The email of the final selection, or of the model's when the month is undecided. */
@@ -198,12 +228,15 @@ export async function describeMonth(month: string): Promise<MonthDetail> {
   const picked = new Set((record.modelSelection ?? []).map(noteKey));
   const shown = record.finalSelection ? pick(record.finalSelection) : modelSelection;
   return {
+    at: new Date().toISOString(),
     month,
     state: record.state,
     skipReason: record.skipReason,
     modelStatus: record.modelStatus,
     modelId: record.modelId,
+    modelReported: record.modelReported,
     promptVersion: record.promptVersion,
+    rankingPending: needsRanking(record) && record.state === "skipped",
     releases: {
       total: releases.length,
       acceptedWithout: releases.filter((release) => release.acceptedWithoutAt).length,
@@ -227,6 +260,8 @@ export async function describeMonth(month: string): Promise<MonthDetail> {
       : null,
     decision: record.decision,
     finalSelection: pick(record.finalSelection),
+    sendAfter: record.sendAfter?.toISOString() ?? null,
+    canStop: record.state === "ready_to_queue" || record.state === "queued",
     queuedCount: record.queuedCount,
     // The email is built from the ranking, so it also waits for the blind pick (unless the month is decided).
     email:
@@ -260,9 +295,10 @@ async function requireMonth(value: unknown): Promise<MonthRecord> {
 }
 
 /**
- * The operator's actions on a month. `blind_pick` and `edit` take `selection`;
- * `accept_missing` takes `versions`; `approve` and `skip` take the month alone;
- * `set_switch` takes `on` and no month. Each returns the month's new detail.
+ * The operator's actions on a month. `blind_pick` and `edit` take `selection`
+ * (a blind pick of none skips the month); `accept_missing` takes `versions`;
+ * `approve`, `skip` and `stop` take the month alone; `set_switch` takes `on` and
+ * no month. Each returns the month's new detail.
  */
 export async function applyDigestAction(
   body: Record<string, unknown>
@@ -271,21 +307,27 @@ export async function applyDigestAction(
     if (typeof body.on !== "boolean") throw errors.invalid();
     const model = configured();
     if (body.on) {
-      const measurement = measure(await listDecidedMonths(), model);
+      const measurement = measure(await listCountableMonths(), model);
       if (!measurement.offered) throw errors.switchNotOffered();
+      // The identity measured: the same on each of the three months.
+      const { modelId, modelReported, promptVersion } = measurement.measured[0];
       await recordSwitch({
         sendWithoutApproval: true,
-        ...model,
-        shares: measurement.measured.map(({ month, both, operatorPicks }) => ({
+        modelId,
+        modelReported,
+        promptVersion,
+        shares: measurement.measured.map(({ month, both, operatorPicks, modelPicks }) => ({
           month,
           both,
           operatorPicks,
+          modelPicks,
         })),
       } satisfies Omit<SwitchRecord, "recordedAt">);
     } else {
       await recordSwitch({
         sendWithoutApproval: false,
         modelId: null,
+        modelReported: null,
         promptVersion: null,
         shares: [],
       });
@@ -299,7 +341,6 @@ export async function applyDigestAction(
     case "blind_pick": {
       const picks = await monthSelection(month, body.selection, true);
       if (!(await recordBlindPick(month, picks))) throw errors.state();
-      await settleQuietMonth(month);
       break;
     }
     case "accept_missing": {
@@ -331,6 +372,9 @@ export async function applyDigestAction(
     }
     case "skip":
       if (!(await skipMonth(month, "operator"))) throw errors.state();
+      break;
+    case "stop":
+      if (!(await stopMonth(month))) throw errors.state();
       break;
     default:
       throw errors.invalid();

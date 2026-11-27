@@ -17,8 +17,30 @@ export function monthTitle(month: string): string {
   );
 }
 
+/** "27 Nov 2026, 19:04 UTC" for an ISO time. */
+export function timeLabel(iso: string): string {
+  return `${new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(iso))} UTC`;
+}
+
+/** The month's state as the list shows it: a ready month inside its stop window says when it sends. */
+export function listedState(
+  entry: { state: string; sendAfter: string | null },
+  now: number
+): string {
+  return entry.state === "ready_to_queue" && entry.sendAfter && Date.parse(entry.sendAfter) > now
+    ? `ready, sends after ${timeLabel(entry.sendAfter)}`
+    : entry.state.replaceAll("_", " ");
+}
+
 /** One sentence that says where the month stands, computed from what the server holds. */
-export function stateSentence(month: MonthDetail, modelConfigured: boolean): string {
+export function stateSentence(month: MonthDetail, modelConfigured: boolean, now: number): string {
   switch (month.state) {
     case "waiting_for_notes":
       return `Waiting for the notes of ${month.releases.missing.length} ${month.releases.missing.length === 1 ? "release" : "releases"}.`;
@@ -33,20 +55,31 @@ export function stateSentence(month: MonthDetail, modelConfigured: boolean): str
       return month.blindPick === null
         ? "Waiting for your own pick, then your decision."
         : "Waiting for your decision.";
-    case "ready_to_queue":
-      return month.decision === "automatic"
-        ? "Ready to queue: sent on without approval."
-        : month.decision === "edited"
-          ? "Ready to queue: approved after your edit."
-          : "Ready to queue: approved as ranked.";
+    case "ready_to_queue": {
+      const how =
+        month.decision === "automatic"
+          ? "sent on without approval"
+          : month.decision === "edited"
+            ? "approved after your edit"
+            : "approved as ranked";
+      return month.sendAfter && Date.parse(month.sendAfter) > now
+        ? `Ready, sends after ${timeLabel(month.sendAfter)} (${how}). Stop it before then if it should not go.`
+        : `Ready to queue: ${how}.`;
+    }
     case "queued":
       return `Queued: ${month.queuedCount} ${month.queuedCount === 1 ? "digest" : "digests"} went to the outbox. Each sends behind every other email.`;
     case "skipped":
-      return month.skipReason === "quiet"
-        ? "Skipped: a quiet month, the model and you picked none."
-        : month.skipReason === "too_few_notes"
-          ? `Skipped: ${month.notes.length} notes is under the bar of ${MIN_NOTES}.`
-          : "Skipped: nothing is sent for this month.";
+      if (month.skipReason === "quiet")
+        return "Skipped: a quiet month, the model and you picked none.";
+      if (month.skipReason === "too_few_notes")
+        return `Skipped: ${month.notes.length} notes is under the bar of ${MIN_NOTES}.`;
+      if (month.decision !== null)
+        return "Stopped after approval. Digests still waiting in the outbox are cancelled when they would send.";
+      if (month.rankingPending)
+        return "Skipped on your pick of none. The model's ranking is still to be recorded for the measurement.";
+      return month.blindPick?.length === 0
+        ? "Skipped on your pick of none. The model's ranking is recorded for the measurement."
+        : "Skipped: nothing is sent for this month.";
     case "lapsed":
       return "Lapsed, not approved. Nothing is sent for this month.";
   }

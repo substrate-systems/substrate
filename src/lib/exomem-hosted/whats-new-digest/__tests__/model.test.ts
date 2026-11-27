@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { whatsNewDigestConfig } from "../config";
-import { rankMonthNotes } from "../model";
+import { rankMonthNotes, WHATS_NEW_PROMPT_VERSION } from "../model";
 import type { MonthNote } from "../notes";
 import { startModel, type ModelStandIn } from "./stand-ins";
 
@@ -40,7 +40,8 @@ describe("the monthly ranking call", () => {
       kind: "ranked",
       picks: [],
       modelId: "claude-haiku-5-5",
-      promptVersion: "1",
+      modelReported: "claude-haiku-5-5",
+      promptVersion: WHATS_NEW_PROMPT_VERSION,
     });
   });
 
@@ -66,6 +67,25 @@ describe("the monthly ranking call", () => {
     model.answers.push({ status: 401 });
     assert.deepEqual(await rank(), { kind: "unavailable" });
     assert.equal(model.requests.length, 1);
+  });
+
+  it("records the model the API reports, which can differ from the configured name", async () => {
+    model.answers.push({ picks: at(0, 1, 2), model: "claude-haiku-5-5-20261001" });
+    const outcome = await rank();
+    assert.ok(outcome.kind === "ranked");
+    assert.deepEqual(
+      [outcome.modelId, outcome.modelReported],
+      ["claude-haiku-5-5", "claude-haiku-5-5-20261001"]
+    );
+  });
+
+  it("makes no call when the run's time budget cannot cover an attempt", async () => {
+    model.requests.length = 0;
+    model.answers.push({ picks: at(0, 1, 2) });
+    const outcome = await rankMonthNotes(notes, config(), { deadlineAt: Date.now() + 1_000 });
+    assert.deepEqual(outcome, { kind: "out_of_time" });
+    assert.equal(model.requests.length, 0);
+    model.answers.length = 0;
   });
 
   it("makes no call without a key", async () => {
