@@ -20,6 +20,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { whatsNewDigestConfig, type WhatsNewDigestConfig } from "./config";
 import { UNSUBSCRIBE_PAGE_PATH, UNSUBSCRIBE_POST_PATH } from "./unsubscribe-paths";
+import { exomemPageUrl } from "../public-origin";
 
 const PURPOSE = "whats-new-digest-unsubscribe";
 const MAC_LABEL = "exomem-whats-new-digest-unsubscribe:v1\0";
@@ -163,7 +164,7 @@ export function unsubscribeAddresses(
   const token = signUnsubscribeToken(tenantId, key);
   const post = new URL(UNSUBSCRIBE_POST_PATH, `${publicBaseUrl}/`);
   post.searchParams.set("token", token);
-  const page = new URL(UNSUBSCRIBE_PAGE_PATH, `${publicBaseUrl}/`);
+  const page = exomemPageUrl(publicBaseUrl, UNSUBSCRIBE_PAGE_PATH);
   page.hash = token;
   return { post: post.toString(), page: page.toString() };
 }

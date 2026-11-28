@@ -61,7 +61,7 @@ export const config = {
     },
     {
       source:
-        "/:page(access-log|authorize|delete|design-system|email-change|email-preview|home|invite|operator|setup|sign-in|viewer)/:path((?!.*\\.).*)?",
+        "/:page(access-log|authorize|delete|design-system|email-change|email-preview|home|invite|operator|setup|sign-in|unsubscribe|viewer)/:path((?!.*\\.).*)?",
       missing: [
         { type: "header", key: "rsc" },
         { type: "header", key: "next-router-prefetch" },

@@ -25,6 +25,7 @@ export const PRODUCT_APP_PAGES = [
   "operator",
   "setup",
   "sign-in",
+  "unsubscribe",
   "viewer",
 ] as const;
 
