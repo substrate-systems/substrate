@@ -48,6 +48,28 @@ test("in-page links reach their sections", async ({ page }) => {
   }
 });
 
+test("How it works and its old deep link reach the same section", async ({ page }) => {
+  await page.goto("/exomem");
+  const section = page.getByRole("heading", { name: "Built to change without forgetting." });
+  const links = page.getByRole("link", { name: "How it works", exact: true });
+  for (const link of await links.all()) {
+    await expect(link).toHaveAttribute("href", "#how-it-works");
+  }
+  await links.first().click();
+  await expect(page).toHaveURL(/#how-it-works$/);
+  await expect(section).toBeInViewport();
+
+  await page.goto("/exomem?from=old-link#lp-true");
+  await expect(section).toBeInViewport();
+});
+
+test("the company byline leads to the company site", async ({ page }) => {
+  await page.goto("/exomem");
+  await expect(
+    page.getByRole("link", { name: "by Substrate Systems", includeHidden: true })
+  ).toHaveAttribute("href", "https://substratesystems.io/");
+});
+
 test("the proof shows the measured recall", async ({ page }) => {
   const figures = proofFigures(recallBenchmarks);
   await page.goto("/exomem");

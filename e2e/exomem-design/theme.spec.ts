@@ -77,7 +77,9 @@ test("keeps a menu preference across navigation and reload", async ({ page }) =>
   await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Theme: Light", exact: true }).first()).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Theme: Light", exact: true }).first()
+  ).toBeFocused();
   await expect(root(page)).toHaveAttribute("data-theme", "light");
 
   await page.goto("/exomem");
@@ -104,28 +106,17 @@ test("keeps a menu preference across navigation and reload", async ({ page }) =>
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 248, 244)");
 });
 
-test("leaves the rest of the site when a link leads off /exomem", async ({ page }) => {
-  await storeTheme(page, "light");
-  await page.goto("/exomem");
-  await expect(root(page)).toHaveAttribute("data-exomem", "");
-
-  // The landing's "by Substrate Systems" link is a client-side navigation: no reload clears <html>.
-  await page.getByRole("link", { name: "by Substrate Systems", exact: true }).click();
-  await page.waitForURL("/");
-
-  await expect(root(page)).not.toHaveAttribute("data-exomem");
-  await expect(root(page)).not.toHaveAttribute("data-theme");
-});
-
-test("leaves the rest of the site from an Exomem 404", async ({ page }) => {
+test("clears the product theme on client-side navigation from an Exomem 404", async ({ page }) => {
   await storeTheme(page, "light");
   // The site-wide 404 renders here, outside the Exomem pages' own layout.
   await page.goto("/exomem/does-not-exist");
   await expect(root(page)).toHaveAttribute("data-exomem", "");
+  const documentStart = await page.evaluate(() => performance.timeOrigin);
 
   await page.getByRole("main").getByRole("link", { name: "Home", exact: true }).click();
   await page.waitForURL("/");
 
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(documentStart);
   await expect(root(page)).not.toHaveAttribute("data-exomem");
   await expect(root(page)).not.toHaveAttribute("data-theme");
 });

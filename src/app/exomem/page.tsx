@@ -43,6 +43,7 @@ export const metadata = buildExomemMetadata({
 // The header logo's height (the canon's one logo position). The brand row takes the
 // same height, so the byline's descent cannot pull the logo off its 29 px top edge.
 const HEADER_WORDMARK_HEIGHT = 17;
+const HOW_IT_WORKS_ID = "how-it-works";
 
 const GITHUB = "https://github.com/substrate-systems/evermatter";
 const PYPI = "https://pypi.org/project/exomem/";
@@ -223,7 +224,7 @@ export default function ExomemPage() {
 
   // The phone board's footer, in its order; the desktop board draws none (design.md (x)).
   const footerLinks = [
-    { label: "How it works", href: "#lp-true" },
+    { label: "How it works", href: `#${HOW_IT_WORKS_ID}` },
     { label: "Benchmarks", href: "#lp-proof" },
     { label: "Pricing", href: "#lp-doors" },
     { label: "Docs", href: "/exomem/docs" },
@@ -253,13 +254,16 @@ export default function ExomemPage() {
             <span className={`${styles.wordmark} ${responsive.phoneOnly}`}>
               <Wordmark height={HEADER_WORDMARK_HEIGHT} />
             </span>
-            <Link href="/" className={`exo-link-ts ${styles.byline} ${responsive.deskOnly}`}>
+            <a
+              href={`${siteConfig.url}/`}
+              className={`exo-link-ts ${styles.byline} ${responsive.deskOnly}`}
+            >
               by Substrate Systems
-            </Link>
+            </a>
           </div>
           <nav className={styles.nav} aria-label="Evermatter">
             <a
-              href="#lp-true"
+              href={`#${HOW_IT_WORKS_ID}`}
               className={`exo-link-ts ${styles.sectionLink} ${responsive.deskOnly}`}
             >
               How it works
@@ -341,7 +345,13 @@ export default function ExomemPage() {
             ))}
           </section>
 
-          <section id="lp-true" className={`${styles.section} ${styles.pillars}`} data-sec="true">
+          {/* Keep the old fragment at the same scroll position for inbound links. */}
+          <div id="lp-true" aria-hidden="true" />
+          <section
+            id={HOW_IT_WORKS_ID}
+            className={`${styles.section} ${styles.pillars}`}
+            data-sec="true"
+          >
             <Eyebrow>01 · How it stays true</Eyebrow>
             <h2 className={styles.h2}>Built to change without forgetting.</h2>
             <div className={styles.pillarGrid}>
