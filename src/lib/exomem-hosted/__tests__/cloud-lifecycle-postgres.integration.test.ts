@@ -107,6 +107,7 @@ const PADDLE_CONFIG: ExomemPaddleConfig = {
   friendPriceId: null,
   friendDiscountId: null,
   checkoutUrl: null,
+  ownCheckoutUrls: [],
   apiKey: "fake-test-key",
   webhookSecret: null,
   clientToken: null,

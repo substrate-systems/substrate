@@ -67,11 +67,14 @@ describe("the theme is applied before first paint", () => {
       runBeforePaint(pathname, () => null, "light", "", site).get("data-theme");
     assert.equal(themed("/"), "light");
     assert.equal(themed("/docs"), "light");
+    assert.equal(themed("/home"), "light");
+    assert.equal(themed("/email-change/confirm"), "light");
     // Company pages that also answer on the product host keep the company look.
     assert.equal(themed("/blog"), undefined);
     // The same root paths on the company host are company pages.
     const company = { hostname: "company.example.test", productHost: "product.example.test" };
     assert.equal(themed("/", company), undefined);
+    assert.equal(themed("/home", company), undefined);
   });
 
   it("leaves the rest of the site untouched", () => {

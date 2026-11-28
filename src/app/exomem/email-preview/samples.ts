@@ -32,6 +32,7 @@ import {
   renderExomemSubscriptionEndedEmail,
   renderExomemVaultImportedEmail,
 } from "@/lib/email-templates/exomem-lifecycle";
+import { exomemPageUrl } from "@/lib/exomem-hosted/public-origin";
 
 export type EmailSample = { id: string; number: string; note: string; email: RenderedExomemEmail };
 
@@ -42,7 +43,7 @@ const DAY = 24 * HOUR;
 
 export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSample[] {
   const at = (ms: number) => new Date(now.getTime() + ms);
-  const url = (path: string) => new URL(path, `${publicBaseUrl}/`).toString();
+  const url = (path: string) => exomemPageUrl(publicBaseUrl, path).toString();
   const link = (path: string) => `${url(path)}#sample-token`;
   const home = url("/exomem/home");
   const support = url("/exomem/support");

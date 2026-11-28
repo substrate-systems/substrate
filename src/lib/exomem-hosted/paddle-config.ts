@@ -1,3 +1,4 @@
+import { appOrigins } from "../exomem/product-site";
 import { exomemHomeUrl, parseExomemPublicBaseUrl } from "./public-origin";
 
 export const EXOMEM_PADDLE_PRODUCT_KEY = "exomem-hosted" as const;
@@ -23,6 +24,11 @@ export type ExomemPaddleConfig = Readonly<{
   /** The one recurring Paddle discount that carries the friend price, if configured. */
   friendDiscountId: string | null;
   checkoutUrl: string | null;
+  /**
+   * Home on each app origin. An open transaction keeps the checkout URL it was made with, so one
+   * made before sign-in moved, or before a rollback, still resumes.
+   */
+  ownCheckoutUrls: readonly string[];
   apiKey: string | null;
   webhookSecret: string | null;
   clientToken: string | null;
@@ -64,7 +70,7 @@ function checkoutUrl(env: EnvironmentSource): string | null {
   }
   try {
     const origin = parseExomemPublicBaseUrl(configuredOrigin, runtimeEnvironment);
-    return exomemHomeUrl(origin);
+    return exomemHomeUrl(origin, undefined, env);
   } catch {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }
@@ -173,6 +179,11 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
     friendPriceId,
     friendDiscountId,
     checkoutUrl: checkoutReturnUrl,
+    ownCheckoutUrls: checkoutReturnUrl
+      ? appOrigins(new URL(checkoutReturnUrl).origin, env).map((origin) =>
+          exomemHomeUrl(origin, undefined, env)
+        )
+      : [],
     apiKey,
     webhookSecret,
     clientToken,
@@ -203,6 +214,7 @@ export function loadExomemPaddleTransactionConfig(
     friendPriceId: null,
     friendDiscountId: null,
     checkoutUrl: null,
+    ownCheckoutUrls: [],
     apiKey,
     webhookSecret: null,
     clientToken: null,

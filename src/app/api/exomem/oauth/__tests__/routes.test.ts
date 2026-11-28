@@ -338,7 +338,10 @@ before(() => {
     },
   });
   mock.module("@/lib/exomem-hosted/public-origin", {
-    namedExports: { exomemPublicBaseUrlFromEnv: () => BASE_URL },
+    namedExports: {
+      exomemPublicBaseUrlFromEnv: () => BASE_URL,
+      exomemPublicPageUrl: (path: string) => new URL(path, BASE_URL),
+    },
   });
   mock.module("@/lib/exomem-hosted/sessions", {
     namedExports: {

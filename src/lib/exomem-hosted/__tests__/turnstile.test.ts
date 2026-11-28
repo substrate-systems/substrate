@@ -16,7 +16,7 @@ function dependencies(overrides: Partial<TurnstileDependencies>): Partial<Turnst
     fetch: siteverifyAnswering({ success: true, action: "start", hostname: "substratesystems.io" }),
     secretKey: SECRET,
     deploymentEnvironment: "production",
-    expectedHostname: () => "substratesystems.io",
+    expectedHostnames: () => ["substratesystems.io"],
     logError: () => undefined,
     ...overrides,
   };
@@ -54,6 +54,40 @@ describe("Turnstile siteverify", () => {
       })
     );
     assert.equal(verdict, "passed");
+  });
+
+  // Sign-in moves from the company site to the product site in one deploy. A visitor who solved
+  // the challenge on either app host just before it must still get their email.
+  it("passes a start token made on either app host, and no other host", async () => {
+    const saved = {
+      base: process.env.EXOMEM_PUBLIC_BASE_URL,
+      site: process.env.EVERMATTER_SITE_ORIGIN,
+    };
+    process.env.EVERMATTER_SITE_ORIGIN = "https://evermatter.ai";
+    // The real hostname list, read from the settings above.
+    const real = dependencies({});
+    delete real.expectedHostnames;
+    const verdictFor = (hostname: string) =>
+      verifyTurnstileToken(
+        { token: "token-from-the-widget", remoteIp: null },
+        {
+          ...real,
+          fetch: siteverifyAnswering({ success: true, action: "start", hostname }),
+        }
+      );
+    try {
+      for (const base of ["https://substratesystems.io", "https://evermatter.ai"]) {
+        process.env.EXOMEM_PUBLIC_BASE_URL = base;
+        assert.equal(await verdictFor("substratesystems.io"), "passed", base);
+        assert.equal(await verdictFor("evermatter.ai"), "passed", base);
+        assert.equal(await verdictFor("attacker.example"), "failed", base);
+      }
+    } finally {
+      if (saved.base === undefined) delete process.env.EXOMEM_PUBLIC_BASE_URL;
+      else process.env.EXOMEM_PUBLIC_BASE_URL = saved.base;
+      if (saved.site === undefined) delete process.env.EVERMATTER_SITE_ORIGIN;
+      else process.env.EVERMATTER_SITE_ORIGIN = saved.site;
+    }
   });
 
   // A replayed token must be refused, not waved through as "cannot run".

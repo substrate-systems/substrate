@@ -6,7 +6,7 @@ import { Notice } from "@/components/exomem/Notice";
 import { StorageDialog } from "./home-storage";
 import { ImportDocuments } from "./home-import";
 import { AccountEmailChange } from "./account-email-change";
-import { csrfCookie } from "@/lib/exomem-hosted/hosted-browser";
+import { appPagePathHere, csrfCookie } from "@/lib/exomem-hosted/hosted-browser";
 import { HOME_YOUR_DATA_ANCHOR } from "@/lib/exomem/home-anchors";
 import { usePaddlePricePreview } from "@/lib/paddle";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
@@ -170,7 +170,7 @@ export default function HomeClient({
   const signOutResult = useRef<Promise<boolean> | null>(null);
   const goToSignIn = useCallback(async () => {
     // Wait for logout: late unauthorized reads redirect only when that logout failed.
-    if (!(await signOutResult.current)) window.location.replace("/exomem/sign-in");
+    if (!(await signOutResult.current)) window.location.replace(appPagePathHere("/exomem/sign-in"));
   }, []);
   const [deleteStep, setDeleteStep] = useState<DeleteStep | null>(null);
   const [storageOpen, setStorageOpen] = useState(false);
@@ -188,7 +188,10 @@ export default function HomeClient({
   useEffect(() => {
     try {
       const returned = window.sessionStorage.getItem(PENDING_TRANSACTION_KEY);
-      if (returned) window.location.replace(`/exomem/setup?_ptxn=${encodeURIComponent(returned)}`);
+      if (returned)
+        window.location.replace(
+          appPagePathHere(`/exomem/setup?_ptxn=${encodeURIComponent(returned)}`)
+        );
     } catch {
       /* The URL return works when browser storage is unavailable. */
     }
@@ -435,7 +438,7 @@ export default function HomeClient({
 
   async function onBilling(kind: "portal" | "checkout", control: BillingControl) {
     if (kind === "checkout") {
-      window.location.assign("/exomem/setup");
+      window.location.assign(appPagePathHere("/exomem/setup"));
       return;
     }
     setBillingBusy(true);
@@ -632,7 +635,10 @@ export default function HomeClient({
         onSend={() => void onSendDeletion()}
         onClose={() => setDeleteStep(null)}
       />
-      <SignedOutDialog open={signedOut} onDone={() => window.location.replace("/exomem")} />
+      <SignedOutDialog
+        open={signedOut}
+        onDone={() => window.location.replace(appPagePathHere("/exomem"))}
+      />
     </>
   );
   const message = pageMessage && (

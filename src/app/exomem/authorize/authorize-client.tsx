@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { FieldKind } from "@/components/exomem/FlowField";
 import { CheckoutInline } from "@/components/exomem/CheckoutInline";
+import { appPagePathHere } from "@/lib/exomem-hosted/hosted-browser";
 import type { Known } from "@/lib/exomem-hosted/known";
 import { openBillingPortal, signOut } from "../_journey/account-actions";
 import {
@@ -365,7 +366,7 @@ function Consent({
   ) : null;
   const exportMemory = {
     label: request.exportOffered ? breakCopy.export : breakCopy.home,
-    onClick: () => window.location.assign("/exomem/home"),
+    onClick: () => window.location.assign(appPagePathHere("/exomem/home")),
   };
 
   let body;
@@ -607,7 +608,7 @@ function Consent({
           <StepActions
             primary={{
               label: breakCopy.suspended.contact,
-              onClick: () => window.location.assign("/exomem/support"),
+              onClick: () => window.location.assign(appPagePathHere("/exomem/support")),
             }}
             secondary={exportMemory}
           />

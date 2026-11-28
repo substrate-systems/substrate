@@ -17,7 +17,7 @@ import {
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
-import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { exomemPublicPageUrl } from "@/lib/exomem-hosted/public-origin";
 import {
   clientAddressKey,
   EXOMEM_RATE_LIMITS,
@@ -115,7 +115,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const response = NextResponse.redirect(
       connected
         ? authorizationRedirect(continuation, code.code)
-        : new URL(oauthConsentPath(transaction), exomemPublicBaseUrlFromEnv()),
+        : exomemPublicPageUrl(oauthConsentPath(transaction)),
       303
     );
     for (const [name, value] of Object.entries(oauthNoStoreHeaders()))

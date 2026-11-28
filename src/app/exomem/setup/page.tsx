@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { CLIENT_PLATFORM_LISTING_URLS } from "@/lib/exomem-hosted/client-platforms";
@@ -10,6 +10,7 @@ import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
 import { connectorSettingsUrl } from "@/lib/exomem-hosted/consent-view";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
+import { appPagePathOn } from "@/lib/exomem-hosted/public-origin";
 import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
@@ -69,7 +70,7 @@ export default async function SetupPage({
 }) {
   const cookieStore = await cookies();
   const facts = await setupFacts(cookieStore.get(EXOMEM_SESSION_COOKIE)?.value);
-  if (!facts) redirect("/exomem/sign-in");
+  if (!facts) redirect(appPagePathOn((await headers()).get("host"), "/exomem/sign-in"));
   const returned = (await searchParams)._ptxn;
   if (typeof returned === "string") facts.returnedTransactionId = returned;
   return <SetupClient facts={facts} statusPageUrl={statusPageUrl()} />;

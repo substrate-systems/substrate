@@ -77,6 +77,7 @@ import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import { CURRENCY_CODE, MONEY_MINOR_UNITS, type ExomemMoney } from "@/lib/exomem/money";
 import {
   exomemHomeUrl,
+  exomemPageUrl,
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
   parseExomemPublicBaseUrl,
@@ -354,7 +355,7 @@ function readServiceNoticePayload(value: Record<string, unknown>) {
 }
 
 function supportUrl(publicBaseUrl: string): string {
-  return new URL("/exomem/support", `${publicBaseUrl}/`).toString();
+  return exomemPageUrl(publicBaseUrl, "/exomem/support").toString();
 }
 
 /** Home's export, which an ended owner opens for a copy; null while Home offers no export. */
@@ -859,7 +860,7 @@ const EXOMEM_EMAILS = {
     addressee: (context) => context.owner,
     render: ({ payload, context, timeZone, emailScheme, themeChoice, publicBaseUrl }) =>
       renderExomemHoldReminderEmail({
-        setupUrl: new URL("/exomem/setup", `${publicBaseUrl}/`).toString(),
+        setupUrl: exomemPageUrl(publicBaseUrl, "/exomem/setup").toString(),
         holdEndsAt: new Date(payload.holdEndsAt),
         inviterName: context.inviterName,
         timeZone,

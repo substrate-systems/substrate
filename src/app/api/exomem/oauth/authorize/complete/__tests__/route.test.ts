@@ -36,7 +36,10 @@ before(() => {
     },
   });
   mock.module("@/lib/exomem-hosted/public-origin", {
-    namedExports: { exomemPublicBaseUrlFromEnv: () => "https://substratesystems.io" },
+    namedExports: {
+      exomemPublicBaseUrlFromEnv: () => "https://substratesystems.io",
+      exomemPublicPageUrl: (path: string) => new URL(path, "https://substratesystems.io"),
+    },
   });
   mock.module("@/lib/exomem-hosted/sessions", {
     namedExports: { resolveExomemSession: async () => ({ id: "session-1" }) },

@@ -145,6 +145,32 @@ export function cloudResourceForHost(
   return candidate && config.acceptedResources.includes(candidate) ? candidate : config.mcpUrl;
 }
 
+/**
+ * The app origin whose OAuth issuer the metadata of `resource` names, or null when the resource's
+ * host is none of them and sits under none of them (move-cloud-to-evermatter-hosts D4). An MCP
+ * host under the company site thus keeps the company issuer, and one under the product site gets
+ * the product site's, whatever the gateway's base URL says.
+ */
+export function cloudIssuerOrigin(resource: string, appOrigins: readonly string[]): string | null {
+  // App origins already serve metadata naming their own issuer, so a host match needs no host list.
+  const host = new URL(resource).hostname;
+  const pairs = (origin: string) => {
+    const appHost = new URL(origin).hostname;
+    return host === appHost || host.endsWith(`.${appHost}`);
+  };
+  return appOrigins.find(pairs) ?? null;
+}
+
+/** Why an accepted resource has no issuer to name, or null when every one pairs with an app origin. */
+export function cloudIssuerPairingProblem(
+  acceptedResources: readonly string[],
+  appOrigins: readonly string[]
+): string | null {
+  const unpaired = acceptedResources.find((resource) => !cloudIssuerOrigin(resource, appOrigins));
+  if (!unpaired) return null;
+  return `Cloud resource ${unpaired} is on none of the app origins' hosts (${appOrigins.join(", ")}): set EVERMATTER_SITE_ORIGIN to the site it is under, or remove it from EXOMEM_CLOUD_MCP_URLS`;
+}
+
 /** Whether a token or request bound to `resource` belongs to this Cloud. */
 export function isAcceptedCloudResource(
   config: Pick<ExomemCloudResource, "acceptedResources">,

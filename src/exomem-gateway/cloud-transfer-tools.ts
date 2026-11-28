@@ -20,7 +20,7 @@ import {
 import { HOME_YOUR_DATA_ANCHOR } from "../lib/exomem/home-anchors";
 import { readBoundedJsonRequest } from "../lib/exomem-hosted/bounded-json";
 import type { OAuthClientContext } from "../lib/exomem-hosted/oauth-client-context";
-import { exomemHomeUrl } from "../lib/exomem-hosted/public-origin";
+import { exomemHomeUrl, productSiteOrigin } from "../lib/exomem-hosted/public-origin";
 import {
   CLOUD_ARTIFACT_MAX_BYTES,
   CLOUD_ARTIFACT_MAX_FILES,
@@ -50,7 +50,11 @@ export type CloudTransferEnvironment = {
   /** The caller's own access token: the only credential sent to the web API. */
   bearer: string;
   mcpUrl: string;
-  /** Throws when the public base URL is not configured as an https origin. */
+  /**
+   * The web-API base for control-plane calls and the CLI's `--api-base-url`. The web API answers on
+   * both hosts and never redirects, so the company base stays valid until its host retires (D2).
+   * Throws when the public base URL is not configured as an https origin.
+   */
   publicBaseUrl: () => string;
   clientContext: OAuthClientContext;
   /** Whether the gateway signs artifact grants for the caller's cell. */
@@ -272,8 +276,10 @@ function importView(operation: CloudImport) {
   return view;
 }
 
+// The product site's Home serves in either sign-in state (before the move it redirects to the
+// company form), so the link follows EVERMATTER_SITE_ORIGIN, not the web-API base; unset, the base.
 function homeUrl(context: CloudTransferContext): string {
-  return exomemHomeUrl(context.publicBaseUrl, HOME_YOUR_DATA_ANCHOR);
+  return exomemHomeUrl(productSiteOrigin() ?? context.publicBaseUrl, HOME_YOUR_DATA_ANCHOR);
 }
 
 function exportView(summary: CloudExport, context: CloudTransferContext) {

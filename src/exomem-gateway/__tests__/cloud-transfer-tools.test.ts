@@ -285,6 +285,32 @@ describe("Cloud transfer tools in the gateway", () => {
     }
   });
 
+  // move-cloud-to-evermatter-hosts D4: the product site's Home serves in either sign-in state,
+  // while the web API keeps answering on the gateway's base.
+  it("links Home on the product site and keeps the web API and the command on the base", async () => {
+    const savedSite = process.env.EVERMATTER_SITE_ORIGIN;
+    process.env.EVERMATTER_SITE_ORIGIN = "https://product.example.test";
+    try {
+      const web = webApi({
+        "GET /api/exomem/cloud/imports": json({ import: importRow({ observed_state: "done" }) }),
+        "GET /api/exomem/cloud/exports": json({ export: exportRow() }),
+      });
+      const { text } = await callTool(
+        "observe_transfer",
+        {},
+        deps({ fetchControlPlane: web.fetchControlPlane })
+      );
+      const download = structured(text).export.download;
+      assert.equal(download.home_url, "https://product.example.test/home#your-data");
+      assert.deepEqual(download.cli_argv.slice(-2), ["--api-base-url", PUBLIC_BASE]);
+      assert.equal(web.calls.length, 2);
+      for (const call of web.calls) assert.equal(call.url.startsWith(`${PUBLIC_BASE}/`), true);
+    } finally {
+      if (savedSite === undefined) delete process.env.EVERMATTER_SITE_ORIGIN;
+      else process.env.EVERMATTER_SITE_ORIGIN = savedSite;
+    }
+  });
+
   it("refuses a malformed id or an unknown key before any web call", async () => {
     const web = webApi({});
     const dependencies = deps({ fetchControlPlane: web.fetchControlPlane });

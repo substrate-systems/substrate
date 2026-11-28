@@ -16,7 +16,7 @@ import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import { isSafeLoopbackOAuthRedirect } from "@/lib/exomem-hosted/oauth-client-admission";
 import { validOrigin } from "@/lib/exomem-hosted/oauth-consent";
 import { oauthNoStoreHeaders, readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
-import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { exomemPublicPageUrl } from "@/lib/exomem-hosted/public-origin";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
@@ -81,7 +81,7 @@ function expiredConsentPage(): NextResponse {
 }
 
 function consentPageRedirect(path: string): NextResponse {
-  const response = NextResponse.redirect(new URL(path, exomemPublicBaseUrlFromEnv()), 303);
+  const response = NextResponse.redirect(exomemPublicPageUrl(path), 303);
   for (const [name, value] of Object.entries(oauthNoStoreHeaders()))
     response.headers.set(name, value);
   return response;

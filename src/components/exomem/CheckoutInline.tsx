@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } fro
 import { formatMoney, isExomemMoney, type ExomemMoney } from "@/lib/exomem/money";
 import { PENDING_TRANSACTION_KEY } from "@/components/PaddleTransactionOpener";
 import {
+  appPagePathHere,
   getPrivateJson,
   postPrivateJson,
   HostedBrowserError,
@@ -537,7 +538,7 @@ export function CheckoutInline({
                       size="page"
                       onClick={() =>
                         accountRejected
-                          ? window.location.assign("/exomem/sign-in")
+                          ? window.location.assign(appPagePathHere("/exomem/sign-in"))
                           : window.location.reload()
                       }
                     >
@@ -549,7 +550,7 @@ export function CheckoutInline({
                         size="page"
                         onClick={() => {
                           forgetReturnedTransaction(returnedTransactionId);
-                          window.location.replace("/exomem/home");
+                          window.location.replace(appPagePathHere("/exomem/home"));
                         }}
                       >
                         Not now

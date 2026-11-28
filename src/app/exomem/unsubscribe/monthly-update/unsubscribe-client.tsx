@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { takeFragmentToken } from "@/lib/exomem-hosted/hosted-browser";
+import { appPagePathHere, takeFragmentToken } from "@/lib/exomem-hosted/hosted-browser";
 import { UNSUBSCRIBE_POST_PATH } from "@/lib/exomem-hosted/whats-new-digest/unsubscribe-paths";
 import { JourneyPage } from "../../_journey/JourneyPage";
 import { StepActions, StepHeading, StepNotice } from "../../_journey/parts";
@@ -90,7 +90,7 @@ export default function UnsubscribeClient() {
         />
       ) : state === "done" || state === "invalid" ? (
         <StepActions
-          primary={{ label: "Go to Home", onClick: () => router.push("/exomem/home") }}
+          primary={{ label: "Go to Home", onClick: () => router.push(appPagePathHere("/exomem/home")) }}
         />
       ) : null}
     </JourneyPage>

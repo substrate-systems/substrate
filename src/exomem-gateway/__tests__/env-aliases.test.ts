@@ -25,6 +25,29 @@ test("a chart that names every required setting with the product prefix passes t
   assert.equal(environment.EVERMATTER_PUBLIC_BASE_URL, undefined);
 });
 
+// Startup renames the setting before its check pairs each MCP host with its issuer.
+test("the startup check pairs an MCP host under the product site only once the product site setting is set", () => {
+  const withNewHost = {
+    ...REQUIRED_UNDER_PRODUCT_PREFIX,
+    EVERMATTER_CLOUD_MCP_URLS: "https://mcp.example.test/mcp,https://mcp.product.example.test/mcp",
+  };
+  const unset: Record<string, string | undefined> = { ...withNewHost };
+  adoptSettingAliases(unset, () => assert.fail("no conflict expected"));
+  assert.throws(
+    () => validateGatewayEnvironment(unset),
+    /mcp\.product\.example\.test\/mcp .*EVERMATTER_SITE_ORIGIN/
+  );
+
+  const set: Record<string, string | undefined> = {
+    ...withNewHost,
+    EVERMATTER_SITE_ORIGIN: "https://product.example.test",
+  };
+  adoptSettingAliases(set, () => assert.fail("no conflict expected"));
+  validateGatewayEnvironment(set);
+  set.EXOMEM_SITE_ORIGIN = "https://product.example.test/app";
+  assert.throws(() => validateGatewayEnvironment(set), /EVERMATTER_SITE_ORIGIN/);
+});
+
 test("a set internal name wins over a different product-prefix value, and the conflict is named", () => {
   const warnings: Record<string, string>[] = [];
   const environment: Record<string, string | undefined> = {

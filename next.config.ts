@@ -67,7 +67,9 @@ const nextConfig: NextConfig = {
       { key: "Referrer-Policy", value: "no-referrer" },
     ];
     return [
+      // The operator page in its route form and in the root form the product site serves it at.
       { source: "/exomem/operator", headers: privateHeaders },
+      { source: "/operator", headers: privateHeaders },
       { source: "/api/exomem/admin/:path*", headers: privateHeaders },
     ];
   },
